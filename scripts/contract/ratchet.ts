@@ -152,6 +152,17 @@ export function ownershipMoves(root: string, grown: readonly string[], sources: 
   }
 }
 
+function recordAt(root: string, commit: string, git: GitRunner): RatchetNumbers {
+  return JSON.parse(git.readOrNull(root, ['show', `${commit}:${RATCHET_RECORD}`]) ?? '{}') as RatchetNumbers
+}
+
+export function rowsGrownOverBase(root: string, head: RatchetNumbers, judged: (key: string) => boolean, sources: MoveSources = {}): string[] {
+  const base = recordAt(root, branchBase(root, sources), sources.git ?? processGit)
+  const grown = Object.keys(head).filter(key => judged(key) && head[key]! > (base[key] ?? 0)).sort()
+  const moved = ownershipMoves(root, grown.filter(key => key.startsWith(BOUNDARY_PREFIX)), sources)
+  return grown.filter(key => !moved.has(key))
+}
+
 export function checkRatchet(root: string, recorded: RatchetNumbers, generated: RatchetNumbers, sources: MoveSources = {}): string[] {
   return ratchetBreaks(recorded, generated, ownershipMoves(root, grownBoundaryRows(recorded, generated), sources))
 }

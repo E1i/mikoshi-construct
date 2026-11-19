@@ -5,8 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { MODULE_GRAPH } from '../../contract/factory/modules.js'
 import { specifiersIn } from '../../contract/module-graph/imports.js'
 import { ownerOf } from '../../contract/module-graph/ownership.js'
-import { branchBase, generateNumbers, ownershipMoves, RATCHET_RECORD, readRatchet, thresholdOf } from '../../contract/ratchet.js'
-import { processGit } from '../../ports/git.js'
+import { generateNumbers, readRatchet, rowsGrownOverBase, thresholdOf } from '../../contract/ratchet.js'
 import { cardTransitions } from '../../supervisor/composition.js'
 
 const ROOT = path.resolve(import.meta.dirname, '../../..')
@@ -24,11 +23,6 @@ function relativeImportsOf(file: string): string[] {
     .map(text => path.posix.join(path.posix.dirname(file), text.replace(/\.js$/, '.ts')))
 }
 
-function baseRecord(): RatchetNumbers {
-  const base = branchBase(ROOT)
-  return JSON.parse(processGit.readOrNull(ROOT, ['show', `${base}:${RATCHET_RECORD}`]) ?? '{}') as RatchetNumbers
-}
-
 function headNumbers(): RatchetNumbers {
   return generateNumbers(ROOT, thresholdOf(readRatchet(ROOT)))
 }
@@ -42,12 +36,9 @@ describe('the lease contour', () => {
   })
 
   it('no boundary or lines row grows over the per-symbol normalized base', () => {
-    const base = baseRecord()
     const head = headNumbers()
     expect(head[BUS_TO_SESSION] ?? 0).toBe(0)
     expect(readRatchet(ROOT)[BUS_TO_SESSION] ?? 0).toBe(0)
-    const grown = Object.keys(head).filter(key => JUDGED_ROWS.test(key) && head[key]! > (base[key] ?? 0)).sort()
-    const moved = ownershipMoves(ROOT, grown.filter(key => key.startsWith('boundary:')))
-    expect(grown.filter(key => !moved.has(key))).toEqual([])
+    expect(rowsGrownOverBase(ROOT, head, key => JUDGED_ROWS.test(key))).toEqual([])
   }, GENERATION_TIMEOUT)
 })
