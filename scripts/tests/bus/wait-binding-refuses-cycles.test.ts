@@ -10,7 +10,7 @@ import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_VERIFIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardAdmissions, busCardEvents, busHeldCards } from '../../intake/intake.js'
-import { launchWaitsOf } from '../../nodes/launch/lane-assign.js'
+import { launchWaitsOf, layLanes } from '../../nodes/launch/lane-assign.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
 
@@ -67,8 +67,13 @@ function waitsFrom(table: Record<number, readonly CardWait[]>): CardWaitsPort {
 
 const NO_WAITS = waitsFrom({})
 
-function withOpenPr(w: World, id: number, pr: number): void {
+function started(w: World, id: number): void {
   appendEvent(w.db, { ts: NOW.toISOString(), type: CARD_STARTED, actor: 'policy', cardId: id, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${id}:test`, payload: {}, legacy: false })
+  reduce(w.db, 'pending', busProjections())
+}
+
+function withOpenPr(w: World, id: number, pr: number): void {
+  started(w, id)
   appendEvent(w.db, { ts: NOW.toISOString(), type: PR_OBSERVED, actor: 'policy', cardId: id, pr, head: null, dedupeKey: `${PR_OBSERVED}:${id}:test`, payload: { card_id: id, base: 'main', head: HEAD, mergeable: 'clean', ci: 'pending', auto_merge: false, draft: false }, legacy: false })
   reduce(w.db, 'pending', busProjections())
 }
@@ -96,6 +101,39 @@ describe('binding a wait of one card on another refuses a cycle and names both c
     const answer = amended(w, { card: BOUND, depends: `+#${HELD}` })
     expect(answer.type).toBe(REQUEST_REFUSED)
     expect(answer.detail).toContain(`#${BOUND} depends on #${HELD}, and #${HELD} waits on #${BOUND} (overlap with open PR #${OPEN_PR} on ${SHARED}), so neither ever moves`)
+    expect(admissions(w, BOUND)).toBe(before)
+    w.db.close()
+  })
+
+  it('an amend binding a card to wait on a card whose launch its own running session holds is refused and names both cards', () => {
+    const w = world()
+    admitted(w, BOUND, SHARED)
+    started(w, BOUND)
+    admitted(w, HELD, SHARED)
+    const why = `overlap with the session of #${BOUND} on ${SHARED}`
+    expect(launchWaitsOf(w.db, w.repo)(HELD)).toEqual([{ card: BOUND, why }])
+    const before = admissions(w, BOUND)
+    const answer = amended(w, { card: BOUND, depends: `+#${HELD}` })
+    expect(answer.type).toBe(REQUEST_REFUSED)
+    expect(answer.detail).toContain(`#${BOUND} depends on #${HELD}, and #${HELD} waits on #${BOUND} (${why}), so neither ever moves`)
+    expect(admissions(w, BOUND)).toBe(before)
+    w.db.close()
+  })
+
+  it('an amend binding a card to wait on a card whose launch its own lane holds is refused and names both cards', () => {
+    const w = world()
+    admitted(w, BOUND, APART)
+    admitted(w, HELD, ELSEWHERE)
+    layLanes(w.db, 1, NOW.toISOString(), 'policy', null, [])
+    reduce(w.db, 'pending', busProjections())
+    started(w, BOUND)
+    const [wait] = launchWaitsOf(w.db, w.repo)(HELD)
+    expect(wait?.card).toBe(BOUND)
+    expect(wait?.why).toMatch(new RegExp(`^#${BOUND} at the head of `))
+    const before = admissions(w, BOUND)
+    const answer = amended(w, { card: BOUND, depends: `+#${HELD}` })
+    expect(answer.type).toBe(REQUEST_REFUSED)
+    expect(answer.detail).toContain(`#${BOUND} depends on #${HELD}, and #${HELD} waits on #${BOUND} (${wait?.why}), so neither ever moves`)
     expect(admissions(w, BOUND)).toBe(before)
     w.db.close()
   })
