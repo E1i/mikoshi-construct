@@ -68,6 +68,17 @@ describe('the permanent suite states only laws that hold on any base', () => {
     expect(files.filter(file => file !== BRANCH_BASE_UNIT_TEST && readsTheBranchBase(readFileSync(path.join(ROOT, file), 'utf8')))).toEqual([])
   })
 
+  it.each([
+    ['imports the base door', `import { ${BASE_DOOR} } from './ratchet.js'\n`, true],
+    ['runs the base command beside the record name', `git('${BASE_COMMAND}', 'HEAD', 'main')\nread(RATCHET_RECORD)\n`, true],
+    ['runs the base command beside the record path', `git('${BASE_COMMAND}', 'HEAD', 'main')\nread('${RATCHET_RECORD}')\n`, true],
+    ['names the record without the base command', `read(RATCHET_RECORD)\n`, false],
+    ['runs the base command for other git work', `git('${BASE_COMMAND}', 'HEAD', 'main')\n`, false],
+    ['imports a door of another name', `import { ${BASE_DOOR}Of } from './ratchet.js'\n`, false],
+  ] as const)('the scan for a branch-base read judges a source that %s', (_case, source, reads) => {
+    expect(readsTheBranchBase(source)).toBe(reads)
+  })
+
   it('rowsGrownOverBase finds nothing grown when the base is the head', () => {
     const root = scratchOnMain()
     expect(rowsGrownOverBase(root, BASE_NUMBERS, () => true, OUTSIDE_CI)).toEqual([])
