@@ -16,6 +16,7 @@
     "scripts/core/report.ts",
     "scripts/core/legacy-history.ts",
     "scripts/core/import-closure.ts",
+    "scripts/core/cadence.ts",
     "src/card/closed.ts",
     "scripts/cli/slot.ts",
     "src/commands/liveness.ts",

@@ -4063,6 +4063,7 @@
           "scripts/core/report.ts",
           "scripts/core/legacy-history.ts",
           "scripts/core/import-closure.ts",
+          "scripts/core/cadence.ts",
           "src/card/closed.ts",
           "scripts/cli/slot.ts",
           "src/commands/liveness.ts",
@@ -4098,6 +4099,7 @@
           "scripts/core/report.ts",
           "scripts/core/legacy-history.ts",
           "scripts/core/import-closure.ts",
+          "scripts/core/cadence.ts",
           "src/card/closed.ts",
           "scripts/cli/slot.ts",
           "src/commands/liveness.ts",
@@ -5766,12 +5768,9 @@
       },
       "scripts/ports/netwatch.ts": {
         "constants": [
-          "CHECK_MS",
           "NETWATCH_SCRIPT",
           "PREFIX",
-          "TECHNOLOGY_WORDS",
-          "TICK_MS",
-          "WAKE_GAP_MS"
+          "TECHNOLOGY_WORDS"
         ],
         "functions": {
           "knownOpenPrs": "(db: DatabaseSync): number[]",

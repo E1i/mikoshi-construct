@@ -2,9 +2,9 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { RoleStop } from '../nodes/restart/role.js'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
+import { CHECK_MS } from '../core/cadence.js'
 import { defaultBusPath, openBus } from '../core/db.js'
 import { observeRoleStop } from '../nodes/restart/role.js'
-import { CHECK_MS } from '../ports/netwatch.js'
 import { lastEventId, operatorWorkSince } from './operator-work.js'
 
 export interface RoleBus {

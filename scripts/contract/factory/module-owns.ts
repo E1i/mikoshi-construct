@@ -223,6 +223,7 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/core/report.ts`,
     `${FACTORY_ROOT}/core/legacy-history.ts`,
     `${FACTORY_ROOT}/core/import-closure.ts`,
+    `${FACTORY_ROOT}/core/cadence.ts`,
     'src/card/closed.ts',
     `${FACTORY_ROOT}/cli/slot.ts`,
     'src/commands/liveness.ts',
