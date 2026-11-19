@@ -29,17 +29,17 @@ import { witnessesOf } from '../../src/card/witness-fields.js'
 import { automatonOf, selectingNodes } from '../ci/card-automaton.js'
 import { GATE_RUN_SPOOL } from '../ci/gate-runs.js'
 import { driftOfRun } from '../ci/weights-law.js'
-import { appendedOnCard, CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION, CHANGES_CARD, CLOSED_CARD, DEFERRED_CARD, DROPPED_CARD, FALLEN_CARD, IN_REVIEW_CARD, MERGED_CARD, QUEUED_CARD, READY_CARD, RUNNING_CARD, STOPPED_CARD } from '../core/card-automaton.js'
+import { appendedOnCard, CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION, cardsAnswered, CHANGES_CARD, CLOSED_CARD, DEFERRED_CARD, DROPPED_CARD, FALLEN_CARD, IN_REVIEW_CARD, MERGED_CARD, QUEUED_CARD, READY_CARD, RUNNING_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { admittedCardVersion, backfillPendingSliceParents, cardOfBranch } from '../core/card-bodies.js'
 import { cardDecisionReads, reviewedUnderTheCardDecision, reviewsTheCardDecisionReopens, withDecidedContinuations } from '../core/card-decisions.js'
 import { CHAINS_PROJECTION } from '../core/chain.js'
-import { CARD_DEFERRED, CARD_MOVED, CARD_PLANNED, CARD_STOPPED, CARD_UNPLANNED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OBSERVED, PR_OPENED, RATCHET_THRESHOLD_SET, SLICE_PARENTS_BACKFILLED, TASK_ENQUEUED, TASK_REQUEUED } from '../core/events.js'
+import { CARD_DEFERRED, CARD_MOVED, CARD_PLANNED, CARD_STOPPED, CARD_UNPLANNED, DECISION_RECORDED, DECISIONS_IMPORTED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OBSERVED, PR_OPENED, RATCHET_THRESHOLD_SET, SLICE_PARENTS_BACKFILLED, TASK_ENQUEUED, TASK_REQUEUED } from '../core/events.js'
 import { isFullSha, prOf } from '../core/identifiers.js'
 import { OWNER, ownerQuestionAnswered } from '../core/inbox.js'
 import { foreignVersion, instanceOf, provenIdentity, recordWorkerIdentity, UNHANDED } from '../core/node.js'
 import { orderDeclarationsAt, overlaps } from '../core/order/overlap.js'
 import { ownerWaitCommand } from '../core/owner-commands.js'
-import { prFolds, prRow } from '../core/pr-folds.js'
+import { linkRefusal, openedPrOf, prFolds, prRow } from '../core/pr-folds.js'
 import { closeCandidates, keyOf, reviewCandidates, taskRow, TASKS_PROJECTION } from '../core/queue.js'
 import { payloadOf, storedByKey } from '../core/stored.js'
 import { BusWeightsRecompute } from '../intake/intake.js'
@@ -166,22 +166,75 @@ function cardWaitParts(): CardWaitParts {
   return { archiveSpentDecisions, prRow }
 }
 
+const PR_FIELDS = { isFullSha, prOf }
+
+function sequenced(first: Fold, second: Fold): Fold {
+  return (db, event) => {
+    first(db, event)
+    second(db, event)
+  }
+}
+
+function followedBy(first: Readonly<Record<string, Fold>>, second: Readonly<Record<string, Fold>>): Record<string, Fold> {
+  return {
+    ...first,
+    ...Object.fromEntries(Object.entries(second).map(([type, fold]) => {
+      const before = first[type]
+      return [type, before === undefined ? fold : sequenced(before, fold)]
+    })),
+  }
+}
+
+type CardLink = (db: DatabaseSync, cardId: number, pr: number, refusal: string | null, eventId: number) => void
+
+function linkTheCardOfThePr(db: DatabaseSync, event: StoredEvent, pr: number, link: CardLink): void {
+  const cardId = prRow(db, pr)?.card_id ?? event.card_id
+  if (cardId !== null)
+    link(db, cardId, pr, linkRefusal(db, cardId), event.id)
+}
+
+export function busCardLinkFolds(): Record<string, Fold> {
+  return {
+    [PR_OBSERVED]: (db, event) => {
+      if (event.pr !== null)
+        linkTheCardOfThePr(db, event, event.pr, cardLinkObserved)
+    },
+    [PR_OPENED]: (db, event) => linkTheCardOfThePr(db, event, openedPrOf(event, PR_FIELDS), cardPrOpened),
+  }
+}
+
+function releaseTheCardsTheDecisionsAnswer(db: DatabaseSync, event: StoredEvent): void {
+  for (const answer of answersOfTheDecisions(db, event.id))
+    cardsAnswered(db, JSON.parse(answer.scope) as number[], answer.named, event.id)
+}
+
+export function busCardReleaseFolds(): Record<string, Fold> {
+  return {
+    [DECISION_RECORDED]: releaseTheCardsTheDecisionsAnswer,
+    [DECISIONS_IMPORTED]: releaseTheCardsTheDecisionsAnswer,
+  }
+}
+
 export function busPrFolds(): Record<string, Fold> {
-  return prFolds({
-    transitions: { linkObserved: cardLinkObserved, prMerged: cardPrMerged, prOpened: cardPrOpened },
-    fields: { isFullSha, prOf },
+  return followedBy(prFolds({
+    transitions: { prMerged: cardPrMerged },
+    fields: PR_FIELDS,
     cardOfBranch,
     closed: closingTheWaitsOfAClosedPr(cardWaitParts()),
-  })
+  }), busCardLinkFolds())
+}
+
+export function busDecisionFolds(): Record<string, Fold> {
+  return followedBy(DECISION_FOLDS, busCardReleaseFolds())
 }
 
 export function busOwnerWaitFolds(): Record<string, Fold> {
-  return ownerWaitFolds({ commandOf: ownerWaitCommand, decisionFolds: DECISION_FOLDS, answersOfTheDecisions, closeWaitsOfAnEndedCard })
+  return ownerWaitFolds({ commandOf: ownerWaitCommand, decisionFolds: busDecisionFolds(), answersOfTheDecisions, closeWaitsOfAnEndedCard })
 }
 
 export function busProjections(): Projections {
   return {
-    folds: [releasingTakeoverOnPush(busPrFolds(), [PR_OBSERVED, PR_OPENED], db => new BusRead(db)), TASKS_PROJECTION.folds, CHAINS_PROJECTION.folds, ROLES_PROJECTION.folds, DECISION_FOLDS, CARD_FOLDS, busOwnerWaitFolds(), PLAN_FOLDS, cardWaitFolds(cardWaitParts())],
+    folds: [releasingTakeoverOnPush(busPrFolds(), [PR_OBSERVED, PR_OPENED], db => new BusRead(db)), TASKS_PROJECTION.folds, CHAINS_PROJECTION.folds, ROLES_PROJECTION.folds, busDecisionFolds(), CARD_FOLDS, busOwnerWaitFolds(), PLAN_FOLDS, cardWaitFolds(cardWaitParts())],
     incremental: [ROLES_PROJECTION, TASKS_PROJECTION, CHAINS_PROJECTION, CARDS_PROJECTION],
   }
 }

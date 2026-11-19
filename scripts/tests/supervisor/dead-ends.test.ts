@@ -3,7 +3,7 @@ import type { GitHub } from '../../window/requests/reach.js'
 import type { RequestTools } from '../../window/requests/request.js'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus, openOwnerWait } from '../../core/db.js'
-import { BOARD_ALARM, CARD_HELD, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_OBSERVED, QUESTION_OWNER, TASK_ENQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_HELD, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_OBSERVED, QUESTION_OWNER, TASK_ENQUEUED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../../core/events.js'
 import { deadEndEvents, deadEndParts } from '../../supervisor/composition.js'
 import { DEAD_END_ACTOR, DeadEnds, UNMEASURED_ROUND_MINUTES } from '../../supervisor/dead-ends.js'
 import { RequestContext } from '../../window/requests/context.js'
@@ -103,6 +103,10 @@ function enqueued(db: DatabaseSync, card: number, queue: string, key: string): v
   appendEvent(db, { ts: LAST_EVENT_AT, type: TASK_ENQUEUED, actor: 'netwatch', cardId: card, pr: null, head: null, dedupeKey: `fixture:enqueued:${key}`, payload: { task_key: key, queue }, legacy: false })
 }
 
+function requeued(db: DatabaseSync, card: number, queue: string, key: string): void {
+  appendEvent(db, { ts: LAST_EVENT_AT, type: TASK_REQUEUED, actor: 'reducer', cardId: card, pr: null, head: null, dedupeKey: `fixture:requeued:${key}`, payload: { task_key: key, queue }, legacy: false })
+}
+
 function windowRequeue(db: DatabaseSync, key: string): number {
   appendEvent(db, { ts: PAST_THE_ROUND.toISOString(), type: WINDOW_REQUEST, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `fixture:requeue:${key}`, payload: { kind: 'requeue', task_key: key }, legacy: false })
   return Number((db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }).id)
@@ -127,6 +131,15 @@ describe('a dead-end alarm names the task key a window requeue looks up', () => 
     expect(detector(db).step()).toHaveLength(1)
     expect(taskKeysOfAlarms(db, shape.card)).toEqual([`answer:${shape.card}`])
     expect(requeue(requestContext(db), request, { task_key: `answer:${shape.card}` }).why).not.toMatch(/no board\.alarm names/)
+  })
+
+  it('a task requeued after another was enqueued is the latest task the alarm names', () => {
+    const db = bus()
+    enqueued(db, shape.card, 'answer', `answer:${shape.card}`)
+    requeued(db, shape.card, 'launch', `launch:${shape.card}`)
+    placed(db, shape)
+    expect(detector(db).step()).toHaveLength(1)
+    expect(taskKeysOfAlarms(db, shape.card)).toEqual([`launch:${shape.card}`])
   })
 
   it('a card with no task keeps the alarm without a task_key', () => {
