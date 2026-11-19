@@ -746,6 +746,6 @@ export function launchWaitsOf(db: DatabaseSync, repository: string = process.cwd
     holds ??= launchHolds(db, repository)
     const depends = unsatisfied(bodyDependsOf(db, cardId)).map(card => ({ card, why: `depends on #${card}` }))
     const hold = holds.get(cardId)
-    return hold === undefined || depends.some(wait => wait.card === hold.card) ? depends : [...depends, hold]
+    return hold === undefined ? depends : [...depends, hold]
   }
 }

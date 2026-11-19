@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { CardWait, CardWaitsPort } from '../../../src/commands/intake/admit.js'
 import type { RequestTools } from '../../window/window-requests.js'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -6,7 +7,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_STARTED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_STARTED, CARD_VERIFIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardAdmissions, busCardEvents, busHeldCards } from '../../intake/intake.js'
 import { launchWaitsOf } from '../../nodes/launch/lane-assign.js'
@@ -14,7 +15,7 @@ import { busProjections } from '../../supervisor/composition.js'
 import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
 
 const NOW = new Date('2026-11-19T09:00:00.000Z')
-const [BOUND, HELD, THIRD] = [2047, 2065, 2090]
+const [BOUND, HELD, THIRD, FOURTH] = [2047, 2065, 2090, 2091]
 const OPEN_PR = 1770
 const SHARED = 'src/x.ts'
 const APART = 'src/y.ts'
@@ -50,11 +51,21 @@ function world(): World {
   return { db: openBus(bus), repo, root }
 }
 
-function admitted(w: World, id: number, touches: string, depends: readonly number[] = []): void {
-  const result = runAdmit({ file: path.join(w.root, `${id}.md`), body: body(id, touches, depends), dir: w.repo, dryRun: false, autoConfirm: true, events: busCardEvents(w.db), admissions: busCardAdmissions(w.db), cardStates: () => busHeldCards(w.db), cardWaits: launchWaitsOf(w.db, w.repo) }, () => NOW)
-  expect(result.status).toBe('admitted')
+function admitWith(w: World, id: number, touches: string, depends: readonly number[], cardWaits: CardWaitsPort, text: string = body(id, touches, depends)): ReturnType<typeof runAdmit> {
+  const result = runAdmit({ file: path.join(w.root, `${id}.md`), body: text, dir: w.repo, dryRun: false, autoConfirm: true, events: busCardEvents(w.db), admissions: busCardAdmissions(w.db), cardStates: () => busHeldCards(w.db), cardWaits }, () => NOW)
   reduce(w.db, 'pending', busProjections())
+  return result
 }
+
+function admitted(w: World, id: number, touches: string, depends: readonly number[] = []): void {
+  expect(admitWith(w, id, touches, depends, launchWaitsOf(w.db, w.repo)).status).toBe('admitted')
+}
+
+function waitsFrom(table: Record<number, readonly CardWait[]>): CardWaitsPort {
+  return cardId => [...table[cardId] ?? []]
+}
+
+const NO_WAITS = waitsFrom({})
 
 function withOpenPr(w: World, id: number, pr: number): void {
   appendEvent(w.db, { ts: NOW.toISOString(), type: CARD_STARTED, actor: 'policy', cardId: id, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${id}:test`, payload: {}, legacy: false })
@@ -109,6 +120,56 @@ describe('binding a wait of one card on another refuses a cycle and names both c
     admitted(w, BOUND, ELSEWHERE)
     expect(launchWaitsOf(w.db, w.repo)(HELD)).toEqual([{ card: THIRD, why: `overlap with open PR #${OPEN_PR} on ${SHARED}` }])
     expect(amended(w, { card: BOUND, depends: `+#${HELD}` }).type).toBe(REQUEST_DONE)
+    w.db.close()
+  })
+
+  it('an admission whose wait chain leads back through two cards is refused and names the whole chain', () => {
+    const w = world()
+    for (const id of [HELD, THIRD])
+      expect(admitWith(w, id, APART, [], NO_WAITS).status).toBe('admitted')
+    const chain = waitsFrom({ [HELD]: [{ card: THIRD, why: 'lane held' }], [THIRD]: [{ card: BOUND, why: `depends on #${BOUND}` }] })
+    const result = admitWith(w, BOUND, SHARED, [HELD], chain)
+    expect(result).toEqual({ status: 'refused', why: `#${BOUND} depends on #${HELD}, and #${HELD} waits on #${THIRD} (lane held), #${THIRD} depends on #${BOUND}, so none of them ever moves; drop the depends or settle #${BOUND} first` })
+    w.db.close()
+  })
+
+  it('an admission whose depended card sits in a cycle that does not lead back is admitted and the walk ends', () => {
+    const w = world()
+    for (const id of [HELD, THIRD])
+      expect(admitWith(w, id, APART, [], NO_WAITS).status).toBe('admitted')
+    const loop = waitsFrom({ [HELD]: [{ card: THIRD, why: `depends on #${THIRD}` }], [THIRD]: [{ card: HELD, why: `depends on #${HELD}` }] })
+    expect(admitWith(w, BOUND, SHARED, [HELD], loop).status).toBe('admitted')
+    w.db.close()
+  })
+
+  it('an amend that keeps a depends it already holds is not checked again for a cycle', () => {
+    const w = world()
+    expect(admitWith(w, HELD, APART, [], NO_WAITS).status).toBe('admitted')
+    expect(admitWith(w, BOUND, SHARED, [HELD], NO_WAITS).status).toBe('admitted')
+    const back = waitsFrom({ [HELD]: [{ card: BOUND, why: `overlap with open PR #${OPEN_PR} on ${SHARED}` }] })
+    const amendedBody = body(BOUND, `${SHARED}, ${ELSEWHERE}`, [HELD])
+    expect(admitWith(w, BOUND, SHARED, [HELD], back, amendedBody).status).toBe('admitted')
+    expect(admitWith(w, FOURTH, ELSEWHERE, [HELD], back).status).toBe('admitted')
+    expect(admitWith(w, BOUND, SHARED, [HELD, FOURTH], waitsFrom({ [FOURTH]: [{ card: BOUND, why: 'lane held' }] }), body(BOUND, `${SHARED}, ${ELSEWHERE}`, [HELD, FOURTH])).status).toBe('refused')
+    w.db.close()
+  })
+
+  it('a card already satisfied waits on nothing, whatever its depends', () => {
+    const w = world()
+    admitted(w, HELD, APART)
+    admitted(w, BOUND, SHARED, [HELD])
+    expect(launchWaitsOf(w.db, w.repo)(BOUND)).toEqual([{ card: HELD, why: `depends on #${HELD}` }])
+    appendEvent(w.db, { ts: NOW.toISOString(), type: CARD_VERIFIED, actor: 'policy', cardId: BOUND, pr: null, head: null, dedupeKey: `${CARD_VERIFIED}:${BOUND}:test`, payload: { report: 'probe.md', verification: 'run' }, legacy: false })
+    expect(launchWaitsOf(w.db, w.repo)(BOUND)).toEqual([])
+    w.db.close()
+  })
+
+  it('a card with an unmerged depends waits on that depends alone, because launch gives it no hold naming a card', () => {
+    const w = world()
+    admitted(w, BOUND, SHARED)
+    withOpenPr(w, BOUND, OPEN_PR)
+    admitted(w, HELD, SHARED, [BOUND])
+    expect(launchWaitsOf(w.db, w.repo)(HELD)).toEqual([{ card: BOUND, why: `depends on #${BOUND}` }])
     w.db.close()
   })
 })
