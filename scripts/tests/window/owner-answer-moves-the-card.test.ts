@@ -116,6 +116,10 @@ function prClosed(at: Room): void {
   at.bench.tick()
 }
 
+function headUnobserved(at: Room): void {
+  at.bench.db.prepare('UPDATE prs SET head = NULL WHERE pr = ?').run(PR)
+}
+
 function lastRequest(at: Room): number {
   return Number((at.bench.db.prepare('SELECT max(id) AS id FROM events WHERE type = ?').get(WINDOW_REQUEST) as { id: number }).id)
 }
@@ -273,6 +277,21 @@ describe('an owner answer naming merge or review on a PR that cannot take it que
     expect(tasksOf(at, queue), outcome.detail).toEqual([])
     expect(outcome.detail).toContain(`PR #${unseen} is not observed, so no ${queue} task is queued`)
     expect(eventIds(at, BOARD_ALARM)).toEqual([expect.objectContaining({ payload: expect.objectContaining({ reason: DEAD_END }) })])
+  })
+
+  it.each([
+    ['merge', 'merge'],
+    ['review the current head', 'review'],
+  ])('an owner answer %s on an open PR whose head the bus has not observed queues no %s task', (answer, queue) => {
+    const at = room()
+    const wait = roundLimitWait(at)
+    headUnobserved(at)
+
+    const outcome = ownerAnswers(at, wait, answer)
+
+    expect(outcome.kind, outcome.detail).toBe('done')
+    expect(tasksOf(at, queue), outcome.detail).toEqual([])
+    expect(outcome.detail).toContain(`PR #${PR} is open with no observed head, so no ${queue} task is queued`)
   })
 })
 
