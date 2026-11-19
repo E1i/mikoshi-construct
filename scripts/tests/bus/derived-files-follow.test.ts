@@ -238,9 +238,11 @@ interface Answered {
   stopsBefore: number
 }
 
-async function answer(name: ScenarioName): Promise<Answered> {
+const ANSWERED_CARD = 4002
+
+async function answer(name: ScenarioName, decide: (made: MergeBench) => void = () => {}): Promise<Answered> {
   const scenario = SCENARIOS[name]
-  const cardId = 4002
+  const cardId = ANSWERED_CARD
   const text = cardText(cardId, scenario.touches)
   const made = mergeBench()
   benches.push(made)
@@ -251,6 +253,7 @@ async function answer(name: ScenarioName): Promise<Answered> {
   appendEvent(made.db, { ts, type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:${cardId}`, payload: { card: `#${cardId}`, lane: 'lane-1', text, textSha: textSha(text) }, legacy: false })
   appendEvent(made.db, { ts, type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${cardId}`, payload: { session: 'card-session-1', worktree, branch: `feat/card-${cardId}`, base: sha('1') }, legacy: false })
   appendEvent(made.db, { ts, type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${cardId}`, payload: { reason: QUESTION_AGENT, detail: 'the tree changes' }, legacy: false })
+  decide(made)
   made.tick()
   const stop = Number((made.db.prepare('SELECT max(id) AS id FROM events WHERE type = ?').get(CARD_STOPPED) as { id: number }).id)
   queueTask(made.db, made.clock.now().toISOString(), { queue: 'answer', cardId, stop })
@@ -492,6 +495,18 @@ describe('an owner allowance of a derived growth holds for the card\'s pull requ
     const launched = launch('grows', true, [allowedFor([4002], ALLOWS_THE_GROWS_SCENARIO)])
     expect(launched.bodies[0]).toContain('Derived growth waits for the owner')
     expect(waitIds(launched.made)).toEqual([expect.stringMatching(/^Q\d+$/)])
+  })
+
+  it('an answer commit of an allowed derived growth is not refused', async () => {
+    const answered = await answer('grows', ownerAllows(ANSWERED_CARD, ALLOWS_THE_GROWS_SCENARIO))
+    expect(answered.outcome).toMatchObject({ kind: 'answered' })
+    expect(answered.published).toBe(1)
+    expect(waitIds(answered.made)).toEqual([])
+    expect(questionAgentStops(answered.made)).toHaveLength(answered.stopsBefore)
+
+    const anotherCard = await answer('grows', ownerAllows(ANSWERED_CARD + 1, ALLOWS_THE_GROWS_SCENARIO))
+    expect(anotherCard.published).toBe(0)
+    expect(waitIds(anotherCard.made)).toEqual([expect.stringMatching(/^Q\d+$/)])
   })
 
   it('an allowance holds only for the owner\'s decision on that card, at that row and up to that value', () => {

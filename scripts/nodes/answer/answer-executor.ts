@@ -21,18 +21,20 @@ import { ANSWER_STEP, CARD_ANSWERED, CARD_RELEASED, OUTSIDE_TOUCHES, OWNER_WAIT_
 import { assertHeld, completeTask, cutByRestart, failTask, releaseTask, RESTART_CUT, StaleLease, waitTask } from '../../core/lease.js'
 import { timeoutUnderLoadOutside } from '../../core/observations.js'
 import { answerOnAnOldCardBody, DOWNGRADE_WAIT_OPEN, downgradeWaitOpenOn, latestAnswerOf, latestReleaseOf, latestWidenStopOf, LEASED, openDecisionWaitsOfCard, QUEUED } from '../../core/queue.js'
+import { BusDecisions } from '../../policy/decisions/index.js'
 import { OWNER_EVEN_UNDER_THE_DECISION } from '../../policy/policy.js'
 import { matchGlob } from '../../policy/shredder/glob.js'
-import { isRegisteredDerived, pathsIn, pathsOutside } from '../../policy/touch-scope.js'
+import { allowancesOf, derivedVerdictOf, isRegisteredDerived, pathsIn, pathsOutside, unallowedGrowth } from '../../policy/touch-scope.js'
 import { ownerGlobs } from '../../policy/widening.js'
 import { cardTreeOf, CardTreeRefused, realCardTrees } from '../../ports/card-tree.js'
+import { pnpmRerun, treeReading } from '../../ports/git.js'
 import { conflictingCardOf, mainKeptInTheTree } from '../../ports/main-merge.js'
 import { prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { admittedScopeOf, carriedTreeOf, decisionAnsweringRepeat, ownerHoldOf } from './answer-source.js'
 import { AnswerOutsideTouches, CardTreeGone, liveSessionIn, PREFIX, secondsOf, unprovedFindings } from './answerer.js'
 import { CONCEPT_WIDENING_REASON } from './concept-scope.js'
-import { AnswerOutcomes, AnswerPublishing, AnswerSources, leftNoNewHead, localHead, OwnerQuestions, pendingPathsOf, treeDirtyOf, treeMergeOf } from './duties/index.js'
+import { AnswerOutcomes, AnswerPublishing, AnswerSources, git, leftNoNewHead, localHead, OwnerQuestions, pendingPathsOf, treeDirtyOf, treeMergeOf } from './duties/index.js'
 import { carriedTreeState, ownCarriedTree } from './duties/tree.js'
 
 export interface AnswerParts {
@@ -340,7 +342,7 @@ export class AnswerExecutor {
     const beforeTheSession = { lease: secondsOf(preparing - leased), tree: secondsOf(prepared - preparing) }
     this.recordSteps(lease, preparing, beforeTheSession)
     try {
-      const answered = await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh, outsideTouches: this.outsideTouchesOf(lease, widened), concept: this.conceptOf(lease), findingsToProve: prove, stepped: steps => this.recordSteps(lease, preparing, steps) })
+      const answered = await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh, outsideTouches: this.outsideTouchesOf(lease, widened, card), concept: this.conceptOf(lease), findingsToProve: prove, stepped: steps => this.recordSteps(lease, preparing, steps) })
       return answered.steps === undefined ? answered : { ...answered, steps: { ...beforeTheSession, ...answered.steps } }
     }
     catch (error) {
@@ -373,10 +375,27 @@ export class AnswerExecutor {
     }
   }
 
-  private outsideTouchesOf(lease: Lease, widened: Widened | null): (paths: readonly string[]) => string[] {
+  private outsideTouchesOf(lease: Lease, widened: Widened | null, card?: CardSession): (paths: readonly string[]) => string[] {
     const scope = admittedScopeOf(this.parts.db, lease.cardId)
     const widenedPaths = widened?.paths ?? []
-    return paths => scope === null ? [...paths] : pathsOutside([...scope.touches, ...widenedPaths], scope.creates, paths)
+    return (paths) => {
+      const outside = scope === null ? [...paths] : pathsOutside([...scope.touches, ...widenedPaths], scope.creates, paths)
+      if (card === undefined)
+        return outside
+      const allowed = this.allowedGrowthIn(lease, card, outside)
+      return outside.filter(file => !allowed.has(file))
+    }
+  }
+
+  private allowedGrowthIn(lease: Lease, card: CardSession, outside: readonly string[]): ReadonlySet<string> {
+    const derived = outside.filter(isRegisteredDerived)
+    if (derived.length === 0)
+      return new Set()
+    const allowances = allowancesOf(new BusDecisions(this.parts.db).inForce().map(decision => ({ text: decision.words, cards: decision.cards, owner: decision.written })), lease.cardId)
+    if (allowances.length === 0)
+      return new Set()
+    const verdict = derivedVerdictOf(derived, treeReading(git, card.worktree, `origin/${MAIN_BRANCH}`, pnpmRerun))
+    return new Set(verdict.grown.filter(each => unallowedGrowth([each], allowances).length === 0).map(each => each.file))
   }
 
   private conceptOf(lease: Lease): CardConcept | null {
