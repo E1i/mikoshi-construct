@@ -401,7 +401,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   boardCardNoBlocker: string
   boardMikoChip: string
   boardMikoWhere: (hijacked: boolean, path: string) => string
-  boardDaemonsHead: (installed: number) => string
+  boardDaemonsHead: { title: string, installed: (count: number) => string }
   boardDaemonState: (loaded: boolean) => string
   boardDaemonSlot: (slot: number) => string
   boardDaemonMutations: (count: number) => string
@@ -489,7 +489,7 @@ const BOARD_TABS_LORE = {
   boardCardBlockedBy: (cards: string[]) => `blocked by ${cards.join(', ')}`,
   boardCardWaitsOn: (reason: string) => `waits: ${reason}`,
   boardCardNoBlocker: 'no blocker recorded',
-  boardDaemonsHead: (installed: number) => `INSTALLED \u00B7 ${installed}`,
+  boardDaemonsHead: { title: 'DAEMONS', installed: (count: number) => `INSTALLED \u00B7 ${count}` },
   boardDaemonState: (loaded: boolean) => loaded ? 'LOADED' : 'SLEEPING',
   boardDaemonSlot: (slot: number) => `SLOT ${String(slot).padStart(2, '0')}`,
   boardDaemonMutations: (count: number) => `MUTATIONS \u00B7 ${count}`,
