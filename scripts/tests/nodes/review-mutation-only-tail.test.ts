@@ -82,7 +82,7 @@ describe('a review whose every finding is a surviving mutation', () => {
     expect(tailCard).toBe(tails[0]!.card_id)
     bench.tick()
     const tail = cardContract(bench.db, tails[0]!.card_id)
-    expect(tail).toMatchObject({ id: LATEST_ON_GITHUB + 1, kind: 'implement', priority: TAIL_PRIORITY, depends: [], blocks: [], decision: 'auto', contour: 'cheap', touches: tailTouches({ touches: [...TOUCHES_OF_RISK[risk]] }) })
+    expect(tail).toMatchObject({ id: LATEST_ON_GITHUB + 1, kind: 'implement', priority: TAIL_PRIORITY, depends: [CARD], blocks: [], decision: 'auto', contour: 'cheap', touches: tailTouches({ touches: [...TOUCHES_OF_RISK[risk]] }) })
     expect(tail!.text).toContain(`\n- ${MUTATION}\n`)
     expect(tail!.text).toContain(`\n- ${SECOND_MUTATION}\n`)
     expect(tail!.text).toContain(`Tail of card #${CARD}`)
@@ -154,7 +154,7 @@ describe('the tail card', () => {
   it('parses as a card, and its body sha is the one intake computes', () => {
     const text = tailCardText(1600, parent, tail)
     const parsed = parseParkingFile('1600.md', text)
-    expect(parsed).toMatchObject({ kind: 'parked', parked: { priority: TAIL_PRIORITY, task: { card: { id: 1600, name: 'a-card-tail', depends: [], blocks: [] }, touches: ['tests/a.test.ts'] } } })
+    expect(parsed).toMatchObject({ kind: 'parked', parked: { priority: TAIL_PRIORITY, task: { card: { id: 1600, name: 'a-card-tail', depends: [CARD], blocks: [] }, touches: ['tests/a.test.ts'] } } })
     expect(tailBodySha(text)).toBe(bodySha(text))
   })
 
@@ -177,6 +177,23 @@ describe('the tail card', () => {
     expect(intake.file(tail)).toBe(LATEST_ON_GITHUB + 1)
     expect(intake.file(tail)).toBeNull()
     expect(bench.db.prepare('SELECT count(*) AS n FROM events WHERE actor = ?').get(TAIL_ACTOR)).toEqual({ n: 1 })
+  })
+
+  it('depends on the card whose review opened it', () => {
+    const bench = liveBench()
+    benches.push(bench)
+    const text = parentText(['tests/a.test.ts'])
+    const parsed = parseParkingFile(`${CARD}.md`, text)
+    if (parsed.kind === 'refused')
+      throw new Error(parsed.reason)
+    appendCardEvent(bench.db, 'worker:intake:test', admittedRecord({ id: CARD, file: `${CARD}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now()))
+    bench.tick()
+    const id = busTail(bench).file(tail)
+    const row = bench.db.prepare('SELECT payload FROM events WHERE actor = ?').get(TAIL_ACTOR) as { payload: string }
+    const payload = JSON.parse(row.payload) as { card: string, depends: number[], text: string }
+    expect(payload.card).toContain(`· depends #${CARD} ·`)
+    expect(payload.depends).toEqual([CARD])
+    expect(parseParkingFile(`${id}.md`, payload.text)).toMatchObject({ kind: 'parked', parked: { task: { card: { depends: [CARD] } } } })
   })
 
   it('is not filed for a card the bus holds no body for', () => {
