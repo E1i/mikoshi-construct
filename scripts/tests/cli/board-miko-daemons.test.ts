@@ -1,12 +1,12 @@
 import type { MikoBay, MikoPanelParts } from '../../cli/board-page/miko-panel.js'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import vm from 'node:vm'
 import { afterEach, describe, expect, it } from 'vitest'
 import { LORE, PLAIN_LORE } from '../../../src/ui/lore.js'
 import { ADAPTER_MANIFEST, adapterMutations, ADAPTERS_DIR, DAEMON_READER, daemonCatalog, daemonOf, installedDaemons, LOADED_SOURCE, manifestFields } from '../../cli/board-page/daemon-catalog.js'
-import { ATTACH_RECORD, mikoBay, mikoMode, mikoPanel } from '../../cli/board-page/miko-panel.js'
+import { ATTACH_RECORD, homeShort, mikoBay, mikoMode, mikoPanel } from '../../cli/board-page/miko-panel.js'
 
 const SCRIPT = readFileSync(path.resolve(import.meta.dirname, '../../cli/board-page/script.js'), 'utf8')
 const STYLE = readFileSync(path.resolve(import.meta.dirname, '../../cli/board-page/style.css'), 'utf8')
@@ -47,7 +47,7 @@ function repository(attached = false): string {
 }
 
 function bayOf(root: string, loaded: readonly string[]): MikoBay {
-  return mikoBay(root, loaded, LORE)
+  return mikoBay(root, loaded, LORE, existsSync, '')
 }
 
 function panelOf(root: string, loaded: readonly string[] = ['mcp-devkit', 'intake']): string {
@@ -69,7 +69,7 @@ function cssValue(name: string): string {
 describe('the daemons cell', () => {
   it('one LOADED and one SLEEP daemon from the catalog render two SD cards, two LEDs, two slots and no empty one', () => {
     const html = panelOf(repository())
-    expect(html).toContain('<div class="daemons-head">INSTALLED · 2</div>')
+    expect(html).toContain('<div class="daemons-head"><span class="daemons-title">DAEMONS</span><span class="daemons-chip">INSTALLED · 2</span></div>')
     expect(html.match(/<li class="daemon-slot"/g)).toHaveLength(2)
     expect(html.match(/<i class="slot-led"><\/i>/g)).toHaveLength(2)
     expect(html).toContain('SLOT 01')
@@ -77,7 +77,7 @@ describe('the daemons cell', () => {
     expect(html).not.toContain('SLOT 03')
     expect(slotOf(html, 'BROWSER_LAB')).toContain('data-state="sleep"')
     expect(slotOf(html, 'MCP_DEVKIT')).toContain('data-state="loaded"')
-    expect(slotOf(html, 'BROWSER_LAB')).toContain('<g class="sd-sketch" data-sketch="hex-iris"><polygon')
+    expect(slotOf(html, 'BROWSER_LAB')).toContain('<g class="sd-sketch" data-sketch="hex-iris"><path class="sd-eye"')
     expect(slotOf(html, 'MCP_DEVKIT')).toContain('<g class="sd-sketch" data-sketch="adapter-chip"><rect')
     expect(slotOf(html, 'MCP_DEVKIT')).toContain('<span class="sd-name">MCP_DEVKIT</span>')
     expect(html).not.toContain('intake')
@@ -89,9 +89,9 @@ describe('the daemons cell', () => {
     expect(slot).toContain('--_ink: var(--daemon-ink);')
     expect(slot).toContain('--_sketch: var(--daemon-on);')
     expect(slot).toContain('--_led: var(--led-on);')
-    expect(slot).toContain('&[data-state="sleep"] { --_ink: var(--daemon-ink-off); --_sketch: var(--daemon-off); --_led: var(--daemon-off); --_ride: -20px; --_glow: none; }')
-    expect(STYLE).toContain('.sd-card { position: relative; display: grid; inline-size: 4rem; color: var(--_ink); translate: 0 var(--_ride);')
-    expect(STYLE).toContain('.sd-frame { fill: var(--panel-raised); stroke: currentColor;')
+    expect(slot).toContain('&[data-state="sleep"] { --_ink: var(--daemon-ink-off); --_sketch: var(--daemon-off); --_face: #0f1525; --_led: var(--daemon-off); --_ride: -20px; --_lit: 0.75; --_glow: none; }')
+    expect(STYLE).toContain('background: var(--_ink); color: var(--_ink); clip-path: var(--_notch); opacity: var(--_lit); translate: 0 var(--_ride);')
+    expect(STYLE).toContain('.sd-face { display: flex; flex-direction: column; align-items: center; gap: 6px; box-sizing: border-box; block-size: 122px; padding: 8px; background: var(--_face);')
     expect(STYLE).toContain('.sd-sketch { fill: none; stroke: var(--_sketch);')
   })
 
@@ -110,6 +110,55 @@ describe('the daemons cell', () => {
     expect(html).toContain('INSTALLED · 0')
     expect(html).toContain(`no daemon in the catalog yet · ${DAEMON_READER} reads it · LOADED is observed in ${LOADED_SOURCE}`)
     expect(html).not.toContain('daemon-slot')
+  })
+})
+
+const MONO_ADVANCE_EM = 0.6
+const SD_FACE_INNER_PX = 104 - 2 * 1.5 - 2 * 8
+
+function pixels(rule: string, property: string): number {
+  return Number(new RegExp(`\\.${rule} \\{[^}]*?[\\s{]${property}: (-?[\\d.]+)px`).exec(STYLE)![1])
+}
+
+describe('the DAEMONS cell as the design draws it', () => {
+  it('matches the Daemons7 design', () => {
+    const home = path.dirname(REPOSITORY_ROOT)
+    const html = mikoPanel({ ...PANEL, bay: mikoBay(REPOSITORY_ROOT, [], LORE, () => false, home) })
+    const self = html.indexOf('<div class="miko-self">')
+    const crawlers = html.indexOf('<div class="miko-crawlers"')
+    const daemons = html.indexOf('<div class="miko-daemons bevel">')
+    expect([self >= 0, crawlers > self, daemons > crawlers]).toEqual([true, true, true])
+    expect(STYLE).toContain('&[data-strip] { grid-template-columns: minmax(12rem, 1fr) minmax(12rem, 0.85fr) minmax(0, 1.25fr);')
+
+    expect(html).toContain('<div class="miko-daemons bevel"><div class="daemons-head"><span class="daemons-title">DAEMONS</span><span class="daemons-chip">INSTALLED · 1</span></div>')
+    expect([LORE.boardDaemonsHead.title, PLAIN_LORE.boardDaemonsHead.title]).toEqual(['DAEMONS', 'DAEMONS'])
+    expect(STYLE).toContain('.miko-daemons { --cut: 10px; --_frame: #232c40; --_surface: #0f1525;')
+    expect(STYLE).toContain('.daemons-head { display: flex; justify-content: space-between;')
+
+    expect(STYLE).toContain('--_ride: -20px; --_lit: 0.75; --_glow: none; }')
+    expect(STYLE).toContain('--_ride: 0px;\n  --_lit: 1;')
+    const bayInner = pixels('slot-bay', 'block-size') - 2 - pixels('slot-bay', 'padding-block-end')
+    const card = pixels('sd-face', 'block-size') + 2 * 1.5
+    expect(bayInner - card).toBeLessThan(20)
+    expect(bayInner - card).toBeGreaterThanOrEqual(0)
+
+    const chars = Number(/<ol class="daemon-slots" style="--_chars: (\d+)">/.exec(html)![1])
+    expect(chars).toBe('BROWSER_LAB'.length)
+    const font = /\.sd-name \{[^}]*font: 700 min\((\d+)px, calc\((\d+)px \/ \(var\(--_chars, \d+\) \* ([\d.]+)\)\)\) var\(--font-mono\); letter-spacing: ([\d.]+)em;/.exec(STYLE)!
+    const [cap, room, perChar, spacing] = font.slice(1).map(Number) as [number, number, number, number]
+    const size = Math.min(cap, room / (chars * perChar))
+    expect(perChar).toBeGreaterThanOrEqual(MONO_ADVANCE_EM + spacing)
+    expect(chars * (MONO_ADVANCE_EM + spacing) * size).toBeLessThanOrEqual(SD_FACE_INNER_PX)
+    expect(STYLE).toContain('white-space: nowrap;')
+
+    const sketch = /<g class="sd-sketch" data-sketch="hex-iris">([\s\S]*?)<\/g>/.exec(html)![1]!
+    expect(sketch).toContain('<path class="sd-eye" d="M7 32 L15 24 H33 L41 32 L33 40 H15 Z"/>')
+    expect(sketch).toContain('<polygon class="sd-fill"')
+    expect(sketch).toContain('<circle class="sd-pupil"')
+    expect(/<path class="sd-bracket" d="([^"]+)"/.exec(sketch)![1]!.match(/M/g)).toHaveLength(4)
+
+    expect(html).toContain(`<span>own repo ~/${path.basename(REPOSITORY_ROOT)}</span>`)
+    expect([homeShort('/h/u/r', '/h/u'), homeShort('/h/u', '/h/u'), homeShort('/h/user/r', '/h/u'), homeShort('/r', '')]).toEqual(['~/r', '~', '/h/user/r', '/r'])
   })
 })
 
@@ -232,21 +281,21 @@ describe('the daemon catalog reader', () => {
     const catalog = daemonCatalog(REPOSITORY_ROOT)
     expect(catalog.map(entry => [entry.daemon, entry.skill, entry.sketch])).toEqual([['BROWSER_LAB', 'browser-lab', 'hex-iris']])
     expect(catalog[0]!.mutations).toEqual(adapterMutations(REPOSITORY_ROOT))
-    expect(mikoPanel({ ...PANEL, bay: bayOf(REPOSITORY_ROOT, []) })).toContain('<div class="daemons-head">INSTALLED · 1</div>')
+    expect(mikoPanel({ ...PANEL, bay: bayOf(REPOSITORY_ROOT, []) })).toContain('<span class="daemons-chip">INSTALLED · 1</span>')
   })
 
   it('the real repository renders BROWSER_LAB as the design draws it: an SD card in a recessed bay, a LED under it, a divided status pane', () => {
     const html = mikoPanel({ ...PANEL, bay: bayOf(REPOSITORY_ROOT, ['browser-lab']) })
     const slot = slotOf(html, 'BROWSER_LAB')
     expect(slot).toContain('<span class="slot-bay"><div class="sd-card">')
-    expect(slot).toContain('<g class="sd-sketch" data-sketch="hex-iris"><polygon')
+    expect(slot).toContain('<g class="sd-sketch" data-sketch="hex-iris"><path class="sd-eye"')
     expect(slot).toContain('<span class="slot-foot"><i class="slot-led"></i>SLOT 01</span>')
     expect(paneOf(html, 'BROWSER_LAB')).toContain('data-default data-shown')
     expect(paneOf(html, 'BROWSER_LAB')).toContain('<span class="pane-tag">LOADED</span>')
     expect(STYLE).toContain('.slot-bay { position: relative; display: flex; justify-content: center; align-items: end; box-sizing: border-box; inline-size: 116px; block-size: 138px; padding-block-end: 6px; background: #080c16; border: 1px solid #232c40;')
     expect(STYLE).toContain('.daemon-slot:hover .slot-bay, .daemon-slot:focus-visible .slot-bay { border-color: var(--daemon-on); }')
     expect(STYLE).toContain('--_glow: 0 0 6px var(--_led);')
-    expect(STYLE).toContain('--_ride: -20px; --_glow: none; }')
+    expect(STYLE).toContain('--_ride: -20px; --_lit: 0.75; --_glow: none; }')
     expect(STYLE).toContain('box-shadow: var(--_glow); }')
     expect(STYLE).toContain('.daemon-status { display: grid; min-inline-size: 8rem; padding-inline-start: 14px; border-inline-start: 1px solid var(--line); }')
     expect(STYLE).toContain('.pane-mutations li::before { content: \'↳ \'; }')

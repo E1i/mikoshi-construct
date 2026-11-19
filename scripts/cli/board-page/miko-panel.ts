@@ -1,6 +1,7 @@
 import type { BusService, CrawlerReading } from '../../../src/commands/board/bus.js'
 import type { Daemon } from './daemon-catalog.js'
 import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
 import path from 'node:path'
 import { DAEMON_READER, daemonCatalog, installedDaemons, LOADED_SOURCE } from './daemon-catalog.js'
 import { compact, escaped, minutesBetween } from './session-card.js'
@@ -28,7 +29,7 @@ export interface MikoMode {
 export interface DaemonWords {
   boardMikoChip: string
   boardMikoWhere: (hijacked: boolean, path: string) => string
-  boardDaemonsHead: (installed: number) => string
+  boardDaemonsHead: { title: string, installed: (count: number) => string }
   boardDaemonState: (loaded: boolean) => string
   boardDaemonSlot: (slot: number) => string
   boardDaemonMutations: (count: number) => string
@@ -60,20 +61,30 @@ export interface MikoBay {
 }
 
 export const ATTACH_RECORD = '.construct/attach.json'
-const SD_OUTLINE = 'M3 2H27L37 12V58H3Z'
-const SD_TICKS = 'M8 2V8M12 2V8M16 2V8M20 2V8M24 2V8'
+const HOME_MARK = '~'
+const SD_TICK_COUNT = 5
+const SD_TICKS = `<span class="sd-ticks">${'<i></i>'.repeat(SD_TICK_COUNT)}</span>`
+const SD_VIEW = '4 14 40 34'
 const SKETCHES: Readonly<Record<string, string>> = {
-  'hex-iris': '<polygon points="20,20 29,25 29,35 20,40 11,35 11,25"/><circle cx="20" cy="30" r="5"/><circle cx="20" cy="30" r="1.6"/>',
-  'adapter-chip': '<rect x="12" y="22" width="16" height="16"/><path d="M16 22V18M20 22V18M24 22V18M16 38V42M20 38V42M24 38V42M12 26H8M12 34H8M28 26H32M28 34H32"/>',
+  'hex-iris': '<path class="sd-eye" d="M7 32 L15 24 H33 L41 32 L33 40 H15 Z"/><polygon class="sd-fill" points="24,24.5 30.5,28.2 30.5,35.8 24,39.5 17.5,35.8 17.5,28.2"/><circle class="sd-pupil" cx="24" cy="32" r="2.6"/><path class="sd-scan" d="M11 32 H17.5 M30.5 32 H37"/><path class="sd-bracket" d="M10 20 H14 V22 M38 20 H34 V22 M10 44 H14 V42 M38 44 H34 V42"/>',
+  'adapter-chip': '<rect class="sd-fill" x="16" y="21" width="16" height="22"/><path d="M12 24 H16 M32 24 H36 M12 28 H16 M32 28 H36 M12 32 H16 M32 32 H36 M12 36 H16 M32 36 H36 M12 40 H16 M32 40 H36"/><path d="M21 29 L19 32 L21 35 M27 29 L29 32 L27 35"/><path class="sd-scan" d="M24 15 V21 M24 43 V48"/>',
 }
-const UNKNOWN_SKETCH = '<rect x="14" y="24" width="12" height="12"/>'
+const UNKNOWN_SKETCH = '<rect class="sd-fill" x="18" y="25" width="12" height="14"/>'
 
-export function mikoMode(root: string, exists: (file: string) => boolean): MikoMode {
-  return { hijacked: exists(path.join(root, ATTACH_RECORD)), path: root }
+export function homeShort(file: string, home: string): string {
+  if (home === '' || home === path.sep)
+    return file
+  if (file === home)
+    return HOME_MARK
+  return file.startsWith(`${home}${path.sep}`) ? `${HOME_MARK}${file.slice(home.length)}` : file
 }
 
-export function mikoBay(root: string, loadedSkills: readonly string[], lore: DaemonWords, exists: (file: string) => boolean = existsSync): MikoBay {
-  return { mode: mikoMode(root, exists), daemons: { daemons: installedDaemons(daemonCatalog(root), loadedSkills), reader: DAEMON_READER, loadedIn: LOADED_SOURCE }, lore }
+export function mikoMode(root: string, exists: (file: string) => boolean, home: string = homedir()): MikoMode {
+  return { hijacked: exists(path.join(root, ATTACH_RECORD)), path: homeShort(root, home) }
+}
+
+export function mikoBay(root: string, loadedSkills: readonly string[], lore: DaemonWords, exists: (file: string) => boolean = existsSync, home: string = homedir()): MikoBay {
+  return { mode: mikoMode(root, exists, home), daemons: { daemons: installedDaemons(daemonCatalog(root), loadedSkills), reader: DAEMON_READER, loadedIn: LOADED_SOURCE }, lore }
 }
 
 function modeLine(mode: MikoMode, lore: DaemonWords): string {
@@ -87,7 +98,11 @@ function daemonState(daemon: Daemon): string {
 
 export function sdCard(daemon: Daemon): string {
   const sketch = daemon.sketch === null ? UNKNOWN_SKETCH : SKETCHES[daemon.sketch] ?? UNKNOWN_SKETCH
-  return `<div class="sd-card"><svg viewBox="0 0 40 60" aria-hidden="true"><path class="sd-frame" d="${SD_OUTLINE}"/><path class="sd-frame" d="${SD_TICKS}"/><g class="sd-sketch" data-sketch="${escaped(daemon.sketch ?? '')}">${sketch}</g></svg><span class="sd-name">${escaped(daemon.daemon)}</span></div>`
+  return `<div class="sd-card"><div class="sd-face">${SD_TICKS}<svg class="sd-art" viewBox="${SD_VIEW}" aria-hidden="true"><g class="sd-sketch" data-sketch="${escaped(daemon.sketch ?? '')}">${sketch}</g></svg><span class="sd-name">${escaped(daemon.daemon)}</span></div></div>`
+}
+
+export function longestName(daemons: readonly Daemon[]): number {
+  return Math.max(0, ...daemons.map(daemon => daemon.daemon.length))
 }
 
 function daemonSlot(daemon: Daemon, index: number, lore: DaemonWords): string {
@@ -101,11 +116,11 @@ function daemonPane(daemon: Daemon, shown: boolean, lore: DaemonWords): string {
 
 export function daemonsCell(reading: DaemonsReading, lore: DaemonWords): string {
   const { daemons } = reading
-  const head = `<div class="daemons-head">${escaped(lore.boardDaemonsHead(daemons.length))}</div>`
+  const head = `<div class="daemons-head"><span class="daemons-title">${escaped(lore.boardDaemonsHead.title)}</span><span class="daemons-chip">${escaped(lore.boardDaemonsHead.installed(daemons.length))}</span></div>`
   if (daemons.length === 0)
-    return `<div class="miko-daemons">${head}<div class="svc-line daemons-unread">${escaped(lore.boardDaemonsUnread(reading.reader, reading.loadedIn))}</div></div>`
+    return `<div class="miko-daemons bevel">${head}<div class="svc-line daemons-unread">${escaped(lore.boardDaemonsUnread(reading.reader, reading.loadedIn))}</div></div>`
   const shown = daemons.find(daemon => daemon.loaded) ?? daemons[0]!
-  return `<div class="miko-daemons">${head}<div class="daemons-bay"><ol class="daemon-slots">${daemons.map((daemon, index) => daemonSlot(daemon, index, lore)).join('')}</ol><div class="daemon-status">${daemons.map(daemon => daemonPane(daemon, daemon === shown, lore)).join('')}</div></div></div>`
+  return `<div class="miko-daemons bevel">${head}<div class="daemons-bay"><ol class="daemon-slots" style="--_chars: ${longestName(daemons)}">${daemons.map((daemon, index) => daemonSlot(daemon, index, lore)).join('')}</ol><div class="daemon-status">${daemons.map(daemon => daemonPane(daemon, daemon === shown, lore)).join('')}</div></div></div>`
 }
 
 const CRAWLERS_HEAD = 'CRAWLERS'
@@ -188,5 +203,5 @@ export function mikoPanel(parts: MikoPanelParts): string {
   const { bay } = parts
   const mode = bay === undefined ? '' : ` data-mode="${bay.mode.hijacked ? 'hijack' : 'init'}"`
   const daemons = bay === undefined ? '' : daemonsCell(bay.daemons, bay.lore)
-  return `<div class="svc bevel" data-role="window"${parts.opener}${mode} data-strip>${mikoLeft(parts)}${daemons}${crawlersCell(parts.presence.crawlers, parts.now)}</div>`
+  return `<div class="svc bevel" data-role="window"${parts.opener}${mode} data-strip>${mikoLeft(parts)}${crawlersCell(parts.presence.crawlers, parts.now)}${daemons}</div>`
 }
