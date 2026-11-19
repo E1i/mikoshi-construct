@@ -5,9 +5,11 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
+import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
-import { BOARD_ALARM, OWNER_WAIT_CLOSED, REVIEW_RECORDED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_STARTED, OWNER_WAIT_CLOSED, REVIEW_RECORDED, WINDOW_REQUEST } from '../../core/events.js'
 import { ANSWER_SOURCE } from '../../core/inbox.js'
+import { queueTask, supersedeTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
 import { decisionOnAWait, sayToOwnerChannel } from '../../owner/channel.js'
@@ -47,14 +49,29 @@ afterEach(() => {
   }
 })
 
-function room(): Room {
+const ADMISSION = 'owner-answer-moves'
+const CARD_LINE = `#${CARD} a-card [implement/construct/S/cheap/auto] · depends — · blocks —`
+
+function emptyRoom(): Room {
   const bench = mergeBench()
   const root = mkdtempSync(path.join(tmpdir(), 'owner-answer-moves-'))
   const made = { bench, root, channel: path.join(root, 'owner-answers') }
   rooms.push(made)
   writeFileSync(decisionsFileOf(bench.busPath), '')
-  bench.gitHub.open({ number: PR, head: HEAD, body: `#${CARD} a-card [implement/construct/S/cheap/auto] · depends — · blocks —` })
-  bench.tick()
+  return made
+}
+
+function room(): Room {
+  const made = emptyRoom()
+  made.bench.gitHub.open({ number: PR, head: HEAD, body: CARD_LINE })
+  made.bench.tick()
+  return made
+}
+
+function roomBeforeAnyPr(): Room {
+  const made = emptyRoom()
+  appendEvent(made.bench.db, { ts: made.bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${ADMISSION}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: ADMISSION, text: CARD_LINE, textSha: textSha(CARD_LINE) }, legacy: false })
+  made.bench.tick()
   return made
 }
 
@@ -70,9 +87,9 @@ function changesOn(at: Room, head: string): void {
   appendEvent(at.bench.db, { ts: at.bench.clock.now().toISOString(), type: REVIEW_RECORDED, actor: 'worker:review:session-1', cardId: CARD, pr: PR, head, dedupeKey: `${REVIEW_RECORDED}:changes-${head}`, payload: { head, verdict: 'changes', reviewer_session: 'session-1', findings: [] }, legacy: false })
 }
 
-function roundLimitWait(at: Room): string {
-  const text = `PR #${PR} of card #${CARD} reached the review round limit (D-104) and was not re-cut: the owner decides`
-  const wait = openBusWait(at.bench.db, at.bench.clock.now().toISOString(), RECUT_ACTOR, { need: 'decision', text, card: CARD, pr: PR })
+function roundLimitWait(at: Room, pr = PR): string {
+  const text = `PR #${pr} of card #${CARD} reached the review round limit (D-104) and was not re-cut: the owner decides`
+  const wait = openBusWait(at.bench.db, at.bench.clock.now().toISOString(), RECUT_ACTOR, { need: 'decision', text, card: CARD, pr })
   reduce(at.bench.db, 'pending', busProjections())
   return wait
 }
@@ -81,6 +98,26 @@ function mergeWait(at: Room): string {
   const wait = openBusWait(at.bench.db, at.bench.clock.now().toISOString(), 'worker:merge:s1', { need: 'merge', text: 'policy.denied: a new node:child_process import', card: CARD, pr: PR })
   reduce(at.bench.db, 'pending', busProjections())
   return wait
+}
+
+function sessionRuns(at: Room): void {
+  expect(supersedeTask(at.bench.db, at.bench.clock.now().toISOString(), { queue: 'launch', cardId: CARD, generation: ADMISSION })).toBe(true)
+  appendEvent(at.bench.db, { ts: at.bench.clock.now().toISOString(), type: CARD_STARTED, actor: 'worker:launch:node-1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:owner-answer-moves`, payload: { session: 'card-session', worktree: `/trees/mc-${CARD}`, branch: `feat/card-${CARD}`, base: 'f'.repeat(40), pid: 4242, pgid: 4242, contour: 'cheap' }, legacy: false })
+  reduce(at.bench.db, 'pending', busProjections())
+}
+
+function launchQueuedAlready(at: Room): void {
+  expect(queueTask(at.bench.db, at.bench.clock.now().toISOString(), { queue: 'launch', cardId: CARD, generation: 'earlier' })).toBe(true)
+  reduce(at.bench.db, 'pending', busProjections())
+}
+
+function prClosed(at: Room): void {
+  at.bench.gitHub.close(PR, false)
+  at.bench.tick()
+}
+
+function lastRequest(at: Room): number {
+  return Number((at.bench.db.prepare('SELECT max(id) AS id FROM events WHERE type = ?').get(WINDOW_REQUEST) as { id: number }).id)
 }
 
 function ownerAnswers(at: Room, wait: string, answer: string): { kind: string, detail: string } {
@@ -165,5 +202,107 @@ describe('an owner answer that names a node action moves the card in the same cl
     expect(outcome.kind, outcome.detail).toBe('done')
     expect(tasksOf(at, 'answer'), outcome.detail).toEqual([expect.objectContaining({ pr: PR, head: HEAD, state: 'queued', task_key: expect.stringMatching(/:decision-[1-9]\d*$/) })])
     expect(tasksOf(at, 'merge')).toEqual([])
+  })
+})
+
+describe('an owner answer naming launch queues one launch task of the owner generation', () => {
+  it('an owner answer launch on a card with no session queues the launch task named after the request', () => {
+    const at = room()
+    const wait = roundLimitWait(at)
+
+    const outcome = ownerAnswers(at, wait, 'launch it again')
+
+    const generation = `owner-${lastRequest(at)}`
+    expect(outcome.kind, outcome.detail).toBe('done')
+    expect(tasksOf(at, 'launch'), outcome.detail).toEqual([expect.objectContaining({ state: 'queued', task_key: expect.stringContaining(generation) })])
+    expect(outcome.detail).toContain(`launch:${CARD}:${generation}`)
+  })
+
+  it('an owner answer launch on a card whose session runs queues no launch task', () => {
+    const at = roomBeforeAnyPr()
+    sessionRuns(at)
+    const wait = roundLimitWait(at)
+
+    const outcome = ownerAnswers(at, wait, 'launch it again')
+
+    expect(outcome.kind, outcome.detail).toBe('done')
+    expect(tasksOf(at, 'launch').filter(task => task.state === 'queued'), outcome.detail).toEqual([])
+    expect(outcome.detail).toContain(`card #${CARD} runs the session started at event`)
+  })
+
+  it('an owner answer launch on a card with a launch task queued already queues no second one', () => {
+    const at = room()
+    launchQueuedAlready(at)
+    const wait = roundLimitWait(at)
+
+    const outcome = ownerAnswers(at, wait, 'launch it again')
+
+    expect(outcome.kind, outcome.detail).toBe('done')
+    expect(tasksOf(at, 'launch'), outcome.detail).toEqual([expect.objectContaining({ state: 'queued', task_key: expect.stringContaining('earlier') })])
+    expect(outcome.detail).toContain(`card #${CARD} has a launch task queued already`)
+  })
+})
+
+describe('an owner answer naming merge or review on a PR that cannot take it queues nothing', () => {
+  it.each([
+    ['merge', 'merge'],
+    ['review the current head', 'review'],
+  ])('an owner answer %s on a closed PR queues no %s task', (answer, queue) => {
+    const at = room()
+    const wait = roundLimitWait(at)
+    prClosed(at)
+
+    const outcome = ownerAnswers(at, wait, answer)
+
+    expect(outcome.kind, outcome.detail).toBe('done')
+    expect(tasksOf(at, queue), outcome.detail).toEqual([])
+    expect(outcome.detail).toContain(`PR #${PR} is closed, so no ${queue} task is queued`)
+  })
+
+  it.each([
+    ['merge', 'merge'],
+    ['review the current head', 'review'],
+  ])('an owner answer %s on a PR the bus never observed queues no %s task and raises the dead end', (answer, queue) => {
+    const at = room()
+    const unseen = PR + 1
+    const wait = roundLimitWait(at, unseen)
+
+    const outcome = ownerAnswers(at, wait, answer)
+
+    expect(outcome.kind, outcome.detail).toBe('done')
+    expect(tasksOf(at, queue), outcome.detail).toEqual([])
+    expect(outcome.detail).toContain(`PR #${unseen} is not observed, so no ${queue} task is queued`)
+    expect(eventIds(at, BOARD_ALARM)).toEqual([expect.objectContaining({ payload: expect.objectContaining({ reason: DEAD_END }) })])
+  })
+})
+
+describe('an owner answer naming no node action raises no dead end where the card still moves', () => {
+  it.each([
+    ['a merge wait', (at: Room) => mergeWait(at)],
+    ['a card with a queued task', (at: Room) => {
+      launchQueuedAlready(at)
+      return roundLimitWait(at)
+    }],
+  ])('an owner answer naming no node action on %s raises no dead end', (_, waitOf) => {
+    const at = room()
+    const wait = waitOf(at)
+
+    const outcome = ownerAnswers(at, wait, 'not now, I will think about it')
+
+    expect(outcome.kind, outcome.detail).toBe('done')
+    expect(eventIds(at, OWNER_WAIT_CLOSED)).toHaveLength(1)
+    expect(eventIds(at, BOARD_ALARM), outcome.detail).toEqual([])
+  })
+
+  it('an owner answer naming no node action on a card whose session runs raises no dead end', () => {
+    const at = roomBeforeAnyPr()
+    sessionRuns(at)
+    const wait = roundLimitWait(at)
+
+    const outcome = ownerAnswers(at, wait, 'not now, I will think about it')
+
+    expect(outcome.kind, outcome.detail).toBe('done')
+    expect(eventIds(at, OWNER_WAIT_CLOSED)).toHaveLength(1)
+    expect(eventIds(at, BOARD_ALARM), outcome.detail).toEqual([])
   })
 })
