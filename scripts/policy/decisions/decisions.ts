@@ -146,6 +146,25 @@ export function visibleToCard(decision: { cards: readonly number[] }, card: numb
   return card === null || decision.cards.length === 0 || decision.cards.includes(card)
 }
 
+const CARD_IN_TEXT = /(?<!PR )#([1-9]\d*)/g
+const CARD_RANGE_IN_TEXT = /(?<!PR )#([1-9]\d*)\s*[-–]\s*#([1-9]\d*)/g
+const PR_IN_TEXT = /\bPR #([1-9]\d*)/g
+
+function numbersIn(text: string, pattern: RegExp): number[] {
+  return [...text.matchAll(pattern)].map(match => Number(match[1]))
+}
+
+function rangeCovers(text: string, card: number): boolean {
+  return [...text.matchAll(CARD_RANGE_IN_TEXT)].some(match => Number(match[1]) <= card && card <= Number(match[2]))
+}
+
+export function namesCard(decision: { cards: readonly number[], text: string }, card: number, pr: number | null = null): boolean {
+  return decision.cards.includes(card)
+    || numbersIn(decision.text, CARD_IN_TEXT).includes(card)
+    || rangeCovers(decision.text, card)
+    || (pr !== null && numbersIn(decision.text, PR_IN_TEXT).includes(pr))
+}
+
 export function outOfForceLines(decisions: readonly Decision[], now: Date, settled: (card: number) => boolean): Set<number> {
   const termRan = decisions.filter(decision => decision.supersededBy === null && !decision.term.unread && lapsed(decision.term, now))
   return new Set([...termRan, ...spentByCards(decisions, settled)].map(decision => decision.line))

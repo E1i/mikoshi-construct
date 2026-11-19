@@ -19,6 +19,7 @@ const WRITERS_OF_TABLE: Readonly<Record<string, readonly string[]>> = {
   node_cursors: ['scripts/core/node.ts'],
   heartbeats: ['scripts/core/db.ts'],
   cards: ['scripts/core/card-automaton.ts'],
+  owner_waits: ['scripts/supervisor/card-waits.ts'],
 }
 
 function sourceFiles(relative: string): string[] {
