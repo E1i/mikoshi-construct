@@ -1075,6 +1075,7 @@
     "scripts/tests/wait-for.test.ts",
     "scripts/tests/wait-for.ts",
     "scripts/tests/window/merge-through-the-bus.test.ts",
+    "scripts/tests/window/owner-answer-moves-the-card.test.ts",
     "scripts/tests/window/owner-merge-refusal.test.ts",
     "scripts/tests/window/owner-moves-a-card.test.ts",
     "scripts/tests/window/rejected-start-opens-no-session.test.ts",
