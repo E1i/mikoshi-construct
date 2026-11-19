@@ -7,12 +7,13 @@ import { cardRiskOf } from '../../../src/commands/intake/check.js'
 import { bodySha } from '../../../src/commands/intake/confirm.js'
 import { admittedRecord } from '../../../src/commands/intake/index.js'
 import { appendCardEvent } from '../../core/card-bodies.js'
-import { CARD_ADMITTED, REVIEW_RECORDED } from '../../core/events.js'
+import { appendEvent } from '../../core/db.js'
+import { CARD_ADMITTED, CARD_DROPPED, CARD_STARTED, REVIEW_RECORDED } from '../../core/events.js'
 import { cardContract } from '../../intake/card-contract.js'
 import { busHeldCards } from '../../intake/intake.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { ReviewWorker } from '../../nodes/review/review-worker.js'
-import { BusTailIntake, nextTailNumber, TAIL_ACTOR, TAIL_PRIORITY, tailBodySha, tailCardText, tailParentOf, tailTextSha, tailTouches } from '../../nodes/review/tail-card.js'
+import { BusTailIntake, nextTailNumber, SUPERSEDED_TARGET, TAIL_ACTOR, TAIL_PRIORITY, TAIL_SOURCE, tailBodySha, tailCardText, tailParentOf, tailTextSha, tailTouches } from '../../nodes/review/tail-card.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from '../bus/github-fake.js'
 import { eventsOf, liveBench } from '../bus/merge-bench.js'
@@ -132,6 +133,79 @@ describe('a pass the reviewer itself returned', () => {
     const recorded = eventsOf(bench.db, REVIEW_RECORDED)[0] as { verdict: string, tail_card?: number }
     expect(recorded).toMatchObject({ verdict: 'changes' })
     expect(recorded.tail_card).toBeUndefined()
+  })
+})
+
+interface Rounds {
+  bench: MergeBench
+  tails: number[]
+  dropped: { card_id: number, payload: string }[]
+}
+
+function admitParent(bench: MergeBench): void {
+  const text = parentText(TOUCHES_OF_RISK.R4)
+  const parsed = parseParkingFile(`${CARD}.md`, text)
+  if (parsed.kind === 'refused')
+    throw new Error(parsed.reason)
+  appendCardEvent(bench.db, 'worker:intake:test', admittedRecord({ id: CARD, file: `${CARD}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now()))
+  bench.tick()
+}
+
+function tailsOf(bench: MergeBench): number[] {
+  return (bench.db.prepare('SELECT DISTINCT card_id FROM events WHERE type = ? AND actor = ? ORDER BY id').all(CARD_ADMITTED, TAIL_ACTOR) as { card_id: number }[]).map(row => row.card_id)
+}
+
+function droppedOf(bench: MergeBench): { card_id: number, payload: string }[] {
+  return bench.db.prepare('SELECT card_id, payload FROM events WHERE type = ? ORDER BY id').all(CARD_DROPPED) as { card_id: number, payload: string }[]
+}
+
+async function rounds(answers: { findings: string[], survivingMutations: string[] }[], between: (bench: MergeBench) => void = () => {}): Promise<Rounds> {
+  const bench = liveBench()
+  benches.push(bench)
+  admitParent(bench)
+  const queue = [...answers]
+  const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: withIssues(bench.gitHub.client), publish: bench.gitHub.publish, reviewer: async () => ({ verdict: 'pass', ...queue.shift()!, session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: bench.clock.now, session: 'worker-1', tail: busTail(bench) })
+  for (const [at, head] of answers.map((_, at) => [at, sha(String.fromCharCode(98 + at))] as const)) {
+    if (at > 0)
+      between(bench)
+    bench.gitHub.open({ number: PR, head, ref: `feat/card-${CARD}`, body: cardBody(PR) })
+    bench.tick()
+    await worker.step()
+    bench.tick()
+  }
+  return { bench, tails: tailsOf(bench), dropped: droppedOf(bench) }
+}
+
+const MUTATION_ONLY = { findings: [MUTATION], survivingMutations: [MUTATION] }
+const CLEAN = { findings: [], survivingMutations: [] }
+
+describe('a later pass on the same parent card', () => {
+  it('a later pass on the same parent drops the earlier tail that has not started', async () => {
+    const { bench, tails, dropped } = await rounds([MUTATION_ONLY, { findings: [SECOND_MUTATION], survivingMutations: [SECOND_MUTATION] }])
+    expect(tails).toHaveLength(2)
+    const [earlier, later] = tails as [number, number]
+    expect(dropped.map(row => row.card_id)).toEqual([earlier])
+    expect(JSON.parse(dropped[0]!.payload)).toMatchObject({ to: SUPERSEDED_TARGET, reason: expect.stringContaining(`#${later}`) })
+    bench.tick()
+    expect(cardContract(bench.db, later)!.text).toContain(`\n- ${SECOND_MUTATION}\n`)
+  })
+
+  it('a later pass with no findings drops the earlier tail of that parent', async () => {
+    const { tails, dropped } = await rounds([MUTATION_ONLY, CLEAN])
+    expect(tails).toHaveLength(1)
+    expect(dropped.map(row => row.card_id)).toEqual(tails)
+  })
+
+  it('a tail that has started is not dropped by a later pass', async () => {
+    const OTHER_PARENT = CARD + 1
+    const OTHER_TAIL = 4242
+    const { tails, dropped } = await rounds([MUTATION_ONLY, CLEAN], (bench) => {
+      appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_STARTED, actor: 'worker:launch:test', cardId: tailsOf(bench)[0]!, pr: null, head: null, dedupeKey: `${CARD_STARTED}:test`, payload: { session: 'shift-1' }, legacy: false })
+      appendCardEvent(bench.db, TAIL_ACTOR, { type: CARD_ADMITTED, cardId: OTHER_TAIL, ts: bench.clock.now().toISOString(), dedupeKey: `${CARD_ADMITTED}:other-tail`, payload: { depends: [OTHER_PARENT], source: TAIL_SOURCE } })
+    })
+    expect(tails).toHaveLength(2)
+    expect(tails).toContain(OTHER_TAIL)
+    expect(dropped).toEqual([])
   })
 })
 

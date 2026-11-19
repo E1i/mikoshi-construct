@@ -3,7 +3,7 @@ import type { Review } from './reviewer.js'
 import { createHash } from 'node:crypto'
 import { appendCardEvent, cardBodyText, laid } from '../../core/card-bodies.js'
 import { inTransaction } from '../../core/db.js'
-import { CARD_ADMITTED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_CONTINUED, CARD_DROPPED, CARD_FELL, CARD_STARTED, CARD_STOPPED, MERGE_DONE, PR_OPENED } from '../../core/events.js'
 import { latestGitHubNumber } from './pr-close.js'
 
 export const TAIL_SOURCE = 'review-tail'
@@ -26,8 +26,11 @@ export interface Tail {
   findings: readonly string[]
 }
 
+export type TailPass = Omit<Tail, 'findings'>
+
 export interface TailIntake {
   file: (tail: Tail) => number | null
+  supersede?: (pass: TailPass) => number[]
 }
 
 export interface TailParent {
@@ -120,6 +123,32 @@ export function tailKey(taskKey: string): string {
   return `${CARD_ADMITTED}:${TAIL_SOURCE}:${taskKey}`
 }
 
+export const SUPERSEDED_TARGET = 'superseded'
+
+const LEFT_THE_QUEUE = [CARD_STARTED, CARD_CONTINUED, CARD_ANSWERED, PR_OPENED, CARD_STOPPED, CARD_FELL, CARD_DROPPED, CARD_CLOSED, MERGE_DONE].map(type => `'${type}'`).join(', ')
+
+const UNSTARTED_TAILS_OF_A_PARENT = `
+  SELECT tail.card_id, json_extract(tail.payload, '$.bodySha') AS body_sha FROM events tail
+  WHERE tail.legacy = 0 AND tail.type = '${CARD_ADMITTED}' AND tail.actor = ? AND tail.card_id IS NOT NULL AND tail.card_id != ?
+    AND json_valid(tail.payload) AND json_extract(tail.payload, '$.source') = '${TAIL_SOURCE}' AND json_extract(tail.payload, '$.depends[0]') = ?
+    AND NOT EXISTS (SELECT 1 FROM events later WHERE later.legacy = 0 AND later.card_id = tail.card_id AND (later.pr IS NOT NULL OR later.type IN (${LEFT_THE_QUEUE})))
+  GROUP BY tail.card_id ORDER BY tail.card_id
+`
+
+export function supersededReason(pass: TailPass, by: number | null): string {
+  const origin = `the review of PR #${pass.pr ?? '—'} at ${pass.head ?? '—'}`
+  return by === null ? `superseded: ${origin} recorded pass with no surviving mutation` : `superseded by tail #${by}: ${origin}`
+}
+
+export function dropUnstartedTails(db: DatabaseSync, ts: string, pass: TailPass, kept: number | null): number[] {
+  const rows = db.prepare(UNSTARTED_TAILS_OF_A_PARENT).all(TAIL_ACTOR, kept ?? -1, pass.parent) as { card_id: number, body_sha: unknown }[]
+  return rows.flatMap((row) => {
+    const card = Number(row.card_id)
+    const payload = { from: null, to: SUPERSEDED_TARGET, bodySha: typeof row.body_sha === 'string' ? row.body_sha : null, reason: supersededReason(pass, kept) }
+    return appendCardEvent(db, TAIL_ACTOR, { type: CARD_DROPPED, cardId: card, ts, dedupeKey: `${CARD_DROPPED}:${card}:${SUPERSEDED_TARGET}:${pass.taskKey}`, payload }) ? [card] : []
+  })
+}
+
 export interface BusTailParts {
   db: DatabaseSync
   gitHub: Parameters<typeof latestGitHubNumber>[0]
@@ -141,7 +170,16 @@ export class BusTailIntake implements TailIntake {
       const id = nextTailNumber(this.parts.cardStates(), [tail.pr ?? 0, onGitHub])
       const text = tailCardText(id, parent, tail)
       const line = text.split('\n')[0]!.slice(CARD_HEADER.length)
-      return appendCardEvent(db, TAIL_ACTOR, laid(db, { type: CARD_ADMITTED, cardId: id, ts: this.parts.clock().toISOString(), dedupeKey: tailKey(tail.taskKey), payload: { card: line, lane: null, depends: [tail.parent], decision: 'auto', contour: 'cheap', confirmation: 'auto', corrections: [], bodySha: tailBodySha(text), text, textSha: tailTextSha(text), source: TAIL_SOURCE } })) ? id : null
+      const ts = this.parts.clock().toISOString()
+      if (!appendCardEvent(db, TAIL_ACTOR, laid(db, { type: CARD_ADMITTED, cardId: id, ts, dedupeKey: tailKey(tail.taskKey), payload: { card: line, lane: null, depends: [tail.parent], decision: 'auto', contour: 'cheap', confirmation: 'auto', corrections: [], bodySha: tailBodySha(text), text, textSha: tailTextSha(text), source: TAIL_SOURCE } })))
+        return null
+      dropUnstartedTails(db, ts, tail, id)
+      return id
     })
+  }
+
+  supersede(pass: TailPass): number[] {
+    const { db } = this.parts
+    return inTransaction(db, () => dropUnstartedTails(db, this.parts.clock().toISOString(), pass, null))
   }
 }
