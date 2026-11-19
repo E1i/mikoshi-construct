@@ -9,6 +9,7 @@ import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { CHECK_MS, TICK_MS, WAKE_GAP_MS } from '../core/cadence.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
 import { BUS_PULSE, declaredPayload, MAIN_ADVANCED, NETWATCH_SKIPPED, PR_CLOSED, PR_OBSERVED } from '../core/events.js'
 import { closedKey, NETWATCH, pathsOfTheLastObservation, previousObservationOf, reopeningOf } from '../core/observations.js'
@@ -21,9 +22,6 @@ import { requiredCheckOf, takeSnapshot } from './snapshot.js'
 export const TECHNOLOGY_WORDS = ['database'] as const
 
 export const PREFIX = '[bus:netwatch] '
-export const TICK_MS = 60_000
-export const WAKE_GAP_MS = 3 * TICK_MS
-export const CHECK_MS = 5_000
 export const NETWATCH_SCRIPT = 'bus:netwatch'
 
 export type PollReason = 'start' | 'interval' | 'wake'

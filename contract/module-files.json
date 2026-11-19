@@ -681,6 +681,7 @@
     "scripts/tests/composition/files.test.ts",
     "scripts/tests/composition/model.test.ts",
     "scripts/tests/composition/render.test.ts",
+    "scripts/tests/contract/bus-cut/cadence-to-core.test.ts",
     "scripts/tests/contract/bus-cut/events-decided.test.ts",
     "scripts/tests/contract/bus-cut/executor-bus-reads-to-queue.test.ts",
     "scripts/tests/contract/bus-cut/lease-liveness-injected.test.ts",
@@ -2555,6 +2556,7 @@
   ],
   "session": [
     "scripts/cli/slot.ts",
+    "scripts/core/cadence.ts",
     "scripts/core/card-automaton.ts",
     "scripts/core/card-hold.ts",
     "scripts/core/chain.ts",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { repositoryReport } from '../../../contract/module-graph/report.js'
-import { CHECK_MS, TICK_MS } from '../../../ports/netwatch.js'
+import { CHECK_MS, TICK_MS } from '../../../core/cadence.js'
 import { nodeSupply } from '../../../supervisor/composition.js'
 import { slotsOf } from '../../../supervisor/scheduler.js'
 

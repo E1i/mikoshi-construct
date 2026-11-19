@@ -48,7 +48,7 @@ const supervisor = (...names: string[]): string[] => within(factory('supervisor'
 const BUS_CONTRACT = core('db.ts', 'sqlite.ts', 'queue.ts', 'dependency-wait.ts', 'lease.ts', 'node.ts', 'stored.ts', 'errors.ts', 'bus-path.ts', 'bus-readings.ts', 'bus-version.ts', 'reducer.ts', 'every.ts', 'watermark.ts', 'entry.ts', 'observations.ts', 'task-must-wait.ts')
 
 const SESSION_CONTRACT = [
-  ...core('machine-sessions.ts', 'eddies.ts', 'journal.ts', 'tasks.ts', 'handoff-dir.ts', 'handoff-fields.ts', 'handoff-status.ts', 'card-automaton.ts', 'card-hold.ts', 'chain.ts', 'places.ts', 'report.ts', 'legacy-history.ts', 'import-closure.ts'),
+  ...core('machine-sessions.ts', 'eddies.ts', 'journal.ts', 'tasks.ts', 'handoff-dir.ts', 'handoff-fields.ts', 'handoff-status.ts', 'card-automaton.ts', 'card-hold.ts', 'chain.ts', 'places.ts', 'report.ts', 'legacy-history.ts', 'import-closure.ts', 'cadence.ts'),
   'src/card/closed.ts',
   factory('cli/slot.ts'),
   'src/commands/liveness.ts',
