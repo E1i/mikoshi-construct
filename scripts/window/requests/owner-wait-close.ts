@@ -83,8 +83,7 @@ function openHeadOf(context: RequestContext, pr: number | null): OpenHead | stri
   const observed = context.observed(pr)
   if (observed === undefined || observed.state !== OPEN_PR || observed.head === null)
     return `PR #${pr} is ${observed?.state ?? 'not observed'}${observed?.head === null ? ' with no observed head' : ''}`
-  const row = context.db.prepare('SELECT body_sha FROM prs WHERE pr = ?').get(pr) as { body_sha: unknown } | undefined
-  return { pr, head: observed.head, bodySha: typeof row?.body_sha === 'string' ? row.body_sha : null }
+  return { pr, head: observed.head, bodySha: observed.body_sha }
 }
 
 interface Move {
