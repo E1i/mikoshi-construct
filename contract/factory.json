@@ -27,7 +27,7 @@
         ]
       },
       "board.alarm": {
-        "complete": false,
+        "complete": true,
         "keys": [
           "cause",
           "detail",

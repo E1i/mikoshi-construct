@@ -33,7 +33,7 @@ import { appendedOnCard, CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpene
 import { admittedCardVersion, backfillPendingSliceParents, cardOfBranch } from '../core/card-bodies.js'
 import { cardDecisionReads, reviewedUnderTheCardDecision, reviewsTheCardDecisionReopens, withDecidedContinuations } from '../core/card-decisions.js'
 import { CHAINS_PROJECTION } from '../core/chain.js'
-import { CARD_DEFERRED, CARD_MOVED, CARD_PLANNED, CARD_STOPPED, CARD_UNPLANNED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OBSERVED, PR_OPENED, RATCHET_THRESHOLD_SET, SLICE_PARENTS_BACKFILLED } from '../core/events.js'
+import { CARD_DEFERRED, CARD_MOVED, CARD_PLANNED, CARD_STOPPED, CARD_UNPLANNED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OBSERVED, PR_OPENED, RATCHET_THRESHOLD_SET, SLICE_PARENTS_BACKFILLED, TASK_ENQUEUED, TASK_REQUEUED } from '../core/events.js'
 import { isFullSha, prOf } from '../core/identifiers.js'
 import { OWNER, ownerQuestionAnswered } from '../core/inbox.js'
 import { foreignVersion, instanceOf, provenIdentity, recordWorkerIdentity, UNHANDED } from '../core/node.js'
@@ -323,6 +323,11 @@ export function deadEndEvents(db: DatabaseSync): DeadEndEvents {
     },
     cardsOfUnclosedOwnerWaits: () => openOwnerWaitCards(db),
     cardsNobodyHolds: (heldElsewhere, ignoredActor) => read.cardsNobodyHolds(heldElsewhere, ignoredActor),
+    latestTaskKey: (card) => {
+      const named = ([TASK_ENQUEUED, TASK_REQUEUED] as const).flatMap(type => read.where({ card, present: ['task_key'] }).slice(type, ['task_key'], 'last'))
+      const key = named.sort((a, b) => b.id - a.id)[0]?.fields.task_key
+      return typeof key === 'string' ? key : null
+    },
   }
 }
 
