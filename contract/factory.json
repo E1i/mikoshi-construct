@@ -4414,7 +4414,6 @@
       "scripts/supervisor/derive-queues.ts": 20,
       "scripts/supervisor/heartbeat.ts": 3,
       "scripts/supervisor/reducer-loop.ts": 1,
-      "scripts/supervisor/shard-term.ts": 2,
       "scripts/supervisor/stalled-sessions.ts": 6,
       "scripts/supervisor/supervisor.ts": 5,
       "scripts/window/board.ts": 19,

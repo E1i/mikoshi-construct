@@ -21,6 +21,7 @@ import type { DeadEndEvents, DeadEndParts } from './dead-ends.js'
 import type { QueuePass } from './derive-queues.js'
 import type { SpoolPlaces } from './gate-run-spool.js'
 import type { SessionMeasure } from './heartbeat.js'
+import type { ShardTermParts } from './shard-term.js'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import process from 'node:process'
@@ -55,7 +56,7 @@ import { witnessSource } from '../nodes/witness/witness-candidates.js'
 import { archiveSpentDecisions, DECISION_FOLDS } from '../policy/decisions/index.js'
 import { answersOfTheDecisions } from '../policy/decisions/wait-folds.js'
 import { mayRequeueUnderTheRounds, mergeDecidedPastRoundLimit, outOfRounds, RECUT_ACTOR, REVIEWS_OF_A_PR } from '../policy/round-limit-decision.js'
-import { decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT, withDecisionsHeldAt } from '../policy/shards.js'
+import { activeWindowShards, decisionsInForceAt, expiredWindowShards, SHARD_NOTICE_HOURS, unspentShardsOf, WINDOW_SHARD_HOURS, WINDOW_SHARDS_LIVE_AT, withDecisionsHeldAt } from '../policy/shards.js'
 import { derivedHoldOf } from '../policy/touch-scope.js'
 import { ANY, BusRead } from '../ports/bus-read.js'
 import { cardTreeReading } from '../ports/card-tree.js'
@@ -72,6 +73,8 @@ import { busSessionPulse, heartbeatEnv, measureCardSession, ownStart, recordProc
 import { SILENT_MS } from './liveness-sites.js'
 import { ownIdentity, tableIdentity } from './recorded-worker.js'
 import { slotsOf, slotsVariable } from './scheduler.js'
+import { ghostProtocolWord, MODE_FLAG, sayCommand, START_BIN } from './start.js'
+import { FACTORY_MODES } from './workers.js'
 
 export interface NodeLiveness {
   silentMs: number
@@ -357,4 +360,16 @@ export function weightsDriftWatch(gitHub: GitHub, busPath: string): (db: Databas
     measure: run => driftOfRun((id, artifact) => ci.downloadArtifact(id, artifact), gitHub, run),
     ledger: new BusWeightsRecompute({ db, gitHub, hand: (cardId, file, text) => handFile(launchDirOf(homedir(), busPath), cardId, file, text), clock: () => new Date() }),
   })
+}
+
+export function shardRenewalCommand(): string {
+  return `${sayCommand(ghostProtocolWord(WINDOW_SHARD_HOURS))} && ${START_BIN} ${MODE_FLAG} ${FACTORY_MODES[1]}`
+}
+
+function lastWaitOpenedBy(db: DatabaseSync, actor: string): number | null {
+  return new BusRead(db).where({ actor }).slice(OWNER_WAIT_OPENED, ['id'], 'last')[0]?.id ?? null
+}
+
+export function shardTermParts(): ShardTermParts {
+  return { expired: expiredWindowShards, active: activeWindowShards, lastWaitOpenedBy, noticeHours: SHARD_NOTICE_HOURS, renewal: shardRenewalCommand() }
 }

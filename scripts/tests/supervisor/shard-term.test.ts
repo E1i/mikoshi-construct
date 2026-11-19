@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
 import { OWNER_WAIT_OPENED, SHARD_EXPIRED, SHARD_ISSUED } from '../../core/events.js'
 import { DECISIONS_SCOPE, SHARD_NOTICE_HOURS } from '../../policy/shards.js'
-import { SHARD_TERM_ACTOR, shardRenewalCommand, ShardTerm } from '../../supervisor/shard-term.js'
+import { shardRenewalCommand, shardTermParts } from '../../supervisor/composition.js'
+import { SHARD_TERM_ACTOR, ShardTerm } from '../../supervisor/shard-term.js'
 
 const NOW = new Date('2026-11-17T18:00:00.000Z')
 const HOUR_MS = 3_600_000
@@ -42,7 +43,7 @@ function expiries(db: DatabaseSync): { actor: string, id: string }[] {
 }
 
 function tickAt(db: DatabaseSync, at: Date): string[] {
-  return new ShardTerm(db, () => at.getTime(), 'supervisor: ').step()
+  return new ShardTerm(db, () => at.getTime(), 'supervisor: ', shardTermParts()).step()
 }
 
 describe('the supervisor tick warns before a window shard ends and when it ends', () => {

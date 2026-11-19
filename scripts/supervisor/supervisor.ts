@@ -35,7 +35,7 @@ import { WindowSessionEnds } from '../window/window-session-end.js'
 import { BUILD_DIR, BUILT_MODULE, flagsInArgs, instancesOf, launchName, PREFIX, printBg, provenOnBus, runBusBg, runningInstance, stampedOtherwise, startDetached, thisBus, withBuses } from './bg.js'
 import { BusHealer, CorruptionWatch, RecordedNodes } from './bus-heal.js'
 import { BusSnapshot } from './bus-snapshot.js'
-import { busProjections, cardTransitions, recordOwnStart } from './composition.js'
+import { busProjections, cardTransitions, recordOwnStart, shardTermParts } from './composition.js'
 import { freeLeasesOf, judgedLeaseLines, workerKindsOf } from './executor-lease.js'
 import { DRAIN_LIMIT_MS, DRAIN_WHY, GenerationHandover, recordRestarted, RETIRING_WORKERS } from './generation-handover.js'
 import { CARD_PROCESS, lastProcessBeats, ownStart, recordProcessHeartbeat, retiredRowsLines, retirePreviousGeneration } from './heartbeat.js'
@@ -1034,7 +1034,7 @@ async function supervise(busDir: string, cwd: string, reviewPreflight: () => str
       windowEnds: new WindowSessionEnds(db, cwd, () => Date.now(), PREFIX),
       windowSubagents: new WindowSubagentTick(db, cwd, () => Date.now(), PREFIX),
       order: busOrderTick(db, cwd),
-      shardTerm: new ShardTerm(db, () => Date.now(), PREFIX),
+      shardTerm: new ShardTerm(db, () => Date.now(), PREFIX, shardTermParts()),
       handover: new GenerationHandover(db, livesIn(), () => Date.now(), running => stopInstance(running, readableRows(), sleep, signalLog(db, DRAIN_WHY))),
       heal: new BusHealer({ busPath, nodes, now: () => new Date(), projections: busProjections(), watch: new CorruptionWatch(busLaunches(reviewPreflight).map(launch => path.join(busDir, launch.log))) }),
       snapshot: new BusSnapshot({ db, busPath, file: snapshotPathOf(busPath), now: () => Date.now(), paused: () => nodes.held() }),
