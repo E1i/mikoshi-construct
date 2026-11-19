@@ -3,7 +3,8 @@ import type { Shape } from './expected-time.js'
 import { lastReducedOwnerWaits } from '../core/bus-readings.js'
 import { CLOSED_CARD, DEFERRED_CARD, DROPPED_CARD, MERGED_CARD, QUEUED_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { appendEvent, inTransaction, openOwnerWait } from '../core/db.js'
-import { BOARD_ALARM } from '../core/events.js'
+import { BOARD_ALARM, TASK_ENQUEUED, TASK_REQUEUED } from '../core/events.js'
+import { BusRead } from '../ports/bus-read.js'
 import { expectedMinutes, RoundMeasures } from './expected-time.js'
 
 export const DEAD_END = 'dead_end'
@@ -12,6 +13,8 @@ export const UNMEASURED_ROUND_MINUTES = 60
 const MINUTE_MS = 60_000
 
 export const HELD_ELSEWHERE_STATES: readonly string[] = [MERGED_CARD, CLOSED_CARD, DROPPED_CARD, QUEUED_CARD, DEFERRED_CARD]
+
+const TASK_KEY_NAMED_BY = [TASK_ENQUEUED, TASK_REQUEUED] as const
 
 export type Selecting = (card: number, ts: string) => readonly string[]
 
@@ -99,12 +102,25 @@ export class DeadEnds {
   step(): string[] {
     const ts = this.clock().toISOString()
     return this.found().flatMap(end => inTransaction(this.db, () => {
-      const raised = appendEvent(this.db, { ts, type: BOARD_ALARM, actor: DEAD_END_ACTOR, cardId: end.card, pr: end.pr, head: null, dedupeKey: `${BOARD_ALARM}:${DEAD_END}:${end.card}:${end.lastEvent.id}`, payload: { reason: end.reason, detail: DEAD_END }, legacy: false })
+      const raised = appendEvent(this.db, { ts, type: BOARD_ALARM, actor: DEAD_END_ACTOR, cardId: end.card, pr: end.pr, head: null, dedupeKey: `${BOARD_ALARM}:${DEAD_END}:${end.card}:${end.lastEvent.id}`, payload: this.alarmPayload(end), legacy: false })
       if (!raised)
         return []
       const wait = openOwnerWait(this.db, ts, DEAD_END_ACTOR, { need: 'decision', text: deadEndWaitText(end), card: end.card, ...(end.pr === null ? {} : { pr: end.pr }) })
       return [`${BOARD_ALARM} #${end.card} ${end.reason}; owner wait ${wait}`]
     }))
+  }
+
+  private alarmPayload(end: DeadEnd): Record<string, string> {
+    const taskKey = this.latestTaskKey(end.card)
+    return { reason: end.reason, detail: DEAD_END, ...(taskKey === null ? {} : { task_key: taskKey }) }
+  }
+
+  private latestTaskKey(card: number): string | null {
+    const read = new BusRead(this.db).where({ card, present: ['task_key'] })
+    const named = TASK_KEY_NAMED_BY.flatMap(type => read.slice(type, ['task_key'], 'last'))
+    const latest = named.reduce<(typeof named)[number] | undefined>((newest, event) => newest === undefined || event.id > newest.id ? event : newest, undefined)
+    const key = latest?.fields.task_key
+    return typeof key === 'string' ? key : null
   }
 
   private stopReasonOf(card: UnheldCard): string | null {
