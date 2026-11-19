@@ -50,6 +50,7 @@ export interface AnswerRequest {
   card: CardSession
   fresh?: boolean
   outsideTouches?: (paths: readonly string[]) => string[]
+  allowances?: readonly string[]
   concept?: CardConcept | null
   findingsToProve?: readonly string[]
   stepped?: (steps: StepSeconds) => void
@@ -672,7 +673,7 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
       const outside = request.outsideTouches?.(tools.pending?.(card) ?? []) ?? []
       if (outside.length === 0)
         return { followed: [], widened: [], outside: [] }
-      const touched = answerFollowed(git, card.worktree, outside, request.lease.cardId, cardBody, (tools.coverage ?? (tree => worktreeCoverage(git, tree.worktree)))(card))
+      const touched = answerFollowed(git, card.worktree, outside, request.lease.cardId, cardBody, (tools.coverage ?? (tree => worktreeCoverage(git, tree.worktree)))(card), undefined, undefined, request.allowances)
       const concept = request.concept
       const within = concept === undefined || concept === null
         ? { widened: [], outside: touched.outside }

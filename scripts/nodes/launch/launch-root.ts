@@ -46,7 +46,7 @@ import { builtTreePr, HTTPS_ORIGIN_ENV, launchDirOf, TREE_PR_ENTRY, treeHoldsACo
 import { cardTree } from '../../ports/worktree-home.js'
 import { treeOriginIn } from '../../ports/worktree.js'
 import { BUILD_DIR, BUILT_MODULE, builtEntryOf, installedPackage } from '../../supervisor/bg.js'
-import { launchSessionEnv, nodeLiveness, nodeSupply } from '../../supervisor/composition.js'
+import { cardAllowances, launchSessionEnv, nodeLiveness, nodeSupply } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { builtHandoff, continuationRefusal, CONTINUE_PROMPT, eddiesEvidence, reachedContextLine, sessionWrittenPart, stoppedOnSpend } from './continuation.js'
 import { gitChangedPaths, killQuietly, psPgid, ShiftCardStarter, spawnDetached } from './launch-starter.js'
@@ -271,6 +271,10 @@ export function readTreeFile(file: string): TreeFile | null {
   catch {
     return null
   }
+}
+
+export function busAllowances(busPath: string): (cardId: number) => string[] {
+  return busCardDecisions(busPath, (db, cardId) => cardAllowances(db)(cardId))
 }
 
 export function busCardSessions(busPath: string): (cardId: number) => string[] {

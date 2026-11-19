@@ -51,11 +51,11 @@ import { WeightsDriftWatch } from '../nodes/merge/weights-drift.js'
 import { ROLES_PROJECTION } from '../nodes/restart/role.js'
 import { updateCandidates, updateSource } from '../nodes/update/update-candidates.js'
 import { witnessSource } from '../nodes/witness/witness-candidates.js'
-import { archiveSpentDecisions, DECISION_FOLDS } from '../policy/decisions/index.js'
+import { archiveSpentDecisions, BusDecisions, DECISION_FOLDS } from '../policy/decisions/index.js'
 import { answersOfTheDecisions } from '../policy/decisions/wait-folds.js'
 import { mayRequeueUnderTheRounds, mergeDecidedPastRoundLimit, outOfRounds, RECUT_ACTOR, REVIEWS_OF_A_PR } from '../policy/round-limit-decision.js'
 import { decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT, withDecisionsHeldAt } from '../policy/shards.js'
-import { derivedHoldOf } from '../policy/touch-scope.js'
+import { cardAllowancesIn, derivedHoldOf } from '../policy/touch-scope.js'
 import { ANY, BusRead } from '../ports/bus-read.js'
 import { cardTreeReading } from '../ports/card-tree.js'
 import { GhCiRuns } from '../ports/ci-reading.js'
@@ -158,8 +158,13 @@ export function ratchetThresholdSets(db: DatabaseSync): (cardId: number) => Thre
     typeof decision === 'string' && typeof row === 'string' && typeof to === 'number' ? [{ decision, row, to }] : [])
 }
 
-export function derivedHolds(db: DatabaseSync): DerivedHolds {
-  return (cardId, scope, files) => derivedHoldOf(scope, files, () => cardTreeReading(db, cardId))
+export function cardAllowances(db: DatabaseSync): (cardId: number) => string[] {
+  return cardId => cardAllowancesIn(new BusDecisions(db), cardId)
+}
+
+export function derivedHolds(db: DatabaseSync, readTree: typeof cardTreeReading = cardTreeReading): DerivedHolds {
+  const allowances = cardAllowances(db)
+  return (cardId, scope, files) => derivedHoldOf(scope, files, () => readTree(db, cardId), () => allowances(cardId))
 }
 
 function cardWaitParts(): CardWaitParts {

@@ -175,6 +175,14 @@ const MEASURED_ROW = /^(.+) \((?:(-?\d+) → (-?\d+)|new: (-?\d+))\)$/
 const ROW_CHARACTER = /[\w:/.\->]/
 const ALLOWED_VALUE = /^(?=[\s(])\s*(?:\(\s*)?(?:new:\s*)?(?:-?\d+\s*(?:->|→)\s*)?(-?\d+)/
 
+export interface AllowanceSource {
+  inForce: () => readonly { words: string, cards: readonly number[], written: boolean }[]
+}
+
+export function cardAllowancesIn(decisions: AllowanceSource, cardId: number | null | undefined): string[] {
+  return allowancesOf(decisions.inForce().map(decision => ({ text: decision.words, cards: decision.cards, owner: decision.written })), cardId)
+}
+
 export function allowancesOf(decisions: readonly OwnerAllowance[], cardId: number | null | undefined): string[] {
   if (cardId === null || cardId === undefined)
     return []

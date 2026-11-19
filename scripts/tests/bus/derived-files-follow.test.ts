@@ -19,13 +19,14 @@ import { leaseNext } from '../../core/lease.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
+import { busAllowances } from '../../nodes/launch/launch-root.js'
 import { treePr } from '../../nodes/launch/tree-pr.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
-import { BusDecisions, recordDecision } from '../../policy/decisions/index.js'
+import { recordDecision } from '../../policy/decisions/index.js'
 import { allowancesOf, grownEntries, judgeDerived, removesEntriesOnly, unallowedGrowth } from '../../policy/derived-files.js'
-import { DERIVED_REGISTRY, derivedHoldOf } from '../../policy/touch-scope.js'
+import { DERIVED_REGISTRY } from '../../policy/touch-scope.js'
 import { treeReading } from '../../ports/git.js'
-import { cardTransitions, updateParts } from '../../supervisor/composition.js'
+import { cardAllowances, cardTransitions, derivedHolds, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { ranTheGreenGate } from './gate-stream.js'
 import { sha } from './github-fake.js'
@@ -201,11 +202,13 @@ interface Launched {
   bodies: string[]
 }
 
-function launch(name: ScenarioName, waits = true, decisions: readonly OwnerAllowance[] = []): Launched {
+function launch(name: ScenarioName, waits = true, decide: (made: MergeBench) => void = () => {}): Launched {
   const scenario = SCENARIOS[name]
   const cardId = 4001
   const made = mergeBench()
   benches.push(made)
+  decide(made)
+  made.tick()
   const worktree = path.join(room(), `mc-${cardId}`)
   baseTree(worktree)
   const origin = path.join(path.dirname(worktree), 'origin.git')
@@ -225,7 +228,7 @@ function launch(name: ScenarioName, waits = true, decisions: readonly OwnerAllow
       bodies.push(args[args.indexOf('--body') + 1]!)
       return 'https://github.com/o/r/pull/1588\n'
     },
-    allowances: card => allowancesOf(decisions, card),
+    allowances: busAllowances(made.busPath),
     ...(waits ? { ownerWait: (waiting: number | null, text: string) => openOwnerWait(made.db, made.clock.now().toISOString(), 'worker:shift:test', { need: 'decision', text, ...(waiting === null ? {} : { card: waiting }) }) } : {}),
   }
   return { made, opened: treePr(ports, card, worktree, null), bodies }
@@ -277,7 +280,7 @@ async function answer(name: ScenarioName, decide: (made: MergeBench) => void = (
     pending: () => gitIn(worktree, ['ls-files', '--modified', '--others', '--exclude-standard']).split('\n').filter(file => file !== ''),
   })
   const trees: CardTreeTools = { home, exists: existsSync, branchOf: card => `feat/card-${card}`, recreate: () => {}, bringTo: () => {} }
-  const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees, dirty: () => false, liveSession: () => null, prepare: () => {} })
+  const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees, dirty: () => false, liveSession: () => null, prepare: () => {}, allowances: cardAllowances(made.db) })
   const stopsBefore = questionAgentStops(made).length
   const outcome = await executor.answer(lease)
   return { made, outcome, published, stopsBefore }
@@ -286,10 +289,6 @@ async function answer(name: ScenarioName, decide: (made: MergeBench) => void = (
 interface Updated {
   made: MergeBench
   outcome: UpdateOutcome
-}
-
-function cardAllowances(made: MergeBench, cardId: number): string[] {
-  return allowancesOf(new BusDecisions(made.db).inForce().map(decision => ({ text: decision.words, cards: decision.cards, owner: decision.written })), cardId)
 }
 
 const UPDATED_PR = 4003
@@ -316,7 +315,7 @@ function update(name: ScenarioName, decide: (made: MergeBench) => void = () => {
   made.tick()
   detectUpdate(made)
   const lease = leaseNext(made.db, made.clock.now().toISOString(), 'update', 'worker:update:worker-1') as Lease
-  const executor = new UpdateExecutor({ cards: cardTransitions(), source: updateParts(), silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, mergeMain: () => ({ kind: 'merged', to: sha('m'), tookMain: [], rebuilt: [] }), derived: (leased, scope, files) => derivedHoldOf(scope, files, () => treeReading(gitIn, tree, 'origin/main', fakeRerun), () => cardAllowances(made, leased)) })
+  const executor = new UpdateExecutor({ cards: cardTransitions(), source: updateParts(), silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, mergeMain: () => ({ kind: 'merged', to: sha('m'), tookMain: [], rebuilt: [] }), derived: derivedHolds(made.db, () => treeReading(gitIn, tree, 'origin/main', fakeRerun)) })
   return { made, outcome: executor.update(lease) }
 }
 
@@ -473,7 +472,7 @@ describe('an owner allowance of a derived growth holds for the card\'s pull requ
     expect(later.outcome).toMatchObject({ kind: 'updated', to: sha('m') })
     expect(waitIds(later.made)).toEqual([])
 
-    const launched = launch('grows', true, [allowedFor([4001], ALLOWS_THE_GROWS_SCENARIO)])
+    const launched = launch('grows', true, ownerAllows(4001, ALLOWS_THE_GROWS_SCENARIO))
     expect(launched.opened).toEqual({ kind: 'pr', number: '1588', followed: [KNOWN, RATCHET] })
     expect(launched.bodies[0]).not.toContain('Derived growth waits for the owner')
     expect(waitIds(launched.made)).toEqual([])
@@ -492,7 +491,7 @@ describe('an owner allowance of a derived growth holds for the card\'s pull requ
     expect(anotherCard.outcome).toMatchObject({ kind: 'stopped', reason: 'question.owner' })
     expect(waitIds(anotherCard.made)).toEqual([expect.stringMatching(/^Q\d+$/)])
 
-    const launched = launch('grows', true, [allowedFor([4002], ALLOWS_THE_GROWS_SCENARIO)])
+    const launched = launch('grows', true, ownerAllows(4002, ALLOWS_THE_GROWS_SCENARIO))
     expect(launched.bodies[0]).toContain('Derived growth waits for the owner')
     expect(waitIds(launched.made)).toEqual([expect.stringMatching(/^Q\d+$/)])
   })
