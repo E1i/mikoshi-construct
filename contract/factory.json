@@ -5242,7 +5242,7 @@
         },
         "reexports": [],
         "types": {
-          "BusPorts": "interface BusPorts { cardEvents: CardEventPort; cardStates: CardStatesPort; cardAdmissions: CardAdmissionsPort; mutationJudged?: MutationJudgedPort; ladderRun?: LadderRunPort; decisions?: AdmitOptions['decisions']; }"
+          "BusPorts": "interface BusPorts { cardEvents: CardEventPort; cardStates: CardStatesPort; cardAdmissions: CardAdmissionsPort; mutationJudged?: MutationJudgedPort; ladderRun?: LadderRunPort; decisions?: AdmitOptions['decisions']; cardWaits?: AdmitOptions['cardWaits']; }"
         }
       },
       "src/ui/console.ts": {

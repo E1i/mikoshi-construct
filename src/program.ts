@@ -428,7 +428,7 @@ const sync = withKnownFlags(defineCommand({
 }), ROOT_META)
 
 function intakeCommand(bus: Partial<BusPorts> | undefined) {
-  const { cardEvents: events, cardStates, cardAdmissions: admissions, decisions } = bus ?? {}
+  const { cardEvents: events, cardStates, cardAdmissions: admissions, decisions, cardWaits } = bus ?? {}
   return withKnownFlags(defineCommand({
     meta: { name: 'intake', description: 'Turn a draft of sliced cards into parking cards: assigns the next numbers free in the parking and among the pull requests and issues --taken lists, marks what the retelling left unclear, and checks every card with the parking grammar before writing; the CLI runs no gh and no model' },
     args: {
@@ -462,7 +462,7 @@ function intakeCommand(bus: Partial<BusPorts> | undefined) {
         }
         if (args.amend !== undefined) {
           const flags = { touches: listFlagOf(rawArgs, 'touches'), creates: listFlagOf(rawArgs, 'creates'), note: args.note, witness: args.witness, who: args.who, priority: args.priority }
-          process.exitCode = printAdmit(console, runAmend({ card: args.amend, flags, dir, dryRun: args.dryRun, confirm: args.confirm, autoConfirm: args.autoConfirm, events, cardStates, admissions, decisions }))
+          process.exitCode = printAdmit(console, runAmend({ card: args.amend, flags, dir, dryRun: args.dryRun, confirm: args.confirm, autoConfirm: args.autoConfirm, events, cardStates, admissions, decisions, cardWaits }))
           return
         }
         if (args.admit !== undefined && args.draft === undefined && args.taken === undefined) {
@@ -471,7 +471,7 @@ function intakeCommand(bus: Partial<BusPorts> | undefined) {
             process.exitCode = INTAKE_EXIT.refused
             return
           }
-          process.exitCode = printAdmit(console, runAdmit({ file: path.resolve(args.admit), dir, dryRun: args.dryRun, confirm: args.confirm, autoConfirm: args.autoConfirm, events, cardStates, admissions, decisions }))
+          process.exitCode = printAdmit(console, runAdmit({ file: path.resolve(args.admit), dir, dryRun: args.dryRun, confirm: args.confirm, autoConfirm: args.autoConfirm, events, cardStates, admissions, decisions, cardWaits }))
           return
         }
         if (events === undefined && busExpected()) {
@@ -570,6 +570,7 @@ export interface BusPorts {
   mutationJudged?: MutationJudgedPort
   ladderRun?: LadderRunPort
   decisions?: AdmitOptions['decisions']
+  cardWaits?: AdmitOptions['cardWaits']
 }
 
 export function createMain(bus?: Partial<BusPorts>) {

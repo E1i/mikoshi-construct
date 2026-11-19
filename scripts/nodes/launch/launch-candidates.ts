@@ -454,7 +454,7 @@ function holdsOf(db: DatabaseSync, lives: ReadonlyMap<number, CardLife>, merged:
 }
 
 export type StartableHold
-  = { kind: 'open-pr', pr: number, path: string }
+  = { kind: 'open-pr', pr: number, cardId: number, path: string }
     | { kind: 'session', cardId: number, path: string }
     | { kind: 'lane', cardId: number, lane: string }
     | { kind: 'slots' }
@@ -545,7 +545,7 @@ function holdOf(life: CardLife, holds: Holds, openPrs: ReadonlyMap<number, numbe
   if (overlapping !== undefined) {
     const path = overlappingPath(life.task!, overlapping.task, shared)
     const pr = openPrs.get(overlapping.cardId)
-    return pr === undefined ? { kind: 'session', cardId: overlapping.cardId, path } : { kind: 'open-pr', pr, path }
+    return pr === undefined ? { kind: 'session', cardId: overlapping.cardId, path } : { kind: 'open-pr', pr, cardId: overlapping.cardId, path }
   }
   if (life.lane === null)
     return residualHold(life, holds, machine)

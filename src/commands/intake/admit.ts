@@ -75,9 +75,17 @@ export interface AdmitOptions {
   cardStates?: CardStatesPort
   admissions?: CardAdmissionsPort
   decisions?: DecisionsPort
+  cardWaits?: CardWaitsPort
   writeRuns?: boolean
   priorityEdited?: boolean
 }
+
+export interface CardWait {
+  card: number
+  why: string
+}
+
+export type CardWaitsPort = (cardId: number) => CardWait[]
 
 type RefusedWithReasons = 'invalidTestPattern' | 'sharedCodeMask'
 
@@ -291,6 +299,55 @@ function droppedDepends(references: readonly string[], cards: BusCardStates | un
 function dependsOnDropped(cardId: number, dropped: readonly number[]): string {
   const named = dropped.map(id => `#${id}`).join(', ')
   return `#${cardId} depends on ${named}, dropped in the bus and never merging, so it would wait for ever; take ${named} out of its depends`
+}
+
+interface WaitStep extends CardWait {
+  from: number
+}
+
+const DEPENDS_WHY = 'depends on '
+
+function waitsBackOn(cardId: number, start: number, cardWaits: CardWaitsPort): WaitStep[] | null {
+  const seen = new Set<number>()
+  const walk = (from: number): WaitStep[] | null => {
+    if (seen.has(from))
+      return null
+    seen.add(from)
+    for (const wait of cardWaits(from)) {
+      const step = { from, ...wait }
+      const rest = wait.card === cardId ? [] : walk(wait.card)
+      if (rest !== null)
+        return [step, ...rest]
+    }
+    return null
+  }
+  return walk(start)
+}
+
+function stepText(step: WaitStep): string {
+  return step.why.startsWith(DEPENDS_WHY) ? `#${step.from} ${step.why}` : `#${step.from} waits on #${step.card} (${step.why})`
+}
+
+function waitCycleText(cardId: number, depended: number, chain: readonly WaitStep[]): string {
+  const none = chain.length === 1 ? 'neither ever moves' : 'none of them ever moves'
+  return `#${cardId} depends on #${depended}, and ${chain.map(stepText).join(', ')}, so ${none}; drop the depends or settle #${cardId} first`
+}
+
+function newlyBound(depends: readonly number[], recorded: RecordedIntake | null): number[] {
+  const parsed = recorded === null ? null : parseCard(recorded.card)
+  const bound = new Set(parsed?.kind === 'card' ? parsed.card.depends : [])
+  return depends.filter(id => !bound.has(id))
+}
+
+function waitCycle(cardId: number, depends: readonly number[], cardWaits: CardWaitsPort | undefined): string | null {
+  if (cardWaits === undefined)
+    return null
+  for (const depended of depends) {
+    const chain = waitsBackOn(cardId, depended, cardWaits)
+    if (chain !== null)
+      return waitCycleText(cardId, depended, chain)
+  }
+  return null
 }
 
 function writtenByTheOwner(decisions: DecisionsPort): OwnerWords[] {
@@ -558,6 +615,9 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const dropped = droppedDepends(checked.depends, cards)
   if (dropped.length > 0)
     return { status: 'refused', why: dependsOnDropped(card.id, dropped) }
+  const cycle = waitCycle(card.id, newlyBound(ids(checked.depends), recorded), options.cardWaits)
+  if (cycle !== null)
+    return { status: 'refused', why: cycle }
   const line = admittedLine(card, checked)
   const admitted: SlicedCard = {
     id: card.id,
