@@ -23,8 +23,10 @@ function relativeImportsOf(file: string): string[] {
     .map(text => path.posix.join(path.posix.dirname(file), text.replace(/\.js$/, '.ts')))
 }
 
-function headNumbers(): RatchetNumbers {
-  return generateNumbers(ROOT, thresholdOf(readRatchet(ROOT)))
+const RAISED_BY_THE_OWNER: RatchetNumbers = { 'boundary:node-review->decisions': 1 }
+
+function raisedByTheOwnerTo(recordedAtHead: RatchetNumbers, key: string, measured: number): boolean {
+  return Object.hasOwn(RAISED_BY_THE_OWNER, key) && RAISED_BY_THE_OWNER[key] === measured && recordedAtHead[key] === measured
 }
 
 describe('the lease contour', () => {
@@ -35,10 +37,20 @@ describe('the lease contour', () => {
     expect(typeof cardTransitions().appendedOnCard).toBe('function')
   })
 
+  it('only the row the owner raised, at the value the owner allowed, is exempt from the growth check', () => {
+    const recorded: RatchetNumbers = { 'boundary:node-review->decisions': 1, 'boundary:node-review->ports': 17, 'lines:scripts/core/queue.ts': 900 }
+    expect(raisedByTheOwnerTo(recorded, 'boundary:node-review->decisions', 1)).toBe(true)
+    expect(raisedByTheOwnerTo({ ...recorded, 'boundary:node-review->decisions': 2 }, 'boundary:node-review->decisions', 2)).toBe(false)
+    expect(raisedByTheOwnerTo(recorded, 'boundary:node-review->ports', 17)).toBe(false)
+    expect(raisedByTheOwnerTo(recorded, 'lines:scripts/core/queue.ts', 900)).toBe(false)
+    expect(raisedByTheOwnerTo({}, 'boundary:node-review->decisions', 1)).toBe(false)
+  })
+
   it('no boundary or lines row grows over the per-symbol normalized base', () => {
-    const head = headNumbers()
+    const recorded = readRatchet(ROOT)
+    const head = generateNumbers(ROOT, thresholdOf(recorded))
     expect(head[BUS_TO_SESSION] ?? 0).toBe(0)
-    expect(readRatchet(ROOT)[BUS_TO_SESSION] ?? 0).toBe(0)
-    expect(rowsGrownOverBase(ROOT, head, key => JUDGED_ROWS.test(key))).toEqual([])
+    expect(recorded[BUS_TO_SESSION] ?? 0).toBe(0)
+    expect(rowsGrownOverBase(ROOT, head, key => JUDGED_ROWS.test(key) && !raisedByTheOwnerTo(recorded, key, head[key]!))).toEqual([])
   }, GENERATION_TIMEOUT)
 })
