@@ -2,6 +2,7 @@ import type { Lease } from '../../core/lease.js'
 import type { AnswerOutcome } from '../../nodes/answer/duties/index.js'
 import type { TreeCard, TreePr, TreePrPorts } from '../../nodes/launch/tree-pr.js'
 import type { UpdateOutcome } from '../../nodes/update/update-executor.js'
+import type { GrownDerived, OwnerAllowance } from '../../policy/derived-files.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
 import type { TreeRun } from '../../ports/git.js'
 import type { MergeBench } from './merge-bench.js'
@@ -20,7 +21,8 @@ import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
 import { treePr } from '../../nodes/launch/tree-pr.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
-import { grownEntries, judgeDerived, removesEntriesOnly } from '../../policy/derived-files.js'
+import { BusDecisions, recordDecision } from '../../policy/decisions/index.js'
+import { allowancesOf, grownEntries, judgeDerived, removesEntriesOnly, unallowedGrowth } from '../../policy/derived-files.js'
 import { DERIVED_REGISTRY, derivedHoldOf } from '../../policy/touch-scope.js'
 import { treeReading } from '../../ports/git.js'
 import { cardTransitions, updateParts } from '../../supervisor/composition.js'
@@ -199,7 +201,7 @@ interface Launched {
   bodies: string[]
 }
 
-function launch(name: ScenarioName, waits = true): Launched {
+function launch(name: ScenarioName, waits = true, decisions: readonly OwnerAllowance[] = []): Launched {
   const scenario = SCENARIOS[name]
   const cardId = 4001
   const made = mergeBench()
@@ -223,6 +225,7 @@ function launch(name: ScenarioName, waits = true): Launched {
       bodies.push(args[args.indexOf('--body') + 1]!)
       return 'https://github.com/o/r/pull/1588\n'
     },
+    allowances: card => allowancesOf(decisions, card),
     ...(waits ? { ownerWait: (waiting: number | null, text: string) => openOwnerWait(made.db, made.clock.now().toISOString(), 'worker:shift:test', { need: 'decision', text, ...(waiting === null ? {} : { card: waiting }) }) } : {}),
   }
   return { made, opened: treePr(ports, card, worktree, null), bodies }
@@ -282,10 +285,17 @@ interface Updated {
   outcome: UpdateOutcome
 }
 
-function update(name: ScenarioName): Updated {
+function cardAllowances(made: MergeBench, cardId: number): string[] {
+  return allowancesOf(new BusDecisions(made.db).inForce().map(decision => ({ text: decision.words, cards: decision.cards, owner: decision.written })), cardId)
+}
+
+const UPDATED_PR = 4003
+const UPDATED_CARD = UPDATED_PR + 100
+
+function update(name: ScenarioName, decide: (made: MergeBench) => void = () => {}): Updated {
   const scenario = SCENARIOS[name]
-  const pr = 4003
-  const cardId = pr + 100
+  const pr = UPDATED_PR
+  const cardId = UPDATED_CARD
   const tree = path.join(room(), `mc-${cardId}`)
   baseTree(tree)
   gitIn(tree, ['checkout', '-q', '-b', `feat/card-${cardId}`])
@@ -299,10 +309,11 @@ function update(name: ScenarioName): Updated {
   appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:window', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { text, textSha: textSha(text), lane: null, decision: 'owner', contour: 'cheap', depends: [] }, legacy: false })
   const changed = gitIn(tree, ['diff', '--name-only', 'origin/main', 'HEAD']).split('\n').filter(file => file !== '')
   made.gitHub.open({ number: pr, head, mergeable_state: 'dirty', files: changed })
+  decide(made)
   made.tick()
   detectUpdate(made)
   const lease = leaseNext(made.db, made.clock.now().toISOString(), 'update', 'worker:update:worker-1') as Lease
-  const executor = new UpdateExecutor({ cards: cardTransitions(), source: updateParts(), silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, mergeMain: () => ({ kind: 'merged', to: sha('m'), tookMain: [], rebuilt: [] }), derived: (_cardId, scope, files) => derivedHoldOf(scope, files, () => treeReading(gitIn, tree, 'origin/main', fakeRerun)) })
+  const executor = new UpdateExecutor({ cards: cardTransitions(), source: updateParts(), silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, mergeMain: () => ({ kind: 'merged', to: sha('m'), tookMain: [], rebuilt: [] }), derived: (leased, scope, files) => derivedHoldOf(scope, files, () => treeReading(gitIn, tree, 'origin/main', fakeRerun), () => cardAllowances(made, leased)) })
   return { made, outcome: executor.update(lease) }
 }
 
@@ -426,6 +437,78 @@ describe('the judgement of a derived file (D-592, narrowing D-514 to growth)', (
     expect(judgeDerived(DERIVED_REGISTRY, [KNOWN], treeReading(gitIn, tree, 'origin/main', failing)).refused).toEqual([{ file: KNOWN, why: expect.stringContaining('depcruise: not found') }])
     expect(judgeDerived(DERIVED_REGISTRY, [KNOWN], treeReading(gitIn, tree, 'origin/main', fakeRerun)).refused).toEqual([{ file: KNOWN, why: expect.stringContaining('does not reproduce') }])
     expect(read(tree, KNOWN)).toBe(before)
+  })
+})
+
+const BUS_READ_ROW = 'overlaps:bus-read'
+const BUS_READ_GROWTH = (to: number): GrownDerived[] => [{ file: RATCHET, entries: grownEntries(json({ [BUS_READ_ROW]: 455 }), json({ [BUS_READ_ROW]: to })) }]
+const OWNER_ALLOWS_457 = `allow the derived ${RATCHET} growth ${BUS_READ_ROW} 455 -> 457`
+const GROWN_RATCHET_ENTRY = `${RATCHET_ROW} (2 → 3)`
+const ALLOWS_THE_GROWS_SCENARIO = `allow ${RATCHET} ${RATCHET_ROW} 2 -> 3 and ${KNOWN} ${JSON.stringify(VIOLATIONS[2])}`
+
+function allowedFor(cards: number[], text: string, owner = true): OwnerAllowance {
+  return { text, cards, owner }
+}
+
+function ownerAllows(cardId: number, text: string): (made: MergeBench) => void {
+  return made => recordDecision(made.db, { ts: made.clock.now().toISOString(), decisionId: 696, text, cards: [cardId] })
+}
+
+describe('an owner allowance of a derived growth holds for the card\'s pull request', () => {
+  it('a growth the owner allowed for the card passes on a later run at the same value', () => {
+    expect(BUS_READ_GROWTH(457)).toEqual([{ file: RATCHET, entries: [`${BUS_READ_ROW} (455 → 457)`] }])
+    const allowances = allowancesOf([allowedFor([2084], OWNER_ALLOWS_457)], 2084)
+    expect(unallowedGrowth(BUS_READ_GROWTH(457), allowances)).toEqual([])
+    expect(unallowedGrowth(BUS_READ_GROWTH(456), allowances)).toEqual([])
+    expect(unallowedGrowth(BUS_READ_GROWTH(457), allowancesOf([allowedFor([2084], `allow ${RATCHET} growth ${BUS_READ_ROW} (455 → 457)`)], 2084))).toEqual([])
+
+    const first = update('grows')
+    expect(first.outcome).toMatchObject({ kind: 'stopped', reason: 'question.owner' })
+    expect(waitIds(first.made)).toEqual([expect.stringMatching(/^Q\d+$/)])
+
+    const later = update('grows', ownerAllows(UPDATED_CARD, ALLOWS_THE_GROWS_SCENARIO))
+    expect(later.outcome).toMatchObject({ kind: 'updated', to: sha('m') })
+    expect(waitIds(later.made)).toEqual([])
+
+    const launched = launch('grows', true, [allowedFor([4001], ALLOWS_THE_GROWS_SCENARIO)])
+    expect(launched.opened).toEqual({ kind: 'pr', number: '1588', followed: [KNOWN, RATCHET] })
+    expect(launched.bodies[0]).not.toContain('Derived growth waits for the owner')
+    expect(waitIds(launched.made)).toEqual([])
+  })
+
+  it('a growth above the allowed value still waits for the owner', () => {
+    const unallowed = update('grows')
+    expect(unallowed.outcome).toMatchObject({ kind: 'stopped', reason: 'question.owner' })
+    expect(waitIds(unallowed.made)).toEqual([expect.stringMatching(/^Q\d+$/)])
+
+    const below = update('grows', ownerAllows(UPDATED_CARD, `allow ${RATCHET} ${RATCHET_ROW} 2 -> 2 and ${KNOWN} ${JSON.stringify(VIOLATIONS[2])}`))
+    expect(below.outcome).toMatchObject({ kind: 'stopped', reason: 'question.owner' })
+    expect(waitIds(below.made)).toEqual([expect.stringMatching(/^Q\d+$/)])
+
+    const anotherCard = update('grows', ownerAllows(UPDATED_CARD + 1, ALLOWS_THE_GROWS_SCENARIO))
+    expect(anotherCard.outcome).toMatchObject({ kind: 'stopped', reason: 'question.owner' })
+    expect(waitIds(anotherCard.made)).toEqual([expect.stringMatching(/^Q\d+$/)])
+
+    const launched = launch('grows', true, [allowedFor([4002], ALLOWS_THE_GROWS_SCENARIO)])
+    expect(launched.bodies[0]).toContain('Derived growth waits for the owner')
+    expect(waitIds(launched.made)).toEqual([expect.stringMatching(/^Q\d+$/)])
+  })
+
+  it('an allowance holds only for the owner\'s decision on that card, at that row and up to that value', () => {
+    const allowances = allowancesOf([allowedFor([2084], OWNER_ALLOWS_457)], 2084)
+    expect(unallowedGrowth(BUS_READ_GROWTH(458), allowances)).toEqual(BUS_READ_GROWTH(458))
+    expect(unallowedGrowth(BUS_READ_GROWTH(457), [])).toEqual(BUS_READ_GROWTH(457))
+    expect(allowancesOf([allowedFor([2085], OWNER_ALLOWS_457)], 2084)).toEqual([])
+    expect(allowancesOf([allowedFor([], OWNER_ALLOWS_457)], 2084)).toEqual([])
+    expect(allowancesOf([allowedFor([2084], OWNER_ALLOWS_457, false)], 2084)).toEqual([])
+    expect(allowancesOf([allowedFor([2084], OWNER_ALLOWS_457)], undefined)).toEqual([])
+    expect(unallowedGrowth(BUS_READ_GROWTH(457), [`allow ${RATCHET} growth ${BUS_READ_ROW}-other 455 -> 457`])).toEqual(BUS_READ_GROWTH(457))
+    expect(unallowedGrowth(BUS_READ_GROWTH(457), [`allow ${RATCHET} growth x${BUS_READ_ROW} 455 -> 457`])).toEqual(BUS_READ_GROWTH(457))
+    expect(unallowedGrowth([{ file: RATCHET, entries: [`${BUS_READ_ROW} (new: 3)`] }], [OWNER_ALLOWS_457])).toEqual([])
+    expect(unallowedGrowth([{ file: RATCHET, entries: [`${BUS_READ_ROW} (new: 458)`] }], [OWNER_ALLOWS_457])).toHaveLength(1)
+
+    const onlyTheRow = `allow ${RATCHET} ${RATCHET_ROW} 2 -> 3`
+    expect(unallowedGrowth([{ file: RATCHET, entries: [GROWN_RATCHET_ENTRY] }, { file: KNOWN, entries: [JSON.stringify(VIOLATIONS[2])] }], [onlyTheRow])).toEqual([{ file: KNOWN, entries: [JSON.stringify(VIOLATIONS[2])] }])
   })
 })
 
