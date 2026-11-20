@@ -6,12 +6,12 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
-import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../core/db.js'
+import { appendEvent, BUS_DB_VARIABLE } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_VERIFIED, PR_OBSERVED, REQUEST_DONE, REQUEST_REFUSED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardAdmissions, busCardEvents, busHeldCards } from '../../intake/intake.js'
 import { launchWaitsOf, layLanes } from '../../nodes/launch/lane-assign.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, openComposedBus } from '../../supervisor/composition.js'
 import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
 
 const NOW = new Date('2026-11-19T09:00:00.000Z')
@@ -48,7 +48,7 @@ function world(): World {
   const bus = path.join(root, 'bus.db')
   vi.stubEnv(BUS_DB_VARIABLE, bus)
   vi.stubEnv('HOME', root)
-  return { db: openBus(bus), repo, root }
+  return { db: openComposedBus(bus), repo, root }
 }
 
 function admitWith(w: World, id: number, touches: string, depends: readonly number[], cardWaits: CardWaitsPort, text: string = body(id, touches, depends)): ReturnType<typeof runAdmit> {

@@ -19,7 +19,7 @@
   "boundary:board->session": 6,
   "boundary:board->ui": 9,
   "boundary:board->window": 4,
-  "boundary:bus->card-model": 5,
+  "boundary:bus->card-model": 4,
   "boundary:bus->layout": 2,
   "boundary:bus->ui": 1,
   "boundary:card-model->card-record": 1,

@@ -1,3 +1,5 @@
+import type { DatabaseSync } from 'node:sqlite'
+
 export const KINDS = ['implement', 'probe'] as const
 export const SIZES = ['XS', 'S', 'M', 'L'] as const
 export const CONTOURS = ['cheap', 'ladder'] as const
@@ -130,6 +132,18 @@ export function parseCard(text: string, milestones?: readonly string[]): ParsedC
   if (blocks === null)
     return refused(`blocks '${blocksText}' must start with '#<id>' entries or '—'`)
   return { kind: 'card', card: { id: Number(id), name, kind, milestone, size, contour, decision, depends, blocks, line } }
+}
+
+function blocksOfCardLine(line: unknown): string | null {
+  if (typeof line !== 'string')
+    return null
+  const parsed = parseCard(line)
+  return parsed.kind === 'card' ? JSON.stringify(parsed.card.blocks) : null
+}
+
+export function registerCardFunctions(db: DatabaseSync, blocks: string): DatabaseSync {
+  db.function(blocks, { deterministic: true }, blocksOfCardLine)
+  return db
 }
 
 export function readBodyCard(body: string): ParsedCard {

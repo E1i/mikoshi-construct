@@ -3,10 +3,10 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { appendEvent, openBus } from '../../core/db.js'
+import { appendEvent } from '../../core/db.js'
 import { runInbox } from '../../core/inbox.js'
 import { reduce } from '../../core/reducer.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, openComposedBus } from '../../supervisor/composition.js'
 
 const HEAD = '0123456789abcdef0123456789abcdef01234567'
 const TS = '2026-10-10T08:00:00.000Z'
@@ -18,10 +18,10 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true })
 })
 
-function newBus(): ReturnType<typeof openBus> {
+function newBus(): ReturnType<typeof openComposedBus> {
   const root = mkdtempSync(path.join(tmpdir(), 'bus-inbox-'))
   roots.push(root)
-  return openBus(path.join(root, 'bus.db'))
+  return openComposedBus(path.join(root, 'bus.db'))
 }
 
 function event(type: string, fields: Partial<BusEvent>): BusEvent {

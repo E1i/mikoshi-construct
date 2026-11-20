@@ -8,7 +8,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { cardHoldOf } from '../../core/card-hold.js'
-import { appendEvent, BUS_DB_VARIABLE, openBus, openBusWait, openOwnerWait } from '../../core/db.js'
+import { appendEvent, BUS_DB_VARIABLE, openBusWait, openOwnerWait } from '../../core/db.js'
 import { CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, QUESTION_AGENT, QUESTION_OWNER, REQUEST_DONE, REQUEST_REFUSED } from '../../core/events.js'
 import { ANSWER_SOURCE, OPEN_OWNER_STOP_OF_CARD } from '../../core/inbox.js'
 import { completeTask, failTask, leaseNext } from '../../core/lease.js'
@@ -18,7 +18,7 @@ import { busCardAdmissions, busCardEvents, busHeldCards } from '../../intake/int
 import { sayToOwnerChannel, USED_WORD } from '../../owner/channel.js'
 import { mergePolicy } from '../../policy/policy.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
-import { busProjections, cardTransitions } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions, openComposedBus } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { requestFromWindow, requestOf, WindowRequests } from '../../window/window-requests.js'
 import { cardBody, sha } from './github-fake.js'
@@ -100,7 +100,7 @@ function amendWorld(): AmendWorld {
   const bus = path.join(root, 'bus.db')
   vi.stubEnv(BUS_DB_VARIABLE, bus)
   vi.stubEnv('HOME', root)
-  const db = openBus(bus)
+  const db = openComposedBus(bus)
   const body = `card: #${CARD} stopped-card [implement/runner/S/cheap/owner] · depends — · blocks —\nbranch: feat/card-${CARD}\ntouches: ${TOUCH}\ncontinue: stop\nwho: shift\n\nDo the thing.\n\nwitnesses: ${JSON.stringify([{ id: 'W1', run: 'pnpm exec vitest run tests/w1.test.ts', test: 'the W1 test', head: 'pass', base: 'fail', proves: 'what W1 proves' }])}\n`
   const admitted = runAdmit({ file: path.join(root, `${CARD}.md`), body, dir: repo, dryRun: false, autoConfirm: true, events: busCardEvents(db), admissions: busCardAdmissions(db), cardStates: () => busHeldCards(db) }, () => NOW)
   expect(admitted.status).toBe('admitted')

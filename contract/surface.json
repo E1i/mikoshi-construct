@@ -1805,7 +1805,7 @@
     },
     "bus:inbox": {
       "entries": [
-        "scripts/core/inbox.ts"
+        "scripts/owner/inbox.ts"
       ],
       "exits": [],
       "flags": [],

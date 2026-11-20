@@ -37,7 +37,7 @@ import { promptsDirOf } from '../../ports/prompt-store.js'
 import { CARD_SESSION_SANDBOX } from '../../ports/shift-settings.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { launchDirOf, restoreReport, savedReportOf, treeHoldsACommit, treePrOfThisBuild, treePrPublisher } from '../../ports/tree-publish.js'
-import { answerParts, cardAllowances, nodeLiveness, nodeSupply } from '../../supervisor/composition.js'
+import { answerParts, cardAllowances, composeBus, nodeLiveness, nodeSupply } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { answerCandidates } from './answer-candidates.js'
 import { AnswerExecutor } from './answer-executor.js'
@@ -240,7 +240,8 @@ export interface AnswerRun {
   pushPolicy?: AnswerParts['pushPolicy']
 }
 
-export function answerNodeOf(run: AnswerRun, db: DatabaseSync, mode: DetectionMode): AnswerNode {
+export function answerNodeOf(run: AnswerRun, bus: DatabaseSync, mode: DetectionMode): AnswerNode {
+  const db = composeBus(bus)
   return new AnswerNode({ ...nodeLiveness(), db, answerer: run.answerer, ownerMerges: run.ownerMerges, cardText: run.cardText, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, prompts: promptsDirOf(run.busPath), publishing: run.publishing, pushPolicy: run.pushPolicy, allowances: cardAllowances(db) })
 }
 

@@ -49,7 +49,7 @@
     "bus:bg": "node --import tsx scripts/supervisor/supervisor.ts",
     "bus:close": "node --import tsx scripts/nodes/close/close-worker.ts",
     "bus:import": "node --import tsx scripts/intake/import.ts",
-    "bus:inbox": "node --import tsx scripts/core/inbox.ts",
+    "bus:inbox": "node --import tsx scripts/owner/inbox.ts",
     "bus:launch": "node --import tsx scripts/nodes/launch/launch-root.ts",
     "bus:merge": "node --import tsx scripts/nodes/merge/merge-worker.ts",
     "bus:netwatch": "node --import tsx scripts/supervisor/netwatch-root.ts",
