@@ -3,8 +3,11 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { claudeAdapter, clientHome } from '../../ports/client/claude/adapter.js'
+import { clientHome } from '../../ports/client/claude/adapter.js'
+import { clientAdapter } from '../../ports/client/index.js'
 import { OsProcessTable } from '../../ports/process-table.js'
+
+const claudeAdapter = clientAdapter()
 
 const lsof = vi.hoisted(() => ({ run: (): string => '' }))
 
