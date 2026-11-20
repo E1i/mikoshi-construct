@@ -14,16 +14,27 @@
 # The publish is staged with `npm stage publish`, which npm has from 11.15.0 (trusted publishing itself
 # needs 11.5.1). The Node major pinned in .nvmrc ships npm 10, which has neither and publishes
 # unauthenticated — the registry answers `404 Not Found - PUT`. So the job upgrades npm before
-# publishing, and keeps the pinned Node so the harness runs where CI runs it.
+# publishing, and keeps the pinned Node CI builds on.
 #
 # A staged version is installable only once a human approves it, so the stage id is uploaded as the
 # release-stage artifact: Release verification reads it to tell a publish awaiting approval from one
-# that is absent. `changeset tag` then writes the git-tag report the action turns into tags and
-# GitHub releases, which `changeset publish` wrote before. The last step writes `npm stage approve <id>`
-# into the run summary, with the id from that record, or says nothing was staged.
+# that is absent. `changeset tag` then writes the git-tag report the action turns into tags, which
+# `changeset publish` wrote before. The action creates no GitHub release: it would send the whole
+# CHANGELOG section as the body, which GitHub refuses past 125000 characters. The step after it creates
+# the release of the tag (actions/github-script) from the body scripts/release-notes/release-body.ts
+# renders, a summary within a fixed budget that links the CHANGELOG at the tag; version-pr-guard.ts
+# renders the same body on the version pull request and is red when it is over the budget.
+# The last step writes `npm stage approve <id>` into the run summary, with the id from that record,
+# or says nothing was staged.
 #
 # When the action creates or updates the version pull request, its body gets a block of its own with
 # the diff of architecture/security-invariants.md since the last release tag, or «без изменений».
+#
+# The job does not run the harness itself: one process took 27–39 minutes for what CI, sharded, does
+# in about six on the same commit. It waits instead for CI's `required` check on github.sha, the one
+# check that aggregates every quality job, and stops before versioning or publishing unless that check
+# concluded success. A check still absent or running is waited on, up to CI_WAIT_SECONDS. The read
+# goes through scripts/ports/gh.ts, the one GitHub port scripts/core/gh-callers.ts holds every caller to.
 
 name: Release
 
@@ -37,6 +48,7 @@ permissions:
   contents: write
   pull-requests: write
   id-token: write
+  checks: read
 
 jobs:
   release:
@@ -59,7 +71,37 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm run quality
+      - name: Wait for the green CI quality on this commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ github.sha }}
+          CI_CHECK: required
+          CI_WAIT_SECONDS: 3600
+        run: |
+          node --import tsx --input-type=module -e '
+          import { execGh, readGhJson } from "./scripts/ports/gh.ts"
+          const { SHA, CI_CHECK, GITHUB_REPOSITORY } = process.env
+          const deadline = Date.now() + Number(process.env.CI_WAIT_SECONDS) * 1000
+          const checkRuns = `repos/${GITHUB_REPOSITORY}/commits/${SHA}/check-runs?check_name=${CI_CHECK}&filter=latest&per_page=100`
+          for (;;) {
+            const read = readGhJson(execGh, ["api", checkRuns])
+            const runs = read.kind === "read" ? read.value.check_runs.filter(run => run.app?.slug === "github-actions") : []
+            const latest = runs.sort((a, b) => a.id - b.id).at(-1)
+            const state = read.kind === "failed" ? `unread: ${read.reason}` : latest == null ? "absent" : `${latest.status} ${latest.conclusion}`
+            console.log(`CI ${CI_CHECK} on ${SHA}: ${state}`)
+            if (latest?.status === "completed" && latest.conclusion === "success")
+              process.exit(0)
+            if (latest?.status === "completed") {
+              console.log(`::error::CI ${CI_CHECK} on ${SHA} concluded ${latest.conclusion}; nothing is versioned or published`)
+              process.exit(1)
+            }
+            if (Date.now() >= deadline) {
+              console.log(`::error::CI ${CI_CHECK} on ${SHA} did not complete within ${process.env.CI_WAIT_SECONDS} seconds; nothing is versioned or published`)
+              process.exit(1)
+            }
+            await new Promise(resolve => setTimeout(resolve, 30_000))
+          }
+          '
 
       - name: Version or publish
         id: changesets
@@ -69,9 +111,41 @@ jobs:
           publish-script: pnpm release
           commit-message: 'chore: version packages'
           pr-title: 'chore: version packages'
+          create-github-releases: false
+          push-git-tags: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_CONFIG_PROVENANCE: 'true'
+
+      - name: Render the GitHub release body within its budget
+        id: release-body
+        if: steps.changesets.outputs.published == 'true'
+        run: pnpm exec tsx scripts/release-notes/release-body.ts
+
+      - name: GitHub release from the rendered release body
+        if: steps.changesets.outputs.published == 'true'
+        uses: actions/github-script@v8
+        env:
+          TAG: ${{ steps.release-body.outputs.tag }}
+          BODY_FILE: ${{ steps.release-body.outputs.body-file }}
+          SHA: ${{ github.sha }}
+        with:
+          script: |
+            const fs = require('node:fs')
+            const { TAG, BODY_FILE, SHA } = process.env
+            const body = fs.readFileSync(BODY_FILE, 'utf8')
+            const { owner, repo } = context.repo
+            try {
+              const { data } = await github.rest.repos.getReleaseByTag({ owner, repo, tag: TAG })
+              await github.rest.repos.updateRelease({ owner, repo, release_id: data.id, body })
+              core.info(`Updated the GitHub release ${TAG} with a body of ${body.length} characters.`)
+            }
+            catch (error) {
+              if (error.status !== 404)
+                throw error
+              await github.rest.repos.createRelease({ owner, repo, tag_name: TAG, name: TAG, target_commitish: SHA, body })
+              core.info(`Created the GitHub release ${TAG} with a body of ${body.length} characters.`)
+            }
 
       - name: Security invariants diff in the version pull request
         if: steps.changesets.outputs.published != 'true' && steps.changesets.outputs.pr-number != ''

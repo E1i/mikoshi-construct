@@ -1,0 +1,23 @@
+{
+  "events": "bus",
+  "tasks": "bus",
+  "projection_watermarks": "bus",
+  "projection_dirty": "bus",
+  "node_cursors": "bus",
+  "heartbeats": "bus",
+  "cards": "card-record",
+  "card_bodies": "card-record",
+  "owner_waits": "card-record",
+  "prs": "pr-record",
+  "mains": "pr-record",
+  "plans": "plan",
+  "plan_items": "plan",
+  "card_releases": "plan",
+  "chains": "session",
+  "roles": "node-restart",
+  "decisions": "decisions",
+  "check_tests": "quality",
+  "check_mutations": "quality",
+  "check_modules": "quality",
+  "check_document_reads": "quality"
+}

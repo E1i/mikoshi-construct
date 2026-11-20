@@ -1,15 +1,17 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ParkedTask } from '../../src/card/parking.js'
 import type { CardEvent } from '../../src/commands/intake/index.js'
+import type { EventData } from './events-query.js'
 import type { StoredEvent } from './stored.js'
 import { existsSync } from 'node:fs'
 import process from 'node:process'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { textSha } from '../../src/card/text-sha.js'
 import { parentsFromCardLines, pathsNamedOutside } from '../../src/commands/intake/admit.js'
-import { NOT_A_BACKFILL } from './backfill-source.js'
+import { isBackfill } from './backfill-source.js'
 import { CARD_VERSION, CARD_VERSION_KEY, cardVersionIn } from './bus-version.js'
 import { appendEvent, BUSY_TIMEOUT_MS } from './db.js'
+import { byId, latest, ofCard, perCard } from './events-query.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CONTINUED, CARD_STARTED, FACTORY_MODE, SLICE_PARENTS_BACKFILLED } from './events.js'
 import { openDatabase } from './sqlite.js'
 
@@ -19,10 +21,6 @@ export const DEFAULT_MODE: FactoryMode = 'window'
 const RETIRED_LANE_KEY = 'lane'
 
 export type FactoryMode = typeof FACTORY_MODES[number]
-
-const MODE_IN_FORCE = `SELECT json_extract(payload, '$.mode') AS mode FROM events WHERE legacy = 0 AND type = '${FACTORY_MODE}' ORDER BY id DESC LIMIT 1`
-
-const PREVIOUS_ADMISSION = `SELECT id, payload FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? ORDER BY id DESC LIMIT 1`
 
 interface ParsedColumns {
   who: string | null
@@ -68,8 +66,8 @@ export function isFactoryMode(mode: unknown): mode is FactoryMode {
 }
 
 export function factoryMode(db: DatabaseSync): FactoryMode {
-  const row = db.prepare(MODE_IN_FORCE).get() as { mode: unknown } | undefined
-  return isFactoryMode(row?.mode) ? row.mode : DEFAULT_MODE
+  const mode = latest(db, { types: [FACTORY_MODE] })?.data?.mode
+  return isFactoryMode(mode) ? mode : DEFAULT_MODE
 }
 
 function recordedTextSha(payload: string): string | null {
@@ -85,8 +83,8 @@ function recordedTextSha(payload: string): string | null {
 function versioned(db: DatabaseSync, event: CardEvent): CardEvent {
   if (event.type !== CARD_ADMITTED || typeof event.payload.text !== 'string')
     return event
-  const previous = db.prepare(PREVIOUS_ADMISSION).get(event.cardId) as { id: number, payload: string } | undefined
-  return { ...event, type: CARD_ADMITTED, payload: { ...event.payload, [CARD_VERSION_KEY]: CARD_VERSION, prevAdmissionId: previous?.id ?? null, prevTextSha: previous === undefined ? null : recordedTextSha(previous.payload) } }
+  const previous = latest(db, { types: [CARD_ADMITTED], card: event.cardId })
+  return { ...event, type: CARD_ADMITTED, payload: { ...event.payload, [CARD_VERSION_KEY]: CARD_VERSION, prevAdmissionId: previous?.id ?? null, prevTextSha: previous === null ? null : recordedTextSha(previous.payload) } }
 }
 
 export function laid(_db: DatabaseSync, event: CardEvent): CardEvent {
@@ -95,17 +93,18 @@ export function laid(_db: DatabaseSync, event: CardEvent): CardEvent {
   return { ...event, type: CARD_ADMITTED, payload: { ...event.payload, [RETIRED_LANE_KEY]: undefined } }
 }
 
-const LATEST_CARD_LINES = `
-  SELECT latest.card_id, coalesce(json_extract(latest.payload, '$.card'), json_extract(latest.payload, '$.text')) AS line, EXISTS (
-    SELECT 1 FROM events admission WHERE admission.legacy = 0 AND admission.type = '${CARD_ADMITTED}' AND admission.card_id = latest.card_id
-      AND json_valid(admission.payload) AND json_type(admission.payload, '$.parent') = 'object'
-  ) AS carrying
-  FROM events latest WHERE latest.id IN (
-    SELECT max(id) FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id IS NOT NULL AND json_valid(payload)
-      AND (json_type(payload, '$.card') = 'text' OR json_type(payload, '$.text') = 'text')
-    GROUP BY card_id
-  ) ORDER BY latest.card_id
-`
+function present(value: unknown): boolean {
+  return value !== undefined && value !== null
+}
+
+function namesALine(data: EventData | null): data is EventData {
+  return typeof data?.card === 'string' || typeof data?.text === 'string'
+}
+
+function carriesAParent(data: EventData | null): boolean {
+  const parent = data?.parent
+  return parent !== null && typeof parent === 'object' && !Array.isArray(parent)
+}
 
 interface CardLine {
   card: number
@@ -130,8 +129,13 @@ function sayOnStderr(line: string): void {
 }
 
 function latestCardLines(db: DatabaseSync): AdmittedCardLine[] {
-  const rows = db.prepare(LATEST_CARD_LINES).all() as { card_id: number, line: string, carrying: number }[]
-  return rows.map(row => ({ card: Number(row.card_id), line: row.line, carrying: Boolean(row.carrying) }))
+  return [...perCard(db, { types: [CARD_ADMITTED] })].flatMap(([card, admissions]) => {
+    const data = admissions.map(admission => admission.data).filter(namesALine).at(-1)
+    if (data === undefined)
+      return []
+    const line = (present(data.card) ? data.card : data.text) as string
+    return [{ card, line, carrying: admissions.some(admission => carriesAParent(admission.data)) }]
+  })
 }
 
 function admittedCardLines(db: DatabaseSync, except: number): CardLine[] {
@@ -160,21 +164,15 @@ export function appendCardEvent(db: DatabaseSync, actor: string, unversioned: Ca
   return appendEvent(db, { ts: event.ts, type: event.type, actor, cardId: event.cardId, pr: null, head: null, dedupeKey: event.dedupeKey, payload: event.payload, legacy: false })
 }
 
-const CARD_SESSIONS = `
-  SELECT json_extract(payload, '$.session') AS session FROM events
-  WHERE legacy = 0 AND type IN ('${CARD_STARTED}', '${CARD_CONTINUED}', '${CARD_ANSWERED}') AND card_id = ? AND json_valid(payload) AND json_type(payload, '$.session') = 'text'
-  ORDER BY id
-`
+const CARRIES_A_SESSION = [CARD_STARTED, CARD_CONTINUED, CARD_ANSWERED]
 
 export function cardSessionsIn(db: DatabaseSync, cardId: number): string[] {
-  return (db.prepare(CARD_SESSIONS).all(cardId) as { session: string }[]).map(row => row.session)
+  return ofCard(db, cardId, { types: CARRIES_A_SESSION }).flatMap(event => typeof event.data?.session === 'string' ? [event.data.session] : [])
 }
 
 export function cardBodyText(db: DatabaseSync, cardId: number): string | null {
   return (db.prepare(`SELECT text FROM ${CARD_BODIES} WHERE card_id = ?`).get(cardId) as { text: string } | undefined)?.text ?? null
 }
-
-const ADMITTED_TEXTS = `SELECT id, json_extract(payload, '$.text') AS text, json_extract(payload, '$.textSha') AS sha FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? AND json_valid(payload) AND json_type(payload, '$.text') = 'text' ORDER BY id DESC`
 
 export interface AdmittedBody {
   id: number
@@ -183,8 +181,10 @@ export interface AdmittedBody {
 }
 
 export function admittedBodies(db: DatabaseSync, cardId: number): AdmittedBody[] {
-  const rows = db.prepare(ADMITTED_TEXTS).all(cardId) as { id: number, text: string, sha: unknown }[]
-  return rows.filter(row => row.sha === textSha(row.text)).map(row => ({ id: Number(row.id), text: row.text, sha: String(row.sha) }))
+  return ofCard(db, cardId, { types: [CARD_ADMITTED], newestFirst: true }).flatMap(({ id, data }) => {
+    const text = data?.text
+    return typeof text === 'string' && data?.textSha === textSha(text) ? [{ id, text, sha: String(data.textSha) }] : []
+  })
 }
 
 export function admittedBodyText(db: DatabaseSync, cardId: number): string | null {
@@ -205,11 +205,14 @@ export function busAdmittedBodies(busPath: string): (cardId: number) => string |
   }
 }
 
-const ADMISSION_OF_THE_BODY = `SELECT admission.payload FROM ${CARD_BODIES} body LEFT JOIN events admission ON admission.id = body.admission_event_id WHERE body.card_id = ?`
+const ADMISSION_OF_THE_BODY = `SELECT admission_event_id FROM ${CARD_BODIES} WHERE card_id = ?`
 
 export function admittedCardVersion(db: DatabaseSync, cardId: number): number | null {
-  const row = db.prepare(ADMISSION_OF_THE_BODY).get(cardId) as { payload: string | null } | undefined
-  return row === undefined ? null : cardVersionIn(row.payload)
+  const row = db.prepare(ADMISSION_OF_THE_BODY).get(cardId) as { admission_event_id: number | null } | undefined
+  if (row === undefined)
+    return null
+  const admission = row.admission_event_id === null ? null : byId(db, Number(row.admission_event_id))
+  return cardVersionIn(admission?.payload ?? null)
 }
 
 export function pathsOutsideTheBody(db: DatabaseSync, cardId: number, text: string): string[] {
@@ -241,12 +244,6 @@ export function foldCardBody(db: DatabaseSync, event: StoredEvent): void {
       creates = excluded.creates, card_line = excluded.card_line, contour = excluded.contour, decision = excluded.decision, depends = excluded.depends
   `).run(event.card_id, event.id, text, payload.textSha, lane, columns.who, columns.priority, columns.branch, columns.touches, columns.creates, columns.card_line, columns.contour, columns.decision, columns.depends)
 }
-
-const ADMISSIONS_WITH_TEXT = `
-  SELECT id, payload FROM events
-  WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? AND ${NOT_A_BACKFILL} AND json_valid(payload) AND json_type(payload, '$.text') = 'text'
-  ORDER BY id DESC
-`
 
 const FOLDED_ADMISSION = `SELECT admission_event_id FROM ${CARD_BODIES} WHERE card_id = ?`
 
@@ -284,8 +281,8 @@ export function backfillPendingSliceParents(db: DatabaseSync, ts: string): Slice
 }
 
 export function bodyNotFoldedYet(db: DatabaseSync, cardId: number): boolean {
-  const admissions = db.prepare(ADMISSIONS_WITH_TEXT).all(cardId) as { id: number, payload: string }[]
-  const admission = admissions.find(row => carriesABody(JSON.parse(row.payload) as Record<string, unknown>))
+  const admissions = ofCard(db, cardId, { types: [CARD_ADMITTED], newestFirst: true })
+  const admission = admissions.find(({ data }) => data !== null && !isBackfill(data) && carriesABody(data))
   if (admission === undefined)
     return false
   const folded = db.prepare(FOLDED_ADMISSION).get(cardId) as { admission_event_id: number } | undefined

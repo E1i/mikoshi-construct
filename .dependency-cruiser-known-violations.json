@@ -2217,20 +2217,6 @@
   {
     "type": "dependency",
     "from": "scripts/ports/netwatch.ts",
-    "to": "scripts/supervisor/bg.ts",
-    "unresolvedTo": "../supervisor/bg.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "ports-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/ports/netwatch.ts",
     "to": "scripts/supervisor/heartbeat.ts",
     "unresolvedTo": "../supervisor/heartbeat.js",
     "dependencyTypes": [

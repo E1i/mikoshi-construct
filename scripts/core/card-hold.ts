@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { Queue } from './identifiers.js'
 import { appendEvent } from './db.js'
+import { EITHER_JOURNAL, events, ofCard } from './events-query.js'
 import { CARD_HELD, CARD_RELEASED, OPEN_QUESTION, OUTSIDE_TOUCHES, TASK_FAILED, TASK_REQUEUED } from './events.js'
 import { generationOfKey } from './identifiers.js'
 import { QUEUE_ACTOR, TASK_FOLDS, WITHDRAWN } from './queue.js'
@@ -41,15 +42,14 @@ export interface QueueTaskRow {
   state: string
 }
 
-const ANSWERS_WITHDRAWN_SINCE = `
-  SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head, tasks.state FROM tasks
-  JOIN events AS withdrawal ON withdrawal.id = tasks.event_id
-  WHERE tasks.card_id = ? AND tasks.queue = 'answer' AND tasks.state = ? AND withdrawal.id > ?
-    AND withdrawal.type = '${TASK_FAILED}' AND json_extract(withdrawal.payload, '$.reason') = 'held_for_owner'
-  ORDER BY tasks.task_key
+const ANSWERS_WITHDRAWN = `
+  SELECT task_key, queue, card_id, pr, head, state, event_id FROM tasks
+  WHERE card_id = ? AND queue = 'answer' AND state = ? AND event_id > ?
+  ORDER BY task_key
 `
 
-const HOLDS_OF_CARD = `SELECT id, type, json_extract(payload, '$.reason') AS reason, json_extract(payload, '$.takeover') AS takeover FROM events WHERE card_id = ? AND legacy = 0 AND type IN ('${CARD_HELD}', '${CARD_RELEASED}') ORDER BY id`
+const HELD_FOR_OWNER = 'held_for_owner'
+const HOLD_EVENTS = [CARD_HELD, CARD_RELEASED]
 const NO_REASON = 'the hold names no reason'
 
 export interface HoldLayer {
@@ -63,11 +63,15 @@ export interface HoldLayers {
   opened: number | null
 }
 
-interface HoldRow {
-  id: number
-  type: string
-  reason: unknown
-  takeover: unknown
+function withdrawnForTheOwner(db: DatabaseSync, opened: number, eventIds: readonly number[]): Set<number> {
+  const withdrawals = events(db, { types: [TASK_FAILED], since: opened, ids: eventIds, legacy: EITHER_JOURNAL })
+  return new Set(withdrawals.filter(withdrawal => withdrawal.data?.reason === HELD_FOR_OWNER).map(withdrawal => withdrawal.id))
+}
+
+function answersWithdrawnSince(db: DatabaseSync, cardId: number, opened: number): QueueTaskRow[] {
+  const rows = db.prepare(ANSWERS_WITHDRAWN).all(cardId, WITHDRAWN, opened) as unknown as (QueueTaskRow & { event_id: number })[]
+  const withdrawn = withdrawnForTheOwner(db, opened, rows.map(row => Number(row.event_id)))
+  return rows.filter(row => withdrawn.has(Number(row.event_id))).map(({ event_id: _eventId, ...task }) => task)
 }
 
 function latestLayerOf(layers: HoldLayers): 'owner' | 'takeover' | null {
@@ -78,8 +82,9 @@ function latestLayerOf(layers: HoldLayers): 'owner' | 'takeover' | null {
 
 export function holdLayersOf(db: DatabaseSync, cardId: number): HoldLayers {
   const layers: HoldLayers = { owner: null, takeover: null, opened: null }
-  for (const row of db.prepare(HOLDS_OF_CARD).all(cardId) as unknown as HoldRow[]) {
-    if (row.type === CARD_RELEASED) {
+  for (const { id, type, data } of ofCard(db, cardId, { types: HOLD_EVENTS })) {
+    const row = { id, reason: data?.reason, takeover: data?.takeover ?? null }
+    if (type === CARD_RELEASED) {
       const latest = latestLayerOf(layers)
       if (latest !== null)
         layers[latest] = null
@@ -101,7 +106,7 @@ export function holderOf(layers: HoldLayers): string | null {
 }
 
 export function answersWithdrawnByAClosedHold(db: DatabaseSync, cardId: number, opened: number | null): QueueTaskRow[] {
-  return opened === null || holderOf(holdLayersOf(db, cardId)) !== null ? [] : db.prepare(ANSWERS_WITHDRAWN_SINCE).all(cardId, WITHDRAWN, opened) as unknown as QueueTaskRow[]
+  return opened === null || holderOf(holdLayersOf(db, cardId)) !== null ? [] : answersWithdrawnSince(db, cardId, opened)
 }
 
 export function holdThatStays(db: DatabaseSync, cardId: number): string | null {

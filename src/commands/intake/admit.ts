@@ -9,7 +9,7 @@ import type { CardScope } from '../test-runner.js'
 import type { CheckedCard } from './check.js'
 import type { Confirmation } from './confirm.js'
 import type { DraftCard } from './draft.js'
-import type { CardAdmissionsPort, CardEventPort, CardStatesPort, RecordedIntake } from './index.js'
+import type { CardAdmissionsPort, CardEventPort, CardStatesPort, RecordedIntake, RecordedWitnessVerdict } from './index.js'
 import type { SlicedCard } from './slice.js'
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -398,6 +398,47 @@ export function untransferred(downgrades: readonly string[], previousText: strin
   })
 }
 
+const EXIT_ON_THE_BASE = /^ exits (\d+) on the (?:clean )?base /
+const NO_TEST_ON_THE_BASE = /^ matched no test on the base /
+const NO_TEST = 'no test'
+
+function baseReadingOf(record: RecordedWitnessVerdict, witness: string): typeof NO_TEST | number | null | undefined {
+  if (record.verdict === 'unfit')
+    return record.detail.includes(`witness "${witness}" `) ? NO_TEST : undefined
+  const opening = ['witness', 'invariant'].map(label => `P7: ${label} "${witness}"`).find(start => record.verdict === 'red' && record.detail.startsWith(start))
+  if (opening === undefined)
+    return undefined
+  const rest = record.detail.slice(opening.length)
+  if (NO_TEST_ON_THE_BASE.test(rest))
+    return NO_TEST
+  const status = EXIT_ON_THE_BASE.exec(rest)?.[1]
+  return status === undefined ? null : Number(status)
+}
+
+function meets(declared: WitnessExpectation, status: number): boolean {
+  if (declared === 'pass')
+    return status === 0
+  if (declared === 'fail')
+    return status !== 0
+  return declared === `exit:${status}`
+}
+
+export function deadOnTheBase(witness: string, records: readonly RecordedWitnessVerdict[]): boolean {
+  const declared = renderedWitness(witness)?.base ?? null
+  for (const record of [...records].reverse()) {
+    if (record.verdict === 'green')
+      return false
+    const reading = baseReadingOf(record, witness)
+    if (reading !== undefined)
+      return reading === NO_TEST || (reading !== null && declared !== null && !meets(declared, reading))
+  }
+  return false
+}
+
+function withoutDead(downgrades: readonly string[], records: readonly RecordedWitnessVerdict[]): string[] {
+  return downgrades.filter(witness => !deadOnTheBase(witness, records))
+}
+
 function standingReplacementAllowed(decisions: DecisionsPort, cardId: number): boolean {
   return writtenByTheOwner(decisions)
     .some(decision => (decision.cards.length === 0 || decision.cards.includes(cardId)) && decision.words.startsWith(EQUIVALENT_REPLACEMENT_ALLOWANCE))
@@ -660,7 +701,8 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const scope: BaseScope = { dir: options.dir, card: { touches: checked.touches, creates: createdPaths(checked.creates) }, createdAreTheChange: unreplaced.length > 0 && createdPathsAreTheChange(decisions) }
   const unrefined = unreplaced.length > 0 ? withoutRefinements(unreplaced, previous, witnessesOf(admitted.text), scope) : unreplaced
   const unmoved = unrefined.length > 0 ? withoutOwnerMoves(decisions, card.id, unrefined, previous, witnessesOf(admitted.text)) : unrefined
-  const downgrades = unmoved.length > 0 && witnessTransferIsNoDowngrade(decisions) ? untransferred(unmoved, recorded?.text ?? '', openCardTextsBeside(card.id, cards, options.admissions).flatMap(other => witnessFieldsOf(other) ?? [])) : unmoved
+  const untransferredDowngrades = unmoved.length > 0 && witnessTransferIsNoDowngrade(decisions) ? untransferred(unmoved, recorded?.text ?? '', openCardTextsBeside(card.id, cards, options.admissions).flatMap(other => witnessFieldsOf(other) ?? [])) : unmoved
+  const downgrades = withoutDead(untransferredDowngrades, recorded?.witnessRecords ?? [])
   if (downgrades.length > 0 && !ownerAllowed(decisions, card.id, downgrades, previous)) {
     const actions = downgrades.map(witness => downgradeAction(card.id, witness, previous))
     if (!options.dryRun)

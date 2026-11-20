@@ -8,11 +8,11 @@ import { observeChain } from '../../core/chain.js'
 import { openBus } from '../../core/db.js'
 import { reduce } from '../../core/reducer.js'
 import { EXIT_CRITERIA, PREFIX, shadowReading, shadowReport } from '../../core/report.js'
-import { NetWatch } from '../../ports/netwatch.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { BusTick } from '../../supervisor/run.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
 import { detectMerge } from './merge-detection.js'
+import { benchNetWatch } from './net-watch-bench.js'
 import { detectReview } from './review-detection.js'
 
 const roots: string[] = []
@@ -29,7 +29,7 @@ describe('shadow report', () => {
     const db = openBus(path.join(root, 'bus.db'))
     const gitHub = new FakeGitHub()
     const clock = new Clock()
-    const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now)
+    const busTick = new BusTick(db, busProjections(), benchNetWatch(db, gitHub.client, clock.now), clock.now)
     const tick = (): void => {
       busTick.run()
       detectReview({ db, gitHub, clock })
@@ -135,7 +135,7 @@ function reducedBus(): { db: DatabaseSync, clock: Clock } {
   const clock = new Clock()
   gitHub.open({ number: 930 })
   gitHub.open({ number: 931 })
-  new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now).run()
+  new BusTick(db, busProjections(), benchNetWatch(db, gitHub.client, clock.now), clock.now).run()
   clock.advance(TICK_MS)
   return { db, clock }
 }

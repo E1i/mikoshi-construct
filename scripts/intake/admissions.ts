@@ -5,6 +5,7 @@ import path from 'node:path'
 import { parseCard } from '../../src/card/grammar.js'
 import { ADMIT_SOURCE, isLaneName } from '../../src/commands/intake/admit.js'
 import { appendEvent } from '../core/db.js'
+import { EITHER_JOURNAL, events } from '../core/events-query.js'
 import { CARD_ADMITTED, INTAKE_EVENT, INTAKE_MOVE_EVENT } from '../core/events.js'
 import { cardIdOf } from '../core/identifiers.js'
 
@@ -27,13 +28,15 @@ interface Admission {
   contour: string | null
 }
 
-const INTAKE_LINES = `
-  SELECT ts, card_id, dedupe_key, payload FROM events
-  WHERE legacy = 1 AND type IN ('${INTAKE_EVENT}', '${INTAKE_MOVE_EVENT}')
-  ORDER BY id
-`
+const INTAKE_LINES = [INTAKE_EVENT, INTAKE_MOVE_EVENT]
 
-const RECORDED_BY_THE_PORT = `SELECT 1 FROM events WHERE legacy = 0 AND card_id = ? AND ts = ? AND actor LIKE '${INTAKE_ACTOR_PREFIX}%' LIMIT 1`
+function admittedAlready(db: DatabaseSync, row: IntakeRow): boolean {
+  return events(db, { keys: [`${CARD_ADMITTED}:${row.dedupe_key}`], legacy: EITHER_JOURNAL, limit: 1 }).length > 0
+}
+
+function recordedByThePort(db: DatabaseSync, cardId: number, ts: string | null): boolean {
+  return ts !== null && events(db, { card: cardId, ts, actorPrefix: INTAKE_ACTOR_PREFIX, limit: 1 }).length > 0
+}
 
 function lineOf(row: IntakeRow): Record<string, unknown> {
   try {
@@ -73,7 +76,7 @@ export function admitFromJournal(db: DatabaseSync, ts: string, laneOnDisk: LaneO
   const movedTo = new Map<number, string>()
   const cards = new Map<number, Omit<Admission, 'lane'>>()
   let admitted = 0
-  for (const row of db.prepare(INTAKE_LINES).all() as unknown as IntakeRow[]) {
+  for (const row of events(db, { types: INTAKE_LINES, legacy: true }) as IntakeRow[]) {
     const line = lineOf(row)
     const cardId = row.card_id ?? cardIdOf(line.task)
     if (cardId === null)
@@ -88,8 +91,7 @@ export function admitFromJournal(db: DatabaseSync, ts: string, laneOnDisk: LaneO
       movedTo.set(cardId, moved)
     if (isMove && moved === null)
       continue
-    const known = db.prepare('SELECT 1 FROM events WHERE dedupe_key = ?').get(`${CARD_ADMITTED}:${row.dedupe_key}`)
-    if (known !== undefined || db.prepare(RECORDED_BY_THE_PORT).get(cardId, row.ts) !== undefined)
+    if (admittedAlready(db, row) || recordedByThePort(db, cardId, row.ts))
       continue
     const present = laneOnDisk(cardId)
     if (present === null || !isLaneName(present))

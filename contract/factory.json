@@ -2532,6 +2532,19 @@
         "source": "owner",
         "writers": []
       },
+      "~/.construct/bus/factory.started": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/supervisor/launchd/install.ts",
+          "scripts/supervisor/start.ts"
+        ],
+        "owner": "scripts/supervisor/start.ts",
+        "source": "owner",
+        "writers": [
+          "scripts/supervisor/start.ts"
+        ]
+      },
       "~/.construct/bus/launch": {
         "derived": false,
         "directory": true,
@@ -2783,6 +2796,7 @@
         "namedIn": [
           "scripts/window/owner-command.ts",
           "src/commands/intake/admit.ts",
+          "src/commands/intake/check.ts",
           "src/commands/intake/index.ts",
           "src/commands/intake/shared-code-masks.ts"
         ],
@@ -3393,6 +3407,7 @@
         "scripts/supervisor/run.ts",
         "scripts/supervisor/supervisor.ts",
         "scripts/supervisor/review-bg.ts",
+        "scripts/supervisor/netwatch-root.ts",
         "scripts/core/report.ts",
         "scripts/core/reducer.ts",
         "scripts/nodes/answer/answer-worker.ts",
@@ -3412,6 +3427,7 @@
       "scripts/window/miko.ts",
       "scripts/intake/intake.ts",
       "scripts/supervisor/start.ts",
+      "scripts/supervisor/netwatch-root.ts",
       "scripts/supervisor/composition.ts"
     ],
     "exclusions": {
@@ -3471,6 +3487,7 @@
           "scripts/core/reducer.ts",
           "scripts/core/every.ts",
           "scripts/core/watermark.ts",
+          "scripts/core/events-query.ts",
           "scripts/core/entry.ts",
           "scripts/core/observations.ts",
           "scripts/core/task-must-wait.ts"
@@ -3496,6 +3513,7 @@
           "scripts/core/reducer.ts",
           "scripts/core/every.ts",
           "scripts/core/watermark.ts",
+          "scripts/core/events-query.ts",
           "scripts/core/entry.ts",
           "scripts/core/observations.ts",
           "scripts/core/task-must-wait.ts",
@@ -4107,6 +4125,7 @@
           "src/commands/liveness.ts",
           "scripts/supervisor/**",
           "!scripts/supervisor/composition.ts",
+          "!scripts/supervisor/netwatch-root.ts",
           "!scripts/supervisor/start.ts"
         ],
         "status": "decided"
@@ -4346,13 +4365,13 @@
       "scripts/cli/card.ts": 1,
       "scripts/cli/check-catalog.ts": 1,
       "scripts/core/bus-readings.ts": 4,
-      "scripts/core/card-automaton.ts": 13,
-      "scripts/core/card-bodies.ts": 7,
+      "scripts/core/card-automaton.ts": 6,
       "scripts/core/card-decisions.ts": 5,
-      "scripts/core/card-hold.ts": 2,
+      "scripts/core/card-hold.ts": 1,
       "scripts/core/chain.ts": 3,
       "scripts/core/db.ts": 3,
       "scripts/core/dependency-wait.ts": 3,
+      "scripts/core/events-query.ts": 1,
       "scripts/core/inbox.ts": 11,
       "scripts/core/journal.ts": 1,
       "scripts/core/lease.ts": 17,
@@ -4367,7 +4386,6 @@
       "scripts/core/stored.ts": 1,
       "scripts/core/tasks.ts": 3,
       "scripts/core/watermark.ts": 2,
-      "scripts/intake/admissions.ts": 3,
       "scripts/intake/card-contract.ts": 1,
       "scripts/intake/intake.ts": 7,
       "scripts/intake/parking-reads.ts": 1,
@@ -5024,7 +5042,7 @@
           "CardEvent": "interface CardEvent { type: typeof CARD_ADMITTED | typeof CARD_MOVED | typeof CARD_DROPPED | typeof CARD_WAITING; cardId: number; ts: string; dedupeKey: string; payload: Record<string, unknown>; }",
           "CardEventPort": "type CardEventPort = ((event: CardEvent) => void) & { allOrNothing?: (events: readonly CardEvent[]) => void; }",
           "CardStatesPort": "type CardStatesPort = () => CardsOfTheBus",
-          "RecordedIntake": "interface RecordedIntake { card: string; bodySha: unknown; ts: unknown; confirmation: unknown; source: unknown; text?: string; }"
+          "RecordedIntake": "interface RecordedIntake { card: string; bodySha: unknown; ts: unknown; confirmation: unknown; source: unknown; text?: string; witnessRecords?: readonly RecordedWitnessVerdict[]; }"
         }
       },
       "src/commands/intake/numbers.ts": {
@@ -5160,6 +5178,7 @@
           "clientIdFor": "(record: ClientRecord | undefined, role: ClientRole): string | null",
           "clientModelOf": "(record: ClientRecord | undefined): string",
           "isLaneCount": "(value: unknown): value is number",
+          "readManifest": "(root: string): Manifest | null",
           "readMilestones": "(root: string): string[] | undefined",
           "readShiftGate": "(root: string): ShiftGate",
           "upgradeManifest": "(raw: unknown): Manifest"
@@ -5324,6 +5343,21 @@
           "SliceWhere": "interface SliceWhere { card?: number | typeof ANY; pr?: number | typeof ANY; from?: number; actor?: string; present?: readonly string[]; legacy?: boolean; limit?: number; }"
         }
       },
+      "scripts/ports/card-grants.ts": {
+        "constants": [
+          "CARD_GRANTS: readonly CardGrant[]"
+        ],
+        "functions": {
+          "cardOfTree": "(tree: string): number | null",
+          "grantOf": "(card: number | null, grants: readonly CardGrant[] = CARD_GRANTS): CardGrant | null"
+        },
+        "language": "factory",
+        "reexports": [],
+        "technologyWords": [],
+        "types": {
+          "CardGrant": "interface CardGrant { card: number; decision: string; allow: readonly string[]; domains: readonly string[]; homeWrites: readonly string[]; }"
+        }
+      },
       "scripts/ports/card-tree.ts": {
         "constants": [
           "DERIVED_BASE",
@@ -5409,12 +5443,12 @@
           "WINDOW_KEPT_TOOLS",
           "WINDOW_MCP_CONFIG",
           "WINDOW_RESUME_REFUSAL",
-          "WINDOW_UNUSED_TOOLS",
-          "claudeAdapter: ClientAdapter"
+          "WINDOW_UNUSED_TOOLS"
         ],
         "functions": {
           "cardIsolationCommand": "(client: string): string[]",
           "cardLineOfConfig": "(config: Record<string, unknown>, size: string | undefined): CardLine | null",
+          "claudeAdapterWith": "<Settings extends object>(source: ShiftSettingsSource<Settings>): ClientAdapter",
           "clientHome": "(env: NodeJS.ProcessEnv): string",
           "clientLastSteps": "(env: NodeJS.ProcessEnv, worktree: string, session: string): string[] | null",
           "clientTranscript": "(env: NodeJS.ProcessEnv, worktree: string, session: string): string | null",
@@ -5448,12 +5482,14 @@
           "CardLine": "interface CardLine { line: number; key: string; }",
           "CommandJournal": "interface CommandJournal extends SessionJournal { commandRuns: readonly CommandRun[]; }",
           "MeasuredSubagent": "interface MeasuredSubagent { name: string; context: number; spent: number; at: string; }",
+          "ShiftSettingsSource": "interface ShiftSettingsSource<Settings extends object> { shiftSettings: (tree: string, gate: SessionGate, writable: string[]) => Settings; settingsFlag: (settings: Settings) => string[]; }",
           "StartContext": "interface StartContext { firstTurn: number | null; atMarker: number | null; }",
           "TranscriptCounters": "interface TranscriptCounters { input: number; cache_write: number; cache_read: number; }"
         }
       },
       "scripts/ports/client/codex/adapter.ts": {
         "constants": [
+          "WINDOW_CENSUS_GAPS: readonly { row: number; lacks: string; }[]",
           "codexAdapter: ClientAdapter"
         ],
         "functions": {},
@@ -5476,7 +5512,7 @@
         "types": {
           "BudgetPlace": "type BudgetPlace = Pick<SessionPlace, 'session' | 'cwd' | 'stdoutPath'>",
           "Capabilities": "interface Capabilities { identity: 'assigned' | 'reported'; ladder: boolean; reports: { cost: boolean; turns: boolean; model: boolean; denials: boolean; journal: boolean; }; guarantees: ClientGuarantees; }",
-          "ClientAdapter": "interface ClientAdapter { readonly id: string; readonly capabilities: Capabilities; invocation: (spec: SessionSpec) => Invocation | Refusal; reading: (place: SessionPlace) => SessionReading; readBudget: (place: BudgetPlace) => ReadBudget; models: () => ModelOffer[] | null; modelFor: (role: Role, effort: Effort | null, wanted: ModelChoice) => ModelPick | Refusal; processes: ClientProcesses; ownSession: (env: NodeJS.ProcessEnv) => string | null; }",
+          "ClientAdapter": "interface ClientAdapter { readonly id: string; readonly capabilities: Capabilities; invocation: (spec: SessionSpec) => Invocation | Refusal; window: () => WindowCommand | Refusal; reading: (place: SessionPlace) => SessionReading; readBudget: (place: BudgetPlace) => ReadBudget; models: () => ModelOffer[] | null; modelFor: (role: Role, effort: Effort | null, wanted: ModelChoice) => ModelPick | Refusal; processes: ClientProcesses; ownSession: (env: NodeJS.ProcessEnv) => string | null; }",
           "ClientGuarantees": "interface ClientGuarantees { allowlist: boolean; writeConfinement: boolean; mcpOff: boolean; toolNarrowing: boolean; guardFailsClosed: boolean; }",
           "ClientProcesses": "interface ClientProcesses { isClient: (argv: string) => boolean; sessionMarker: (session: string) => string | null; processNames: readonly string[]; isolationCommand: () => string[]; }",
           "Denial": "interface Denial { tool: string; path: string | null; command: string | null; text: string; }",
@@ -5497,7 +5533,8 @@
           "SessionSpec": "interface SessionSpec { kind: 'start' | 'resume'; role: Role; session: string; cwd: string; prompt: string; addDirs: string[]; pick: Pick<ModelPick, 'model'> & Partial<Pick<ModelPick, 'effort'>>; policy: SessionPolicy; }",
           "SessionTool": "type SessionTool = 'web' | 'skills' | 'agents'",
           "ToolUse": "interface ToolUse { kind: 'write' | 'exec' | 'other'; command: string | null; path: string | null; }",
-          "Usage": "interface Usage { input: number; cached: number; cacheWrite: number; output: number; reasoning: number; }"
+          "Usage": "interface Usage { input: number; cached: number; cacheWrite: number; output: number; reasoning: number; }",
+          "WindowCommand": "interface WindowCommand { variable: string; command: (env: NodeJS.ProcessEnv) => string; }"
         }
       },
       "scripts/ports/client/index.ts": {
@@ -5505,7 +5542,10 @@
         "functions": {
           "clientAdapter": "(): ClientAdapter",
           "clientAdapterById": "(id: string): ClientAdapter | Refusal",
-          "clientForRole": "(record: ClientRecord | undefined, role: ClientRole): ClientChoice | Refusal"
+          "clientForRole": "(record: ClientRecord | undefined, role: ClientRole): ClientChoice | Refusal",
+          "clientForRoleIn": "(root: string, role: ClientRole): ClientChoice | Refusal",
+          "defaultWindowCommand": "(): WindowCommand",
+          "windowCommandIn": "(root: string): WindowCommand | Refusal"
         },
         "language": "factory",
         "reexports": [],
@@ -5727,14 +5767,13 @@
       "scripts/ports/main-merge.ts": {
         "constants": [],
         "functions": {
-          "conflictingCardOf": "(db: DatabaseSync, cardId: number, branch: string, head: string): ConflictingCard",
+          "conflictingCardOf": "(outsideTheBody: OutsideTheBody, cardId: number, branch: string, head: string): ConflictingCard",
           "mainKeptInTheTree": "(tree: string): MergeMain",
           "mainMergeInCardTree": "(git: TreeGit, treeOf: (cardId: number) => string, run: RebuildRunner = pnpmRebuild, merged: MergedMain = 'pushed'): MergeMain"
         },
         "language": "technology",
         "reexports": [],
         "technologyWords": [
-          "database",
           "git",
           "pnpm",
           "stderr"
@@ -5744,6 +5783,7 @@
           "MainMerge": "type MainMerge = { kind: 'merged'; to: string; tookMain: string[]; rebuilt: string[]; } | { kind: 'inside'; files: string[]; } | { kind: 'refused'; why: string; }",
           "MergeMain": "type MergeMain = (card: ConflictingCard) => MainMerge",
           "MergedMain": "type MergedMain = 'pushed' | 'kept-in-the-tree'",
+          "OutsideTheBody": "type OutsideTheBody = (cardId: number, files: readonly string[]) => string[]",
           "RebuildRunner": "type RebuildRunner = (cwd: string, args: readonly string[]) => { status: number | null; stderr: string; }",
           "TreeGit": "type TreeGit = (cwd: string, args: string[]) => string"
         }
@@ -5782,7 +5822,8 @@
           "observationsOf": "(ts: string, snapshot: Snapshot, previousOf: PreviousObservationOf, reopening: ReopeningOf = () => null): BusEvent[]",
           "pollLine": "(poll: Poll): string",
           "prClosed": "(ts: string, closed: ClosedPr, reopening: number | null = null): BusEvent",
-          "prObserved": "(ts: string, open: OpenPr, previous: PreviousObservation | null): BusEvent"
+          "prObserved": "(ts: string, open: OpenPr, previous: PreviousObservation | null): BusEvent",
+          "watchTheNetwork": "(requiredCheck: () => string, once: boolean): Promise<number>"
         },
         "language": "technology",
         "reexports": [],
@@ -5791,7 +5832,7 @@
           "git"
         ],
         "types": {
-          "NetWatch": "class NetWatch { constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly clock: () => Date, private readonly process: string = RUN_SCRIPT, private readonly root?: string); dueReason(nowMs: number): PollReason | null; poll(): Poll | null }",
+          "NetWatch": "class NetWatch { constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly clock: () => Date, private readonly process: string, private readonly requiredCheck: () => string); dueReason(nowMs: number): PollReason | null; poll(): Poll | null }",
           "Poll": "type Poll = { kind: 'ticked'; reason: PollReason; calls: number; remaining: number | null; written: number; unsettled: number[]; } | { kind: 'skipped'; reason: PollReason; cause: 'retry-after' | 'rate-limited' | 'failed'; calls: number; until?: string; detail?: string; }",
           "PollReason": "type PollReason = 'start' | 'interval' | 'wake'"
         }
@@ -5965,13 +6006,13 @@
         ],
         "functions": {
           "settingsFlag": "(settings: ShiftSettings): string[]",
-          "shiftSettings": "(tree: string, gate: ShiftGate, writable: string[] = [], home: string = os.homedir()): ShiftSettings"
+          "shiftSettings": "(tree: string, gate: ShiftGate, writable: string[] = [], home: string = os.homedir(), card: number | null = cardOfTree(tree)): ShiftSettings"
         },
         "language": "factory",
         "reexports": [],
         "technologyWords": [],
         "types": {
-          "ShiftSettings": "interface ShiftSettings { sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[]; filesystem?: { denyWrite: string[]; }; }; permissions: { allow: string[]; deny?: string[]; }; env: typeof SESSION_BASH_CAP; hooks: typeof WIDE_VITEST_HOOKS; }"
+          "ShiftSettings": "interface ShiftSettings { sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[]; filesystem?: { allowWrite?: string[]; denyWrite?: string[]; }; network: { allowedDomains?: string[]; }; }; permissions: { allow: string[]; deny?: string[]; }; env: typeof SESSION_BASH_CAP; hooks: typeof WIDE_VITEST_HOOKS; }"
         }
       },
       "scripts/ports/snapshot.ts": {
@@ -5985,7 +6026,7 @@
           "PULL_FILES_PAGES"
         ],
         "functions": {
-          "requiredCheckOf": "(root: string = watchedRoot()): string",
+          "requiredCheckOf": "(readAttachRecord: AttachRecordReader, root: string = watchedRoot()): string",
           "takeSnapshot": "(meter: Meter, known: number[], lastMain: string | null, requiredCheck = REQUIRED_CHECK, recordedPathsOf: RecordedPathsOf = () => null): Snapshot",
           "touchesMechanics": "(files: string[]): boolean",
           "verdictOf": "(meter: Meter, sha: string): VerdictOnHead | null",
@@ -5998,6 +6039,8 @@
         ],
         "technologyWords": [],
         "types": {
+          "AttachRecordReader": "type AttachRecordReader = (root: string) => AttachedHarness | null",
+          "AttachedHarness": "interface AttachedHarness { harness: { job?: string; } | string; }",
           "ChangedPaths": "interface ChangedPaths { paths: string[]; pathsTruncated: boolean; }",
           "ClosedPr": "interface ClosedPr { pr: number; cardId: number | null; branch?: string | null; merged: boolean; commit: string | null; mergedBy: string | null; mergedAt: string | null; }",
           "InMemoryPulls": "class InMemoryPulls { asked: string[]; constructor(private readonly bodies: Readonly<Record<string, unknown>>); meter(): Meter }",
@@ -6182,6 +6225,6 @@
         }
       }
     },
-    "portsVersion": 4
+    "portsVersion": 6
   }
 }

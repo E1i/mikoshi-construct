@@ -28,7 +28,6 @@ import { answerLeaseOrder } from '../../nodes/answer/answer-worker.js'
 import { busReviewPulse } from '../../nodes/review/review-worker.js'
 import { RECUT_ACTOR } from '../../policy/round-limit-decision.js'
 import { windowShardEnded } from '../../policy/shards.js'
-import { NetWatch } from '../../ports/netwatch.js'
 import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { busSessionPulse, recordHeartbeat, recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
 import { BusTick } from '../../supervisor/run.js'
@@ -38,6 +37,7 @@ import { stateLines } from '../../window/handoff-write.js'
 import { foldPlanEvent } from '../../window/plan-folds.js'
 import { recordWindowHeartbeat } from '../../window/window-heartbeat.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
+import { benchNetWatch } from './net-watch-bench.js'
 import { detectReview } from './review-detection.js'
 
 const REVIEW_PID = 4242
@@ -82,7 +82,7 @@ function boardBench(): BoardBench {
   const gitHub = new FakeGitHub()
   const clock = new Clock()
   const bench: BoardBench = { db, gitHub, clock, watched: [reviewWorker(REVIEW_PID)], leaseOrders: {}, boards: [], tick: () => bench.boards.at(-1)!, ts: () => clock.now().toISOString() }
-  const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now)
+  const busTick = new BusTick(db, busProjections(), benchNetWatch(db, gitHub.client, clock.now), clock.now)
   bench.tick = () => {
     const before = bench.boards.length
     busTick.run()

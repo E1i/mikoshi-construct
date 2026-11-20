@@ -1,7 +1,11 @@
+import type { GhCaller } from '../scripts/ports/gh.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import config from '../docs/.vitepress/config.js'
+import { GH_PORT, stepCallsGitHub } from '../scripts/core/gh-callers.js'
+import { readGhJson } from '../scripts/ports/gh.js'
 import { CHANGELOG_PATH, handWrittenNotes, INDEX_PATH, parseChangelog, releaseAnchor, releaseSidebarItems } from '../scripts/release-notes/changelog.js'
 import { parseNotices, unansweredNotices } from '../scripts/release-notes/notices.js'
 import { renderIndex } from '../scripts/release-notes/render.js'
@@ -185,6 +189,177 @@ describe('the harness runs on every change, so the gates inside it cannot sit of
     const filtered = triggerBlock().replace('pull_request:', 'pull_request:\n    paths:\n      - src/**')
     expect(filtered).toContain('paths')
     expect(triggerBlock()).not.toBe(filtered)
+  })
+})
+
+describe('release does not run the whole quality in one process', () => {
+  interface Step { name?: string, uses?: string, run?: string, env?: Record<string, unknown> }
+  interface Job { needs?: string | string[], steps?: Step[] }
+  interface Workflow { on?: { push?: { branches?: string[] } }, jobs?: Record<string, Job> }
+
+  const QUALITY_JOBS = ['checks', 'lint', 'typecheck', 'vitest', 'docs']
+
+  function workflow(name: string): Workflow {
+    return parseYaml(readFileSync(path.join(REPO_ROOT, `.github/workflows/${name}`), 'utf8')) as Workflow
+  }
+
+  function runsQuality(step: Step): boolean {
+    return /\bpnpm\s+(?:run\s+)?(?:quality|ci)\b/.test(step.run ?? '') && !/\bpnpm\s+ci\b/.test(step.run ?? '')
+  }
+
+  function gateFaults(release: Workflow, ci: Workflow): string[] {
+    const steps = release.jobs?.release?.steps ?? []
+    const publish = steps.findIndex(step => step.uses?.startsWith('changesets/action@') === true)
+    const faults: string[] = []
+    if (publish === -1)
+      faults.push('no changesets step')
+    if (steps.some(runsQuality))
+      faults.push('runs quality in one process')
+    const waits = steps.slice(0, Math.max(publish, 0)).filter(step => /check-runs\?check_name=/.test(step.run ?? ''))
+    const check = waits.map(step => String(step.env?.CI_CHECK ?? '')).find(name => name !== '')
+    if (check == null) {
+      faults.push('no wait on a CI check before publishing')
+    }
+    else {
+      const wait = waits.find(step => step.env?.CI_CHECK === check)!
+      if (!/^\$\{\{\s*github\.sha\s*\}\}$/.test(String(wait.env?.SHA ?? '')))
+        faults.push('waits on another commit')
+      if (!/latest\?\.status === "completed" && latest\.conclusion === "success"\)\s*process\.exit\(0\)/.test(wait.run ?? ''))
+        faults.push('does not require success')
+      if (!(wait.run ?? '').includes(`./${GH_PORT}`))
+        faults.push('does not read through the GitHub port')
+      const needs = ci.jobs?.[check]?.needs ?? []
+      const missing = QUALITY_JOBS.filter(job => !([needs].flat()).includes(job))
+      if (missing.length > 0)
+        faults.push(`${check} does not aggregate ${missing.join(', ')}`)
+    }
+    if (!(ci.on?.push?.branches ?? []).includes('main'))
+      faults.push('CI does not run on a push to main')
+    if (stepCallsGitHub(stringifyYaml(release)))
+      faults.push('calls GitHub outside the port')
+    return faults
+  }
+
+  const release = workflow('release.yml')
+  const ci = workflow('ci.yml')
+
+  it('release does not run the whole quality in one process', () => {
+    expect(gateFaults(release, ci)).toEqual([])
+  })
+
+  it('goes red when the release job runs quality again', () => {
+    const steps = [{ run: 'pnpm run quality' }, ...(release.jobs?.release?.steps ?? [])]
+    expect(gateFaults({ ...release, jobs: { release: { steps } } }, ci)).toContain('runs quality in one process')
+  })
+
+  it('goes red when the wait on CI is removed or moved after the publish', () => {
+    const steps = release.jobs?.release?.steps ?? []
+    const without = steps.filter(step => step.env?.CI_CHECK == null)
+    expect(gateFaults({ ...release, jobs: { release: { steps: without } } }, ci)).toContain('no wait on a CI check before publishing')
+    const wait = steps.find(step => step.env?.CI_CHECK != null)!
+    expect(gateFaults({ ...release, jobs: { release: { steps: [...without, wait] } } }, ci)).toContain('no wait on a CI check before publishing')
+  })
+
+  it('goes red when the wait calls gh in its step instead of the port', () => {
+    const steps = (release.jobs?.release?.steps ?? []).map(step => step.env?.CI_CHECK == null ? step : { ...step, run: `gh api "repos/o/r/commits/$SHA/check-runs?check_name=required"\n` })
+    const faults = gateFaults({ ...release, jobs: { release: { steps } } }, ci)
+    expect(faults).toContain('calls GitHub outside the port')
+    expect(faults).toContain('does not read through the GitHub port')
+  })
+
+  it('goes red when the awaited CI job stops aggregating a quality job', () => {
+    const jobs = { ...ci.jobs, required: { ...ci.jobs?.required, needs: ['changes', 'lint'] } }
+    expect(gateFaults(release, { ...ci, jobs })).toContainEqual(expect.stringContaining('does not aggregate'))
+  })
+})
+
+describe('the wait step stops the release unless the latest CI check on the commit succeeded', () => {
+  interface CheckRun { id: number, status: string, conclusion: string | null, app?: { slug: string } }
+  interface WaitOutcome { exit: number | 'still waiting', polls: number }
+
+  const POLL_CAP = 1000
+  const WAIT_SECONDS = 90
+  const ACTIONS = { slug: 'github-actions' }
+
+  type WaitBody = (gh: GhCaller, read: typeof readGhJson, proc: unknown, clock: unknown, sleep: unknown, log: unknown) => Promise<void>
+  const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor as new (...params: string[]) => WaitBody
+
+  function waitScript(): string {
+    const release = parseYaml(readFileSync(path.join(REPO_ROOT, '.github/workflows/release.yml'), 'utf8')) as { jobs: { release: { steps: { run?: string, env?: Record<string, unknown> }[] } } }
+    const run = release.jobs.release.steps.find(step => step.env?.CI_CHECK != null)?.run ?? ''
+    const body = /-e '([\s\S]*)'\s*$/.exec(run)?.[1] ?? ''
+    const port = /^\s*import \{ execGh, readGhJson \} from "[^"]+"\s*$/m
+    expect(body, 'the wait step names its script inline and imports the GitHub port').toMatch(port)
+    return body.replace(port, '')
+  }
+
+  async function runWait(polls: CheckRun[][]): Promise<WaitOutcome> {
+    let now = 0
+    let calls = 0
+    const gh: GhCaller = () => {
+      calls += 1
+      if (calls > POLL_CAP)
+        throw new Error('still waiting')
+      return { kind: 'ran', stdout: JSON.stringify({ check_runs: polls[Math.min(calls, polls.length) - 1] }), attempts: 1 }
+    }
+    const proc = {
+      env: { SHA: 'abc123', CI_CHECK: 'required', GITHUB_REPOSITORY: 'o/r', CI_WAIT_SECONDS: String(WAIT_SECONDS) },
+      exit: (code: number) => {
+        throw Object.assign(new Error('exit'), { code })
+      },
+    }
+    const clock = { now: () => now }
+    const sleep = (resolve: () => void, ms: number) => {
+      now += ms
+      resolve()
+    }
+    const body = new AsyncFunction('execGh', 'readGhJson', 'process', 'Date', 'setTimeout', 'console', waitScript())
+    try {
+      await body(gh, readGhJson, proc, clock, sleep, { log: () => {} })
+    }
+    catch (error) {
+      if (error instanceof Error && 'code' in error)
+        return { exit: error.code as number, polls: calls }
+      if (error instanceof Error && error.message === 'still waiting')
+        return { exit: 'still waiting', polls: POLL_CAP }
+      throw error
+    }
+    return { exit: 'still waiting', polls: calls }
+  }
+
+  it('passes on the first poll that reads a successful check', async () => {
+    expect(await runWait([[{ id: 1, status: 'completed', conclusion: 'success', app: ACTIONS }]])).toEqual({ exit: 0, polls: 1 })
+  })
+
+  it('stops the job at once when the check completed with any conclusion other than success', async () => {
+    for (const conclusion of ['failure', 'cancelled', 'timed_out'])
+      expect(await runWait([[{ id: 1, status: 'completed', conclusion, app: ACTIONS }]]), conclusion).toEqual({ exit: 1, polls: 1 })
+  })
+
+  it('stops the job at the deadline when the check never completes, instead of waiting forever', async () => {
+    const outcome = await runWait([[{ id: 1, status: 'in_progress', conclusion: null, app: ACTIONS }]])
+    expect(outcome.exit).toBe(1)
+    expect(outcome.polls).toBeLessThanOrEqual(WAIT_SECONDS / 30 + 1)
+  })
+
+  it('stops the job at the deadline when no check run appears on the commit', async () => {
+    expect((await runWait([[]])).exit).toBe(1)
+  })
+
+  it('judges the latest GitHub Actions run, not another app\'s run or an older run listed last', async () => {
+    const runs = [
+      { id: 2, status: 'completed', conclusion: 'success', app: ACTIONS },
+      { id: 9, status: 'completed', conclusion: 'failure', app: { slug: 'another-app' } },
+      { id: 1, status: 'completed', conclusion: 'failure', app: ACTIONS },
+    ]
+    expect(await runWait([runs])).toEqual({ exit: 0, polls: 1 })
+    expect(await runWait([[...runs, { id: 3, status: 'completed', conclusion: 'failure', app: ACTIONS }]])).toEqual({ exit: 1, polls: 1 })
+  })
+
+  it('keeps polling while the latest run is in progress and follows it to its conclusion', async () => {
+    const pending = { id: 4, status: 'in_progress', conclusion: null, app: ACTIONS }
+    const done = { ...pending, status: 'completed', conclusion: 'success' }
+    expect(await runWait([[pending], [pending], [done]])).toEqual({ exit: 0, polls: 3 })
   })
 })
 

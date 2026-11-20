@@ -45,7 +45,7 @@ const within = (folder: string, ...names: string[]): string[] => names.map(name 
 const core = (...names: string[]): string[] => within(factory('core'), ...names)
 const supervisor = (...names: string[]): string[] => within(factory('supervisor'), ...names.map(name => `${name}.ts`))
 
-const BUS_CONTRACT = core('db.ts', 'sqlite.ts', 'queue.ts', 'dependency-wait.ts', 'lease.ts', 'node.ts', 'stored.ts', 'errors.ts', 'bus-path.ts', 'bus-readings.ts', 'bus-version.ts', 'reducer.ts', 'every.ts', 'watermark.ts', 'entry.ts', 'observations.ts', 'task-must-wait.ts')
+const BUS_CONTRACT = core('db.ts', 'sqlite.ts', 'queue.ts', 'dependency-wait.ts', 'lease.ts', 'node.ts', 'stored.ts', 'errors.ts', 'bus-path.ts', 'bus-readings.ts', 'bus-version.ts', 'reducer.ts', 'every.ts', 'watermark.ts', 'events-query.ts', 'entry.ts', 'observations.ts', 'task-must-wait.ts')
 
 const SESSION_CONTRACT = [
   ...core('machine-sessions.ts', 'eddies.ts', 'journal.ts', 'tasks.ts', 'handoff-dir.ts', 'handoff-fields.ts', 'handoff-status.ts', 'card-automaton.ts', 'card-hold.ts', 'chain.ts', 'places.ts', 'report.ts', 'legacy-history.ts', 'import-closure.ts', 'cadence.ts'),
@@ -57,7 +57,7 @@ const SESSION_CONTRACT = [
 
 export const COMPOSITION_MODULE = factory('supervisor/composition.ts')
 
-export const COMPOSITION_ROOTS: readonly string[] = ['src/cli.ts', 'src/program.ts', factory('window/miko.ts'), factory('intake/intake.ts'), factory('supervisor/start.ts'), COMPOSITION_MODULE]
+export const COMPOSITION_ROOTS: readonly string[] = ['src/cli.ts', 'src/program.ts', factory('window/miko.ts'), factory('intake/intake.ts'), factory('supervisor/start.ts'), factory('supervisor/netwatch-root.ts'), COMPOSITION_MODULE]
 
 export const OWNS_ARE_THE_CONTRACT = 'owns'
 
@@ -244,7 +244,7 @@ export const MODULES: Readonly<Record<string, ModuleSpec>> = carvedOut(drawnWith
 const WORKER_FILE = /-worker\.ts$/
 const WORKER_ENTRIES = [...Object.values(FACTORY_WORKERS).filter(file => WORKER_FILE.test(file)), ...Object.values(FACTORY_WORKERS).filter(file => !WORKER_FILE.test(file))]
 
-const PROCESS_ROOTS = [...supervisor('start', 'run', 'supervisor', 'review-bg'), ...core('report.ts', 'reducer.ts'), ...WORKER_ENTRIES, factory('window/handoff-write.ts')]
+const PROCESS_ROOTS = [...supervisor('start', 'run', 'supervisor', 'review-bg', 'netwatch-root'), ...core('report.ts', 'reducer.ts'), ...WORKER_ENTRIES, factory('window/handoff-write.ts')]
 
 export const COMPOSITION_IMPORTS: Readonly<Record<string, readonly string[]>> = { [COMPOSITION_MODULE]: PROCESS_ROOTS }
 

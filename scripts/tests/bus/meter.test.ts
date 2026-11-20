@@ -7,7 +7,7 @@ import { mustWait, retryAfterSecondsIn } from '../../core/task-must-wait.js'
 import { GhBudgetWindow, ghPort } from '../../ports/gh.js'
 import { BUDGET_SPENT_STATUS, ghApi } from '../../ports/github.js'
 import { DEFAULT_RETRY_AFTER_S, GitHubFailed, Meter, RateLimited } from '../../ports/meter.js'
-import { NetWatch } from '../../ports/netwatch.js'
+import { benchNetWatch } from './net-watch-bench.js'
 
 const roots: string[] = []
 
@@ -62,7 +62,7 @@ describe('the meter over the gh port', () => {
     roots.push(root)
     const db = openBus(path.join(root, 'bus.db'))
     const start = new Date('2026-10-21T00:00:00.000Z')
-    const poll = new NetWatch(db, ghApi('.', oneCallBudgetPort()), () => start).poll()
+    const poll = benchNetWatch(db, ghApi('.', oneCallBudgetPort()), () => start).poll()
     expect(poll).toMatchObject({ kind: 'skipped', cause: 'rate-limited', until: new Date(start.getTime() + BUDGET_WINDOW_S * 1000).toISOString(), detail: `GitHub answered ${BUDGET_SPENT_STATUS}; retry after ${BUDGET_WINDOW_S} s` })
     db.close()
   })

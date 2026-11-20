@@ -13,11 +13,11 @@ import { ReviewWorker } from '../../nodes/review/review-worker.js'
 import { claudeReviewer, DECISIONS_BAR_LINE, ReviewTrees } from '../../nodes/review/reviewer.js'
 import { namesCard } from '../../policy/decisions/decisions.js'
 import { recordDecision } from '../../policy/decisions/index.js'
-import { NetWatch } from '../../ports/netwatch.js'
 import { busProjections, candidateRules } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { Clock, FakeGitHub, sha } from '../bus/github-fake.js'
+import { benchNetWatch } from '../bus/net-watch-bench.js'
 import { detectReview } from '../bus/review-detection.js'
 
 const CARD = 2056
@@ -45,7 +45,7 @@ async function promptOfTheReview(decisions: readonly Recorded[]): Promise<string
   const db = openBus(path.join(root, 'bus.db'))
   const gitHub = new FakeGitHub()
   const clock = new Clock()
-  const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now)
+  const busTick = new BusTick(db, busProjections(), benchNetWatch(db, gitHub.client, clock.now), clock.now)
   const ts = (): string => clock.now().toISOString()
   appendEvent(db, { ts: ts(), type: CARD_ADMITTED, actor: 'worker:intake:s1', cardId: CARD, pr: null, head: null, dedupeKey: `admitted-${CARD}`, payload: { card: CARD, lane: 'lane-1', text: CARD_TEXT, textSha: textSha(CARD_TEXT), bodySha: 'aaaa1111bbbb2222' }, legacy: false })
   for (const { decisionId, text } of decisions)
