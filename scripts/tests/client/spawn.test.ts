@@ -22,8 +22,9 @@ import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
 const client = vi.hoisted(() => ({ binary: '', specs: [] as SessionSpec[] }))
 
 vi.mock('../../ports/client/index.js', async () => {
-  const actual = await vi.importActual<{ clientAdapter: () => ClientAdapter }>('../../ports/client/index.js')
+  const actual = await vi.importActual<typeof import('../../ports/client/index.js')>('../../ports/client/index.js')
   return {
+    ...actual,
     clientAdapter: (): ClientAdapter => ({
       ...actual.clientAdapter(),
       invocation: (spec) => {

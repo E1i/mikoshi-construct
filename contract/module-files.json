@@ -678,6 +678,7 @@
     "scripts/tests/client/spawn.test.ts",
     "scripts/tests/client/startcost-hooks.test.ts",
     "scripts/tests/client/startcost.test.ts",
+    "scripts/tests/client/window-from-contract.test.ts",
     "scripts/tests/client/window.test.ts",
     "scripts/tests/composition/files.test.ts",
     "scripts/tests/composition/model.test.ts",

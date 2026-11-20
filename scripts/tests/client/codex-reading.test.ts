@@ -136,7 +136,7 @@ describe('the invocation', () => {
     expect(args.filter(word => word.startsWith('--dangerously') || word.includes('hook') || word === '-c')).toEqual([])
   })
 
-  it.each(['launch', 'answer', 'ladder', 'ghost', 'window'] satisfies Role[])('the role %s is a refusal naming read-only review', (role) => {
+  it.each(['launch', 'answer', 'ladder', 'ghost'] satisfies Role[])('the role %s is a refusal naming read-only review', (role) => {
     expect(codexAdapter.invocation(aSpec({ role }))).toEqual({ kind: 'refused', reason: expect.stringMatching(/only a read-only review.*Q167/) })
   })
 
