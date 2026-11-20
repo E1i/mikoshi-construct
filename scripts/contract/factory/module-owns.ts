@@ -29,6 +29,7 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/core/reducer.ts`,
     `${FACTORY_ROOT}/core/every.ts`,
     `${FACTORY_ROOT}/core/watermark.ts`,
+    `${FACTORY_ROOT}/core/events-query.ts`,
     `${FACTORY_ROOT}/core/entry.ts`,
     `${FACTORY_ROOT}/core/observations.ts`,
     `${FACTORY_ROOT}/core/task-must-wait.ts`,
