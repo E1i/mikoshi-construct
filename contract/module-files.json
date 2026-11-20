@@ -1761,6 +1761,7 @@
     "tests/cli-process.ts",
     "tests/client-record.test.ts",
     "tests/commands/ci/state.test.ts",
+    "tests/commands/intake/probe-report-under-construct-home.test.ts",
     "tests/commands/intake/witness-move.test.ts",
     "tests/commit-guard-parser.test.ts",
     "tests/commit-guard.test.ts",
