@@ -5040,7 +5040,7 @@
           "CardEvent": "interface CardEvent { type: typeof CARD_ADMITTED | typeof CARD_MOVED | typeof CARD_DROPPED | typeof CARD_WAITING; cardId: number; ts: string; dedupeKey: string; payload: Record<string, unknown>; }",
           "CardEventPort": "type CardEventPort = ((event: CardEvent) => void) & { allOrNothing?: (events: readonly CardEvent[]) => void; }",
           "CardStatesPort": "type CardStatesPort = () => CardsOfTheBus",
-          "RecordedIntake": "interface RecordedIntake { card: string; bodySha: unknown; ts: unknown; confirmation: unknown; source: unknown; text?: string; }"
+          "RecordedIntake": "interface RecordedIntake { card: string; bodySha: unknown; ts: unknown; confirmation: unknown; source: unknown; text?: string; witnessRecords?: readonly RecordedWitnessVerdict[]; }"
         }
       },
       "src/commands/intake/numbers.ts": {
@@ -6223,6 +6223,6 @@
         }
       }
     },
-    "portsVersion": 5
+    "portsVersion": 6
   }
 }
