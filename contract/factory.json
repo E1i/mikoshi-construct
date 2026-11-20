@@ -1564,7 +1564,7 @@
     "versionRecord": "PRAGMA application_id"
   },
   "card": {
-    "cardVersion": 2,
+    "cardVersion": 3,
     "contracts": {
       "board": [
         "id",
@@ -4187,7 +4187,8 @@
           ],
           "card": [
             1,
-            2
+            2,
+            3
           ]
         }
       },
@@ -4209,7 +4210,8 @@
           ],
           "card": [
             1,
-            2
+            2,
+            3
           ]
         }
       },
@@ -4245,7 +4247,8 @@
           ],
           "card": [
             1,
-            2
+            2,
+            3
           ]
         }
       },
@@ -4271,7 +4274,8 @@
           ],
           "card": [
             1,
-            2
+            2,
+            3
           ]
         }
       },
@@ -4301,7 +4305,8 @@
           ],
           "card": [
             1,
-            2
+            2,
+            3
           ]
         }
       },
@@ -4325,7 +4330,8 @@
           ],
           "card": [
             1,
-            2
+            2,
+            3
           ]
         }
       },
@@ -4346,12 +4352,13 @@
           ],
           "card": [
             1,
-            2
+            2,
+            3
           ]
         }
       }
     },
-    "nodesVersion": 3
+    "nodesVersion": 4
   },
   "overlaps": {
     "answer-duties": {
