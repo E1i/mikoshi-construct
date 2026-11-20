@@ -2271,7 +2271,6 @@
           "scripts/ports/prepare-tree.ts",
           "src/commands/attach/index.ts",
           "src/commands/attach/settings.ts",
-          "src/commands/doctor/factory.ts",
           "src/commands/sync/index.ts"
         ],
         "owner": "scripts/ports/prepare-tree.ts",
@@ -6205,6 +6204,6 @@
         }
       }
     },
-    "portsVersion": 5
+    "portsVersion": 6
   }
 }
