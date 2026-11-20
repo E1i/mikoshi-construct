@@ -602,6 +602,7 @@
     "scripts/tests/bus/update-node.test.ts",
     "scripts/tests/bus/update-queue.test.ts",
     "scripts/tests/bus/verdict-rules-version.test.ts",
+    "scripts/tests/bus/version-lock-green-only.test.ts",
     "scripts/tests/bus/wait-binding-refuses-cycles.test.ts",
     "scripts/tests/bus/waits-close.test.ts",
     "scripts/tests/bus/watermark.test.ts",
