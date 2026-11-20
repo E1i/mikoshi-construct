@@ -1,9 +1,11 @@
+import type { DraftCard, UnclearField } from '../../../src/commands/intake/draft.js'
+import type { RepositoryFacts } from '../../../src/commands/intake/facts.js'
 import type { SlicedCard } from '../../../src/commands/intake/slice.js'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { HOME_PATH_REASON, isProbeReport, PROBE_REPORT_HOME } from '../../../src/commands/intake/check.js'
+import { checkDraft, HOME_PATH_REASON, isProbeReport, PROBE_REPORT_HOME } from '../../../src/commands/intake/check.js'
 import { runIntake } from '../../../src/commands/intake/index.js'
 
 const REPORT = `${PROBE_REPORT_HOME}/intake-outside/report.md`
@@ -25,6 +27,13 @@ function parked(kind: string, fields: { touches: string[], creates?: string[] })
   if (result.status !== 'dryRun')
     throw new Error(JSON.stringify(result))
   return result.cards[0]!
+}
+
+function checkedUnclear(kind: string, created: string): UnclearField[] {
+  const repository: RepositoryFacts = { exists: relative => relative === 'a.ts', pathsNamed: () => [], commandResolves: () => true, testsCovering: () => [] }
+  const card: DraftCard = { name: 'creates-only', kind, milestone: 'construct', size: 'S', decision: kind === 'probe' ? 'none' : 'auto', who: 'shift', touches: ['a.ts'], depends: [], blocks: [], creates: [created], task: 'Measure it.', witnesses: ['`test -f a.ts` passes'], unclear: [] }
+  const [checked] = checkDraft([card], [1], { taken: new Set(), parked: new Set(), done: new Set(), merged: new Set(), repository })
+  return checked!.unclear.filter(entry => entry.field === 'creates')
 }
 
 describe('a probe report under the construct home', () => {
@@ -53,6 +62,17 @@ describe('a probe report under the construct home', () => {
     const card = parked('probe', { touches: ['~/.construct/bus/bus.db'] })
     expect(card.unclear).toEqual([{ field: 'touches', reason: `'~/.construct/bus/bus.db': ${HOME_PATH_REASON}` }])
     expect(card.who).toBe('window')
+  })
+
+  it('a probe naming its home report only under creates', () => {
+    expect(checkedUnclear('probe', REPORT)).toEqual([])
+    expect(checkedUnclear('probe', '~/.construct/bus/bus.db')).toEqual([{ field: 'creates', reason: `'~/.construct/bus/bus.db': ${HOME_PATH_REASON}` }])
+    expect(checkedUnclear('implement', REPORT)).toEqual([{ field: 'creates', reason: `'${REPORT}': ${HOME_PATH_REASON}` }])
+  })
+
+  it('a dot or empty segment under the probes home is not a probe report', () => {
+    for (const entry of [`${PROBE_REPORT_HOME}/./x`, `${PROBE_REPORT_HOME}//x`, `${PROBE_REPORT_HOME}/intake/./report.md`, `${PROBE_REPORT_HOME}/intake//report.md`])
+      expect(isProbeReport(entry)).toBe(false)
   })
 
   it.each([
