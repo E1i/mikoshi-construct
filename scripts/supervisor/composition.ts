@@ -26,6 +26,7 @@ import { homedir } from 'node:os'
 import process from 'node:process'
 import { PRIORITIES, WINDOW_WHO } from '../../src/card/parking.js'
 import { witnessesOf } from '../../src/card/witness-fields.js'
+import { readAttachRecord } from '../../src/commands/attach/record.js'
 import { automatonOf, selectingNodes } from '../ci/card-automaton.js'
 import { GATE_RUN_SPOOL } from '../ci/gate-runs.js'
 import { driftOfRun } from '../ci/weights-law.js'
@@ -60,6 +61,7 @@ import { cardAllowancesIn, derivedHoldOf } from '../policy/touch-scope.js'
 import { ANY, BusRead } from '../ports/bus-read.js'
 import { cardTreeReading } from '../ports/card-tree.js'
 import { GhCiRuns } from '../ports/ci-reading.js'
+import { requiredCheckOf } from '../ports/snapshot.js'
 import { launchDirOf } from '../ports/tree-publish.js'
 import { cardTreeRoots } from '../ports/worktree-home.js'
 import { foldPlanEvent } from '../window/plan-folds.js'
@@ -93,6 +95,10 @@ export function recordOwnStart(db: DatabaseSync, kind: string, env: NodeJS.Proce
 
 export function mainOverlapAt(root: string): (pr: readonly string[], main: readonly string[]) => boolean {
   return (pr, main) => overlaps(pr, main, orderDeclarationsAt(root))
+}
+
+export function requiredCheckAt(root?: string): string {
+  return requiredCheckOf(readAttachRecord, root)
 }
 
 export function nodeLiveness(): NodeLiveness {

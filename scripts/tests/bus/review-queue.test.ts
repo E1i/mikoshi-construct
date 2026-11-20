@@ -14,13 +14,13 @@ import { projectionDump, reduce } from '../../core/reducer.js'
 import { importJournal } from '../../intake/import.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { REVIEW_ROUNDS_SPENT, ReviewWorker, roundLimitLine } from '../../nodes/review/review-worker.js'
-import { NetWatch } from '../../ports/netwatch.js'
 import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
 import { benchOrderTick } from './merge-bench.js'
 import { detectMerge } from './merge-detection.js'
+import { benchNetWatch } from './net-watch-bench.js'
 import { detectReview } from './review-detection.js'
 
 vi.mock('node:child_process', async (importOriginal) => {
@@ -52,7 +52,7 @@ function setUp(file?: string): { db: DatabaseSync, gitHub: FakeGitHub, clock: Cl
   const db = openBus(file ?? onDisk())
   const gitHub = new FakeGitHub()
   const clock = new Clock()
-  const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now)
+  const busTick = new BusTick(db, busProjections(), benchNetWatch(db, gitHub.client, clock.now), clock.now)
   const order = benchOrderTick(db, clock)
   let first = true
   const tick = (): void => {

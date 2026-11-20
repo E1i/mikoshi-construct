@@ -13,12 +13,12 @@ import { detectionMode } from '../../core/node.js'
 import { reduce } from '../../core/reducer.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { ReviewNode } from '../../nodes/review/review-worker.js'
-import { NetWatch } from '../../ports/netwatch.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { switchDetection, switchWorker, wantedLaunches } from '../../supervisor/workers.js'
 import { cardBody } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
+import { benchNetWatch } from './net-watch-bench.js'
 
 const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
 
@@ -71,7 +71,7 @@ async function once(node: ReviewNode): Promise<void> {
 }
 
 function observedWithoutDeriveQueues(made: MergeBench): void {
-  new NetWatch(made.db, made.gitHub.client, made.clock.now).poll()
+  benchNetWatch(made.db, made.gitHub.client, made.clock.now).poll()
   reduce(made.db, 'pending', busProjections())
 }
 

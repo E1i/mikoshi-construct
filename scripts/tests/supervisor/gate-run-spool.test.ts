@@ -8,8 +8,10 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { GATE_RUN_SPOOL, gateRunEvent } from '../../ci/gate-runs.js'
 import { openBus } from '../../core/db.js'
 import { GATE_RUN } from '../../core/events.js'
+import { REQUIRED_CHECK } from '../../ports/gh.js'
 import { NetWatch } from '../../ports/netwatch.js'
 import { cardTreeRoots } from '../../ports/worktree-home.js'
+import { RUN_SCRIPT } from '../../supervisor/bg.js'
 import { busPrFolds, gateRunSpoolPlaces } from '../../supervisor/composition.js'
 import { GateRunSpool } from '../../supervisor/gate-run-spool.js'
 import { BusTick, PREFIX, TICK_STEPS, tickLines } from '../../supervisor/run.js'
@@ -56,7 +58,7 @@ function tickOver(root: string): { db: DatabaseSync, tick: () => string[] } {
   buses.push(db)
   const clock = new Clock()
   const spool = new GateRunSpool(db, { homes: [root], spool: GATE_RUN_SPOOL }, PREFIX)
-  const busTick = new BusTick(db, { folds: [busPrFolds()], incremental: [] }, new NetWatchThatTicks(db, new FakeGitHub().client, clock.now), clock.now, () => {}, () => {}, () => {}, () => spool.step())
+  const busTick = new BusTick(db, { folds: [busPrFolds()], incremental: [] }, new NetWatchThatTicks(db, new FakeGitHub().client, clock.now, RUN_SCRIPT, () => REQUIRED_CHECK), clock.now, () => {}, () => {}, () => {}, () => spool.step())
   return { db, tick: () => tickLines(busTick.run()!) }
 }
 

@@ -48,7 +48,7 @@ import { realIsolationReader } from '../../ports/isolation.js'
 import { promptsDirOf } from '../../ports/prompt-store.js'
 import { plannerProcess, REVIEW_PLAN_FLAG } from '../../ports/review-planner.js'
 import { spawnReviewSession } from '../../ports/session.js'
-import { busProjections, candidateRules, cardSessionPulse, cardTransitions, nodeLiveness, nodeSupply, withSlots } from '../../supervisor/composition.js'
+import { busProjections, candidateRules, cardSessionPulse, cardTransitions, nodeLiveness, nodeSupply, requiredCheckAt, withSlots } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { busUnstartedTails, gitReviewPlanner } from './depth-sources.js'
 import { recordForeignDivergences } from './divergence-alarm.js'
@@ -119,7 +119,7 @@ const SCOPED_BY_CARD_ON: ReadonlySet<string> = new Set([CARD_ADMITTED])
 
 export const REVIEW_READS: ReadSet = new Set(['prs', 'tasks', 'cards', 'card_bodies', 'mains', 'chains'])
 
-export interface WorkerParts extends Omit<ExecutorParts, 'cards'> {
+export interface WorkerParts extends Omit<ExecutorParts, 'cards' | 'requiredCheck'> {
   session: string
 }
 
@@ -163,7 +163,7 @@ function readingTheKeyedBody<P extends ExecutorParts>(parts: P): P {
   return { ...parts, reviewer: (lease, plan, card, proven) => parts.reviewer(lease, plan, cardBodyOfKey(parts.db, lease, card ?? null), proven, decisionsOnTheCard(parts.db, lease.cardId, parts.clock(), lease.pr)) }
 }
 
-export interface ReviewNodeParts extends Omit<ExecutorParts, 'cards'> {
+export interface ReviewNodeParts extends Omit<ExecutorParts, 'cards' | 'requiredCheck'> {
   session: string
   mode: DetectionMode
   env: NodeJS.ProcessEnv
@@ -174,7 +174,7 @@ export class ReviewNode extends Node<Step> {
 
   constructor(private readonly reviewParts: ReviewNodeParts) {
     super('review', { db: reviewParts.db, clock: reviewParts.clock, session: reviewParts.session, mode: reviewParts.mode, env: reviewParts.env, silentMs: reviewParts.silentMs, supply: nodeSupply() })
-    this.executor = new ReviewExecutor(readingTheKeyedBody({ ...reviewParts, cards: this.suppliedCards }))
+    this.executor = new ReviewExecutor(readingTheKeyedBody({ ...reviewParts, cards: this.suppliedCards, requiredCheck: () => requiredCheckAt() }))
     this.declare(REVIEW_NODE, scopeOf)
   }
 
@@ -221,7 +221,7 @@ export class ReviewWorker {
 
   constructor(private readonly parts: WorkerParts) {
     this.actor = `worker:review:${parts.session}`
-    this.executor = new ReviewExecutor(readingTheKeyedBody({ ...parts, cards: this.cards }))
+    this.executor = new ReviewExecutor(readingTheKeyedBody({ ...parts, cards: this.cards, requiredCheck: () => requiredCheckAt() }))
   }
 
   private ts(): string {
