@@ -1033,6 +1033,7 @@
     "scripts/tests/release/security-diff.test.ts",
     "scripts/tests/release/stage.test.ts",
     "scripts/tests/release/version-pr-guard.test.ts",
+    "scripts/tests/release/version-rehearsal.test.ts",
     "scripts/tests/scratch/run-root.test.ts",
     "scripts/tests/scratch/run.test.ts",
     "scripts/tests/shift/brief-finish.test.ts",
@@ -2517,6 +2518,7 @@
     "scripts/release/stage.ts",
     "scripts/release/verify-published.ts",
     "scripts/release/version-pr-guard.ts",
+    "scripts/release/version-rehearsal.ts",
     "src/commands/run-record.ts"
   ],
   "repository": [

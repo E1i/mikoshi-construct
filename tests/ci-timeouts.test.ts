@@ -8,7 +8,7 @@ const REPO_ROOT = path.resolve(import.meta.dirname, '..')
 const EXPECTED_TIMEOUT_MINUTES: Record<string, Record<string, number>> = {
   '.github/workflows/ci.yml': {
     'changes': 5,
-    'checks': 5,
+    'checks': 10,
     'lint': 5,
     'typecheck': 5,
     'vitest': 8,
