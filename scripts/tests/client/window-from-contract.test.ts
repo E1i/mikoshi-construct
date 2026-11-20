@@ -1,9 +1,10 @@
 import type { ClientRecord } from '../../../src/manifest.js'
 import type { Invocation, Refusal, SessionSpec, WindowCommand } from '../../ports/client/contract.js'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import process from 'node:process'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MANIFEST_FILE, MANIFEST_VERSION } from '../../../src/manifest.js'
 import { WINDOW_COMMAND_VARIABLE, windowCommand } from '../../ports/client/claude/adapter.js'
 import { codexAdapter, WINDOW_CENSUS_GAPS } from '../../ports/client/codex/adapter.js'
@@ -14,6 +15,7 @@ const LOOP_SOURCE = path.join(import.meta.dirname, '..', '..', 'window', 'loop.t
 const ADAPTER_FILE = /\/ports\/client\/[^/]+\/adapter\.js$/
 const CLIENT_INDEX = '../ports/client/index.js'
 const CENSUS_ROWS_THE_PROBE_FOUND_MISSING = [8, 9, 15, 16, 18]
+const EXIT_MARK = 'process.exit '
 
 const roots: string[] = []
 
@@ -62,6 +64,41 @@ describe('the window takes its command from the client contract', () => {
     expect(windowCommandIn(repositoryWith({ id: codexAdapter.id }))).toEqual(codexAdapter.window())
     expect(opened(windowCommandIn(repositoryWith(null))).command).toBe(opened(clientAdapter().window()).command)
     expect(windowCommandIn(repositoryWith({ roles: { window: 'no-such-client' } }))).toEqual({ kind: 'refused', reason: expect.stringContaining('no client adapter for id "no-such-client"') })
+  })
+
+  it('an unreadable construct.json refuses the window and names the record, never falling back to the default client', () => {
+    const root = repositoryWith(null)
+    writeFileSync(path.join(root, MANIFEST_FILE), '{ "manifestVersion": ')
+    expect(() => windowCommandIn(root)).not.toThrow()
+    expect(windowCommandIn(root)).toEqual({ kind: 'refused', reason: expect.stringContaining(`the client record of ${root} is unreadable: `) })
+  })
+
+  it('the loop entrypoint refuses a compound window command under the variable its client names, not the claude default', async () => {
+    const secondClientVariable = 'THE_SECOND_CLIENT_WINDOW'
+    expect(secondClientVariable).not.toBe(CLAUDE_VARIABLE)
+    const compound: WindowCommand = { command: () => 'first-client; second-client', variable: secondClientVariable }
+    const argv = process.argv
+    const errors: string[] = []
+    vi.resetModules()
+    vi.doMock('../../ports/client/index.js', async importOriginal => ({ ...await importOriginal<typeof import('../../ports/client/index.js')>(), windowCommandIn: () => compound }))
+    vi.spyOn(console, 'error').mockImplementation((line: unknown) => {
+      errors.push(String(line))
+    })
+    vi.spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
+      throw new Error(`${EXIT_MARK}${code}`)
+    })
+    try {
+      process.argv = [argv[0]!, realpathSync(LOOP_SOURCE)]
+      await expect(import('../../window/loop.js')).rejects.toThrow(`${EXIT_MARK}1`)
+    }
+    finally {
+      process.argv = argv
+      vi.doUnmock('../../ports/client/index.js')
+      vi.restoreAllMocks()
+      vi.resetModules()
+    }
+    expect(errors).toEqual([expect.stringContaining(`${secondClientVariable} contains shell syntax (first-client; second-client)`)])
+    expect(errors.join('\n')).not.toContain(CLAUDE_VARIABLE)
   })
 
   it('the claude adapter gives the window command of today', () => {
