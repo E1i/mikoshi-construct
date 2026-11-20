@@ -66,5 +66,6 @@
   { "path": "~/.construct/bus/bus-nodes.json", "names": ["bus-nodes.json"] },
   { "path": "~/.construct/bus/workers.json", "names": ["workers.json"] },
   { "path": "~/.construct/bus/supervisor.log", "names": ["supervisor.log"] },
-  { "path": "~/.construct/bus/launchd.log", "names": ["launchd.log"] }
+  { "path": "~/.construct/bus/launchd.log", "names": ["launchd.log"] },
+  { "path": "~/.construct/bus/factory.started", "names": ["factory.started"] }
 ]

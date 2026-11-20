@@ -11,6 +11,7 @@ import { LAUNCH_AGENTS } from '../../supervisor/start.js'
 const TEMPLATE = readFileSync(path.resolve(import.meta.dirname, '../../supervisor/launchd/dev.mikoshi.bus.plist'), 'utf8')
 const FACTORY_DIR = '/factory/checkout'
 const TOKEN_SOURCE = 'gh auth token --user someone'
+const STARTED_MARK = '/factory/home/.construct/bus/factory.started'
 const UID = 501
 const DOMAIN = `gui/${UID}`
 const OLD_AGENT = '<plist>the agent installed by hand</plist>\n'
@@ -23,7 +24,7 @@ function shellLineOf(plist: string): string {
 
 describe('rendering the bus agent', () => {
   it('renders the given factory directory and token source and keeps the template\'s BUS_RERUN, with no placeholder left', () => {
-    const rendered = renderAgent(TEMPLATE, { factoryDir: FACTORY_DIR, tokenSource: TOKEN_SOURCE })
+    const rendered = renderAgent(TEMPLATE, { factoryDir: FACTORY_DIR, tokenSource: TOKEN_SOURCE, startedMark: STARTED_MARK })
     const shellLine = shellLineOf(rendered)
     expect(shellLine).toContain(`cd '${FACTORY_DIR}' &&`)
     expect(shellLine).toContain(`GH_TOKEN="$(${TOKEN_SOURCE})"`)
@@ -40,7 +41,7 @@ describe('rendering the bus agent', () => {
       mkdirSync(factoryDir)
       mkdirSync(bin, { recursive: true })
       writeFileSync(path.join(bin, 'pnpm'), `#!/bin/sh\necho "$(pwd) token=$GH_TOKEN" >> "${calls}"\n`, { mode: 0o755 })
-      const rendered = renderAgent(TEMPLATE, { factoryDir, tokenSource: 'echo a$(echo b) | cat && echo c{{factoryDir}}' })
+      const rendered = renderAgent(TEMPLATE, { factoryDir, tokenSource: 'echo a$(echo b) | cat && echo c{{factoryDir}}', startedMark: STARTED_MARK })
       expect(rendered).not.toMatch(/<string>[^<]*&(?!amp;|lt;|gt;|quot;|apos;)/)
       const run = spawnSync('/bin/sh', ['-c', shellLineOf(rendered)], { env: { HOME: scratch }, encoding: 'utf8' })
       expect(run.status).toBe(0)
@@ -63,13 +64,13 @@ describe('rendering the bus agent', () => {
       writeFileSync(path.join(bin, 'pnpm'), `#!/bin/sh\necho started >> "${calls}"\n`, { mode: 0o755 })
       for (const shell of ['/bin/sh', '/bin/zsh'].filter(file => existsSync(file))) {
         for (const tokenSource of ['true', 'echo', 'false']) {
-          const run = spawnSync(shell, ['-c', shellLineOf(renderAgent(TEMPLATE, { factoryDir, tokenSource }))], { env: { HOME: scratch }, encoding: 'utf8' })
+          const run = spawnSync(shell, ['-c', shellLineOf(renderAgent(TEMPLATE, { factoryDir, tokenSource, startedMark: STARTED_MARK }))], { env: { HOME: scratch }, encoding: 'utf8' })
           expect(run.status, `${shell} with ${tokenSource}`).not.toBe(0)
           expect(existsSync(calls), `${shell} with ${tokenSource}`).toBe(false)
         }
         expect(readFileSync(log, 'utf8')).toContain('the token source printed nothing')
         rmSync(log)
-        const started = spawnSync(shell, ['-c', shellLineOf(renderAgent(TEMPLATE, { factoryDir, tokenSource: 'echo a-token' }))], { env: { HOME: scratch }, encoding: 'utf8' })
+        const started = spawnSync(shell, ['-c', shellLineOf(renderAgent(TEMPLATE, { factoryDir, tokenSource: 'echo a-token', startedMark: STARTED_MARK }))], { env: { HOME: scratch }, encoding: 'utf8' })
         expect(started.status, shell).toBe(0)
         expect(readFileSync(calls, 'utf8'), shell).toBe('started\n')
         rmSync(calls)
@@ -81,7 +82,13 @@ describe('rendering the bus agent', () => {
   })
 
   it('refuses a template placeholder it has no value for, rather than installing it unfilled', () => {
-    expect(() => renderAgent('{{unknown}}', { factoryDir: FACTORY_DIR, tokenSource: TOKEN_SOURCE })).toThrow('{{unknown}}')
+    expect(() => renderAgent('{{unknown}}', { factoryDir: FACTORY_DIR, tokenSource: TOKEN_SOURCE, startedMark: STARTED_MARK })).toThrow('{{unknown}}')
+  })
+
+  it('renders the started mark Miko writes as the only condition that keeps the agent alive', () => {
+    const rendered = renderAgent(TEMPLATE, { factoryDir: FACTORY_DIR, tokenSource: TOKEN_SOURCE, startedMark: STARTED_MARK })
+    expect(rendered).toMatch(new RegExp(`<key>PathState</key>\\s*<dict>\\s*<key>${STARTED_MARK}</key>\\s*<true/>`))
+    expect(rendered).not.toContain('RunAtLoad')
   })
 })
 
@@ -119,6 +126,7 @@ describe('the command against the installed file', () => {
       template: TEMPLATE,
       home,
       uid: UID,
+      startedMarkOf: () => STARTED_MARK,
       diff: () => diff,
       launchctl: (args) => {
         calls.push(args)
@@ -136,7 +144,7 @@ describe('the command against the installed file', () => {
         return CHANGED
       },
     })
-    expect(asked).toEqual([[installed, renderAgent(TEMPLATE, { factoryDir: FACTORY_DIR, tokenSource: TOKEN_SOURCE })]])
+    expect(asked).toEqual([[installed, renderAgent(TEMPLATE, { factoryDir: FACTORY_DIR, tokenSource: TOKEN_SOURCE, startedMark: STARTED_MARK })]])
     expect(result.exitCode).toBe(0)
     expect(result.stdout.join('\n')).toContain(CHANGED.stdout.trimEnd())
     expect(readFileSync(installed, 'utf8')).toBe(OLD_AGENT)
@@ -171,7 +179,7 @@ describe('the command against the installed file', () => {
   it('with --apply replaces the file and asks launchctl to reload the agent', () => {
     const result = run({ apply: true })
     expect(result.exitCode).toBe(0)
-    expect(readFileSync(installed, 'utf8')).toBe(renderAgent(TEMPLATE, { factoryDir: FACTORY_DIR, tokenSource: TOKEN_SOURCE }))
+    expect(readFileSync(installed, 'utf8')).toBe(renderAgent(TEMPLATE, { factoryDir: FACTORY_DIR, tokenSource: TOKEN_SOURCE, startedMark: STARTED_MARK }))
     expect(calls).toEqual([['bootout', `${DOMAIN}/${OWNER_AGENT}`], ['bootstrap', DOMAIN, installed]])
     expect(result.stdout.join('\n')).toContain('keeps the environment it started with')
   })

@@ -1064,6 +1064,7 @@
     "scripts/tests/supervisor/bus-tick-stalled.test.ts",
     "scripts/tests/supervisor/dead-ends.test.ts",
     "scripts/tests/supervisor/expected-time.test.ts",
+    "scripts/tests/supervisor/factory-starts-through-miko.test.ts",
     "scripts/tests/supervisor/gate-run-spool.test.ts",
     "scripts/tests/supervisor/generation-handover.test.ts",
     "scripts/tests/supervisor/oneword.test.ts",
