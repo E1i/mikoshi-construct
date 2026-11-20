@@ -11,6 +11,7 @@ import { readManifest, readShiftGate } from '../../../src/manifest.js'
 import { createUi, silentWriter } from '../../../src/ui/console.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
 import { treeReportPath } from '../../core/places.js'
+import { CARD_GRANTS, cardOfTree, grantOf } from '../../ports/card-grants.js'
 import { CARD_SESSION_SANDBOX, SESSION_BASH_CAP, settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
 import { WIDE_VITEST_HOOKS } from '../../ports/wide-vitest-guard.js'
 
@@ -195,6 +196,82 @@ describe('the browser lab exclusion a card session takes from the settings of it
     holdSettings('settings.local.json', [entry])
     const built = settings()
     expect(JSON.parse(settingsFlag(built).at(-1)!)).toEqual(built)
+  })
+
+  it('a granted card excluded for the lab keeps both its grant and the lab protection', () => {
+    holdSettings('settings.json', [entry])
+    const [grant] = CARD_GRANTS
+    const built = shiftSettings(tree, GATE, [], home, grant!.card)
+    expect({ excluded: built.sandbox.excludedCommands, domains: built.sandbox.network.allowedDomains, allow: built.permissions.allow.slice(-grant!.allow.length), deny: built.permissions.deny?.length, filesystem: built.sandbox.filesystem }).toEqual({ excluded: [entry], domains: [...grant!.domains], allow: [...grant!.allow], deny: 2, filesystem: { allowWrite: [path.join(home, '.codex')], denyWrite: [path.join(tree, 'scripts', 'construct', 'browser-lab.mjs'), path.join(home, '.construct', 'browser-lab')] } })
+  })
+})
+
+describe('a card granted by an owner decision gets exactly its grant and no other card gets any', () => {
+  const GATE: ShiftGate = { prepush: ['pnpm run quality'], handoffWrite: null, codeMatrix: null }
+  const GRANTED = 2156
+  const CODEX_HOSTS = ['api.openai.com', 'chatgpt.com', 'auth.openai.com']
+  let scratch = ''
+  let home = ''
+
+  beforeEach(() => {
+    scratch = mkdtempSync(path.join(tmpdir(), 'construct-shift-grant-'))
+    home = path.join(scratch, 'home')
+  })
+
+  afterEach(() => rmSync(scratch, { recursive: true, force: true }))
+
+  function plainOf(tree: string): ShiftSettings {
+    return { sandbox: CARD_SESSION_SANDBOX, permissions: { allow: ['Bash(pnpm run quality)', `Edit(/${tree}/**)`] }, env: SESSION_BASH_CAP, hooks: WIDE_VITEST_HOOKS }
+  }
+
+  it('card #2156 gets codex, git init and mkdir under $TMPDIR, the Codex API and sign-in hosts and ~/.codex by D-705, and nothing else', () => {
+    const tree = path.join(scratch, 'worktrees', String(GRANTED))
+    expect(shiftSettings(tree, GATE, [], home)).toStrictEqual({
+      sandbox: { ...CARD_SESSION_SANDBOX, network: { ...CARD_SESSION_SANDBOX.network, allowedDomains: CODEX_HOSTS }, filesystem: { allowWrite: [path.join(home, '.codex')] } },
+      permissions: { allow: ['Bash(pnpm run quality)', `Edit(/${tree}/**)`, 'Bash(codex *)', 'Bash(git init $TMPDIR/*)', 'Bash(mkdir $TMPDIR/*)', 'Bash(mkdir -p $TMPDIR/*)'] },
+      env: SESSION_BASH_CAP,
+      hooks: WIDE_VITEST_HOOKS,
+    })
+    expect(grantOf(GRANTED)?.decision).toBe('D-705')
+  })
+
+  it('every other card, a tree that names no card and an explicit null get the layer with no network and no extra rule', () => {
+    const others = [String(GRANTED - 1), String(GRANTED + 1), `x${GRANTED}`, `${GRANTED}-copy`, 'construct-shift-tree']
+    const built = others.map(name => path.join(scratch, name)).map(tree => ({ got: shiftSettings(tree, GATE, [], home), plain: plainOf(tree) }))
+    const forced = path.join(scratch, String(GRANTED))
+    expect(built.map(({ got }) => got)).toStrictEqual(built.map(({ plain }) => plain))
+    expect(shiftSettings(forced, GATE, [], home, null)).toStrictEqual(plainOf(forced))
+  })
+
+  it('the card is read from the tree name the bus gives it, in either home', () => {
+    expect([`/bus/worktrees/${GRANTED}`, `/home/mc-${GRANTED}`, `/bus/worktrees/${GRANTED}/`, '/bus/worktrees/mc-x', `/bus/worktrees/${GRANTED}.bak`].map(cardOfTree)).toEqual([GRANTED, GRANTED, GRANTED, null, null])
+  })
+
+  it('the grant reaches the session through the --settings flag', () => {
+    const built = shiftSettings(path.join(scratch, String(GRANTED)), GATE, [], home)
+    expect(JSON.parse(settingsFlag(built).at(-1)!).sandbox.network.allowedDomains).toEqual(CODEX_HOSTS)
+  })
+
+  it('card 2156 grant carries the ChatGPT login hosts and no other card gets them', () => {
+    const LOGIN_HOSTS = ['chatgpt.com', 'auth.openai.com']
+    const granted = shiftSettings(path.join(scratch, String(GRANTED)), GATE, [], home)
+    const others = [GRANTED - 1, GRANTED + 1, null].map(card => shiftSettings(path.join(scratch, String(GRANTED)), GATE, [], home, card))
+    const hostsOf = (built: ShiftSettings): string[] => built.sandbox.network.allowedDomains ?? []
+    expect(LOGIN_HOSTS.every(host => hostsOf(granted).includes(host))).toBe(true)
+    expect(hostsOf(granted)).toContain('api.openai.com')
+    expect(others.map(built => ({ hosts: hostsOf(built), filesystem: built.sandbox.filesystem }))).toEqual([{ hosts: [], filesystem: undefined }, { hosts: [], filesystem: undefined }, { hosts: [], filesystem: undefined }])
+  })
+
+  it('every row of the table names one card once, an owner decision, Bash rules only and bare host names', () => {
+    const cards = CARD_GRANTS.map(grant => grant.card)
+    const rows = CARD_GRANTS.map(grant => ({
+      decision: /^D-\d+$/.test(grant.decision),
+      bash: grant.allow.every(rule => /^Bash\(.+\)$/.test(rule)),
+      hosts: grant.domains.every(host => /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(host)),
+      homeWrites: grant.homeWrites.every(entry => entry !== '' && !path.isAbsolute(entry) && !entry.split('/').includes('..')),
+    }))
+    expect(new Set(cards).size).toBe(cards.length)
+    expect(rows.every(row => row.decision && row.bash && row.hosts && row.homeWrites)).toBe(true)
   })
 })
 

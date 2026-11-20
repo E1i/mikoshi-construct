@@ -5341,6 +5341,21 @@
           "SliceWhere": "interface SliceWhere { card?: number | typeof ANY; pr?: number | typeof ANY; from?: number; actor?: string; present?: readonly string[]; legacy?: boolean; limit?: number; }"
         }
       },
+      "scripts/ports/card-grants.ts": {
+        "constants": [
+          "CARD_GRANTS: readonly CardGrant[]"
+        ],
+        "functions": {
+          "cardOfTree": "(tree: string): number | null",
+          "grantOf": "(card: number | null, grants: readonly CardGrant[] = CARD_GRANTS): CardGrant | null"
+        },
+        "language": "factory",
+        "reexports": [],
+        "technologyWords": [],
+        "types": {
+          "CardGrant": "interface CardGrant { card: number; decision: string; allow: readonly string[]; domains: readonly string[]; homeWrites: readonly string[]; }"
+        }
+      },
       "scripts/ports/card-tree.ts": {
         "constants": [
           "DERIVED_BASE",
@@ -5989,13 +6004,13 @@
         ],
         "functions": {
           "settingsFlag": "(settings: ShiftSettings): string[]",
-          "shiftSettings": "(tree: string, gate: ShiftGate, writable: string[] = [], home: string = os.homedir()): ShiftSettings"
+          "shiftSettings": "(tree: string, gate: ShiftGate, writable: string[] = [], home: string = os.homedir(), card: number | null = cardOfTree(tree)): ShiftSettings"
         },
         "language": "factory",
         "reexports": [],
         "technologyWords": [],
         "types": {
-          "ShiftSettings": "interface ShiftSettings { sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[]; filesystem?: { denyWrite: string[]; }; }; permissions: { allow: string[]; deny?: string[]; }; env: typeof SESSION_BASH_CAP; hooks: typeof WIDE_VITEST_HOOKS; }"
+          "ShiftSettings": "interface ShiftSettings { sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[]; filesystem?: { allowWrite?: string[]; denyWrite?: string[]; }; network: { allowedDomains?: string[]; }; }; permissions: { allow: string[]; deny?: string[]; }; env: typeof SESSION_BASH_CAP; hooks: typeof WIDE_VITEST_HOOKS; }"
         }
       },
       "scripts/ports/snapshot.ts": {
