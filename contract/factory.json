@@ -5422,12 +5422,12 @@
           "WINDOW_KEPT_TOOLS",
           "WINDOW_MCP_CONFIG",
           "WINDOW_RESUME_REFUSAL",
-          "WINDOW_UNUSED_TOOLS",
-          "claudeAdapter: ClientAdapter"
+          "WINDOW_UNUSED_TOOLS"
         ],
         "functions": {
           "cardIsolationCommand": "(client: string): string[]",
           "cardLineOfConfig": "(config: Record<string, unknown>, size: string | undefined): CardLine | null",
+          "claudeAdapterWith": "<Settings extends object>(source: ShiftSettingsSource<Settings>): ClientAdapter",
           "clientHome": "(env: NodeJS.ProcessEnv): string",
           "clientLastSteps": "(env: NodeJS.ProcessEnv, worktree: string, session: string): string[] | null",
           "clientTranscript": "(env: NodeJS.ProcessEnv, worktree: string, session: string): string | null",
@@ -5461,6 +5461,7 @@
           "CardLine": "interface CardLine { line: number; key: string; }",
           "CommandJournal": "interface CommandJournal extends SessionJournal { commandRuns: readonly CommandRun[]; }",
           "MeasuredSubagent": "interface MeasuredSubagent { name: string; context: number; spent: number; at: string; }",
+          "ShiftSettingsSource": "interface ShiftSettingsSource<Settings extends object> { shiftSettings: (tree: string, gate: SessionGate, writable: string[]) => Settings; settingsFlag: (settings: Settings) => string[]; }",
           "StartContext": "interface StartContext { firstTurn: number | null; atMarker: number | null; }",
           "TranscriptCounters": "interface TranscriptCounters { input: number; cache_write: number; cache_read: number; }"
         }
@@ -6195,6 +6196,6 @@
         }
       }
     },
-    "portsVersion": 4
+    "portsVersion": 5
   }
 }
