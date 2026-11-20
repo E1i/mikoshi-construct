@@ -4637,7 +4637,10 @@
         }
       },
       "src/commands/attach/daemon-commands.ts": {
-        "constants": [],
+        "constants": [
+          "PROJECT_SETTINGS_FILE",
+          "SETTINGS_FILE"
+        ],
         "functions": {
           "allowRule": "(command: string): string",
           "daemonProgram": "(command: string): string | null",
@@ -4670,10 +4673,7 @@
         }
       },
       "src/commands/attach/settings.ts": {
-        "constants": [
-          "PROJECT_SETTINGS_FILE",
-          "SETTINGS_FILE"
-        ],
+        "constants": [],
         "functions": {
           "browserLabInstalledScript": "(home: string = homedir()): string"
         },

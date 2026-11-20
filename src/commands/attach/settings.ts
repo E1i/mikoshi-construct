@@ -8,14 +8,12 @@ import { appendHookEntry, isJsonObject } from '../../materialize/strategies.js'
 import { engramFile } from '../../model/discovery.js'
 import { ATTACH_GUARD, ATTACH_WINDOW_HOOKS } from '../../presets/index.js'
 import { readTrackedPaths } from '../detach/index-reader.js'
-import { allowRule, shippedDaemonCommands } from './daemon-commands.js'
+import { allowRule, SETTINGS_FILE, shippedDaemonCommands } from './daemon-commands.js'
 import { sha256OfBytes } from './original.js'
 
+export { PROJECT_SETTINGS_FILE, SETTINGS_FILE } from './daemon-commands.js'
+
 type JsonObject = Record<string, unknown>
-
-export const SETTINGS_FILE = '.claude/settings.local.json'
-
-export const PROJECT_SETTINGS_FILE = '.claude/settings.json'
 
 const GUARD_TIMEOUT_SECONDS = 30
 

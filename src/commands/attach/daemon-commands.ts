@@ -6,6 +6,8 @@ import { listTemplateFiles } from '../../materialize/templates.js'
 export const DAEMON_KEY = 'daemon'
 export const DAEMON_COMMAND_KEY = 'daemon-command'
 export const HOME_PLACEHOLDER = '<home>'
+export const SETTINGS_FILE = '.claude/settings.local.json'
+export const PROJECT_SETTINGS_FILE = '.claude/settings.json'
 export const DAEMON_SKILLS_GROUP = 'ai/claude'
 const SKILL_MANIFEST_TARGET = /^\.claude\/skills\/[^/]+\/SKILL\.md$/
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---/

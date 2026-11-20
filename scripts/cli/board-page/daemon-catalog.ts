@@ -1,8 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
-import { allowRule, declaredCommands } from '../../../src/commands/attach/daemon-commands.js'
-import { PROJECT_SETTINGS_FILE, SETTINGS_FILE } from '../../../src/commands/attach/settings.js'
+import { allowRule, declaredCommands, PROJECT_SETTINGS_FILE, SETTINGS_FILE } from '../../../src/commands/attach/daemon-commands.js'
 
 export const SKILLS_DIR = '.claude/skills'
 export const SKILL_MANIFEST = 'SKILL.md'
