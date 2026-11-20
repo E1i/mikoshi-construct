@@ -2795,6 +2795,7 @@
         "namedIn": [
           "scripts/window/owner-command.ts",
           "src/commands/intake/admit.ts",
+          "src/commands/intake/check.ts",
           "src/commands/intake/index.ts",
           "src/commands/intake/shared-code-masks.ts"
         ],
