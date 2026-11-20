@@ -1618,6 +1618,7 @@
     "scripts/core/gh-callers.known.json",
     "scripts/core/gh-callers.ts",
     "scripts/ports/bus-read.ts",
+    "scripts/ports/card-grants.ts",
     "scripts/ports/card-tree.ts",
     "scripts/ports/ci-reading.ts",
     "scripts/ports/client/claude/adapter.ts",

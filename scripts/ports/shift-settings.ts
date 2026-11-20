@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { browserLabExcludedCommand, browserLabInstalledScript, SETTINGS_FILE } from '../../src/commands/attach/settings.js'
 import { isJsonObject } from '../../src/materialize/strategies.js'
+import { cardOfTree, grantOf } from './card-grants.js'
 import { WIDE_VITEST_HOOKS } from './wide-vitest-guard.js'
 
 const SANDBOX_UID = os.userInfo().uid
@@ -23,7 +24,7 @@ const REPOSITORY_SETTINGS_FILES = ['.claude/settings.json', SETTINGS_FILE]
 const GITDIR_POINTER = /^gitdir:[ \t]*(\S.*)$/m
 
 export interface ShiftSettings {
-  sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[], filesystem?: { denyWrite: string[] } }
+  sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[], filesystem?: { denyWrite: string[] }, network: { allowedDomains?: string[] } }
   permissions: { allow: string[], deny?: string[] }
   env: typeof SESSION_BASH_CAP
   hooks: typeof WIDE_VITEST_HOOKS
@@ -67,20 +68,27 @@ function mainCheckoutExcludes(tree: string, entry: string): boolean {
   return main !== null && excludes(path.join(main, SETTINGS_FILE), entry)
 }
 
-export function shiftSettings(tree: string, gate: ShiftGate, writable: string[] = [], home: string = os.homedir()): ShiftSettings {
+function grantedSandbox(card: number | null): ShiftSettings['sandbox'] {
+  const grant = grantOf(card)
+  return grant === null ? CARD_SESSION_SANDBOX : { ...CARD_SESSION_SANDBOX, network: { ...CARD_SESSION_SANDBOX.network, allowedDomains: [...grant.domains] } }
+}
+
+export function shiftSettings(tree: string, gate: ShiftGate, writable: string[] = [], home: string = os.homedir(), card: number | null = cardOfTree(tree)): ShiftSettings {
   const allow = [
     ...gate.prepush.map(command => `Bash(${command})`),
     `Edit(/${tree}/**)`,
     ...writable.map(file => `Edit(/${file})`),
+    ...grantOf(card)?.allow ?? [],
   ]
+  const sandbox = grantedSandbox(card)
   const entry = browserLabExcludedCommand(home)
   const excluded = existsSync(browserLabInstalledScript(home)) && (REPOSITORY_SETTINGS_FILES.some(file => excludes(path.join(tree, file), entry)) || mainCheckoutExcludes(tree, entry))
   if (!excluded)
-    return { sandbox: CARD_SESSION_SANDBOX, permissions: { allow }, env: SESSION_BASH_CAP, hooks: WIDE_VITEST_HOOKS }
+    return { sandbox, permissions: { allow }, env: SESSION_BASH_CAP, hooks: WIDE_VITEST_HOOKS }
   const lab = path.join(tree, BROWSER_LAB_SCRIPT)
   const labHome = path.join(home, '.construct', 'browser-lab')
   return {
-    sandbox: { ...CARD_SESSION_SANDBOX, excludedCommands: [entry], filesystem: { denyWrite: [lab, labHome] } },
+    sandbox: { ...sandbox, excludedCommands: [entry], filesystem: { denyWrite: [lab, labHome] } },
     permissions: { allow, deny: [`Edit(/${lab})`, `Edit(/${labHome}/**)`] },
     env: SESSION_BASH_CAP,
     hooks: WIDE_VITEST_HOOKS,
