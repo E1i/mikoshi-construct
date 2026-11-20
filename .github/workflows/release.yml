@@ -28,7 +28,8 @@
 # The job does not run the harness itself: one process took 27–39 minutes for what CI, sharded, does
 # in about six on the same commit. It waits instead for CI's `required` check on github.sha, the one
 # check that aggregates every quality job, and stops before versioning or publishing unless that check
-# concluded success. A check still absent or running is waited on, up to CI_WAIT_SECONDS.
+# concluded success. A check still absent or running is waited on, up to CI_WAIT_SECONDS. The read
+# goes through scripts/ports/gh.ts, the one GitHub port scripts/core/gh-callers.ts holds every caller to.
 
 name: Release
 
@@ -72,21 +73,30 @@ jobs:
           CI_CHECK: required
           CI_WAIT_SECONDS: 3600
         run: |
-          deadline=$(( $(date +%s) + CI_WAIT_SECONDS ))
-          while :; do
-            state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/check-runs?check_name=$CI_CHECK&filter=latest&per_page=100" \
-              --jq '[.check_runs[] | select(.app.slug == "github-actions")] | sort_by(.id) | last | if . == null then "absent" else "\(.status) \(.conclusion)" end')
-            echo "CI $CI_CHECK on $SHA: $state"
-            case "$state" in
-              "completed success") exit 0 ;;
-              completed*) echo "::error::CI $CI_CHECK on $SHA concluded ${state#completed }; nothing is versioned or published"; exit 1 ;;
-            esac
-            if [ "$(date +%s)" -ge "$deadline" ]; then
-              echo "::error::CI $CI_CHECK on $SHA did not complete within $CI_WAIT_SECONDS seconds; nothing is versioned or published"
-              exit 1
-            fi
-            sleep 30
-          done
+          node --import tsx --input-type=module -e '
+          import { execGh, readGhJson } from "./scripts/ports/gh.ts"
+          const { SHA, CI_CHECK, GITHUB_REPOSITORY } = process.env
+          const deadline = Date.now() + Number(process.env.CI_WAIT_SECONDS) * 1000
+          const checkRuns = `repos/${GITHUB_REPOSITORY}/commits/${SHA}/check-runs?check_name=${CI_CHECK}&filter=latest&per_page=100`
+          for (;;) {
+            const read = readGhJson(execGh, ["api", checkRuns])
+            const runs = read.kind === "read" ? read.value.check_runs.filter(run => run.app?.slug === "github-actions") : []
+            const latest = runs.sort((a, b) => a.id - b.id).at(-1)
+            const state = read.kind === "failed" ? `unread: ${read.reason}` : latest == null ? "absent" : `${latest.status} ${latest.conclusion}`
+            console.log(`CI ${CI_CHECK} on ${SHA}: ${state}`)
+            if (latest?.status === "completed" && latest.conclusion === "success")
+              process.exit(0)
+            if (latest?.status === "completed") {
+              console.log(`::error::CI ${CI_CHECK} on ${SHA} concluded ${latest.conclusion}; nothing is versioned or published`)
+              process.exit(1)
+            }
+            if (Date.now() >= deadline) {
+              console.log(`::error::CI ${CI_CHECK} on ${SHA} did not complete within ${process.env.CI_WAIT_SECONDS} seconds; nothing is versioned or published`)
+              process.exit(1)
+            }
+            await new Promise(resolve => setTimeout(resolve, 30_000))
+          }
+          '
 
       - name: Version or publish
         id: changesets

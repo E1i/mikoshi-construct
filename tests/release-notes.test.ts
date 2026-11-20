@@ -1,8 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { parse as parseYaml } from 'yaml'
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import config from '../docs/.vitepress/config.js'
+import { GH_PORT, stepCallsGitHub } from '../scripts/core/gh-callers.js'
 import { CHANGELOG_PATH, handWrittenNotes, INDEX_PATH, parseChangelog, releaseAnchor, releaseSidebarItems } from '../scripts/release-notes/changelog.js'
 import { parseNotices, unansweredNotices } from '../scripts/release-notes/notices.js'
 import { renderIndex } from '../scripts/release-notes/render.js'
@@ -221,8 +222,10 @@ describe('release does not run the whole quality in one process', () => {
       const wait = waits.find(step => step.env?.CI_CHECK === check)!
       if (!/^\$\{\{\s*github\.sha\s*\}\}$/.test(String(wait.env?.SHA ?? '')))
         faults.push('waits on another commit')
-      if (!/"completed success"\) exit 0/.test(wait.run ?? ''))
+      if (!/latest\?\.status === "completed" && latest\.conclusion === "success"\)\s*process\.exit\(0\)/.test(wait.run ?? ''))
         faults.push('does not require success')
+      if (!(wait.run ?? '').includes(`./${GH_PORT}`))
+        faults.push('does not read through the GitHub port')
       const needs = ci.jobs?.[check]?.needs ?? []
       const missing = QUALITY_JOBS.filter(job => !([needs].flat()).includes(job))
       if (missing.length > 0)
@@ -230,6 +233,8 @@ describe('release does not run the whole quality in one process', () => {
     }
     if (!(ci.on?.push?.branches ?? []).includes('main'))
       faults.push('CI does not run on a push to main')
+    if (stepCallsGitHub(stringifyYaml(release)))
+      faults.push('calls GitHub outside the port')
     return faults
   }
 
@@ -251,6 +256,13 @@ describe('release does not run the whole quality in one process', () => {
     expect(gateFaults({ ...release, jobs: { release: { steps: without } } }, ci)).toContain('no wait on a CI check before publishing')
     const wait = steps.find(step => step.env?.CI_CHECK != null)!
     expect(gateFaults({ ...release, jobs: { release: { steps: [...without, wait] } } }, ci)).toContain('no wait on a CI check before publishing')
+  })
+
+  it('goes red when the wait calls gh in its step instead of the port', () => {
+    const steps = (release.jobs?.release?.steps ?? []).map(step => step.env?.CI_CHECK == null ? step : { ...step, run: `gh api "repos/o/r/commits/$SHA/check-runs?check_name=required"\n` })
+    const faults = gateFaults({ ...release, jobs: { release: { steps } } }, ci)
+    expect(faults).toContain('calls GitHub outside the port')
+    expect(faults).toContain('does not read through the GitHub port')
   })
 
   it('goes red when the awaited CI job stops aggregating a quality job', () => {
