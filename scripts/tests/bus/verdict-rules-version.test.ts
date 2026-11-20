@@ -12,7 +12,7 @@ import { leaseNext } from '../../core/lease.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { REVIEW_RULES_FILE, REVIEW_RULES_SHA, REVIEW_RULES_VERSION, ReviewExecutor, reviewRulesSha, SPAWNS_NO_SESSION } from '../../nodes/review/review-executor.js'
 import { recordedVerdictOn, UpdateExecutor } from '../../nodes/update/update-executor.js'
-import { cardTransitions, updateParts } from '../../supervisor/composition.js'
+import { cardTransitions, requiredCheckAt, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
 import { eventCount, eventsOf, liveBench, mainMovesPastEveryPr } from './merge-bench.js'
@@ -55,7 +55,7 @@ describe('the version of the review rules on a verdict', () => {
     const bench = liveBench()
     bench.gitHub.open({ number: 1701 })
     bench.tick()
-    const executor = new ReviewExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, publish: () => {}, reviewer: async () => ({ verdict: 'pass', findings: [], session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: bench.clock.now, isolation: SPAWNS_NO_SESSION })
+    const executor = new ReviewExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, publish: () => {}, reviewer: async () => ({ verdict: 'pass', findings: [], session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: bench.clock.now, isolation: SPAWNS_NO_SESSION, requiredCheck: () => requiredCheckAt() })
 
     expect(await executor.review(leaseNext(bench.db, bench.clock.now().toISOString(), 'review', 'worker:review:worker-1')!)).toMatchObject({ kind: 'recorded', verdict: 'pass' })
     expect(eventsOf(bench.db, REVIEW_RECORDED)).toMatchObject([{ verdict: 'pass', rules_version: REVIEW_RULES_VERSION }])

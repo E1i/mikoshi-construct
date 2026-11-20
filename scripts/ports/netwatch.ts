@@ -15,9 +15,10 @@ import { BUS_PULSE, declaredPayload, MAIN_ADVANCED, NETWATCH_SKIPPED, PR_CLOSED,
 import { closedKey, NETWATCH, pathsOfTheLastObservation, previousObservationOf, reopeningOf } from '../core/observations.js'
 import { RUN_SCRIPT } from '../supervisor/bg.js'
 import { recordProcessHeartbeat } from '../supervisor/heartbeat.js'
+import { REQUIRED_CHECK } from './gh.js'
 import { ghApi } from './github.js'
 import { Meter, RateLimited } from './meter.js'
-import { requiredCheckOf, takeSnapshot } from './snapshot.js'
+import { takeSnapshot } from './snapshot.js'
 
 export const TECHNOLOGY_WORDS = ['database'] as const
 
@@ -141,7 +142,7 @@ export class NetWatch {
   private lastPollAt: number | null = null
   private blockedUntil = 0
 
-  constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly clock: () => Date, private readonly process: string = RUN_SCRIPT, private readonly root?: string) {}
+  constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly clock: () => Date, private readonly process: string = RUN_SCRIPT, private readonly requiredCheck: () => string = () => REQUIRED_CHECK) {}
 
   dueReason(nowMs: number): PollReason | null {
     if (this.lastPollAt === null)
@@ -166,7 +167,7 @@ export class NetWatch {
       return this.skipped(ts, { kind: 'skipped', reason, cause: 'retry-after', calls: 0, until: new Date(this.blockedUntil).toISOString() })
     const meter = new Meter(this.gitHub, () => this.clock().getTime())
     try {
-      const snapshot = takeSnapshot(meter, knownOpenPrs(this.db), lastMain(this.db), requiredCheckOf(this.root), (pr, head) => pathsOfTheLastObservation(lastObserved(this.db, pr), head))
+      const snapshot = takeSnapshot(meter, knownOpenPrs(this.db), lastMain(this.db), this.requiredCheck(), (pr, head) => pathsOfTheLastObservation(lastObserved(this.db, pr), head))
       const poll: Poll = { kind: 'ticked', reason, calls: meter.calls, remaining: meter.remaining, written: 0, unsettled: snapshot.unsettled }
       inTransaction(this.db, () => {
         const observed = observationsOf(ts, snapshot, pr => lastObserved(this.db, pr), reopeningOf(this.db))

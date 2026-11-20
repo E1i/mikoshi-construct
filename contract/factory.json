@@ -5811,7 +5811,7 @@
           "git"
         ],
         "types": {
-          "NetWatch": "class NetWatch { constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly clock: () => Date, private readonly process: string = RUN_SCRIPT, private readonly root?: string); dueReason(nowMs: number): PollReason | null; poll(): Poll | null }",
+          "NetWatch": "class NetWatch { constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly clock: () => Date, private readonly process: string = RUN_SCRIPT, private readonly requiredCheck: () => string = () => REQUIRED_CHECK); dueReason(nowMs: number): PollReason | null; poll(): Poll | null }",
           "Poll": "type Poll = { kind: 'ticked'; reason: PollReason; calls: number; remaining: number | null; written: number; unsettled: number[]; } | { kind: 'skipped'; reason: PollReason; cause: 'retry-after' | 'rate-limited' | 'failed'; calls: number; until?: string; detail?: string; }",
           "PollReason": "type PollReason = 'start' | 'interval' | 'wake'"
         }
@@ -6005,7 +6005,7 @@
           "PULL_FILES_PAGES"
         ],
         "functions": {
-          "requiredCheckOf": "(root: string = watchedRoot()): string",
+          "requiredCheckOf": "(readAttachRecord: AttachRecordReader, root: string = watchedRoot()): string",
           "takeSnapshot": "(meter: Meter, known: number[], lastMain: string | null, requiredCheck = REQUIRED_CHECK, recordedPathsOf: RecordedPathsOf = () => null): Snapshot",
           "touchesMechanics": "(files: string[]): boolean",
           "verdictOf": "(meter: Meter, sha: string): VerdictOnHead | null",
@@ -6018,6 +6018,8 @@
         ],
         "technologyWords": [],
         "types": {
+          "AttachRecordReader": "type AttachRecordReader = (root: string) => AttachedHarness | null",
+          "AttachedHarness": "interface AttachedHarness { harness: { job?: string; } | string; }",
           "ChangedPaths": "interface ChangedPaths { paths: string[]; pathsTruncated: boolean; }",
           "ClosedPr": "interface ClosedPr { pr: number; cardId: number | null; branch?: string | null; merged: boolean; commit: string | null; mergedBy: string | null; mergedAt: string | null; }",
           "InMemoryPulls": "class InMemoryPulls { asked: string[]; constructor(private readonly bodies: Readonly<Record<string, unknown>>); meter(): Meter }",

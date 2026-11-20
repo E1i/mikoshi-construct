@@ -28,7 +28,7 @@ import { realRequestTools } from '../window/window-request-tools.js'
 import { WindowRequests } from '../window/window-requests.js'
 import { alive, BUS_RUN_MARKERS, instancesOf, processBeatsOn, psList, RUN_SCRIPT } from './bg.js'
 import { closeWaitsOfEndedCards } from './card-waits.js'
-import { busProjections, cardTransitions, deadEndParts, deriveQueuesOfTheBus, gateRunSpoolPlaces, recordOwnStart } from './composition.js'
+import { busProjections, cardTransitions, deadEndParts, deriveQueuesOfTheBus, gateRunSpoolPlaces, recordOwnStart, requiredCheckAt } from './composition.js'
 import { DeadEnds } from './dead-ends.js'
 import { GateRunSpool } from './gate-run-spool.js'
 import { sessionLifeIn } from './recorded-worker.js'
@@ -277,7 +277,7 @@ export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub
     for (const line of ends.step())
       console.log(`${PREFIX}${line}`)
   }
-  return { busTick: new BusTick(db, reducer, new NetWatch(db, gitHub, clock), clock, () => {}, statuses, stalled, spools, () => performance.now(), deadEnds) }
+  return { busTick: new BusTick(db, reducer, new NetWatch(db, gitHub, clock, RUN_SCRIPT, () => requiredCheckAt()), clock, () => {}, statuses, stalled, spools, () => performance.now(), deadEnds) }
 }
 
 export function startBus(db: DatabaseSync, clock: () => Date): string[] {
