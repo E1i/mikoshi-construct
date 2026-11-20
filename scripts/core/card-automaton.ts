@@ -1,13 +1,15 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
+import type { EventRow } from './events-query.js'
 import type { Fold, StoredEvent } from './stored.js'
 import type { IncrementalProjection } from './watermark.js'
 import { isBackfill } from './backfill-source.js'
 import { appendEvent, OPEN_WAIT } from './db.js'
+import { byId, events, latest, perCard } from './events-query.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_DEFERRED, CARD_DROPPED, CARD_FELL, CARD_MOVED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, DROPPED_LANE, MERGE_DONE, PR_OPENED, QUESTION_OWNER, REVIEW_RECORDED, TERMINAL_LANES, WITNESS_RECORDED } from './events.js'
 import { legacyHistory } from './legacy-history.js'
-import { payloadOf, reject, STORED_COLUMNS } from './stored.js'
-import { markReduced, reduceProjection, watermarkOf } from './watermark.js'
+import { payloadOf, reject } from './stored.js'
+import { lastEventId, markReduced, reduceProjection, watermarkOf } from './watermark.js'
 
 export const QUEUED_CARD = 'queued'
 export const RUNNING_CARD = 'running'
@@ -46,14 +48,15 @@ const ENDED = new Set<CardState>([MERGED_CARD, CLOSED_CARD, DROPPED_CARD])
 const NOT_IN_WORK = new Set<CardState>([DROPPED_CARD, DEFERRED_CARD])
 const FAULT = 'fault'
 const LEASED_TASK = 'leased'
+const JOURNAL_MERGE = 'merge'
 
-const LAST_STOP_REASON = `
-  SELECT json_extract(payload, '$.reason') AS reason FROM events
-  WHERE legacy = 0 AND type = '${CARD_STOPPED}' AND card_id = ? AND id < ?
-  ORDER BY id DESC LIMIT 1
-`
+function lastStopReason(db: DatabaseSync, cardId: number, before: number): unknown {
+  return latest(db, { types: [CARD_STOPPED], card: cardId, before })?.data?.reason
+}
 
-const SHARED_BY_A_DECISION = `SELECT 1 FROM events WHERE type = ? AND legacy = 0 AND card_id = ? AND pr = ? AND json_valid(payload) AND json_type(payload, '$.sharedBy') = 'text' LIMIT 1`
+function sharedByADecisionRecorded(db: DatabaseSync, cardId: number, pr: number): boolean {
+  return events(db, { types: [CARD_VERIFIED], card: cardId, pr }).some(event => typeof event.data?.sharedBy === 'string')
+}
 
 const CURRENT_LAUNCH_LEASE = `SELECT task_key, state, lease_gen FROM tasks WHERE queue = 'launch' AND card_id = ? ORDER BY event_id DESC LIMIT 1`
 
@@ -121,8 +124,7 @@ export function cardPrMerged(db: DatabaseSync, cardId: number, eventId: number):
 function stoppedByFault(db: DatabaseSync, cardId: number, before: number): boolean {
   if (stateOf(db, cardId) !== STOPPED_CARD)
     return false
-  const row = db.prepare(LAST_STOP_REASON).get(cardId, before) as { reason: unknown } | undefined
-  return row?.reason === FAULT
+  return lastStopReason(db, cardId, before) === FAULT
 }
 
 const FIRST_LEASE_GEN = 1
@@ -150,7 +152,7 @@ function restoreFromFault(db: DatabaseSync, event: StoredEvent, cardId: number):
 }
 
 function storedById(db: DatabaseSync, eventId: number): StoredEvent {
-  return db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE id = ?`).get(eventId) as unknown as StoredEvent
+  return byId(db, eventId) ?? reject(`event ${eventId} is not in the bus`)
 }
 
 export function cardPrOpened(db: DatabaseSync, cardId: number, pr: number, refusal: string | null, eventId: number): void {
@@ -168,7 +170,7 @@ export function cardPrOpened(db: DatabaseSync, cardId: number, pr: number, refus
 }
 
 function mergedInTheJournalBefore(db: DatabaseSync, cardId: number, before: number): boolean {
-  return db.prepare(`SELECT 1 FROM events WHERE legacy = 1 AND type = 'merge' AND card_id = ? AND id < ? LIMIT 1`).get(cardId, before) !== undefined
+  return latest(db, { types: [JOURNAL_MERGE], card: cardId, before, legacy: true }) !== null
 }
 
 function foldAdmitted(db: DatabaseSync, event: StoredEvent): void {
@@ -210,8 +212,7 @@ function cardReleased(db: DatabaseSync, cardId: number, eventId: number): void {
 function stoppedOnAnOwnerQuestion(db: DatabaseSync, cardId: number, before: number): boolean {
   if (stateOf(db, cardId) !== STOPPED_CARD)
     return false
-  const row = db.prepare(LAST_STOP_REASON).get(cardId, before) as { reason: unknown } | undefined
-  return row?.reason === QUESTION_OWNER
+  return lastStopReason(db, cardId, before) === QUESTION_OWNER
 }
 
 function aWaitItDidNotNameStaysOpen(db: DatabaseSync, cardId: number, named: readonly string[]): boolean {
@@ -231,29 +232,32 @@ function foldAnswered(db: DatabaseSync, event: StoredEvent): void {
   claimed(db, event, readmittedWithItsPullRequestOpen ? new Set([QUEUED_CARD]) : ANSWERED, backInWork(db, cardId))
 }
 
-const CLOSED_BY_REPORT = `type = '${CARD_VERIFIED}' AND legacy = 0 AND pr IS NULL AND card_id IS NOT NULL AND json_extract(payload, '$.report') IS NOT NULL`
-
 const GREEN_VERDICT = 'green'
 
-const LATEST_WITNESS_ON_MAIN = `SELECT json_extract(payload, '$.verdict') AS verdict FROM events WHERE type = '${WITNESS_RECORDED}' AND legacy = 0 AND card_id = ? AND pr IS NULL ORDER BY id DESC LIMIT 1`
+function reportsAClose(event: EventRow): boolean {
+  const report = event.data?.report
+  return report !== undefined && report !== null
+}
 
 function closedByReport(db: DatabaseSync, cardId: number): boolean {
-  return db.prepare(`SELECT 1 FROM events WHERE ${CLOSED_BY_REPORT} AND card_id = ? LIMIT 1`).get(cardId) !== undefined
+  return events(db, { types: [CARD_VERIFIED], card: cardId, pr: null }).some(reportsAClose)
 }
 
 function witnessedOnMain(db: DatabaseSync, cardId: number): boolean {
-  const latest = db.prepare(LATEST_WITNESS_ON_MAIN).get(cardId) as { verdict: unknown } | undefined
-  return latest?.verdict === GREEN_VERDICT
+  return latest(db, { types: [WITNESS_RECORDED], card: cardId, pr: null })?.data?.verdict === GREEN_VERDICT
 }
 
 const SATISFIED_IN_THE_BUS = `
   SELECT card_id FROM cards WHERE state IN ('${MERGED_CARD}', '${CLOSED_CARD}')
   UNION SELECT card_id FROM prs WHERE state = 'merged' AND card_id IS NOT NULL
-  UNION SELECT card_id FROM events WHERE ${CLOSED_BY_REPORT}
 `
 
+function closedByReportPerCard(db: DatabaseSync): number[] {
+  return [...perCard(db, { types: [CARD_VERIFIED], pr: null })].filter(([, verified]) => verified.some(reportsAClose)).map(([cardId]) => cardId)
+}
+
 function satisfiedInTheBus(db: DatabaseSync): Set<number> {
-  return new Set((db.prepare(SATISFIED_IN_THE_BUS).all() as { card_id: number }[]).map(row => Number(row.card_id)))
+  return new Set([...(db.prepare(SATISFIED_IN_THE_BUS).all() as { card_id: number }[]).map(row => Number(row.card_id)), ...closedByReportPerCard(db)])
 }
 
 type JournalLine = ReturnType<typeof legacyHistory>[number]
@@ -284,7 +288,7 @@ function sharedByADecision(db: DatabaseSync, cardId: number, pr: number | null):
   if (pr === null)
     return false
   const merged = db.prepare(`SELECT 1 FROM prs WHERE pr = ? AND state = 'merged'`).get(pr) !== undefined
-  return merged && db.prepare(SHARED_BY_A_DECISION).get(CARD_VERIFIED, cardId, pr) !== undefined
+  return merged && sharedByADecisionRecorded(db, cardId, pr)
 }
 
 function foldClosed(db: DatabaseSync, event: StoredEvent): void {
@@ -351,10 +355,6 @@ export const CARD_FOLDS: Record<string, Fold> = {
   [CARD_MOVED]: foldMoved,
   [CARD_DEFERRED]: foldDeferred,
   [CARD_DROPPED]: foldDropped,
-}
-
-function lastEventId(db: DatabaseSync): number {
-  return Number((db.prepare('SELECT coalesce(max(id), 0) AS id FROM events').get() as { id: number }).id)
 }
 
 export function appendedOnCard(db: DatabaseSync, event: BusEvent): boolean {
