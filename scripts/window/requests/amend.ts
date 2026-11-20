@@ -2,26 +2,9 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { RequestContext, RequestExecutor } from './context.js'
 import type { AdmitResult, AmendedStop, AmendFlags, CardAdmissionsPort, CardEventPort } from './reach.js'
 import type { Executed, RequestPayload } from './request.js'
-import { BusRead } from '../../ports/bus-read.js'
-import { answerToResumeAfterAmend, appendCardEvent, bodyNotFoldedYet, BusDecisions, CARD_ADMITTED, CARD_BODIES, cardBodyText, cardIdOf, correctionText, INTAKE_ACTOR_PREFIX, inTransaction, laid, launchWaitsOf, layLanes, OPEN_OWNER_STOP_OF_CARD, queueAgain, repositoryLanes, runAmend, WITNESS_RECORDED } from './reach.js'
+import { withWitnessRecords, witnessRecordsOf } from '../../quality/witness-records.js'
+import { answerToResumeAfterAmend, appendCardEvent, bodyNotFoldedYet, BusDecisions, CARD_ADMITTED, CARD_BODIES, cardBodyText, cardIdOf, correctionText, INTAKE_ACTOR_PREFIX, inTransaction, laid, launchWaitsOf, layLanes, OPEN_OWNER_STOP_OF_CARD, queueAgain, repositoryLanes, runAmend } from './reach.js'
 import { messageOf, text } from './request.js'
-
-export interface WitnessRecord {
-  verdict: string
-  detail: string
-}
-
-function textOf(value: unknown): string {
-  return typeof value === 'string' ? value : ''
-}
-
-export function withWitnessRecords<T extends object>(admission: T, records: readonly WitnessRecord[]): T & { witnessRecords?: readonly WitnessRecord[] } {
-  return records.length === 0 ? admission : { ...admission, witnessRecords: records }
-}
-
-export function witnessRecordsOf(db: DatabaseSync, cardId: number): WitnessRecord[] {
-  return new BusRead(db).where({ card: cardId }).slice(WITNESS_RECORDED, ['verdict', 'detail']).map(({ fields }) => ({ verdict: textOf(fields.verdict), detail: textOf(fields.detail) }))
-}
 
 const HELD_WITHOUT_STATE = 'held'
 const CARD_STATES = `

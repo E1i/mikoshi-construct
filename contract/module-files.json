@@ -2477,6 +2477,7 @@
     "scripts/quality/lock.ts",
     "scripts/quality/real-time-waits-excepted.json",
     "scripts/quality/table-owners.json",
+    "scripts/quality/witness-records.ts",
     "scripts/scratch/run-root.ts",
     "scripts/scratch/run.ts",
     "scripts/scratch/vitest-bus.ts",
