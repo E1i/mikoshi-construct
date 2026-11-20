@@ -2,9 +2,12 @@ import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import antfu from '@antfu/eslint-config'
 import ESLINT_EDGES from './contract/eslint-edges.json' with { type: 'json' }
+import MODULE_FILES from './contract/module-files.json' with { type: 'json' }
 import SURFACE from './contract/surface.json' with { type: 'json' }
 import INTERNAL_MODULES from './internal-modules.json' with { type: 'json' }
+import FOREIGN_TABLE_SQL_EXCEPTED from './scripts/quality/foreign-table-sql-excepted.json' with { type: 'json' }
 import REAL_TIME_WAITS_EXCEPTED from './scripts/quality/real-time-waits-excepted.json' with { type: 'json' }
+import TABLE_OWNERS from './scripts/quality/table-owners.json' with { type: 'json' }
 
 const ALLOWED_INTERNAL_IMPORTS = ESLINT_EDGES.allowedInternalImports
 const ALLOWED_FACTORY_IMPORTS = ESLINT_EDGES.allowedFactoryImports
@@ -477,6 +480,71 @@ export const REGISTRATION_POLICY = [
   },
 ]
 
+export const TABLE_NAME_CONSTANTS = {
+  CARDS_ROLE: 'cards',
+  DECISIONS_DIALOG: 'decisions',
+  WATERMARKS: 'projection_watermarks',
+  CARD_BODIES: 'card_bodies',
+  HEARTBEATS: 'heartbeats',
+  EVENTS_KIND: 'events',
+  NODE_CURSORS: 'node_cursors',
+  CARDS: 'cards',
+  DECISIONS: 'decisions',
+  OWNER_WAITS: 'owner_waits',
+  DIRTY_ROWS: 'projection_dirty',
+}
+const TABLE_REFERENCE = /\b(?:FROM|JOIN|INTO|UPDATE|DELETE\s+FROM)\s+(?:main\.)?([a-z_]\w*)\b/gi
+const AN_UNRESOLVED_SPAN = '$…'
+const NO_MODULE = 'no module'
+const MODULE_OF_FILE = new Map(Object.entries(MODULE_FILES).flatMap(([module, files]) => files.map(file => [file, module])))
+
+const A_TABLE_IS_READ_THROUGH_ITS_OWNER = 'SQL names {{table}}, a table {{owner}} owns, from a file of {{module}}: reach it through an operation of {{owner}}. Files that did so before this rule are listed in scripts/quality/foreign-table-sql-excepted.json, and that list only shrinks'
+
+function sqlTextOf(node) {
+  if (node.type === 'Literal')
+    return typeof node.value === 'string' ? node.value : null
+  return node.quasis.map((quasi, at) => {
+    const span = node.expressions[at]
+    const named = span?.type === 'Identifier' ? TABLE_NAME_CONSTANTS[span.name] : undefined
+    return `${quasi.value.cooked ?? quasi.value.raw}${span === undefined ? '' : named ?? AN_UNRESOLVED_SPAN}`
+  }).join('')
+}
+
+function moduleOfFile(filename) {
+  return MODULE_OF_FILE.get(path.relative(ROOT, filename).split(path.sep).join('/')) ?? NO_MODULE
+}
+
+const noForeignTableSql = {
+  meta: {
+    type: 'problem',
+    schema: [],
+    messages: { foreign: A_TABLE_IS_READ_THROUGH_ITS_OWNER },
+  },
+  create(context) {
+    const fileModule = moduleOfFile(context.filename)
+    const check = (node) => {
+      const text = sqlTextOf(node)
+      if (text === null)
+        return
+      for (const [, table] of text.matchAll(TABLE_REFERENCE)) {
+        const owner = Object.hasOwn(TABLE_OWNERS, table) ? TABLE_OWNERS[table] : undefined
+        if (owner !== undefined && owner !== fileModule)
+          context.report({ node, messageId: 'foreign', data: { table, owner, module: fileModule } })
+      }
+    }
+    return { Literal: check, TemplateLiteral: check }
+  },
+}
+
+export const FOREIGN_TABLE_SQL_POLICY = [
+  {
+    files: ['scripts/**/*.{ts,mts,cts,js,mjs,cjs}', 'src/**/*.{ts,mts,cts,js,mjs,cjs}'],
+    ignores: ['scripts/tests/**', 'tests/**', ...FOREIGN_TABLE_SQL_EXCEPTED],
+    plugins: { tables: { rules: { 'no-foreign-table-sql': noForeignTableSql } } },
+    rules: { 'tables/no-foreign-table-sql': 'error' },
+  },
+]
+
 export default antfu(
   {
     isInEditor: false,
@@ -500,4 +568,5 @@ export default antfu(
   anEventIsReadThroughTheContract,
   aSurfaceBoundaryIsGenerated,
   ...REGISTRATION_POLICY,
+  ...FOREIGN_TABLE_SQL_POLICY,
 )
