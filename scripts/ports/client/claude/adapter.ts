@@ -254,6 +254,7 @@ export function claudeAdapterWith<Settings extends object>(source: ShiftSettings
       guarantees: { allowlist: true, writeConfinement: true, mcpOff: true, toolNarrowing: true, guardFailsClosed: true },
     },
     invocation: spec => SESSION_OF_ROLE[spec.role](settings, spec),
+    window: () => ({ variable: WINDOW_COMMAND_VARIABLE, command: windowCommand }),
     reading: place => readingOf(place),
     readBudget,
     models,

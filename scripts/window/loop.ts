@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Status } from '../core/handoff-status.js'
+import type { Refusal, WindowCommand } from '../ports/client/contract.js'
 import type { WindowMode } from '../ports/session.js'
 import type { ProcessRow } from './exit.js'
 import { spawn, spawnSync } from 'node:child_process'
@@ -15,7 +16,7 @@ import { PROCESS_ENDED, PROCESS_HEARTBEAT, PROCESS_REFUSED } from '../core/event
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { statusOfFile } from '../core/handoff-status.js'
 import { HANDOFF_WRITE_COMMAND, MIKO_COMMAND, MIKO_EXIT_COMMAND, MIKO_WATCH_COMMAND } from '../core/owner-commands.js'
-import { WINDOW_COMMAND_VARIABLE, windowCommand } from '../ports/client/claude/adapter.js'
+import { clientAdapter, clientForRoleIn } from '../ports/client/index.js'
 import { OsProcessTable } from '../ports/process-table.js'
 import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE } from '../ports/session.js'
 import { recordProcessHeartbeat } from '../supervisor/heartbeat.js'
@@ -27,8 +28,23 @@ import { lastLoopBeats, LOOP_PROCESS } from './window-heartbeat.js'
 
 export const PREFIX = '[miko] '
 export const HANDOFF_VARIABLE = 'CONSTRUCT_HANDOFF'
-export const CLAUDE_VARIABLE = WINDOW_COMMAND_VARIABLE
-export const DEFAULT_CLAUDE = windowCommand({})
+
+export function windowCommandIn(root: string): WindowCommand | Refusal {
+  const choice = clientForRoleIn(root, 'window')
+  return 'kind' in choice ? choice : choice.adapter.window()
+}
+
+function defaultWindow(): WindowCommand {
+  const window = clientAdapter().window()
+  if ('kind' in window)
+    throw new Error(window.reason)
+  return window
+}
+
+const DEFAULT_WINDOW = defaultWindow()
+export const CLAUDE_VARIABLE = DEFAULT_WINDOW.variable
+export const DEFAULT_CLAUDE = DEFAULT_WINDOW.command({})
+export const claudeCommand = DEFAULT_WINDOW.command
 export const MIKO_HANDOFF_NAME = 'miko.md'
 export interface WindowCommands {
   write: string
@@ -201,8 +217,8 @@ export function sessionScript(command: string): string {
   return SHELL_SYNTAX.test(command) ? `${command} "$@"` : `exec env ${command} "$@"`
 }
 
-export function compoundCommandRefusal(command: string): string | null {
-  return SHELL_SYNTAX.test(command) ? `${PREFIX}${CLAUDE_VARIABLE} contains shell syntax (${command}): an exit request could not end the claude it starts; name one command` : null
+export function compoundCommandRefusal(command: string, variable: string = CLAUDE_VARIABLE): string | null {
+  return SHELL_SYNTAX.test(command) ? `${PREFIX}${variable} contains shell syntax (${command}): an exit request could not end the claude it starts; name one command` : null
 }
 
 export function claudeArgv(command: string, prompt: string | undefined): string[] {
@@ -383,15 +399,18 @@ export function endOnHangup(ended: () => void, exit: (code: number) => void): vo
   }
 }
 
-export { windowCommand as claudeCommand }
-
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const command = windowCommand(process.env)
+  const window = windowCommandIn(process.cwd())
+  if ('kind' in window) {
+    console.error(`${PREFIX}${window.reason}`)
+    process.exit(1)
+  }
+  const command = window.command(process.env)
   if (process.argv[2] === TAB_WORD) {
     process.on('SIGINT', () => {})
     process.exit(runTabSession(command, process.argv.slice(3)))
   }
-  const refusal = compoundCommandRefusal(command)
+  const refusal = compoundCommandRefusal(command, window.variable)
   if (refusal !== null) {
     console.error(refusal)
     process.exit(1)

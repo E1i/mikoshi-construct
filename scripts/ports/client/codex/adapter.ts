@@ -46,7 +46,19 @@ function reviewInvocation(spec: SessionSpec): Invocation | Refusal {
   return { command: CODEX_COMMAND, args: [...READ_ONLY_HEADLESS, TREE_FLAG, spec.cwd, ...model, spec.prompt], env: {}, stdin: null }
 }
 
+export const WINDOW_CENSUS_GAPS: readonly { row: number, lacks: string }[] = [
+  { row: 8, lacks: 'the Eddies guard, prompt and compact hooks with the tool names they read' },
+  { row: 9, lacks: 'the project root every hook reads' },
+  { row: 15, lacks: 'the agent roles and the role guard on spawning one' },
+  { row: 16, lacks: 'Monitor and Cron that wake the turn, and TaskStop' },
+  { row: 18, lacks: 'the transcript Eddies and miko exit measure context and spend from' },
+]
+
+const NO_WINDOW = `this client opens no window: the census of the window on this client (#2108) finds no witnessed mechanism for ${WINDOW_CENSUS_GAPS.map(gap => `row ${gap.row} (${gap.lacks})`).join(', ')}`
+
 function invocationOf(spec: SessionSpec): Invocation | Refusal {
+  if (spec.role === 'window')
+    return refused(NO_WINDOW)
   if (spec.role !== 'review')
     return refused(`${ONLY_READ_ONLY_REVIEW}: the role ${spec.role} is not one`)
   return spec.kind === 'start' ? reviewInvocation(spec) : refused(NO_RESUME_OF_REVIEW)
@@ -153,6 +165,7 @@ export const codexAdapter: ClientAdapter = {
     guarantees: { ...GUARANTEES },
   },
   invocation: invocationOf,
+  window: () => refused(NO_WINDOW),
   reading: readingOf,
   readBudget: () => ({ ...NO_BUDGET_READING }),
   models: () => null,
