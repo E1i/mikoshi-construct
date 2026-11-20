@@ -1,9 +1,7 @@
-import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { appendFileSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { execGh } from '../ports/gh.js'
 import { CHANGELOG_PATH, parseChangelog, REPO_ROOT } from './changelog.js'
 
 export const RELEASE_BODY_BUDGET = 100_000
@@ -85,31 +83,25 @@ export function releaseBodyFault(rendered: ReleaseBody): string | null {
   return null
 }
 
-function ghOrFail(args: string[]): string {
-  const result = execGh(args)
-  if (result.kind === 'ran')
-    return result.stdout
-  throw new Error(`gh ${args.slice(0, 2).join(' ')} failed: ${result.reason}`)
+export const RELEASE_BODY_FILE = 'release-body.md'
+
+export function releaseOutputs(rendered: ReleaseBody & { kind: 'within' }, bodyFile: string): string {
+  return `tag=${releaseTag(rendered.version)}\nbody-file=${bodyFile}\n`
 }
 
-function publish(): void {
+function writeReleaseBody(): void {
   const rendered = renderReleaseBody(readReleaseSource(), process.env.GITHUB_REPOSITORY ?? DEFAULT_REPOSITORY)
-  const fault = releaseBodyFault(rendered)
-  if (fault !== null || rendered.kind !== 'within') {
-    console.log(`::error::${fault}`)
+  if (rendered.kind !== 'within') {
+    console.log(`::error::${releaseBodyFault(rendered)}`)
     process.exitCode = 1
     return
   }
-  const tag = releaseTag(rendered.version)
-  const notes = path.join(mkdtempSync(path.join(tmpdir(), 'release-body-')), 'body.md')
-  writeFileSync(notes, rendered.body)
-  const exists = execGh(['release', 'view', tag, '--json', 'tagName']).kind === 'ran'
-  if (exists)
-    ghOrFail(['release', 'edit', tag, '--notes-file', notes])
-  else
-    ghOrFail(['release', 'create', tag, '--title', tag, '--notes-file', notes, ...(process.env.GITHUB_SHA ? ['--target', process.env.GITHUB_SHA] : [])])
-  console.log(`${exists ? 'Updated' : 'Created'} the GitHub release ${tag} with a body of ${rendered.body.length} characters.`)
+  const bodyFile = process.argv[2] ?? RELEASE_BODY_FILE
+  writeFileSync(bodyFile, rendered.body)
+  if (process.env.GITHUB_OUTPUT)
+    appendFileSync(process.env.GITHUB_OUTPUT, releaseOutputs(rendered, bodyFile))
+  console.log(`The GitHub release body of ${releaseTag(rendered.version)} is ${rendered.body.length} characters, written to ${bodyFile}.`)
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
-  publish()
+  writeReleaseBody()
