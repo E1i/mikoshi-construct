@@ -22,13 +22,13 @@ import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
 const client = vi.hoisted(() => ({ binary: '', specs: [] as SessionSpec[] }))
 
 vi.mock('../../ports/client/index.js', async () => {
-  const actual = await vi.importActual<{ claudeAdapter: ClientAdapter }>('../../ports/client/claude/adapter.js')
+  const actual = await vi.importActual<{ clientAdapter: () => ClientAdapter }>('../../ports/client/index.js')
   return {
     clientAdapter: (): ClientAdapter => ({
-      ...actual.claudeAdapter,
+      ...actual.clientAdapter(),
       invocation: (spec) => {
         client.specs.push(spec)
-        const result = actual.claudeAdapter.invocation(spec)
+        const result = actual.clientAdapter().invocation(spec)
         return 'kind' in result ? result : { ...result, command: client.binary, env: { ...result.env, CLIENT_MARK: 'from-the-adapter' } }
       },
     }),
