@@ -56,6 +56,7 @@ describe('a SQL literal reaches a bus table only from the module that owns it', 
     expect(await foreignTableMessages(exported('`SELECT pr FROM prs JOIN events ON events.id = prs.event`'), A_FILE_OF_PR_RECORD)).toHaveLength(1)
     expect(await foreignTableMessages(exported('\'DELETE FROM owner_waits WHERE card = ?\''), A_FILE_OF_PR_RECORD)).toHaveLength(1)
     expect(await foreignTableMessages(exported('\'INSERT INTO main.check_tests (test) VALUES (?)\''), A_FILE_OF_PR_RECORD)).toHaveLength(1)
+    expect(await foreignTableMessages(exported('\'UPDATE cards SET size = ? WHERE card = ?\''), A_FILE_OF_PR_RECORD)).toHaveLength(1)
     expect(await foreignTableMessages(exported('\'SELECT card FROM cards\''), A_FILE_WITH_NO_MODULE)).toHaveLength(1)
   })
 
