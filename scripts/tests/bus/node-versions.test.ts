@@ -9,7 +9,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NODE_DECLARATIONS, nodesSection } from '../../contract/factory/nodes.js'
-import { BUS_VERSION, BUS_VERSION_BEFORE_GATE_RUN, BUS_VERSION_BEFORE_LADDER_RUN, BUS_VERSION_BEFORE_THRESHOLD_SET, BUS_VERSION_RECORD, busVersionOf, CARD_VERSION, CARD_VERSION_BEFORE_TOUCH_SCOPE, CARD_VERSION_KEY, cardVersionIn, stampBusVersion, UNRECORDED_VERSION } from '../../core/bus-version.js'
+import { BUS_VERSION, BUS_VERSION_BEFORE_GATE_RUN, BUS_VERSION_BEFORE_LADDER_RUN, BUS_VERSION_BEFORE_THRESHOLD_SET, BUS_VERSION_RECORD, busVersionOf, CARD_VERSION, CARD_VERSION_BEFORE_PLACEMENT_IMPORTS, CARD_VERSION_BEFORE_TOUCH_SCOPE, CARD_VERSION_KEY, cardVersionIn, stampBusVersion, UNRECORDED_VERSION } from '../../core/bus-version.js'
 import { admittedCardVersion, appendCardEvent } from '../../core/card-bodies.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { FACTORY_WORKERS } from '../../core/factory-paths.js'
@@ -201,7 +201,7 @@ describe('the node versions', () => {
     db.close()
   })
 
-  it('a card admitted at card version 1 is read by a node of this build without a new admission, and a new admission carries version 2', async () => {
+  it('a card admitted at card version 1 is read by a node of this build without a new admission, and a new admission carries version 3', async () => {
     const db = openBus(busPath())
     const clock = new Clock()
     const task: QueuedTask = { queue: 'review', cardId: CARD }
@@ -209,8 +209,9 @@ describe('the node versions', () => {
     queueTaskWithin(db, clock.now().toISOString(), task)
     const node = new DeclaredNode(db, clock, [task])
 
-    expect(UNDERSTOOD_NOW.card).toEqual([CARD_VERSION_BEFORE_TOUCH_SCOPE, CARD_VERSION])
-    expect(CARD_VERSION).toBe(CARD_VERSION_BEFORE_TOUCH_SCOPE + 1)
+    expect(UNDERSTOOD_NOW.card).toEqual([CARD_VERSION_BEFORE_TOUCH_SCOPE, CARD_VERSION_BEFORE_PLACEMENT_IMPORTS, CARD_VERSION])
+    expect(CARD_VERSION_BEFORE_PLACEMENT_IMPORTS).toBe(CARD_VERSION_BEFORE_TOUCH_SCOPE + 1)
+    expect(CARD_VERSION).toBe(CARD_VERSION_BEFORE_PLACEMENT_IMPORTS + 1)
     await runOnce(node)
     expect(node.handled).toHaveLength(1)
     expect(admittedCardVersion(db, CARD)).toBe(CARD_VERSION_BEFORE_TOUCH_SCOPE)
