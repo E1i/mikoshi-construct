@@ -477,6 +477,9 @@ export class AnswerExecutor {
         return this.publishing.leftDirty(lease, card, answered.session)
       return this.publishing.published(lease, source, card, answered, minutes, scope) ?? this.publishing.leftNothing(lease, answered, scope)
     }
+    const published = this.dirty(card) ? null : this.publishing.published(lease, source, card, answered, minutes, scope)
+    if (published !== null)
+      return published
     const reentry = REENTRY_SOURCES.has(source.kind) || source.reentry === true
     const payload = this.publishing.answeredPayload(source, card, answered, minutes, reentry ? { reentry: true } : {})
     completeTask(this.parts.db, this.parts.cards, this.ts(), lease, [...scope, this.outcomes.event(lease, CARD_ANSWERED, payload)])
