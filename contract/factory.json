@@ -5523,7 +5523,9 @@
           "clientAdapter": "(): ClientAdapter",
           "clientAdapterById": "(id: string): ClientAdapter | Refusal",
           "clientForRole": "(record: ClientRecord | undefined, role: ClientRole): ClientChoice | Refusal",
-          "clientForRoleIn": "(root: string, role: ClientRole): ClientChoice | Refusal"
+          "clientForRoleIn": "(root: string, role: ClientRole): ClientChoice | Refusal",
+          "defaultWindowCommand": "(): WindowCommand",
+          "windowCommandIn": "(root: string): WindowCommand | Refusal"
         },
         "language": "factory",
         "reexports": [],

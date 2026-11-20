@@ -1,6 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Status } from '../core/handoff-status.js'
-import type { Refusal, WindowCommand } from '../ports/client/contract.js'
 import type { WindowMode } from '../ports/session.js'
 import type { ProcessRow } from './exit.js'
 import { spawn, spawnSync } from 'node:child_process'
@@ -16,7 +15,7 @@ import { PROCESS_ENDED, PROCESS_HEARTBEAT, PROCESS_REFUSED } from '../core/event
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { statusOfFile } from '../core/handoff-status.js'
 import { HANDOFF_WRITE_COMMAND, MIKO_COMMAND, MIKO_EXIT_COMMAND, MIKO_WATCH_COMMAND } from '../core/owner-commands.js'
-import { clientAdapter, clientForRoleIn } from '../ports/client/index.js'
+import { defaultWindowCommand, windowCommandIn as windowCommandOfClientIn } from '../ports/client/index.js'
 import { OsProcessTable } from '../ports/process-table.js'
 import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE } from '../ports/session.js'
 import { recordProcessHeartbeat } from '../supervisor/heartbeat.js'
@@ -29,19 +28,9 @@ import { lastLoopBeats, LOOP_PROCESS } from './window-heartbeat.js'
 export const PREFIX = '[miko] '
 export const HANDOFF_VARIABLE = 'CONSTRUCT_HANDOFF'
 
-export function windowCommandIn(root: string): WindowCommand | Refusal {
-  const choice = clientForRoleIn(root, 'window')
-  return 'kind' in choice ? choice : choice.adapter.window()
-}
+export const windowCommandIn = windowCommandOfClientIn
 
-function defaultWindow(): WindowCommand {
-  const window = clientAdapter().window()
-  if ('kind' in window)
-    throw new Error(window.reason)
-  return window
-}
-
-const DEFAULT_WINDOW = defaultWindow()
+const DEFAULT_WINDOW = defaultWindowCommand()
 export const CLAUDE_VARIABLE = DEFAULT_WINDOW.variable
 export const DEFAULT_CLAUDE = DEFAULT_WINDOW.command({})
 export const claudeCommand = DEFAULT_WINDOW.command
