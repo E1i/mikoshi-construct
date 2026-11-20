@@ -2,7 +2,7 @@ import type { Prompter } from '../../../src/ui/prompts.js'
 import type { Lease } from '../../core/lease.js'
 import type { GhResponse } from '../../ports/github.js'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -19,8 +19,12 @@ import { Meter } from '../../ports/meter.js'
 import { NetWatch, NETWATCH_SCRIPT } from '../../ports/netwatch.js'
 import { ciOf } from '../../ports/snapshot.js'
 import { busProjections, requiredCheckAt } from '../../supervisor/composition.js'
+import { standaloneRequiredCheck } from '../../supervisor/netwatch-root.js'
 import { Clock, FakeGitHub, sha } from '../bus/github-fake.js'
 import { liveBench } from '../bus/merge-bench.js'
+
+const REPOSITORY_ROOT = path.resolve(import.meta.dirname, '../../..')
+const NETWATCH_ROOT = 'scripts/supervisor/netwatch-root.ts'
 
 const ui = createUi(resolveTheme({ plain: true }), silentWriter)
 useIsolatedHome()
@@ -142,6 +146,17 @@ describe('the bus reads the recorded job from the root of the repository it watc
     watching(repository())
 
     expect(requiredCheckAt()).toBe('required')
+  })
+
+  it('the standalone bus:netwatch entry runs from a composition root and reads the recorded job of the working directory', async () => {
+    const scripts = (JSON.parse(readFileSync(path.join(REPOSITORY_ROOT, 'package.json'), 'utf8')) as { scripts: Record<string, string> }).scripts
+    expect(scripts['bus:netwatch']).toBe(`node --import tsx ${NETWATCH_ROOT}`)
+
+    watching(await attachedRepository())
+    expect(standaloneRequiredCheck()).toBe('Build and test')
+
+    watching(repository())
+    expect(standaloneRequiredCheck()).toBe('required')
   })
 
   it('the review verdict freshness check passes on the recorded job and holds on the check named required', async () => {

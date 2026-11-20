@@ -5,17 +5,13 @@ import type { PreviousObservation, PreviousObservationOf, ReopeningOf } from '..
 import type { GitHub } from './github.js'
 import type { ChangedPaths, ClosedPr, MainHead, OpenPr, Snapshot } from './snapshot.js'
 import { createHash } from 'node:crypto'
-import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { fileURLToPath } from 'node:url'
 import { CHECK_MS, TICK_MS, WAKE_GAP_MS } from '../core/cadence.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
 import { BUS_PULSE, declaredPayload, MAIN_ADVANCED, NETWATCH_SKIPPED, PR_CLOSED, PR_OBSERVED } from '../core/events.js'
 import { closedKey, NETWATCH, pathsOfTheLastObservation, previousObservationOf, reopeningOf } from '../core/observations.js'
-import { RUN_SCRIPT } from '../supervisor/bg.js'
 import { recordProcessHeartbeat } from '../supervisor/heartbeat.js'
-import { REQUIRED_CHECK } from './gh.js'
 import { ghApi } from './github.js'
 import { Meter, RateLimited } from './meter.js'
 import { takeSnapshot } from './snapshot.js'
@@ -142,7 +138,7 @@ export class NetWatch {
   private lastPollAt: number | null = null
   private blockedUntil = 0
 
-  constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly clock: () => Date, private readonly process: string = RUN_SCRIPT, private readonly requiredCheck: () => string = () => REQUIRED_CHECK) {}
+  constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly clock: () => Date, private readonly process: string, private readonly requiredCheck: () => string) {}
 
   dueReason(nowMs: number): PollReason | null {
     if (this.lastPollAt === null)
@@ -200,11 +196,10 @@ export function pollLine(poll: Poll): string {
   return `${PREFIX}skipped (${poll.reason}, ${poll.cause}): ${poll.calls} calls${poll.until === undefined ? '' : `, until ${poll.until}`}${poll.detail === undefined ? '' : `: ${poll.detail}`}`
 }
 
-async function main(): Promise<number> {
-  const once = process.argv.includes('--once')
+export async function watchTheNetwork(requiredCheck: () => string, once: boolean): Promise<number> {
   const busPath = defaultBusPath()
   const db = openBus(busPath)
-  const netWatch = new NetWatch(db, ghApi(process.cwd()), () => new Date(), NETWATCH_SCRIPT)
+  const netWatch = new NetWatch(db, ghApi(process.cwd()), () => new Date(), NETWATCH_SCRIPT, requiredCheck)
   console.log(`${PREFIX}${busPath}, a tick every ${TICK_MS / 1000} s${once ? ', once' : ''}`)
   try {
     for (;;) {
@@ -220,6 +215,3 @@ async function main(): Promise<number> {
     db.close()
   }
 }
-
-if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
-  process.exitCode = await main()

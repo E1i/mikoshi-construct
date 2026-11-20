@@ -144,7 +144,7 @@
   "boundary:ports->project": 9,
   "boundary:ports->quality": 5,
   "boundary:ports->rules": 1,
-  "boundary:ports->session": 6,
+  "boundary:ports->session": 5,
   "boundary:ports->ui": 1,
   "boundary:ports->window": 1,
   "boundary:ports-adapters->layout": 1,

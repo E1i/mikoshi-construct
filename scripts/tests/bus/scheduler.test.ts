@@ -16,12 +16,12 @@ import { completeTask, LEASE_MS, leasedCount } from '../../core/lease.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { startReviewWorkers } from '../../nodes/review/review-worker.js'
-import { NetWatch } from '../../ports/netwatch.js'
 import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick, tickOrLocked } from '../../supervisor/run.js'
 import { SLOT_POLL_MS, SLOTS, SlotScheduler, slotsOf, slotsVariable } from '../../supervisor/scheduler.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
+import { benchNetWatch } from './net-watch-bench.js'
 import { detectReview } from './review-detection.js'
 
 const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
@@ -132,7 +132,7 @@ describe('heavy run scheduler', () => {
     const db = openBus(scratch())
     const gitHub = new FakeGitHub()
     const clock = new Clock()
-    const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now)
+    const busTick = new BusTick(db, busProjections(), benchNetWatch(db, gitHub.client, clock.now), clock.now)
     const statuses: ReviewStatus[] = []
     const publish: StatusPublisher = (status) => {
       statuses.push(status)
@@ -181,7 +181,7 @@ describe('heavy run scheduler', () => {
     const file = scratch()
     const db = openBus(file)
     const clock = new Clock()
-    const busTick = new BusTick(db, busProjections(), new NetWatch(db, new FakeGitHub().client, clock.now), clock.now)
+    const busTick = new BusTick(db, busProjections(), benchNetWatch(db, new FakeGitHub().client, clock.now), clock.now)
     const holder = new DatabaseSync(file)
     db.exec('PRAGMA busy_timeout = 0')
     holder.exec('BEGIN IMMEDIATE')
