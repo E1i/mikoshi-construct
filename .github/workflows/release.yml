@@ -14,7 +14,7 @@
 # The publish is staged with `npm stage publish`, which npm has from 11.15.0 (trusted publishing itself
 # needs 11.5.1). The Node major pinned in .nvmrc ships npm 10, which has neither and publishes
 # unauthenticated — the registry answers `404 Not Found - PUT`. So the job upgrades npm before
-# publishing, and keeps the pinned Node so the harness runs where CI runs it.
+# publishing, and keeps the pinned Node CI builds on.
 #
 # A staged version is installable only once a human approves it, so the stage id is uploaded as the
 # release-stage artifact: Release verification reads it to tell a publish awaiting approval from one
@@ -24,6 +24,11 @@
 #
 # When the action creates or updates the version pull request, its body gets a block of its own with
 # the diff of architecture/security-invariants.md since the last release tag, or «без изменений».
+#
+# The job does not run the harness itself: one process took 27–39 minutes for what CI, sharded, does
+# in about six on the same commit. It waits instead for CI's `required` check on github.sha, the one
+# check that aggregates every quality job, and stops before versioning or publishing unless that check
+# concluded success. A check still absent or running is waited on, up to CI_WAIT_SECONDS.
 
 name: Release
 
@@ -37,6 +42,7 @@ permissions:
   contents: write
   pull-requests: write
   id-token: write
+  checks: read
 
 jobs:
   release:
@@ -59,7 +65,28 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm run quality
+      - name: Wait for the green CI quality on this commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ github.sha }}
+          CI_CHECK: required
+          CI_WAIT_SECONDS: 3600
+        run: |
+          deadline=$(( $(date +%s) + CI_WAIT_SECONDS ))
+          while :; do
+            state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/check-runs?check_name=$CI_CHECK&filter=latest&per_page=100" \
+              --jq '[.check_runs[] | select(.app.slug == "github-actions")] | sort_by(.id) | last | if . == null then "absent" else "\(.status) \(.conclusion)" end')
+            echo "CI $CI_CHECK on $SHA: $state"
+            case "$state" in
+              "completed success") exit 0 ;;
+              completed*) echo "::error::CI $CI_CHECK on $SHA concluded ${state#completed }; nothing is versioned or published"; exit 1 ;;
+            esac
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::CI $CI_CHECK on $SHA did not complete within $CI_WAIT_SECONDS seconds; nothing is versioned or published"
+              exit 1
+            fi
+            sleep 30
+          done
 
       - name: Version or publish
         id: changesets
