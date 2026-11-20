@@ -18,8 +18,12 @@
 #
 # A staged version is installable only once a human approves it, so the stage id is uploaded as the
 # release-stage artifact: Release verification reads it to tell a publish awaiting approval from one
-# that is absent. `changeset tag` then writes the git-tag report the action turns into tags and
-# GitHub releases, which `changeset publish` wrote before. The last step writes `npm stage approve <id>`
+# that is absent. `changeset tag` then writes the git-tag report the action turns into tags, which
+# `changeset publish` wrote before. The action creates no GitHub release: it would send the whole
+# CHANGELOG section as the body, which GitHub refuses past 125000 characters. The step after it creates
+# the release of the tag from scripts/release-notes/release-body.ts, a summary within a fixed budget
+# that links the CHANGELOG at the tag; version-pr-guard.ts renders the same body on the version pull
+# request and is red when it is over the budget. The last step writes `npm stage approve <id>`
 # into the run summary, with the id from that record, or says nothing was staged.
 #
 # When the action creates or updates the version pull request, its body gets a block of its own with
@@ -106,9 +110,16 @@ jobs:
           publish-script: pnpm release
           commit-message: 'chore: version packages'
           pr-title: 'chore: version packages'
+          createGithubReleases: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_CONFIG_PROVENANCE: 'true'
+
+      - name: GitHub release from the rendered release body
+        if: steps.changesets.outputs.published == 'true'
+        run: pnpm exec tsx scripts/release-notes/release-body.ts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Security invariants diff in the version pull request
         if: steps.changesets.outputs.published != 'true' && steps.changesets.outputs.pr-number != ''
