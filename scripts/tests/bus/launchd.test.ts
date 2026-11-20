@@ -38,9 +38,10 @@ const plist = readFileSync(PLIST, 'utf8')
 const keys = topLevelKeys(plist)
 const shellLine = (keys.get('ProgramArguments') as string[]).at(-1)!
 
-describe('the bus agent keeps the supervisor alive', () => {
-  it('has an unconditional KeepAlive, so launchd reruns the starter whenever it exits', () => {
-    expect(keys.get('KeepAlive')).toBe(true)
+describe('the bus agent keeps alive only a supervisor Miko started', () => {
+  it('keeps the starter alive only while the mark Miko writes exists, never unconditionally', () => {
+    expect(keys.get('KeepAlive')).toBe('dict')
+    expect(plist).toMatch(/<key>KeepAlive<\/key>\s*<dict>\s*<key>PathState<\/key>\s*<dict>\s*<key>\{\{startedMark\}\}<\/key>\s*<true\/>\s*<\/dict>\s*<\/dict>/)
   })
 
   it(`reruns the starter within ${RAISED_WITHIN_S} s of its last run, so a killed supervisor is raised by then`, () => {
@@ -49,8 +50,8 @@ describe('the bus agent keeps the supervisor alive', () => {
     expect(keys.has('StartInterval')).toBe(false)
   })
 
-  it('starts at load and leaves the detached supervisor and workers running when the starter exits', () => {
-    expect(keys.get('RunAtLoad')).toBe(true)
+  it('does not start at load and leaves the detached supervisor and workers running when the starter exits', () => {
+    expect(keys.has('RunAtLoad')).toBe(false)
     expect(keys.get('AbandonProcessGroup')).toBe(true)
   })
 
@@ -69,8 +70,8 @@ describe('the bus agent keeps the supervisor alive', () => {
     expect(keys.has('StandardOutPath')).toBe(false)
   })
 
-  it('asks for the owner\'s two values through placeholders and names neither', () => {
-    expect([...plist.matchAll(/\{\{(\w+)\}\}/g)].map(match => match[1]).sort()).toEqual(['factoryDir', 'tokenSource'])
+  it('asks for the owner\'s two values and the started mark through placeholders and names none of them', () => {
+    expect([...plist.matchAll(/\{\{(\w+)\}\}/g)].map(match => match[1]).sort()).toEqual(['factoryDir', 'startedMark', 'tokenSource'])
     expect(shellLine).toContain('cd {{factoryDir}} &&')
     expect(shellLine).toMatch(TOKEN_FROM_ITS_SOURCE)
     expect(shellLine).not.toMatch(/gh auth token|launchctl setenv/)

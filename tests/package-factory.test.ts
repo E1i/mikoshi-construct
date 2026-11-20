@@ -10,6 +10,7 @@ import { FACTORY_FORMER_FOLDERS, FACTORY_NAMED } from '../scripts/core/factory-p
 import { ownerChannelOfBus, UNUSED_WORD } from '../scripts/owner/channel.js'
 import { USAGE as OWNER_SAY_USAGE, PREFIX } from '../scripts/owner/say.js'
 import { USAGE as SHARD_USAGE } from '../scripts/policy/shard.js'
+import { USAGE as FACTORY_START_USAGE } from '../scripts/supervisor/start.js'
 import { USAGE as MIKO_WATCH_USAGE } from '../scripts/window/watch.js'
 import { assetsNamedBy, copyFactoryAssets, FACTORY_DIRECTORIES, factoryAssets, factoryBuild, factoryEntries, factoryGraph, importsOf, locatedBy, OUT_DIR, productBuild, scriptsNamedBy } from '../tsup.config.js'
 
@@ -34,7 +35,7 @@ const STARTS: Record<string, { args: string[], exit: number, prints: string }> =
   'scripts/intake/import.ts': { args: [], exit: 1, prints: '[bus:import] no journal at' },
   'scripts/nodes/close/task-close.ts': { args: [], exit: 1, prints: '[task:close] one task id is needed' },
   'scripts/ports/task-start.ts': { args: [], exit: 1, prints: '[task:start] a task starts from its card now' },
-  'scripts/supervisor/start.ts': { args: ['--bogus'], exit: 2, prints: 'usage: construct-factory' },
+  'scripts/supervisor/start.ts': { args: ['--bogus'], exit: 2, prints: FACTORY_START_USAGE },
   'scripts/policy/decisions/read.ts': { args: [], exit: 1, prints: '[decisions] no decisions at' },
   'scripts/ladder/role.ts': { args: ['review', '--task', 't1'], exit: 0, prints: 'local: launch the review agent for t1' },
   'scripts/window/watch.ts': { args: ['--bogus'], exit: 2, prints: MIKO_WATCH_USAGE },

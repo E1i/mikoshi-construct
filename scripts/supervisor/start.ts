@@ -5,7 +5,7 @@ import type { BgResult, ProcessList, RunningProcess } from './bg.js'
 import type { BusWorker, FactoryMode } from './workers.js'
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -33,6 +33,9 @@ export const AGENT_LOG = 'launchd.log'
 export const RAISED_WITHIN_S = 20
 export const START_BIN = 'construct-factory'
 export const HOLD_FLAG = '--hold'
+export const MIKO_FLAG = '--miko'
+export const MIKO_START = 'miko start'
+export const STARTED_MARK = 'factory.started'
 export const HOLD_CHECK_MS = RAISED_WITHIN_S * 1000
 export const KEEP_ALIVE_PROGRAM = ['/usr/bin/env', START_BIN, HOLD_FLAG]
 export const MODE_FLAG = '--mode'
@@ -42,7 +45,7 @@ export const SHADOW_SWITCH = '--shadow'
 export const SAY_COMMAND = constructCommand('say')
 export const MODE_SHARD_SCOPE = DECISIONS_SCOPE
 export const SHARD_DECIDES_LIVE: readonly BusWorker[] = ['merge', 'update']
-export const USAGE = `usage: ${START_BIN} — starts the factory for the git repository in the current directory and installs its keep-alive; ${START_BIN} ${HOLD_FLAG} — does the same, then stays up while the supervisor of its bus runs and exits once it is gone, as the keep-alive runs it; ${START_BIN} ${MODE_FLAG} ${FACTORY_MODES[0]} | ${MODE_FLAG} ${FACTORY_MODES[1]} [${HOURS_FLAG} <n>] | ${LIVE_SWITCH} <worker> | ${SHADOW_SWITCH} <worker> — switches its mode or a worker's queue and writes bus/workers.json`
+export const USAGE = `usage: ${MIKO_START} — the one way the factory starts: Miko runs ${START_BIN} ${MIKO_FLAG}, which marks the factory started, starts it for the git repository in the current directory and installs its keep-alive; ${START_BIN} ${HOLD_FLAG} — what the keep-alive runs: once ${MIKO_START} has marked the factory started, it restarts the factory and stays up while the supervisor of its bus runs, exiting once it is gone; ${START_BIN} ${MODE_FLAG} ${FACTORY_MODES[0]} | ${MODE_FLAG} ${FACTORY_MODES[1]} [${HOURS_FLAG} <n>] | ${LIVE_SWITCH} <worker> | ${SHADOW_SWITCH} <worker> — switches its mode or a worker's queue and writes bus/workers.json`
 
 const HOUR_MS = 3_600_000
 const DECISION_TERM_LENGTH = 19
@@ -75,6 +78,7 @@ export interface KeepAliveAgent {
   busDb: string
   log: string
   account: string | null
+  startedMark: string
 }
 
 export function factoryBusOf(env: NodeJS.ProcessEnv, home: string, repository: string): string {
@@ -87,6 +91,10 @@ function escaped(value: string): string {
 
 function plistString(value: string): string {
   return `<string>${escaped(value)}</string>`
+}
+
+export function startedMarkOf(busDir: string): string {
+  return path.join(busDir, STARTED_MARK)
 }
 
 export function keepAlivePlist(agent: KeepAliveAgent): string {
@@ -115,10 +123,14 @@ export function keepAlivePlist(agent: KeepAliveAgent): string {
     `\t${plistString(agent.log)}`,
     '\t<key>StandardErrorPath</key>',
     `\t${plistString(agent.log)}`,
-    '\t<key>RunAtLoad</key>',
-    '\t<true/>',
     '\t<key>KeepAlive</key>',
-    '\t<true/>',
+    '\t<dict>',
+    '\t\t<key>PathState</key>',
+    '\t\t<dict>',
+    `\t\t\t<key>${escaped(agent.startedMark)}</key>`,
+    '\t\t\t<true/>',
+    '\t\t</dict>',
+    '\t</dict>',
     '\t<key>ThrottleInterval</key>',
     `\t<integer>${RAISED_WITHIN_S}</integer>`,
     '\t<key>AbandonProcessGroup</key>',
@@ -148,7 +160,7 @@ export function installKeepAlive(repository: string, installed: string | null, p
   const label = agentLabel(repository)
   const plist = path.join(parts.home, LAUNCH_AGENTS, `${label}.plist`)
   const domain = `gui/${parts.uid}`
-  const text = keepAlivePlist({ label, repository, path: parts.path, busDb: parts.busDb, log: path.join(parts.busDir, AGENT_LOG), account: recordedAccount(parts.env) })
+  const text = keepAlivePlist({ label, repository, path: parts.path, busDb: parts.busDb, log: path.join(parts.busDir, AGENT_LOG), account: recordedAccount(parts.env), startedMark: startedMarkOf(parts.busDir) })
   if (readOrNull(plist) === text && parts.launchctl(['print', `${domain}/${label}`]).status === 0)
     return { stdout: [`${START_PREFIX}the keep-alive ${label} for ${repository} is already installed and loaded (${plist})`], stderr: [], exitCode: 0 }
   mkdirSync(path.dirname(plist), { recursive: true })
@@ -158,7 +170,7 @@ export function installKeepAlive(repository: string, installed: string | null, p
   const loaded = parts.launchctl(['bootstrap', domain, plist])
   if (loaded.status !== 0)
     return { stdout: [], stderr: [`${START_PREFIX}wrote ${plist}, but launchctl bootstrap ${domain} refused it (exit ${loaded.status}): ${loaded.stderr.trim()}`], exitCode: 1 }
-  return { stdout: [`${START_PREFIX}installed the keep-alive ${label} for ${repository}: the starter it runs stays up while the supervisor of the bus runs, and launchd reruns it within ${RAISED_WITHIN_S} s once it exits, also after a restart of the machine (${plist})`], stderr: [], exitCode: 0 }
+  return { stdout: [`${START_PREFIX}installed the keep-alive ${label} for ${repository}: it starts nothing by itself; while ${startedMarkOf(parts.busDir)}, which ${MIKO_START} writes, exists, the starter it runs stays up while the supervisor of the bus runs, and launchd reruns it within ${RAISED_WITHIN_S} s once it exits (${plist})`], stderr: [], exitCode: 0 }
 }
 
 function sameLogin(one: string, other: string): boolean {
@@ -204,6 +216,19 @@ export function recordAccount(repository: string, parts: KeepAliveParts): string
   return [account === null
     ? `${START_PREFIX}no GitHub account is recorded, so the factory follows the active gh account: ${found.because}; run ${START_BIN} again once gh answers`
     : `${START_PREFIX}the factory keeps the GitHub account ${account} its keep-alive records: ${found.because}`]
+}
+
+export async function startThroughMiko(busDir: string, now: Date, start: () => Promise<BgResult>): Promise<BgResult> {
+  mkdirSync(busDir, { recursive: true })
+  writeFileSync(startedMarkOf(busDir), `${now.toISOString()}\n`)
+  const started = await start()
+  return { ...started, stdout: [`${START_PREFIX}${MIKO_START} marked the factory started (${startedMarkOf(busDir)}); its keep-alive restarts it from now on`, ...started.stdout] }
+}
+
+export function restartRefusal(busDir: string): BgResult | null {
+  if (existsSync(startedMarkOf(busDir)))
+    return null
+  return { stdout: [`${START_PREFIX}the factory of ${busDir} was not started through ${MIKO_START}, so the keep-alive starts nothing; ${MIKO_START} starts it`], stderr: [], exitCode: 0 }
 }
 
 export async function runStart(repository: string, installed: string | null, parts: KeepAliveParts, start: () => Promise<BgResult> = () => startBus(parts.busDir)): Promise<BgResult> {
@@ -270,7 +295,7 @@ function positiveHours(value: string | undefined): number | null {
 }
 
 export function startCommandOf(argv: readonly string[]): StartCommand | null {
-  if (argv.length === 0)
+  if (argv.length === 1 && argv[0] === MIKO_FLAG)
     return { kind: 'start', hold: false }
   if (argv.length === 1 && argv[0] === HOLD_FLAG)
     return { kind: 'start', hold: true }
@@ -496,8 +521,14 @@ async function main(): Promise<void> {
     env: process.env,
     gh: args => ghPort({ attempts: 1 }).call(args),
   })
+  const busDir = busDirOf(busDb)
   if (!command.hold) {
-    printBg(await start())
+    printBg(await startThroughMiko(busDir, new Date(), start))
+    return
+  }
+  const refusal = restartRefusal(busDir)
+  if (refusal !== null) {
+    printBg(refusal)
     return
   }
   await startAndHold(start, { busDb, processes: psList(), wait: async (ms) => {

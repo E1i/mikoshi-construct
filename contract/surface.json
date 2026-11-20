@@ -2268,6 +2268,7 @@
         "hold",
         "hours",
         "live",
+        "miko",
         "mode",
         "shadow",
         "supersedes",
@@ -2484,6 +2485,7 @@
       "exits": [],
       "flags": [
         "help",
+        "miko",
         "tab"
       ],
       "json": false,

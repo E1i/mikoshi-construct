@@ -21,7 +21,7 @@ import { sayToOwnerChannel, USED_WORD } from '../scripts/owner/channel.js'
 import { activeWindowShards } from '../scripts/policy/shards.js'
 import { BUS_FLAG, BUS_RUN_LAUNCH, carriesMarker, installedPackage, launchArgv, runBusBg } from '../scripts/supervisor/bg.js'
 import { agentEnvStamp } from '../scripts/supervisor/stamp.js'
-import { AGENT_LOG, agentLabel, factoryBusOf, ghostProtocolWord, HOLD_CHECK_MS, HOLD_FLAG, holdWhileSupervised, installKeepAlive, KEEP_ALIVE_PLATFORM, KEEP_ALIVE_PROGRAM, LAUNCH_AGENTS, RAISED_WITHIN_S, runMode, runStart, sayCommand, START_BIN, startAndHold, startCommandOf, USAGE } from '../scripts/supervisor/start.js'
+import { AGENT_LOG, agentLabel, factoryBusOf, ghostProtocolWord, HOLD_CHECK_MS, HOLD_FLAG, holdWhileSupervised, installKeepAlive, KEEP_ALIVE_PLATFORM, KEEP_ALIVE_PROGRAM, LAUNCH_AGENTS, MIKO_FLAG, RAISED_WITHIN_S, runMode, runStart, sayCommand, START_BIN, startAndHold, startCommandOf, startedMarkOf, USAGE } from '../scripts/supervisor/start.js'
 import { startUnderAgentEnv, SUPERVISE_FLAG, SUPERVISOR_LAUNCH } from '../scripts/supervisor/supervisor.js'
 import { liveWorkers, MODE_WORKERS, modeOf, returnToWindowAtTermEnd, switchDetection, switchedOn, switchWorker, termEndOf, wantedLaunches, WORKERS, WORKERS_FILE } from '../scripts/supervisor/workers.js'
 import { waitFor } from '../scripts/tests/wait-for.js'
@@ -257,8 +257,8 @@ describe('the keep-alive of the start command', () => {
     expect(plistValue(text, BUS_DB_VARIABLE)).toBe(path.join(home, '.construct', 'bus.db'))
     expect(plistValue(text, 'StandardOutPath')).toBe(path.join(home, '.construct', 'bus', AGENT_LOG))
     expect(programArguments(text)).toEqual(KEEP_ALIVE_PROGRAM)
-    expect(text).toMatch(/<key>KeepAlive<\/key>\s*<true\/>/)
-    expect(text).toMatch(/<key>RunAtLoad<\/key>\s*<true\/>/)
+    expect(text).toMatch(new RegExp(`<key>KeepAlive</key>\\s*<dict>\\s*<key>PathState</key>\\s*<dict>\\s*<key>${startedMarkOf(path.join(home, '.construct', 'bus'))}</key>\\s*<true/>`))
+    expect(text).not.toContain('RunAtLoad')
     expect(text).not.toContain(OWNER_AGENT)
     expect(userLaunchctl.calls.at(-1)).toEqual(['bootstrap', `gui/${UID}`, plist])
 
@@ -542,10 +542,11 @@ describe('the keep-alive holds while its factory lives', () => {
     expect(result.stderr.join('\n')).toContain('after 3 checks')
   })
 
-  it('the keep-alive runs the starter with --hold, and by hand it neither holds nor takes another argument', () => {
+  it('the keep-alive runs the starter with --hold, Miko starts it without holding, and by hand it starts nothing', () => {
     expect(KEEP_ALIVE_PROGRAM.at(-1)).toBe(HOLD_FLAG)
     expect(startCommandOf([HOLD_FLAG])).toEqual({ kind: 'start', hold: true })
-    expect(startCommandOf([])).toEqual({ kind: 'start', hold: false })
+    expect(startCommandOf([MIKO_FLAG])).toEqual({ kind: 'start', hold: false })
+    expect(startCommandOf([])).toBeNull()
     expect(startCommandOf([HOLD_FLAG, 'extra'])).toBeNull()
     expect(USAGE).toContain(HOLD_FLAG)
   })
@@ -863,7 +864,7 @@ describe('the start command in the published package', () => {
     const recorder = path.join(packed.root, 'record-spawns.mjs')
     writeFileSync(recorder, SPAWN_RECORDER)
     const env = { PATH: [bin, path.dirname(process.execPath), ...SYSTEM_BIN_DIRS].join(path.delimiter), HOME: home, STUB_OUT: out, CONSTRUCT_BUS_DB: path.join(packed.root, 'bus.db'), NODE_OPTIONS: `--import ${pathToFileURL(recorder).href}` }
-    run = spawnSync(path.join(packed.prefix, 'bin', START_BIN), [], { cwd: user, env, encoding: 'utf8' })
+    run = spawnSync(path.join(packed.prefix, 'bin', START_BIN), [MIKO_FLAG], { cwd: user, env, encoding: 'utf8' })
   }, PACK_TIMEOUT_MS)
 
   afterAll(() => {
