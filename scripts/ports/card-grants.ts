@@ -5,6 +5,7 @@ export interface CardGrant {
   decision: string
   allow: readonly string[]
   domains: readonly string[]
+  homeWrites: readonly string[]
 }
 
 export const CARD_GRANTS: readonly CardGrant[] = [
@@ -12,7 +13,8 @@ export const CARD_GRANTS: readonly CardGrant[] = [
     card: 2156,
     decision: 'D-705',
     allow: ['Bash(codex *)', 'Bash(git init $TMPDIR/*)', 'Bash(mkdir $TMPDIR/*)', 'Bash(mkdir -p $TMPDIR/*)'],
-    domains: ['api.openai.com'],
+    domains: ['api.openai.com', 'chatgpt.com', 'auth.openai.com'],
+    homeWrites: ['.codex'],
   },
 ]
 

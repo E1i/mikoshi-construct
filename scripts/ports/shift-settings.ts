@@ -24,7 +24,7 @@ const REPOSITORY_SETTINGS_FILES = ['.claude/settings.json', SETTINGS_FILE]
 const GITDIR_POINTER = /^gitdir:[ \t]*(\S.*)$/m
 
 export interface ShiftSettings {
-  sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[], filesystem?: { denyWrite: string[] }, network: { allowedDomains?: string[] } }
+  sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[], filesystem?: { allowWrite?: string[], denyWrite?: string[] }, network: { allowedDomains?: string[] } }
   permissions: { allow: string[], deny?: string[] }
   env: typeof SESSION_BASH_CAP
   hooks: typeof WIDE_VITEST_HOOKS
@@ -68,9 +68,13 @@ function mainCheckoutExcludes(tree: string, entry: string): boolean {
   return main !== null && excludes(path.join(main, SETTINGS_FILE), entry)
 }
 
-function grantedSandbox(card: number | null): ShiftSettings['sandbox'] {
+function grantedSandbox(card: number | null, home: string): ShiftSettings['sandbox'] {
   const grant = grantOf(card)
-  return grant === null ? CARD_SESSION_SANDBOX : { ...CARD_SESSION_SANDBOX, network: { ...CARD_SESSION_SANDBOX.network, allowedDomains: [...grant.domains] } }
+  if (grant === null)
+    return CARD_SESSION_SANDBOX
+  const network = { ...CARD_SESSION_SANDBOX.network, allowedDomains: [...grant.domains] }
+  const allowWrite = grant.homeWrites.map(entry => path.join(home, entry))
+  return allowWrite.length === 0 ? { ...CARD_SESSION_SANDBOX, network } : { ...CARD_SESSION_SANDBOX, network, filesystem: { allowWrite } }
 }
 
 export function shiftSettings(tree: string, gate: ShiftGate, writable: string[] = [], home: string = os.homedir(), card: number | null = cardOfTree(tree)): ShiftSettings {
@@ -80,7 +84,7 @@ export function shiftSettings(tree: string, gate: ShiftGate, writable: string[] 
     ...writable.map(file => `Edit(/${file})`),
     ...grantOf(card)?.allow ?? [],
   ]
-  const sandbox = grantedSandbox(card)
+  const sandbox = grantedSandbox(card, home)
   const entry = browserLabExcludedCommand(home)
   const excluded = existsSync(browserLabInstalledScript(home)) && (REPOSITORY_SETTINGS_FILES.some(file => excludes(path.join(tree, file), entry)) || mainCheckoutExcludes(tree, entry))
   if (!excluded)
@@ -88,7 +92,7 @@ export function shiftSettings(tree: string, gate: ShiftGate, writable: string[] 
   const lab = path.join(tree, BROWSER_LAB_SCRIPT)
   const labHome = path.join(home, '.construct', 'browser-lab')
   return {
-    sandbox: { ...sandbox, excludedCommands: [entry], filesystem: { denyWrite: [lab, labHome] } },
+    sandbox: { ...sandbox, excludedCommands: [entry], filesystem: { ...sandbox.filesystem, denyWrite: [lab, labHome] } },
     permissions: { allow, deny: [`Edit(/${lab})`, `Edit(/${labHome}/**)`] },
     env: SESSION_BASH_CAP,
     hooks: WIDE_VITEST_HOOKS,

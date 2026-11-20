@@ -5350,7 +5350,7 @@
         "reexports": [],
         "technologyWords": [],
         "types": {
-          "CardGrant": "interface CardGrant { card: number; decision: string; allow: readonly string[]; domains: readonly string[]; }"
+          "CardGrant": "interface CardGrant { card: number; decision: string; allow: readonly string[]; domains: readonly string[]; homeWrites: readonly string[]; }"
         }
       },
       "scripts/ports/card-tree.ts": {
@@ -6006,7 +6006,7 @@
         "reexports": [],
         "technologyWords": [],
         "types": {
-          "ShiftSettings": "interface ShiftSettings { sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[]; filesystem?: { denyWrite: string[]; }; network: { allowedDomains?: string[]; }; }; permissions: { allow: string[]; deny?: string[]; }; env: typeof SESSION_BASH_CAP; hooks: typeof WIDE_VITEST_HOOKS; }"
+          "ShiftSettings": "interface ShiftSettings { sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[]; filesystem?: { allowWrite?: string[]; denyWrite?: string[]; }; network: { allowedDomains?: string[]; }; }; permissions: { allow: string[]; deny?: string[]; }; env: typeof SESSION_BASH_CAP; hooks: typeof WIDE_VITEST_HOOKS; }"
         }
       },
       "scripts/ports/snapshot.ts": {
