@@ -7,7 +7,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { GENERATED_FILES } from '../../../scripts/core/factory-paths.js'
 import { constructCommand } from '../../../scripts/core/owner-commands.js'
-import { CHANGESET_COMPANION, createdPaths, entryCovers, entryUnder, FOLLOWING_TABLE, isTestScope, OWNER_MERGES, parseCreatesEntry, PREFIX_SUFFIX, scopePath, withinTouches } from '../../../scripts/policy/touch-scope.js'
+import { CHANGESET_COMPANION, createdPaths, entryCovers, entryUnder, FOLLOWING_TABLE, isTestScope, OWNER_MERGES, parseCreatesEntry, PREFIX_SUFFIX, scopePath, under, withinTouches } from '../../../scripts/policy/touch-scope.js'
 import { runsOf } from '../../card/covering-tests.js'
 import { CONTOURS, decisionsOf, KINDS } from '../../card/grammar.js'
 import { parseParkingFile } from '../../card/parking.js'
@@ -329,16 +329,40 @@ export const FACTORY_TWIN = GENERATED_FILES.factory.path
 export const FACTORY_TWIN_SOURCE = 'scripts/contract/factory/*.ts'
 export const FACTORY_TWIN_REASON = `${FACTORY_TWIN} is a generated twin: its source is ${FACTORY_TWIN_SOURCE}, the session neither reads nor edits it, and the bus rebuilds it with pnpm ${GENERATED_FILES.factory.rebuild.join(' ')} and commits it with the sources that changed it`
 
+export const PROBE_REPORT_HOME = '~/.construct/probes'
+const PROBE_KIND = 'probe'
+export const HOME_PATH_REASON = `a path under the home directory is outside the repository the card's tree is cut from; only a ${PROBE_KIND} card declares one, its report under ${PROBE_REPORT_HOME}${PREFIX_SUFFIX}`
+
+function namesTheHome(entry: string): boolean {
+  return HOME_REFERENCE.test(entry.trim())
+}
+
+export function isProbeReport(entry: string): boolean {
+  const scope = scopePath(entry.trim())
+  return under(scope, PROBE_REPORT_HOME) && scope !== PROBE_REPORT_HOME && !scope.split('/').some(segment => segment === '..' || segment === '.' || segment === '')
+}
+
+function homePathUnclear(card: DraftCard, entry: string, field: 'touches' | 'creates'): UnclearField[] {
+  return card.kind === PROBE_KIND && isProbeReport(entry) ? [] : [{ field, reason: `'${entry.trim()}': ${HOME_PATH_REASON}` }]
+}
+
 function touchesChecked(card: DraftCard, repository: RepositoryFacts): Touched {
   const touched: Touched = { touches: [], corrections: [], unclear: [] }
   const creates = createdPaths(card.creates)
   for (const parsed of card.creates.map(parseCreatesEntry)) {
     if (parsed.kind === 'refused')
       touched.unclear.push({ field: 'creates', reason: parsed.reason })
+    else if (namesTheHome(parsed.path) && !card.touches.includes(parsed.path))
+      touched.unclear.push(...homePathUnclear(card, parsed.path, 'creates'))
   }
   for (const entry of card.touches) {
     if (entry === FACTORY_TWIN) {
       touched.corrections.push({ field: 'touches', was: entry, now: '(removed)', reason: FACTORY_TWIN_REASON })
+      continue
+    }
+    if (namesTheHome(entry)) {
+      touched.touches.push(entry)
+      touched.unclear.push(...homePathUnclear(card, entry, 'touches'))
       continue
     }
     if (touchError(entry) !== null) {
