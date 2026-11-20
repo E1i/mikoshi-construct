@@ -75,11 +75,36 @@ export function readReleaseSource(root = REPO_ROOT): ReleaseSource {
   return { version: manifest.version, changelog }
 }
 
+export interface HeadingCount {
+  heading: string
+  changesets: number
+  characters: number
+}
+
+export function headingCounts(body: string): HeadingCount[] {
+  const counts: HeadingCount[] = []
+  for (const line of body.split('\n')) {
+    if (SECTION_HEADING.test(line)) {
+      counts.push({ heading: line, changesets: 0, characters: 0 })
+    }
+    else if (CHANGESET_START.test(line) && counts.length > 0) {
+      const current = counts[counts.length - 1]!
+      current.changesets += 1
+      current.characters += line.length + 1
+    }
+  }
+  return counts
+}
+
+function headingCountLine({ heading, changesets, characters }: HeadingCount): string {
+  return `${heading}: ${changesets} ${changesets === 1 ? 'changeset' : 'changesets'}, ${characters} characters`
+}
+
 export function releaseBodyFault(rendered: ReleaseBody): string | null {
   if (rendered.kind === 'absent')
     return `CHANGELOG.md has no entry for ${rendered.version}, so the GitHub release of ${releaseTag(rendered.version)} has no body to render.`
   if (rendered.kind === 'over-budget')
-    return `The GitHub release body of ${releaseTag(rendered.version)} is ${rendered.body.length} characters, over the budget of ${rendered.budget} (GitHub refuses a body over ${GITHUB_RELEASE_BODY_LIMIT}). Shorten the first line of the longest changesets.`
+    return `The GitHub release body of ${releaseTag(rendered.version)} is ${rendered.body.length} characters, over the budget of ${rendered.budget} (GitHub refuses a body over ${GITHUB_RELEASE_BODY_LIMIT}). Shorten the first line of the longest changesets.\n${headingCounts(rendered.body).map(headingCountLine).join('\n')}`
   return null
 }
 
@@ -92,7 +117,7 @@ export function releaseOutputs(rendered: ReleaseBody & { kind: 'within' }, bodyF
 function writeReleaseBody(): void {
   const rendered = renderReleaseBody(readReleaseSource(), process.env.GITHUB_REPOSITORY ?? DEFAULT_REPOSITORY)
   if (rendered.kind !== 'within') {
-    console.log(`::error::${releaseBodyFault(rendered)}`)
+    console.log(`::error::${releaseBodyFault(rendered)?.replaceAll('\n', '%0A')}`)
     process.exitCode = 1
     return
   }

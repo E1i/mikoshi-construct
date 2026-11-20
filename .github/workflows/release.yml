@@ -111,7 +111,8 @@ jobs:
           publish-script: pnpm release
           commit-message: 'chore: version packages'
           pr-title: 'chore: version packages'
-          createGithubReleases: false
+          create-github-releases: false
+          push-git-tags: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_CONFIG_PROVENANCE: 'true'

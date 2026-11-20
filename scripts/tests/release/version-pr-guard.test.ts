@@ -66,6 +66,7 @@ describe('a version pull request renders its GitHub release body within the budg
     const text = verdict.lines.join('\n')
     expect(text).toContain('v9.9.9')
     expect(text).toContain(`over the budget of ${RELEASE_BODY_BUDGET}`)
+    expect(text).toMatch(/### Patch Changes: \d+ changesets, \d+ characters/)
   })
 
   it('passes a version pull request whose release body fits the budget', () => {

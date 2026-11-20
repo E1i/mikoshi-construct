@@ -6,8 +6,10 @@ import { REPO_ROOT } from '../scripts/release-notes/changelog.js'
 import {
   changelogAtTag,
   GITHUB_RELEASE_BODY_LIMIT,
+  headingCounts,
   RELEASE_BODY_BUDGET,
   RELEASE_BODY_FILE,
+  releaseBodyFault,
   releaseOutputs,
   renderReleaseBody,
   SUMMARY_LINE_LIMIT,
@@ -63,6 +65,15 @@ describe('the GitHub release body is a summary within a fixed budget', () => {
     expect(rendered.kind).toBe('over-budget')
   })
 
+  it('names every heading of an over-budget body with its count of changesets and characters', () => {
+    const rendered = renderReleaseBody({ version: '1.2.3', changelog: hugeChangelog('1.2.3', 200) }, REPOSITORY, 1000)
+    const body = rendered.kind === 'over-budget' ? rendered.body : ''
+    const characters = body.split('\n').filter(line => line.startsWith('- ')).reduce((sum, line) => sum + line.length + 1, 0)
+
+    expect(headingCounts(body)).toEqual([{ heading: '### Minor Changes', changesets: 200, characters }])
+    expect(releaseBodyFault(rendered)).toContain(`### Minor Changes: 200 changesets, ${characters} characters`)
+  })
+
   it('reports a version the changelog has no entry for', () => {
     expect(renderReleaseBody({ version: '9.9.9', changelog: hugeChangelog('1.2.3', 1) }).kind).toBe('absent')
   })
@@ -85,13 +96,30 @@ interface Step {
   env?: Record<string, unknown>
 }
 
+const PINNED_CHANGESETS_ACTION = 'changesets/action@v2'
+const PINNED_CHANGESETS_ACTION_INPUTS = [
+  'version-script',
+  'publish-script',
+  'commit-message',
+  'pr-title',
+  'cwd',
+  'branch',
+  'setup-git-user',
+  'create-github-releases',
+  'push-git-tags',
+]
+
 describe('the release workflow creates the GitHub release itself', () => {
   const steps = (parseYaml(readFileSync(path.join(REPO_ROOT, '.github/workflows/release.yml'), 'utf8')) as { jobs: { release: { steps: Step[] } } }).jobs.release.steps
 
   it('the release workflow creates the GitHub release from the rendered body, not from changesets', () => {
     const action = steps.findIndex(step => step.uses?.startsWith('changesets/action@') === true)
     expect(action).toBeGreaterThanOrEqual(0)
-    expect(steps[action]!.with?.createGithubReleases).toBe(false)
+    expect(steps[action]!.uses).toBe(PINNED_CHANGESETS_ACTION)
+    const inputs = steps[action]!.with ?? {}
+    expect(Object.keys(inputs).filter(key => !PINNED_CHANGESETS_ACTION_INPUTS.includes(key))).toEqual([])
+    expect(inputs['create-github-releases']).toBe(false)
+    expect(inputs['push-git-tags']).toBe(true)
 
     const release = steps.findIndex(step => step.run?.includes('scripts/release-notes/release-body.ts') === true)
     expect(release).toBeGreaterThan(action)
