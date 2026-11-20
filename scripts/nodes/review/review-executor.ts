@@ -130,6 +130,7 @@ export interface ExecutorParts {
   clearLeftovers?: () => LeftoverTree[]
   notePr?: (pr: number, line: string) => void
   isolation: IsolationReader | typeof SPAWNS_NO_SESSION
+  requiredCheck: () => string
   recut?: RoundLimitRecut
   dripSources?: DripSources
   testSource?: TestSource
@@ -353,7 +354,7 @@ export class ReviewExecutor {
   async review(lease: Lease): Promise<Step> {
     if (this.parts.clearLeftovers !== undefined)
       recordLeftovers(this.parts.db, lease.actor, this.ts(), this.parts.clearLeftovers())
-    const stale = freshDenial(this.parts.gitHub, lease, () => this.parts.clock().getTime())
+    const stale = freshDenial(this.parts.gitHub, lease, () => this.parts.clock().getTime(), this.parts.requiredCheck())
     if (stale?.kind === 'technical' && stale.reason === CI_NOT_READY)
       return this.waiting(lease, stale.detail)
     if (stale !== null)
@@ -431,13 +432,13 @@ export class ReviewExecutor {
   }
 
   private settle(lease: Lease, reviewed: Reviewed | ReviewDenial): Step {
-    const { db, gitHub, publish, clock } = this.parts
+    const { db, gitHub, publish, clock, requiredCheck } = this.parts
     if ('kind' in reviewed)
       return this.denied(lease, reviewed)
     const { plan } = reviewed
     const marked = this.markedDrip(lease, reviewed.review)
     const { review, tailCard } = this.withTail(lease, notReopened(db, lease, marked.review))
-    const outcome = recordVerdict(db, gitHub, publish, { lease, verdict: review.verdict, reviewerSession: review.session }, () => clock().getTime())
+    const outcome = recordVerdict(db, gitHub, publish, { lease, verdict: review.verdict, reviewerSession: review.session }, () => clock().getTime(), requiredCheck())
     if (outcome.kind === 'denied')
       return this.denied(lease, outcome.denial)
     const repeats = this.repeatsAnEarlierRound(lease, review)

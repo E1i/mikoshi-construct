@@ -30,12 +30,12 @@ import { reviewPrompt } from '../../nodes/review/reviewer.js'
 import { witnessCandidates } from '../../nodes/witness/witness-candidates.js'
 import { changesRoundsOf } from '../../policy/round-limit-decision.js'
 import { DECISIONS_SCOPE } from '../../policy/shards.js'
-import { NetWatch } from '../../ports/netwatch.js'
 import { answerParts, busProjections, candidateRules, cardTransitions, witnessParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
+import { benchNetWatch } from './net-watch-bench.js'
 import { detectReview } from './review-detection.js'
 
 const OWNER_MERGES = readFileSync('architecture/owner-merges.md', 'utf8')
@@ -65,7 +65,7 @@ function reviewBus(): { db: DatabaseSync, gitHub: FakeGitHub, clock: Clock, tick
   const db = openBus(path.join(scratch('bus-reviewloop-'), 'bus.db'))
   const gitHub = new FakeGitHub()
   const clock = new Clock()
-  const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now)
+  const busTick = new BusTick(db, busProjections(), benchNetWatch(db, gitHub.client, clock.now), clock.now)
   let first = true
   const tick = (): void => {
     if (!first)

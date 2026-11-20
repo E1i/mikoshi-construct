@@ -1,3 +1,4 @@
+import type { NetWatch } from '../../ports/netwatch.js'
 import type { ProcessBeat } from '../../supervisor/heartbeat.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -9,12 +10,13 @@ import { PROCESS_HEARTBEAT } from '../../core/events.js'
 import { prBodySha } from '../../core/identifiers.js'
 import { reduce } from '../../core/reducer.js'
 import { parseIncluded } from '../../ports/github.js'
-import { NetWatch, NETWATCH_SCRIPT } from '../../ports/netwatch.js'
+import { NETWATCH_SCRIPT } from '../../ports/netwatch.js'
 import { touchesMechanics } from '../../ports/snapshot.js'
 import { RUN_SCRIPT } from '../../supervisor/bg.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { lastProcessBeats } from '../../supervisor/heartbeat.js'
 import { cardBody, Clock, FakeGitHub, MAIN_1, MAIN_2, MAIN_3, MERGER, REPO, sha } from './github-fake.js'
+import { benchNetWatch } from './net-watch-bench.js'
 
 const roots: string[] = []
 
@@ -29,7 +31,7 @@ function setUp(): { db: ReturnType<typeof openBus>, gitHub: FakeGitHub, clock: C
   const db = openBus(path.join(root, 'bus.db'))
   const gitHub = new FakeGitHub()
   const clock = new Clock()
-  return { db, gitHub, clock, netWatch: new NetWatch(db, gitHub.client, clock.now) }
+  return { db, gitHub, clock, netWatch: benchNetWatch(db, gitHub.client, clock.now) }
 }
 
 function events(db: ReturnType<typeof openBus>, type: string): { pr: number | null, card_id: number | null, head: string | null, dedupe_key: string, payload: Record<string, unknown> }[] {
@@ -194,7 +196,7 @@ describe('netwatch', () => {
 
   it('every poll that runs beats into the heartbeat table under its process name, the ticked, the rate-limited and the retry-after skipped alike', () => {
     const { db, gitHub, clock } = setUp()
-    const netWatch = new NetWatch(db, gitHub.client, clock.now, NETWATCH_SCRIPT)
+    const netWatch = benchNetWatch(db, gitHub.client, clock.now, NETWATCH_SCRIPT)
     const beats = (): ProcessBeat[] => lastProcessBeats(db)
     const polled: string[] = []
     const seen: ProcessBeat[][] = []

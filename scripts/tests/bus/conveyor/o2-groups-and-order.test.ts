@@ -16,11 +16,11 @@ import { groupOf } from '../../../core/order/group.js'
 import { overlapDeclarationsOf, overlaps } from '../../../core/order/overlap.js'
 import { BUS_ORDERS, ORDER_ACTOR, orderEventsFrom, orderGroups, PrOrderTick, readOrder, turnOf } from '../../../core/order/turn.js'
 import { BusRead } from '../../../ports/bus-read.js'
-import { NetWatch } from '../../../ports/netwatch.js'
 import { busOrderTick, superviseUntilReplaced } from '../../../supervisor/supervisor.js'
 import { dispatchRequest } from '../../../window/requests/index.js'
 import { requestOf } from '../../../window/window-requests.js'
 import { Clock, FakeGitHub, sha } from '../github-fake.js'
+import { benchNetWatch } from '../net-watch-bench.js'
 
 const roots: string[] = []
 
@@ -45,7 +45,7 @@ function observedBus(pulls: { number: number, files: string[] }[]): { db: Bus, d
   const db = openBus(path.join(root, 'bus.db'))
   const gitHub = new FakeGitHub()
   pulls.forEach((pull, at) => gitHub.open({ ...pull, head: sha(String.fromCharCode(97 + at)) }))
-  new NetWatch(db, gitHub.client, new Clock().now).poll()
+  benchNetWatch(db, gitHub.client, new Clock().now).poll()
   return { db, declarations: overlapDeclarationsOf(readDeclarations()) }
 }
 
