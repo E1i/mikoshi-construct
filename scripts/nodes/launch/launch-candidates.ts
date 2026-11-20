@@ -200,6 +200,7 @@ interface CardLife {
   startedAt: number | null
   freeRow: number | null
   closed: boolean
+  ended: boolean
   stoppedByFault: boolean
   closedUnmergedByPr: Map<number, boolean>
   diff: string[] | null
@@ -278,6 +279,14 @@ function liveCutoff(db: DatabaseSync): number | null {
   return cutoffs.length === 0 ? null : Math.min(...cutoffs)
 }
 
+const AMEND_SOURCE = 'amend'
+
+const ENDING_ROWS = new Set<string>([CARD_CLOSED, CARD_DROPPED])
+
+function amendsAnEndedCard(life: CardLife | undefined, payload: Record<string, unknown>): boolean {
+  return life !== undefined && life.ended && payload.source === AMEND_SOURCE
+}
+
 function cardLives(db: DatabaseSync): Map<number, CardLife> {
   const lives = new Map<number, CardLife>()
   const cutoff = liveCutoff(db)
@@ -289,7 +298,8 @@ function cardLives(db: DatabaseSync): Map<number, CardLife> {
       const admitted = admittedAtOf(db, row, payload)
       const beforeLive = admitted.legacyLine && cutoff !== null && admitted.at < cutoff
       const parked = parkedOf(row, payload)
-      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), admittedAt: admitted.at, admittedTs: row.ts, lane: laneOf(payload), task: parked?.task ?? null, windowsToWork: parked?.who === WINDOW_WHO, depends: dependsOf(payload), priority: parked?.priority ?? null, contour: contourOf(payload), started: running, startedAt: null, freeRow: null, closed: beforeLive, stoppedByFault: false, closedUnmergedByPr: running ? life.closedUnmergedByPr : new Map(), diff: running ? life.diff : null })
+      const ended = amendsAnEndedCard(life, payload)
+      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), admittedAt: admitted.at, admittedTs: row.ts, lane: laneOf(payload), task: parked?.task ?? null, windowsToWork: parked?.who === WINDOW_WHO, depends: dependsOf(payload), priority: parked?.priority ?? null, contour: contourOf(payload), started: running, startedAt: null, freeRow: null, closed: beforeLive || ended, ended, stoppedByFault: false, closedUnmergedByPr: running ? life.closedUnmergedByPr : new Map(), diff: running ? life.diff : null })
       continue
     }
     if (life !== undefined && PULL_REQUEST_ROWS.has(row.type)) {
@@ -316,6 +326,7 @@ function cardLives(db: DatabaseSync): Map<number, CardLife> {
       life.freeRow = row.id
     if (life !== undefined && (row.type === CARD_CLOSED || row.type === CARD_STOPPED || row.type === CARD_DROPPED)) {
       life.closed = true
+      life.ended = ENDING_ROWS.has(row.type)
       life.stoppedByFault = row.type === CARD_STOPPED && payloadOf(row).reason === FAULT
     }
   }
