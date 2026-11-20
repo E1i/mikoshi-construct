@@ -5,7 +5,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_STARTED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_STARTED, CARD_STOPPED } from '../../core/events.js'
 import { MachineSessions } from '../../core/machine-sessions.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardEvents } from '../../intake/intake.js'
@@ -46,7 +46,7 @@ class Bench {
     return this.reduced()
   }
 
-  record(type: typeof CARD_STARTED | typeof CARD_CLOSED | typeof CARD_DROPPED): this {
+  record(type: typeof CARD_STARTED | typeof CARD_CLOSED | typeof CARD_DROPPED | typeof CARD_STOPPED): this {
     appendEvent(this.db, { ts: TS, type, actor: 'policy', cardId: CARD, pr: null, head: null, dedupeKey: `${type}:${CARD}`, payload: {}, legacy: false })
     return this.reduced()
   }
@@ -78,6 +78,27 @@ describe('an amend of a card that already ended', () => {
 
   it('an amend admission of a card never started keeps it queued', () => {
     const bench = new Bench().admit().admit('amend', 'p2')
+
+    expect(bench.candidates()).toContain(CARD)
+    expect(launchableCard(bench.db, CARD)).not.toBeNull()
+  })
+
+  it('a fresh admission after card.closed queues the card again', () => {
+    const bench = new Bench().admit().record(CARD_STARTED).record(CARD_CLOSED).admit(undefined, 'p2')
+
+    expect(bench.candidates()).toContain(CARD)
+    expect(launchableCard(bench.db, CARD)).not.toBeNull()
+  })
+
+  it('a fresh admission after card.dropped queues the card again', () => {
+    const bench = new Bench().admit().record(CARD_DROPPED).admit(undefined, 'p2')
+
+    expect(bench.candidates()).toContain(CARD)
+    expect(launchableCard(bench.db, CARD)).not.toBeNull()
+  })
+
+  it('an amend admission after card.stopped keeps the card queued', () => {
+    const bench = new Bench().admit().record(CARD_STARTED).record(CARD_STOPPED).admit('amend', 'p2')
 
     expect(bench.candidates()).toContain(CARD)
     expect(launchableCard(bench.db, CARD)).not.toBeNull()
