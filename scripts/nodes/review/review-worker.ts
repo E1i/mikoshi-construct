@@ -37,6 +37,7 @@ import { shadowReading } from '../../core/report.js'
 import { openDatabase } from '../../core/sqlite.js'
 import { busHeldCards } from '../../intake/intake.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
+import { namesCard } from '../../policy/decisions/decisions.js'
 import { decisionsInForceAt } from '../../policy/shards.js'
 import { clientAdapter } from '../../ports/client/index.js'
 import { GhFailed, PROCESS_GH_PORT } from '../../ports/gh.js'
@@ -49,7 +50,7 @@ import { plannerProcess, REVIEW_PLAN_FLAG } from '../../ports/review-planner.js'
 import { spawnReviewSession } from '../../ports/session.js'
 import { busProjections, candidateRules, cardSessionPulse, cardTransitions, nodeLiveness, nodeSupply, withSlots } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
-import { gitReviewPlanner } from './depth-sources.js'
+import { busUnstartedTails, gitReviewPlanner } from './depth-sources.js'
 import { recordForeignDivergences } from './divergence-alarm.js'
 import { dryRunReviewsDir, keepDryRun } from './dry-run-record.js'
 import { RoundLimitRecutter } from './pr-close.js'
@@ -154,12 +155,12 @@ export function cardBodyOfKey(db: DatabaseSync, lease: Lease, held: string | nul
   return admitted !== undefined && admitted.text_sha === textSha(admitted.text) ? admitted.text : null
 }
 
-export function decisionsOnTheCard(db: DatabaseSync, cardId: number, now: Date): CardDecision[] {
-  return decisionsInForceAt(db, now).filter(decision => decision.cards.includes(cardId)).map(({ decisionId, text }) => ({ decisionId, text }))
+export function decisionsOnTheCard(db: DatabaseSync, cardId: number, now: Date, pr: number | null = null): CardDecision[] {
+  return decisionsInForceAt(db, now).filter(decision => namesCard(decision, cardId, pr)).map(({ decisionId, text }) => ({ decisionId, text }))
 }
 
 function readingTheKeyedBody<P extends ExecutorParts>(parts: P): P {
-  return { ...parts, reviewer: (lease, plan, card, proven) => parts.reviewer(lease, plan, cardBodyOfKey(parts.db, lease, card ?? null), proven, decisionsOnTheCard(parts.db, lease.cardId, parts.clock())) }
+  return { ...parts, reviewer: (lease, plan, card, proven) => parts.reviewer(lease, plan, cardBodyOfKey(parts.db, lease, card ?? null), proven, decisionsOnTheCard(parts.db, lease.cardId, parts.clock(), lease.pr)) }
 }
 
 export interface ReviewNodeParts extends Omit<ExecutorParts, 'cards'> {
@@ -517,7 +518,7 @@ async function main(): Promise<number> {
     isolation: realIsolationReader(process.env, cwd, reviewIsolationCommand()),
     keepDryRun: keepDryRun(trees.dir),
     recut: db => new RoundLimitRecutter({ db, gitHub: ghApi(cwd), post: ghApiPost(cwd), patch: ghApiPatch(cwd), clock: () => new Date(), cardStates: () => busHeldCards(db), pushPolicy: () => pushPolicyOf(readThroughPort, cwd) }),
-    tail: db => new BusTailIntake({ db, gitHub: ghApi(cwd), clock: () => new Date(), cardStates: () => busHeldCards(db) }),
+    tail: db => new BusTailIntake({ db, gitHub: ghApi(cwd), clock: () => new Date(), cardStates: () => busHeldCards(db), unstartedTails: busUnstartedTails(db) }),
   })
 }
 

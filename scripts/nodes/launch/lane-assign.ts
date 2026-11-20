@@ -3,7 +3,7 @@ import type { ParkedTask, Priority } from '../../../src/card/parking.js'
 import type { ShiftTask } from '../../../src/card/task-file.js'
 import type { Assignment } from '../../core/bus-readings.js'
 import type { OverlapDeclarations } from '../../core/order/overlap.js'
-import type { LaunchCatch } from './launch-candidates.js'
+import type { LaunchCatch, MachineReader, StartableHold } from './launch-candidates.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
@@ -11,13 +11,14 @@ import { parseParkingFile, PRIORITIES, WINDOW_WHO } from '../../../src/card/park
 import { ATTACH_RECORD_FILE } from '../../../src/commands/attach/record.js'
 import { DEFAULT_LANES, isLaneCount, MANIFEST_FILE } from '../../../src/manifest.js'
 import { currentLane, latestAssignment, OPEN_WAIT, OWNER_WAITS } from '../../core/bus-readings.js'
-import { DEFERRED_CARD, RUNNING_CARD } from '../../core/card-automaton.js'
+import { DEFERRED_CARD, RUNNING_CARD, unsatisfiedDependencies } from '../../core/card-automaton.js'
+import { cardBodyText } from '../../core/card-bodies.js'
 import { appendEvent } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_DROPPED, LANE_ASSIGNED, LANE_OVERLAP, POLICY_DENIED } from '../../core/events.js'
 import { prOf } from '../../core/identifiers.js'
 import { effectivePaths, orderDeclarationsAt } from '../../core/order/overlap.js'
 import { processGit } from '../../ports/git.js'
-import { droppedCards } from './launch-candidates.js'
+import { droppedCards, holdReason, laneHeadHolds, startableCards } from './launch-candidates.js'
 import { taskConflicts } from './overlap.js'
 import { sharedAppendFiles } from './shared-files.js'
 
@@ -706,4 +707,45 @@ export function layLanes(db: DatabaseSync, count: number, ts: string, actor: str
   raiseStallAlarms(db, stalls, ts, actor)
   const relaid = relayBehindStalls(db, stalls, count, ts, actor, shared)
   return laid + relaid + rechainByRelease(db, count, ts, actor, shared)
+}
+
+export interface LaunchWait {
+  card: number
+  why: string
+}
+
+export type LaunchWaits = (cardId: number) => LaunchWait[]
+
+const MACHINE_NAMES_NO_CARD: MachineReader = { free: () => 1, held: () => null, waiting: () => [] }
+
+function heldBy(hold: StartableHold): number | null {
+  return hold.kind === 'open-pr' || hold.kind === 'session' || hold.kind === 'lane' ? hold.cardId : null
+}
+
+function launchHolds(db: DatabaseSync, repository: string): Map<number, LaunchWait> {
+  const [shared, lanes] = [sharedAppendFiles(repository), repositoryLanes(repository)]
+  const held = [...startableCards(db, existsSync, Date.now, shared, lanes, MACHINE_NAMES_NO_CARD), ...laneHeadHolds(db, existsSync, Date.now, shared, lanes, MACHINE_NAMES_NO_CARD)]
+  return new Map(held.flatMap(({ cardId, hold }) => {
+    const card = heldBy(hold)
+    return card === null ? [] : [[cardId, { card, why: holdReason(hold) }] as const]
+  }))
+}
+
+function bodyDependsOf(db: DatabaseSync, cardId: number): number[] {
+  const body = cardBodyText(db, cardId)
+  const parsed = body === null ? null : parseParkingFile(`${cardId}.md`, body)
+  return parsed?.kind === 'parked' ? parsed.parked.task.card.depends : []
+}
+
+export function launchWaitsOf(db: DatabaseSync, repository: string = process.cwd()): LaunchWaits {
+  const unsatisfied = unsatisfiedDependencies(db)
+  let holds: Map<number, LaunchWait> | undefined
+  return (cardId) => {
+    if (unsatisfied([cardId]).length === 0)
+      return []
+    holds ??= launchHolds(db, repository)
+    const depends = unsatisfied(bodyDependsOf(db, cardId)).map(card => ({ card, why: `depends on #${card}` }))
+    const hold = holds.get(cardId)
+    return hold === undefined ? depends : [...depends, hold]
+  }
 }

@@ -1,17 +1,20 @@
-import type { ModuleGraphSpec } from '../../contract/factory/modules.js'
+import type { ModuleGraphSpec, ModuleSpec } from '../../contract/factory/modules.js'
 import type { BoundarySide } from '../../contract/module-graph/boundary.js'
+import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
 import { carvedOut, FACTORY_CONTRACT, MODULE_GRAPH } from '../../contract/factory/modules.js'
-import { BOUNDARY_PREFIX, boundaryKey, boundaryNumbers, boundaryReport, identifiedViolations, movedRows, renderBoundaryReport, violationLine } from '../../contract/module-graph/boundary.js'
+import { BOUNDARY_PREFIX, boundaryKey, boundaryNumbers, boundaryReport, exportedNames, identifiedViolations, movedRows, renderBoundaryReport, violationLine } from '../../contract/module-graph/boundary.js'
 import { buildImportGraph } from '../../contract/module-graph/imports.js'
 import { checkRatchet, ratchetBreaks, readRatchet } from '../../contract/ratchet.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const REPO_RUN_TIMEOUT = 180_000
+const SPEC_FILE = 'spec.json'
+const GIT_IDENTITY = ['-c', 'user.name=fixture', '-c', 'user.email=fixture', '-c', 'commit.gpgsign=false']
 const roots: string[] = []
 
 afterAll(() => {
@@ -186,8 +189,86 @@ describe('module graph boundary: an ownership move carries the symbols an import
     const intoGamma = head.violations.filter(violation => boundaryKey(violation) === GROWN)
 
     expect(intoGamma.map(({ from, symbols }) => [from, symbols])).toEqual(FROM.map(file => [file, []]))
-    expect(movedRows(base, head, [GROWN])).toEqual([])
-    expect(movedRows(base, { ...head, violations: head.violations.map(violation => ({ ...violation, symbols: ['impl'] })) }, [GROWN])).toEqual([GROWN])
+    expect(movedRows(base, head, [GROWN])).toEqual(new Map())
+    expect(movedRows(base, { ...head, violations: head.violations.map(violation => ({ ...violation, symbols: ['impl'] })) }, [GROWN])).toEqual(new Map())
+  })
+})
+
+describe('module graph boundary: an ownership move covers only the edges whose owner it changes', () => {
+  const ALPHA_GAMMA = `${BOUNDARY_PREFIX}alpha->gamma`
+  const DECIDED_GAMMA: ModuleSpec = { owns: ['scripts/gamma/**'], contract: ['scripts/gamma/index.ts'], may_use: [], status: 'decided' }
+  const DELTA: ModuleSpec = { owns: ['scripts/delta/**'], contract: [], may_use: [], status: 'undecided' }
+  const specWith = (modules: ModuleGraphSpec['modules']): ModuleGraphSpec => ({ ...SPEC, modules: carvedOut({ ...SPEC.modules, ...modules }) })
+  const alphaUsing = (...may_use: string[]): ModuleGraphSpec['modules'] => ({ alpha: { ...SPEC.modules.alpha!, may_use } })
+  const sideOf = (spec: ModuleGraphSpec, files: Record<string, string>): BoundarySide => {
+    const root = treeOf({ ...LAWFUL, ...files })
+    return { spec, violations: identifiedViolations(root, spec, {}), exportsOf: exportedNames(root) }
+  }
+  const grownBreaks = (base: BoundarySide, head: BoundarySide, row: string): string[] => {
+    const [recorded, generated] = [boundaryNumbers(base.violations.filter(({ reasons }) => reasons.length > 0)), boundaryNumbers(head.violations.filter(({ reasons }) => reasons.length > 0))]
+    return ratchetBreaks(recorded, generated, movedRows(base, head, [row])).filter(line => line.startsWith(row))
+  }
+  const USES_GAMMA = 'import { gamma } from \'../gamma/index.js\'\nexport const use = gamma\n'
+  const USES_IMPL = 'import { impl } from \'../beta/impl.js\'\nexport const b = impl\n'
+  const NO_IMPORT = 'export const b = 1\n'
+
+  it('a growing row whose edges keep their owners stays growth when another module is carved out in the same diff', () => {
+    const base = sideOf(specWith({ gamma: DECIDED_GAMMA, ...alphaUsing('beta', 'gamma') }), { 'scripts/alpha/use.ts': USES_GAMMA, 'scripts/alpha/b.ts': USES_IMPL })
+    const head = sideOf(specWith({ gamma: DECIDED_GAMMA, ...alphaUsing('beta'), epsilon: { owns: ['scripts/epsilon/**'], contract: [], may_use: [], status: 'undecided' } }), {
+      'scripts/alpha/use.ts': USES_GAMMA,
+      'scripts/alpha/b.ts': NO_IMPORT,
+      'scripts/epsilon/index.ts': 'export const epsilon = 1\n',
+    })
+
+    expect(movedRows(base, head, [ALPHA_GAMMA])).toEqual(new Map())
+    expect(grownBreaks(base, head, ALPHA_GAMMA)).toEqual([expect.stringContaining(`${ALPHA_GAMMA} grew from 0 to 1:`)])
+  })
+
+  it('a row grown by two edges of which one changed owner counts one edge as growth', () => {
+    const files = { 'scripts/alpha/use.ts': USES_GAMMA, 'scripts/delta/x.ts': USES_GAMMA }
+    const base = sideOf(specWith({ gamma: DECIDED_GAMMA, delta: DELTA, ...alphaUsing('beta', 'gamma') }), { ...files, 'scripts/alpha/b.ts': USES_IMPL })
+    const head = sideOf(specWith({ gamma: DECIDED_GAMMA, delta: DELTA, alpha: { ...SPEC.modules.alpha!, owns: ['scripts/alpha/**', 'scripts/delta/x.ts'], may_use: ['beta'] } }), { ...files, 'scripts/alpha/b.ts': NO_IMPORT })
+
+    expect(movedRows(base, head, [ALPHA_GAMMA])).toEqual(new Map([[ALPHA_GAMMA, 1]]))
+    expect(grownBreaks(base, head, ALPHA_GAMMA)).toEqual([expect.stringContaining(`${ALPHA_GAMMA} grew from 0 to 2, 1 beyond the 1 edges an ownership move carries`)])
+  })
+
+  it('the former home of a symbol importing it from its new place is an ownership move', () => {
+    const base = sideOf(SPEC, { 'scripts/alpha/a.ts': 'export const impl = 1\n', 'scripts/alpha/b.ts': USES_IMPL })
+    const head = sideOf(SPEC, {
+      'scripts/alpha/a.ts': 'import { impl } from \'../gamma/impl.js\'\nexport { impl }\n',
+      'scripts/alpha/b.ts': NO_IMPORT,
+      'scripts/gamma/impl.ts': 'export const impl = 1\n',
+    })
+
+    expect(movedRows(base, head, [ALPHA_GAMMA])).toEqual(new Map([[ALPHA_GAMMA, 1]]))
+    expect(grownBreaks(base, head, ALPHA_GAMMA)).toEqual([])
+  })
+
+  it('a symbol the from file imported on base is no former-home move', () => {
+    const base = sideOf(SPEC, { 'scripts/alpha/a.ts': 'import { impl } from \'../beta/impl.js\'\nexport { impl }\n' })
+    const head = sideOf(SPEC, { 'scripts/alpha/a.ts': 'export { impl } from \'../gamma/impl.js\'\n', 'scripts/gamma/impl.ts': 'export const impl = 1\n' })
+
+    expect(movedRows(base, head, [ALPHA_GAMMA])).toEqual(new Map())
+  })
+
+  it('a row whose every grown edge changed owner in the diff passes as a move', () => {
+    const [before, after] = [specWith({ gamma: DECIDED_GAMMA, delta: DELTA }), specWith({ gamma: DECIDED_GAMMA, delta: DELTA, alpha: { ...SPEC.modules.alpha!, owns: ['scripts/alpha/**', 'scripts/delta/x.ts'] } })]
+    const root = treeOf({ ...LAWFUL, 'scripts/delta/x.ts': USES_GAMMA, 'src/.keep': '', [SPEC_FILE]: JSON.stringify(before) })
+    const git = (...args: string[]): void => {
+      execFileSync('git', ['-C', root, ...GIT_IDENTITY, ...args], { stdio: 'ignore' })
+    }
+    git('init', '-q', '-b', 'main')
+    git('add', '-A')
+    git('commit', '-q', '-m', 'main')
+    git('checkout', '-q', '-b', 'card')
+    const recorded = boundaryNumbers(boundaryReport(root, before, {}).violations)
+    writeFileSync(path.join(root, SPEC_FILE), JSON.stringify(after))
+    const generated = boundaryNumbers(boundaryReport(root, after, {}).violations)
+    const readSpec = (tree: string): ModuleGraphSpec => JSON.parse(readFileSync(path.join(tree, SPEC_FILE), 'utf8')) as ModuleGraphSpec
+
+    expect([recorded[ALPHA_GAMMA], generated[ALPHA_GAMMA]]).toEqual([undefined, 1])
+    expect(checkRatchet(root, recorded, generated, { headSpec: after, readSpec, mainRefs: ['main'] }).filter(line => line.startsWith(ALPHA_GAMMA))).toEqual([])
   })
 })
 

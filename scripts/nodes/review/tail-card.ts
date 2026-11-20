@@ -3,7 +3,7 @@ import type { Review } from './reviewer.js'
 import { createHash } from 'node:crypto'
 import { appendCardEvent, cardBodyText, laid } from '../../core/card-bodies.js'
 import { inTransaction } from '../../core/db.js'
-import { CARD_ADMITTED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_DROPPED } from '../../core/events.js'
 import { latestGitHubNumber } from './pr-close.js'
 
 export const TAIL_SOURCE = 'review-tail'
@@ -26,8 +26,11 @@ export interface Tail {
   findings: readonly string[]
 }
 
+export type TailPass = Omit<Tail, 'findings'>
+
 export interface TailIntake {
   file: (tail: Tail) => number | null
+  supersede?: (pass: TailPass) => number[]
 }
 
 export interface TailParent {
@@ -75,7 +78,7 @@ export function tailOrigin(tail: Tail): string {
 export function tailCardText(id: number, parent: TailParent, tail: Tail): string {
   const name = `${parent.name}${TAIL_SUFFIX}`
   return [
-    `${CARD_HEADER}#${id} ${name} [implement/${parent.milestone}/${TAIL_SIZE}/cheap/auto] · depends — · blocks —`,
+    `${CARD_HEADER}#${id} ${name} [implement/${parent.milestone}/${TAIL_SIZE}/cheap/auto] · depends #${tail.parent} · blocks —`,
     `branch: feat/${name}`,
     `${TOUCHES_HEADER}${tailTouches(parent).join(', ')}`,
     `continue: ${parent.continue}`,
@@ -120,11 +123,33 @@ export function tailKey(taskKey: string): string {
   return `${CARD_ADMITTED}:${TAIL_SOURCE}:${taskKey}`
 }
 
+export const SUPERSEDED_TARGET = 'superseded'
+
+export interface UnstartedTail {
+  card: number
+  bodySha: string | null
+}
+
+export type UnstartedTails = (parent: number) => readonly UnstartedTail[]
+
+export function supersededReason(pass: TailPass, by: number | null): string {
+  const origin = `the review of PR #${pass.pr ?? '—'} at ${pass.head ?? '—'}`
+  return by === null ? `superseded: ${origin} recorded pass with no surviving mutation` : `superseded by tail #${by}: ${origin}`
+}
+
+export function dropUnstartedTails(db: DatabaseSync, unstarted: UnstartedTails, ts: string, pass: TailPass, kept: number | null): number[] {
+  return unstarted(pass.parent).filter(({ card }) => card !== kept).flatMap(({ card, bodySha }) => {
+    const payload = { from: null, to: SUPERSEDED_TARGET, bodySha, reason: supersededReason(pass, kept) }
+    return appendCardEvent(db, TAIL_ACTOR, { type: CARD_DROPPED, cardId: card, ts, dedupeKey: `${CARD_DROPPED}:${card}:${SUPERSEDED_TARGET}:${pass.taskKey}`, payload }) ? [card] : []
+  })
+}
+
 export interface BusTailParts {
   db: DatabaseSync
   gitHub: Parameters<typeof latestGitHubNumber>[0]
   clock: () => Date
   cardStates: () => HeldCards
+  unstartedTails: UnstartedTails
 }
 
 export class BusTailIntake implements TailIntake {
@@ -141,7 +166,16 @@ export class BusTailIntake implements TailIntake {
       const id = nextTailNumber(this.parts.cardStates(), [tail.pr ?? 0, onGitHub])
       const text = tailCardText(id, parent, tail)
       const line = text.split('\n')[0]!.slice(CARD_HEADER.length)
-      return appendCardEvent(db, TAIL_ACTOR, laid(db, { type: CARD_ADMITTED, cardId: id, ts: this.parts.clock().toISOString(), dedupeKey: tailKey(tail.taskKey), payload: { card: line, lane: null, depends: [], decision: 'auto', contour: 'cheap', confirmation: 'auto', corrections: [], bodySha: tailBodySha(text), text, textSha: tailTextSha(text), source: TAIL_SOURCE } })) ? id : null
+      const ts = this.parts.clock().toISOString()
+      if (!appendCardEvent(db, TAIL_ACTOR, laid(db, { type: CARD_ADMITTED, cardId: id, ts, dedupeKey: tailKey(tail.taskKey), payload: { card: line, lane: null, depends: [tail.parent], decision: 'auto', contour: 'cheap', confirmation: 'auto', corrections: [], bodySha: tailBodySha(text), text, textSha: tailTextSha(text), source: TAIL_SOURCE } })))
+        return null
+      dropUnstartedTails(db, this.parts.unstartedTails, ts, tail, id)
+      return id
     })
+  }
+
+  supersede(pass: TailPass): number[] {
+    const { db } = this.parts
+    return inTransaction(db, () => dropUnstartedTails(db, this.parts.unstartedTails, this.parts.clock().toISOString(), pass, null))
   }
 }

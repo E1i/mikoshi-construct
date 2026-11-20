@@ -22,6 +22,7 @@
         "keys": [
           "by",
           "parked",
+          "patch",
           "path"
         ]
       },
@@ -1647,7 +1648,7 @@
     "fields": {
       "Owner, verbatim:": "body line read by src/commands/intake/amend.ts",
       "Runs:": "body line read by src/card/covering-tests.ts",
-      "Witnesses:": "body line read by src/commands/intake/slice.ts",
+      "Witnesses:": "body line read by src/card/witness-fields.ts, src/commands/intake/slice.ts",
       "admissionEventId": "number",
       "blocks": "number[]",
       "branch": "string",
@@ -4064,6 +4065,7 @@
           "scripts/core/report.ts",
           "scripts/core/legacy-history.ts",
           "scripts/core/import-closure.ts",
+          "scripts/core/cadence.ts",
           "src/card/closed.ts",
           "scripts/cli/slot.ts",
           "src/commands/liveness.ts",
@@ -4099,6 +4101,7 @@
           "scripts/core/report.ts",
           "scripts/core/legacy-history.ts",
           "scripts/core/import-closure.ts",
+          "scripts/core/cadence.ts",
           "src/card/closed.ts",
           "scripts/cli/slot.ts",
           "src/commands/liveness.ts",
@@ -4343,7 +4346,7 @@
       "scripts/cli/card.ts": 1,
       "scripts/cli/check-catalog.ts": 1,
       "scripts/core/bus-readings.ts": 4,
-      "scripts/core/card-automaton.ts": 12,
+      "scripts/core/card-automaton.ts": 13,
       "scripts/core/card-bodies.ts": 7,
       "scripts/core/card-decisions.ts": 5,
       "scripts/core/card-hold.ts": 2,
@@ -4359,7 +4362,7 @@
       "scripts/core/pr-folds.ts": 3,
       "scripts/core/pr-status.ts": 6,
       "scripts/core/queue.ts": 23,
-      "scripts/core/reducer.ts": 4,
+      "scripts/core/reducer.ts": 2,
       "scripts/core/report.ts": 5,
       "scripts/core/stored.ts": 1,
       "scripts/core/tasks.ts": 3,
@@ -4400,7 +4403,7 @@
       "scripts/nodes/update/update-executor.ts": 2,
       "scripts/nodes/witness/witness-candidates.ts": 5,
       "scripts/nodes/witness/witness-executor.ts": 3,
-      "scripts/policy/decisions/index.ts": 16,
+      "scripts/policy/decisions/index.ts": 13,
       "scripts/policy/decisions/wait-folds.ts": 1,
       "scripts/policy/policy.ts": 3,
       "scripts/policy/round-limit-decision.ts": 9,
@@ -4412,7 +4415,7 @@
       "scripts/release/evidence.ts": 2,
       "scripts/supervisor/bus-heal.ts": 3,
       "scripts/supervisor/bus-snapshot.ts": 2,
-      "scripts/supervisor/card-waits.ts": 2,
+      "scripts/supervisor/card-waits.ts": 4,
       "scripts/supervisor/derive-queues.ts": 20,
       "scripts/supervisor/heartbeat.ts": 3,
       "scripts/supervisor/reducer-loop.ts": 1,
@@ -4607,10 +4610,12 @@
         "functions": {
           "fieldCommand": "(field: Pick<WitnessField, 'run' | 'test'>): string",
           "isWitnessFieldLine": "(line: string): boolean",
+          "judgedFieldWitnessesOf": "(body: string): { acceptance: JudgedWitness[]; invariants: JudgedWitness[]; } | null",
           "parseWitnessList": "(value: unknown): ParsedWitnessList",
           "runsFieldLine": "(runs: readonly string[]): string",
           "witnessFieldRefusals": "(text: string): string[]",
-          "witnessFieldsOf": "(text: string): WitnessField[] | null"
+          "witnessFieldsOf": "(text: string): WitnessField[] | null",
+          "witnessesOf": "(body: string): string[]"
         },
         "reexports": [],
         "types": {
@@ -4928,9 +4933,7 @@
         ],
         "functions": {
           "isLaneName": "(name: string): boolean",
-          "judgedFieldWitnessesOf": "(body: string): { acceptance: JudgedWitness[]; invariants: JudgedWitness[]; } | null",
-          "pathsNamedOutside": "(parked: ParkedTask, text: string): string[]",
-          "witnessesOf": "(body: string): string[]"
+          "pathsNamedOutside": "(parked: ParkedTask, text: string): string[]"
         },
         "reexports": [
           "parentsFromCardLines"
@@ -5243,7 +5246,7 @@
         },
         "reexports": [],
         "types": {
-          "BusPorts": "interface BusPorts { cardEvents: CardEventPort; cardStates: CardStatesPort; cardAdmissions: CardAdmissionsPort; mutationJudged?: MutationJudgedPort; ladderRun?: LadderRunPort; decisions?: AdmitOptions['decisions']; }"
+          "BusPorts": "interface BusPorts { cardEvents: CardEventPort; cardStates: CardStatesPort; cardAdmissions: CardAdmissionsPort; mutationJudged?: MutationJudgedPort; ladderRun?: LadderRunPort; decisions?: AdmitOptions['decisions']; cardWaits?: AdmitOptions['cardWaits']; }"
         }
       },
       "src/ui/console.ts": {
@@ -5767,12 +5770,9 @@
       },
       "scripts/ports/netwatch.ts": {
         "constants": [
-          "CHECK_MS",
           "NETWATCH_SCRIPT",
           "PREFIX",
-          "TECHNOLOGY_WORDS",
-          "TICK_MS",
-          "WAKE_GAP_MS"
+          "TECHNOLOGY_WORDS"
         ],
         "functions": {
           "knownOpenPrs": "(db: DatabaseSync): number[]",

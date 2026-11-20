@@ -57,6 +57,7 @@ export interface AnswerParts {
   treeState?: (card: CardSession, prHead: string) => CarriedTree | null
   ownTree?: (card: CardSession, prHead: string, policy: TreePushPolicy) => TreeOwned
   pushPolicy?: (card: CardSession) => TreePushPolicy
+  allowances?: (cardId: number) => readonly string[]
 }
 
 export const CARRIED_TREE = 'carried-tree'
@@ -340,7 +341,7 @@ export class AnswerExecutor {
     const beforeTheSession = { lease: secondsOf(preparing - leased), tree: secondsOf(prepared - preparing) }
     this.recordSteps(lease, preparing, beforeTheSession)
     try {
-      const answered = await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh, outsideTouches: this.outsideTouchesOf(lease, widened), concept: this.conceptOf(lease), findingsToProve: prove, stepped: steps => this.recordSteps(lease, preparing, steps) })
+      const answered = await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh, outsideTouches: this.outsideTouchesOf(lease, widened), allowances: this.parts.allowances?.(lease.cardId) ?? [], concept: this.conceptOf(lease), findingsToProve: prove, stepped: steps => this.recordSteps(lease, preparing, steps) })
       return answered.steps === undefined ? answered : { ...answered, steps: { ...beforeTheSession, ...answered.steps } }
     }
     catch (error) {

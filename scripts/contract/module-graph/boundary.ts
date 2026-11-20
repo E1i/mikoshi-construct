@@ -1,6 +1,6 @@
 import type { ModuleGraphSpec } from '../factory/modules.js'
 import type { ImportEdge, PathAliases } from './imports.js'
-import { readFileSync, realpathSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -175,6 +175,7 @@ export interface IdentifiedImport extends Violation {
 export interface BoundarySide {
   spec: ModuleGraphSpec
   violations: IdentifiedImport[]
+  exportsOf?: ExportsOf
 }
 
 export type Renames = ReadonlyMap<string, string>
@@ -221,9 +222,45 @@ export function identifiedViolations(root: string, spec: ModuleGraphSpec = MODUL
   return boundaryReport(root, spec, aliases).graph.map(edge => ({ ...judged(spec, edge), symbols: [...symbolsOf(edge.from).get(edge.to) ?? []].sort(byText) }))
 }
 
-function ownershipOf(spec: ModuleGraphSpec): string {
-  const owns = Object.fromEntries(Object.entries(spec.modules).map(([id, { owns }]) => [id, [...owns].sort(byText)]))
-  return JSON.stringify({ owns, roots: spec.composition_roots, exclusions: spec.exclusions })
+type DeclarationWithName = ts.FunctionDeclaration | ts.ClassDeclaration | ts.InterfaceDeclaration | ts.TypeAliasDeclaration | ts.EnumDeclaration
+
+function isNamedDeclaration(statement: ts.Statement): statement is DeclarationWithName {
+  return ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement) || ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement) || ts.isEnumDeclaration(statement)
+}
+
+function boundNames(name: ts.BindingName): string[] {
+  if (ts.isIdentifier(name))
+    return [name.text]
+  return name.elements.flatMap(element => ts.isOmittedExpression(element) ? [] : boundNames(element.name))
+}
+
+function isExported(statement: ts.Statement): boolean {
+  return ts.canHaveModifiers(statement) && ts.getModifiers(statement)?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword) === true
+}
+
+function exportedNamesOf(statement: ts.Statement): string[] {
+  if (ts.isExportDeclaration(statement))
+    return statement.moduleSpecifier === undefined && statement.exportClause !== undefined && ts.isNamedExports(statement.exportClause) ? statement.exportClause.elements.map(element => element.name.text) : []
+  if (!isExported(statement))
+    return []
+  if (ts.isVariableStatement(statement))
+    return statement.declarationList.declarations.flatMap(declaration => boundNames(declaration.name))
+  return isNamedDeclaration(statement) && statement.name !== undefined ? [statement.name.text] : []
+}
+
+export type ExportsOf = (file: string) => ReadonlySet<string>
+
+export function exportedNames(root: string): ExportsOf {
+  const byFile = new Map<string, ReadonlySet<string>>()
+  return (file) => {
+    const known = byFile.get(file)
+    if (known !== undefined)
+      return known
+    const where = path.join(root, file)
+    const names = existsSync(where) ? new Set(ts.createSourceFile(file, readFileSync(where, 'utf8'), ts.ScriptTarget.Latest, true).statements.flatMap(exportedNamesOf)) : new Set<string>()
+    byFile.set(file, names)
+    return names
+  }
 }
 
 function carriesMovedSymbols(now: readonly string[], was: readonly string[]): boolean {
@@ -236,13 +273,32 @@ function heldOnBase(violation: IdentifiedImport, base: readonly IdentifiedImport
     && (moved(was.to) === violation.to || carriesMovedSymbols(violation.symbols, was.symbols)))
 }
 
-export function movedRows(base: BoundarySide, head: BoundarySide, grown: readonly string[], renames: Renames = new Map()): string[] {
+export type MovedEdges = Map<string, number>
+
+type FormerName = (file: string) => string
+
+function changedOwner(violation: IdentifiedImport, base: BoundarySide, head: BoundarySide, formerName: FormerName): boolean {
+  return [violation.from, violation.to].some(file => holderOf(base.spec, formerName(file)) !== holderOf(head.spec, file))
+}
+
+function importsBackFromFormerHome(violation: IdentifiedImport, base: BoundarySide, formerName: FormerName): boolean {
+  const home = formerName(violation.from)
+  const exported = base.exportsOf?.(home) ?? new Set<string>()
+  const importedOnBase = new Set(base.violations.filter(was => was.from === home).flatMap(was => was.symbols))
+  return violation.symbols.length > 0 && violation.symbols.every(symbol => exported.has(symbol) && !importedOnBase.has(symbol))
+}
+
+export function movedRows(base: BoundarySide, head: BoundarySide, grown: readonly string[], renames: Renames = new Map()): MovedEdges {
   const violating = head.violations.filter(isViolating)
-  if (ownershipOf(base.spec) === ownershipOf(head.spec) || violating.length > base.violations.filter(isViolating).length)
-    return []
-  return grown.filter(row => violating
-    .filter(violation => boundaryKey(violation) === row)
-    .every(violation => heldOnBase(violation, base.violations, renames)))
+  if (violating.length > base.violations.filter(isViolating).length)
+    return new Map()
+  const formerNames = new Map([...renames].map(([was, now]) => [now, was]))
+  const formerName: FormerName = file => formerNames.get(file) ?? file
+  const isMove = (violation: IdentifiedImport): boolean =>
+    (changedOwner(violation, base, head, formerName) && heldOnBase(violation, base.violations, renames))
+    || importsBackFromFormerHome(violation, base, formerName)
+  const counts = grown.map(row => [row, violating.filter(violation => boundaryKey(violation) === row && isMove(violation)).length] as const)
+  return new Map(counts.filter(([, moved]) => moved > 0))
 }
 
 export function violationLine({ from, to, reasons }: Violation): string {

@@ -5,9 +5,9 @@ import type { Fold, StoredEvent } from '../../core/stored.js'
 import type { DecisionRow, DecisionsPort, OwnerWords } from './decisions.js'
 import { DECISIONS_FILE } from '../../core/bus-path.js'
 import { DECISIONS, readCurrent } from '../../core/bus-readings.js'
-import { cardReleased, CLOSED_CARD, DROPPED_CARD, MERGED_CARD, STOPPED_CARD } from '../../core/card-automaton.js'
-import { appendEvent, DECISION_ARCHIVED, DECISION_IN_FORCE, OPEN_WAIT } from '../../core/db.js'
-import { CARD_STOPPED, DECISION_EXPIRED, DECISION_RECORDED, DECISIONS_IMPORTED, DECISIONS_PROJECTED, QUESTION_OWNER } from '../../core/events.js'
+import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../../core/card-automaton.js'
+import { appendEvent, DECISION_ARCHIVED, DECISION_IN_FORCE } from '../../core/db.js'
+import { DECISION_EXPIRED, DECISION_RECORDED, DECISIONS_IMPORTED, DECISIONS_PROJECTED } from '../../core/events.js'
 import { OWNER } from '../../core/inbox.js'
 import { NETWATCH } from '../../core/observations.js'
 import { payloadOf, reject, Rejection, STORED_COLUMNS } from '../../core/stored.js'
@@ -64,36 +64,11 @@ function actorOf(db: DatabaseSync, event: StoredEvent): string | null {
   return (db.prepare('SELECT actor FROM events WHERE id = ?').get(event.id) as { actor: string | null }).actor
 }
 
-function lastStopReason(db: DatabaseSync, cardId: number, before: number): unknown {
-  const row = db.prepare(`
-    SELECT json_extract(payload, '$.reason') AS reason FROM events
-    WHERE legacy = 0 AND type = '${CARD_STOPPED}' AND card_id = ? AND id < ?
-    ORDER BY id DESC LIMIT 1
-  `).get(cardId, before) as { reason: unknown } | undefined
-  return row?.reason
-}
-
-function cardState(db: DatabaseSync, cardId: number): string | null | undefined {
-  return (db.prepare('SELECT state FROM cards WHERE card_id = ?').get(cardId) as { state: string | null } | undefined)?.state
-}
-
 const WAIT_ID_IN_TEXT = /\b[QW]\d+\b/g
 
 export function waitsTheDecisionNames(db: DatabaseSync, text: string): string[] {
   const mentioned = JSON.stringify(text.match(WAIT_ID_IN_TEXT) ?? [])
   return (db.prepare('SELECT id FROM owner_waits WHERE id IN (SELECT value FROM json_each(?))').all(mentioned) as { id: string }[]).map(wait => wait.id)
-}
-
-function aWaitItDidNotNameStaysOpen(db: DatabaseSync, cardId: number, named: readonly string[]): boolean {
-  return named.length > 0 && db.prepare(`SELECT 1 FROM owner_waits WHERE state = '${OPEN_WAIT}' AND card_id = ? AND id NOT IN (SELECT value FROM json_each(?)) LIMIT 1`).get(cardId, JSON.stringify(named)) !== undefined
-}
-
-function answerQuestions(db: DatabaseSync, cards: readonly number[], text: string, eventId: number): void {
-  const named = waitsTheDecisionNames(db, text)
-  for (const cardId of cards) {
-    if (cardState(db, cardId) === STOPPED_CARD && lastStopReason(db, cardId, eventId) === QUESTION_OWNER && !aWaitItDidNotNameStaysOpen(db, cardId, named))
-      cardReleased(db, cardId, eventId)
-  }
 }
 
 function numbersOf(payload: Record<string, unknown>, field: string): number[] {
@@ -158,7 +133,6 @@ function foldDecisionRecorded(db: DatabaseSync, event: StoredEvent): void {
     .run(decisionId, text, JSON.stringify(cards), OWNER, event.id, termOf(text).until, JSON.stringify(supersedes))
   for (const target of supersedes)
     archive(db, target)
-  answerQuestions(db, cards, text, event.id)
   archiveSpentDecisions(db)
 }
 
@@ -211,7 +185,6 @@ function foldDecisionsImported(db: DatabaseSync, event: StoredEvent): void {
       INSERT INTO decisions (decision_id, text, scope, source, event_id, until, state) VALUES (?, ?, ?, ?, ?, ?, '${DECISION_IN_FORCE}')
       ON CONFLICT (decision_id) DO UPDATE SET text = excluded.text, scope = excluded.scope, source = excluded.source, event_id = excluded.event_id, until = excluded.until, state = excluded.state
     `).run(decision.decisionId, decision.text, JSON.stringify(decision.cards), DECISIONS_FILE, event.id, termOf(decision.text).until)
-    answerQuestions(db, decision.cards, decision.text, event.id)
   }
   archiveSpentDecisions(db)
 }

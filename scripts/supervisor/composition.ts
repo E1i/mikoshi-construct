@@ -25,23 +25,23 @@ import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import process from 'node:process'
 import { PRIORITIES, WINDOW_WHO } from '../../src/card/parking.js'
-import { witnessesOf } from '../../src/commands/intake/admit.js'
+import { witnessesOf } from '../../src/card/witness-fields.js'
 import { automatonOf, selectingNodes } from '../ci/card-automaton.js'
 import { GATE_RUN_SPOOL } from '../ci/gate-runs.js'
 import { driftOfRun } from '../ci/weights-law.js'
-import { appendedOnCard, CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION, CHANGES_CARD, CLOSED_CARD, DEFERRED_CARD, DROPPED_CARD, FALLEN_CARD, IN_REVIEW_CARD, MERGED_CARD, QUEUED_CARD, READY_CARD, RUNNING_CARD, STOPPED_CARD } from '../core/card-automaton.js'
+import { CHECK_MS, TICK_MS } from '../core/cadence.js'
+import { appendedOnCard, CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION, cardsAnswered, CHANGES_CARD, CLOSED_CARD, DEFERRED_CARD, DROPPED_CARD, FALLEN_CARD, IN_REVIEW_CARD, MERGED_CARD, QUEUED_CARD, READY_CARD, RUNNING_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { admittedCardVersion, backfillPendingSliceParents, cardOfBranch } from '../core/card-bodies.js'
 import { cardDecisionReads, reviewedUnderTheCardDecision, reviewsTheCardDecisionReopens, withDecidedContinuations } from '../core/card-decisions.js'
 import { CHAINS_PROJECTION } from '../core/chain.js'
-import { CARD_DEFERRED, CARD_MOVED, CARD_PLANNED, CARD_STOPPED, CARD_UNPLANNED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OBSERVED, PR_OPENED, RATCHET_THRESHOLD_SET, SLICE_PARENTS_BACKFILLED } from '../core/events.js'
+import { CARD_DEFERRED, CARD_MOVED, CARD_PLANNED, CARD_STOPPED, CARD_UNPLANNED, DECISION_RECORDED, DECISIONS_IMPORTED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OBSERVED, PR_OPENED, RATCHET_THRESHOLD_SET, SLICE_PARENTS_BACKFILLED, TASK_ENQUEUED, TASK_REQUEUED } from '../core/events.js'
 import { isFullSha, prOf } from '../core/identifiers.js'
 import { OWNER, ownerQuestionAnswered } from '../core/inbox.js'
 import { foreignVersion, instanceOf, provenIdentity, recordWorkerIdentity, UNHANDED } from '../core/node.js'
 import { orderDeclarationsAt, overlaps } from '../core/order/overlap.js'
 import { ownerWaitCommand } from '../core/owner-commands.js'
-import { prFolds, prRow } from '../core/pr-folds.js'
+import { linkRefusal, openedPrOf, prFolds, prRow } from '../core/pr-folds.js'
 import { closeCandidates, keyOf, reviewCandidates, taskRow, TASKS_PROJECTION } from '../core/queue.js'
-import { ownerWaitFolds } from '../core/reducer.js'
 import { payloadOf, storedByKey } from '../core/stored.js'
 import { BusWeightsRecompute } from '../intake/intake.js'
 import { answerSource } from '../nodes/answer/answer-candidates.js'
@@ -52,20 +52,19 @@ import { WeightsDriftWatch } from '../nodes/merge/weights-drift.js'
 import { ROLES_PROJECTION } from '../nodes/restart/role.js'
 import { updateCandidates, updateSource } from '../nodes/update/update-candidates.js'
 import { witnessSource } from '../nodes/witness/witness-candidates.js'
-import { archiveSpentDecisions, DECISION_FOLDS } from '../policy/decisions/index.js'
+import { archiveSpentDecisions, BusDecisions, DECISION_FOLDS } from '../policy/decisions/index.js'
 import { answersOfTheDecisions } from '../policy/decisions/wait-folds.js'
 import { mayRequeueUnderTheRounds, mergeDecidedPastRoundLimit, outOfRounds, RECUT_ACTOR, REVIEWS_OF_A_PR } from '../policy/round-limit-decision.js'
 import { decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT, withDecisionsHeldAt } from '../policy/shards.js'
-import { derivedHoldOf } from '../policy/touch-scope.js'
+import { cardAllowancesIn, derivedHoldOf } from '../policy/touch-scope.js'
 import { ANY, BusRead } from '../ports/bus-read.js'
 import { cardTreeReading } from '../ports/card-tree.js'
 import { GhCiRuns } from '../ports/ci-reading.js'
-import { CHECK_MS, TICK_MS } from '../ports/netwatch.js'
 import { launchDirOf } from '../ports/tree-publish.js'
 import { cardTreeRoots } from '../ports/worktree-home.js'
 import { foldPlanEvent } from '../window/plan-folds.js'
 import { releasingTakeoverOnPush } from '../window/takeover-push-release.js'
-import { cardWaitFolds, closeWaitsOfAnEndedCard, closingTheWaitsOfAClosedPr } from './card-waits.js'
+import { cardWaitFolds, closeWaitsOfAnEndedCard, closingTheWaitsOfAClosedPr, ownerWaitFolds } from './card-waits.js'
 import { causeGoneSource, derivedQueues, DOWNGRADE_PARKED_SOURCE, dueAgainSource, NO_CARD_TREE_SOURCE, restartSource, SETTLE_SOURCE, stopNoLongerHoldsSource } from './derive-queues.js'
 import { unendedStarts } from './expected-time.js'
 import { busSessionPulse, heartbeatEnv, measureCardSession, ownStart, recordProcessHeartbeat } from './heartbeat.js'
@@ -159,30 +158,88 @@ export function ratchetThresholdSets(db: DatabaseSync): (cardId: number) => Thre
     typeof decision === 'string' && typeof row === 'string' && typeof to === 'number' ? [{ decision, row, to }] : [])
 }
 
-export function derivedHolds(db: DatabaseSync): DerivedHolds {
-  return (cardId, scope, files) => derivedHoldOf(scope, files, () => cardTreeReading(db, cardId))
+export function cardAllowances(db: DatabaseSync): (cardId: number) => string[] {
+  return cardId => cardAllowancesIn(new BusDecisions(db), cardId)
+}
+
+export function derivedHolds(db: DatabaseSync, readTree: typeof cardTreeReading = cardTreeReading): DerivedHolds {
+  const allowances = cardAllowances(db)
+  return (cardId, scope, files) => derivedHoldOf(scope, files, () => readTree(db, cardId), () => allowances(cardId))
 }
 
 function cardWaitParts(): CardWaitParts {
   return { archiveSpentDecisions, prRow }
 }
 
+const PR_FIELDS = { isFullSha, prOf }
+
+function sequenced(first: Fold, second: Fold): Fold {
+  return (db, event) => {
+    first(db, event)
+    second(db, event)
+  }
+}
+
+function followedBy(first: Readonly<Record<string, Fold>>, second: Readonly<Record<string, Fold>>): Record<string, Fold> {
+  return {
+    ...first,
+    ...Object.fromEntries(Object.entries(second).map(([type, fold]) => {
+      const before = first[type]
+      return [type, before === undefined ? fold : sequenced(before, fold)]
+    })),
+  }
+}
+
+type CardLink = (db: DatabaseSync, cardId: number, pr: number, refusal: string | null, eventId: number) => void
+
+function linkTheCardOfThePr(db: DatabaseSync, event: StoredEvent, pr: number, link: CardLink): void {
+  const cardId = prRow(db, pr)?.card_id ?? event.card_id
+  if (cardId !== null)
+    link(db, cardId, pr, linkRefusal(db, cardId), event.id)
+}
+
+export function busCardLinkFolds(): Record<string, Fold> {
+  return {
+    [PR_OBSERVED]: (db, event) => {
+      if (event.pr !== null)
+        linkTheCardOfThePr(db, event, event.pr, cardLinkObserved)
+    },
+    [PR_OPENED]: (db, event) => linkTheCardOfThePr(db, event, openedPrOf(event, PR_FIELDS), cardPrOpened),
+  }
+}
+
+function releaseTheCardsTheDecisionsAnswer(db: DatabaseSync, event: StoredEvent): void {
+  for (const answer of answersOfTheDecisions(db, event.id))
+    cardsAnswered(db, JSON.parse(answer.scope) as number[], answer.named, event.id)
+}
+
+export function busCardReleaseFolds(): Record<string, Fold> {
+  return {
+    [DECISION_RECORDED]: releaseTheCardsTheDecisionsAnswer,
+    [DECISIONS_IMPORTED]: releaseTheCardsTheDecisionsAnswer,
+  }
+}
+
 export function busPrFolds(): Record<string, Fold> {
-  return prFolds({
-    transitions: { linkObserved: cardLinkObserved, prMerged: cardPrMerged, prOpened: cardPrOpened },
-    fields: { isFullSha, prOf },
+  return followedBy(prFolds({
+    transitions: { prMerged: cardPrMerged },
+    fields: PR_FIELDS,
     cardOfBranch,
     closed: closingTheWaitsOfAClosedPr(cardWaitParts()),
-  })
+  }), busCardLinkFolds())
+}
+
+export function busDecisionFolds(): Record<string, Fold> {
+  return followedBy(DECISION_FOLDS, busCardReleaseFolds())
 }
 
 export function busOwnerWaitFolds(): Record<string, Fold> {
-  return ownerWaitFolds({ commandOf: ownerWaitCommand, decisionFolds: DECISION_FOLDS, answersOfTheDecisions, closeWaitsOfAnEndedCard })
+  return ownerWaitFolds({ commandOf: ownerWaitCommand, decisionFolds: busDecisionFolds(), answersOfTheDecisions, closeWaitsOfAnEndedCard })
 }
 
 export function busProjections(): Projections {
   return {
-    folds: [releasingTakeoverOnPush(busPrFolds(), [PR_OBSERVED, PR_OPENED], db => new BusRead(db)), TASKS_PROJECTION.folds, CHAINS_PROJECTION.folds, ROLES_PROJECTION.folds, DECISION_FOLDS, CARD_FOLDS, busOwnerWaitFolds(), PLAN_FOLDS, cardWaitFolds(cardWaitParts())],
+    folds: [releasingTakeoverOnPush(busPrFolds(), [PR_OBSERVED, PR_OPENED], db => new BusRead(db)), TASKS_PROJECTION.folds, CHAINS_PROJECTION.folds, ROLES_PROJECTION.folds, busDecisionFolds(), CARD_FOLDS, busOwnerWaitFolds(), PLAN_FOLDS, cardWaitFolds(cardWaitParts())],
     incremental: [ROLES_PROJECTION, TASKS_PROJECTION, CHAINS_PROJECTION, CARDS_PROJECTION],
   }
 }
@@ -315,6 +372,9 @@ export function nodeCandidates(sources: readonly NamedQueueSource[] = namedQueue
   ]
 }
 
+const TASK_KEY_NAMED_BY = [TASK_ENQUEUED, TASK_REQUEUED] as const
+const TASK_KEY_FIELD = ['task_key'] as const
+
 export function deadEndEvents(db: DatabaseSync): DeadEndEvents {
   const read = new BusRead(db)
   return {
@@ -324,6 +384,11 @@ export function deadEndEvents(db: DatabaseSync): DeadEndEvents {
     },
     cardsOfUnclosedOwnerWaits: () => openOwnerWaitCards(db),
     cardsNobodyHolds: (heldElsewhere, ignoredActor) => read.cardsNobodyHolds(heldElsewhere, ignoredActor),
+    latestTaskKey: (card) => {
+      const named = TASK_KEY_NAMED_BY.flatMap(type => read.where({ card, present: TASK_KEY_FIELD }).slice(type, TASK_KEY_FIELD, 'last'))
+      const key = named.sort((a, b) => b.id - a.id)[0]?.fields.task_key
+      return typeof key === 'string' ? key : null
+    },
   }
 }
 

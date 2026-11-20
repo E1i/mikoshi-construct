@@ -7,7 +7,8 @@ import type { InForceDecision } from './decisions/index.js'
 import { cardLine } from '../../src/card/grammar.js'
 import { parkingFileText, parseParkingFile } from '../../src/card/parking.js'
 import { RISK_PREFIX, riskReading, SEAM_PREFIX, SLICE_DEPENDS, SLICE_PREFIX } from '../../src/card/risk.js'
-import { AMEND_SOURCE, witnessesOf } from '../../src/commands/intake/admit.js'
+import { witnessesOf } from '../../src/card/witness-fields.js'
+import { AMEND_SOURCE } from '../../src/commands/intake/admit.js'
 import { WITNESSES_HEADING } from '../../src/commands/intake/slice.js'
 import { CARD_ADMITTED, PR_OBSERVED, PR_OPENED, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, ROUND_EXTENDED, ROUND_MUTATIONS_PARKED, SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED } from '../core/events.js'
 import { isFullSha, REVIEW_ROUNDS } from '../core/identifiers.js'
@@ -33,6 +34,10 @@ function namesPrAtHeadUnder(marker: string, text: string, pr: number, head: stri
 
 export function namesPrAtHead(text: string, pr: number, head: string): boolean {
   return namesPrAtHeadUnder(ALLOW_MERGE, text, pr, head)
+}
+
+export function allowMergeOfPrAtHead(pr: number, head: string): string {
+  return `${ALLOW_MERGE} PR #${pr} at ${head}`
 }
 
 const HEADS_OF_A_PR = `SELECT head FROM events WHERE type IN ('${PR_OPENED}', '${PR_OBSERVED}') AND legacy = 0 AND pr = ? AND head IS NOT NULL ORDER BY id`

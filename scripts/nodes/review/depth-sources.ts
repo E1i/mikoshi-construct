@@ -4,20 +4,22 @@ import type { Lease } from '../../core/lease.js'
 import type { CardBodyReader } from '../../intake/parking-reads.js'
 import type { CardScope, DepthSources, ReviewPlanner } from './review-depth.js'
 import type { ProvenWitness } from './reviewer.js'
+import type { UnstartedTail, UnstartedTails } from './tail-card.js'
 import { existsSync } from 'node:fs'
 import { layerMasksOf, runsOf } from '../../../src/card/covering-tests.js'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { busCheckCatalog, cardReadingOf } from '../../ci/card-runs.js'
 import { CAPABILITIES, declaredCapabilities } from '../../ci/sandbox-failing.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../../core/db.js'
-import { CARD_ADMITTED, SCOPE_WIDENED, WITNESS_RECORDED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_CONTINUED, CARD_DROPPED, CARD_FELL, CARD_STARTED, CARD_STOPPED, MERGE_DONE, PR_OPENED, SCOPE_WIDENED, WITNESS_RECORDED } from '../../core/events.js'
 import { reviewInputOfKey } from '../../core/identifiers.js'
 import { openDatabase } from '../../core/sqlite.js'
 import { predict } from '../../policy/morse/predict.js'
 import { createdPaths } from '../../policy/touch-scope.js'
-import { BusRead } from '../../ports/bus-read.js'
+import { ANY, BusRead } from '../../ports/bus-read.js'
 import { processGit } from '../../ports/git.js'
 import { planReview } from './review-depth.js'
+import { TAIL_ACTOR, TAIL_SOURCE } from './tail-card.js'
 
 const MAIN = 'origin/main'
 
@@ -260,5 +262,27 @@ export function gitReviewPlanner(repo: string, journal: string, bodyOf: CardBody
     if (lease.pr !== null)
       fetchPr(run, repo, lease.pr)
     return planReview(lease, earlier, sources)
+  }
+}
+
+const LEFT_THE_QUEUE = [CARD_STARTED, CARD_CONTINUED, CARD_ANSWERED, PR_OPENED, CARD_STOPPED, CARD_FELL, CARD_DROPPED, CARD_CLOSED, MERGE_DONE] as const
+
+function hasLeftTheQueue(read: BusRead, card: number): boolean {
+  const ofTheCard = read.where({ card })
+  return LEFT_THE_QUEUE.some(type => ofTheCard.slice(type, [], 'last').length > 0)
+}
+
+export function busUnstartedTails(db: DatabaseSync): UnstartedTails {
+  return (parent) => {
+    const read = new BusRead(db)
+    const admissions = read.where({ card: ANY, actor: TAIL_ACTOR }).slice(CARD_ADMITTED, ['source', 'depends', 'bodySha'])
+    const tails = new Map<number, UnstartedTail>()
+    for (const { card, fields } of admissions) {
+      const depends = Array.isArray(fields.depends) ? fields.depends : []
+      if (card === null || fields.source !== TAIL_SOURCE || depends[0] !== parent)
+        continue
+      tails.set(card, { card, bodySha: typeof fields.bodySha === 'string' ? fields.bodySha : null })
+    }
+    return [...tails.values()].filter(tail => !hasLeftTheQueue(read, tail.card)).sort((a, b) => a.card - b.card)
   }
 }

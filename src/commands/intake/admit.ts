@@ -21,7 +21,7 @@ import { endedCards } from '../../card/closed.js'
 import { cardLine, parseCard } from '../../card/grammar.js'
 import { parseParkingFile } from '../../card/parking.js'
 import { priorityLineOf, withKeptPriority } from '../../card/text-sha.js'
-import { fieldCommand, isAcceptanceField, isWitnessFieldLine, judgedCommand, renderedWitness, runsFieldLine, runsFieldOf, statesAnExit, witnessFieldsOf, witnessText } from '../../card/witness-fields.js'
+import { isWitnessFieldLine, renderedWitness, runsFieldLine, runsFieldOf, witnessesOf, witnessFieldsOf, witnessText } from '../../card/witness-fields.js'
 import { readMilestones } from '../../manifest.js'
 import { findsNoTest, namedAbsentOutside, namedPaths, withinScope } from '../test-runner.js'
 import { CARD_REFERENCE, checkDraft, correctionText, FACTORY_TWIN, invalidTestPatterns, isChangeWitness, nonPathTouchRefusals, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
@@ -37,7 +37,6 @@ import { CORRECTED_PREFIX, UNCLEAR_PREFIX, WITNESSES_HEADING } from './slice.js'
 
 export { parentsFromCardLines } from './slice.js'
 
-const WITNESS_ITEM = /^- (.+)$/
 const BLOCKS_SEPARATOR = ' · blocks '
 const LEADING_BLOCKS = /^(?:—|#\d+(?:,? #\d+)*)/
 export const CARD_HEADER = 'card: '
@@ -76,9 +75,17 @@ export interface AdmitOptions {
   cardStates?: CardStatesPort
   admissions?: CardAdmissionsPort
   decisions?: DecisionsPort
+  cardWaits?: CardWaitsPort
   writeRuns?: boolean
   priorityEdited?: boolean
 }
+
+export interface CardWait {
+  card: number
+  why: string
+}
+
+export type CardWaitsPort = (cardId: number) => CardWait[]
 
 type RefusedWithReasons = 'invalidTestPattern' | 'sharedCodeMask'
 
@@ -230,24 +237,6 @@ function withoutReplaced(downgrades: readonly string[], previous: readonly strin
   })
 }
 
-export interface JudgedWitness {
-  criterion: string
-  command: string
-  onBase?: { command: string, stated: string }
-}
-
-export function judgedFieldWitnessesOf(body: string): { acceptance: JudgedWitness[], invariants: JudgedWitness[] } | null {
-  const fields = witnessFieldsOf(body)
-  if (fields === null)
-    return null
-  const judged = (field: WitnessField): JudgedWitness => ({ criterion: witnessText(field), command: judgedCommand(field) })
-  const acceptance = (field: WitnessField): JudgedWitness => statesAnExit(field) ? { ...judged(field), onBase: { command: fieldCommand(field), stated: field.base } } : judged(field)
-  return {
-    acceptance: fields.filter(isAcceptanceField).map(acceptance),
-    invariants: fields.filter(field => !isAcceptanceField(field)).map(judged),
-  }
-}
-
 export function unreplacedDowngrades(downgrades: readonly string[], previous: readonly string[], next: readonly string[]): string[] {
   return withoutReplaced(downgrades, previous, next, equivalentReplacement)
 }
@@ -266,19 +255,6 @@ export function witnessDowngrades(previous: readonly string[], next: readonly st
     const fact = witnessFact(witness)
     return fact === null || !nextFacts.some(other => sameFact(fact, other))
   })
-}
-
-export function witnessesOf(body: string): string[] {
-  const fields = witnessFieldsOf(body)
-  if (fields !== null)
-    return fields.map(witnessText)
-  const lines = body.split('\n')
-  const at = lines.findIndex(line => line.trim() === WITNESSES_HEADING)
-  if (at === -1)
-    return []
-  const after = lines.slice(at + 1).map(line => WITNESS_ITEM.exec(line.trim())?.[1])
-  const end = after.indexOf(undefined)
-  return (end === -1 ? after : after.slice(0, end)) as string[]
 }
 
 function draftOf(parked: ParkedTask): DraftCard {
@@ -323,6 +299,55 @@ function droppedDepends(references: readonly string[], cards: BusCardStates | un
 function dependsOnDropped(cardId: number, dropped: readonly number[]): string {
   const named = dropped.map(id => `#${id}`).join(', ')
   return `#${cardId} depends on ${named}, dropped in the bus and never merging, so it would wait for ever; take ${named} out of its depends`
+}
+
+interface WaitStep extends CardWait {
+  from: number
+}
+
+const DEPENDS_WHY = 'depends on '
+
+function waitsBackOn(cardId: number, start: number, cardWaits: CardWaitsPort): WaitStep[] | null {
+  const seen = new Set<number>()
+  const walk = (from: number): WaitStep[] | null => {
+    if (seen.has(from))
+      return null
+    seen.add(from)
+    for (const wait of cardWaits(from)) {
+      const step = { from, ...wait }
+      const rest = wait.card === cardId ? [] : walk(wait.card)
+      if (rest !== null)
+        return [step, ...rest]
+    }
+    return null
+  }
+  return walk(start)
+}
+
+function stepText(step: WaitStep): string {
+  return step.why.startsWith(DEPENDS_WHY) ? `#${step.from} ${step.why}` : `#${step.from} waits on #${step.card} (${step.why})`
+}
+
+function waitCycleText(cardId: number, depended: number, chain: readonly WaitStep[]): string {
+  const none = chain.length === 1 ? 'neither ever moves' : 'none of them ever moves'
+  return `#${cardId} depends on #${depended}, and ${chain.map(stepText).join(', ')}, so ${none}; drop the depends or settle #${cardId} first`
+}
+
+function newlyBound(depends: readonly number[], recorded: RecordedIntake | null): number[] {
+  const parsed = recorded === null ? null : parseCard(recorded.card)
+  const bound = new Set(parsed?.kind === 'card' ? parsed.card.depends : [])
+  return depends.filter(id => !bound.has(id))
+}
+
+function waitCycle(cardId: number, depends: readonly number[], cardWaits: CardWaitsPort | undefined): string | null {
+  if (cardWaits === undefined)
+    return null
+  for (const depended of depends) {
+    const chain = waitsBackOn(cardId, depended, cardWaits)
+    if (chain !== null)
+      return waitCycleText(cardId, depended, chain)
+  }
+  return null
 }
 
 function writtenByTheOwner(decisions: DecisionsPort): OwnerWords[] {
@@ -590,6 +615,9 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const dropped = droppedDepends(checked.depends, cards)
   if (dropped.length > 0)
     return { status: 'refused', why: dependsOnDropped(card.id, dropped) }
+  const cycle = waitCycle(card.id, newlyBound(ids(checked.depends), recorded), options.cardWaits)
+  if (cycle !== null)
+    return { status: 'refused', why: cycle }
   const line = admittedLine(card, checked)
   const admitted: SlicedCard = {
     id: card.id,

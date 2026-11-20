@@ -165,6 +165,58 @@ export function judgeDerived(registry: DerivedRegistry, files: readonly string[]
   return verdict
 }
 
+export interface OwnerAllowance {
+  text: string
+  cards: readonly number[]
+  owner: boolean
+}
+
+const MEASURED_ROW = /^(.+) \((?:(-?\d+) → (-?\d+)|new: (-?\d+))\)$/
+const ROW_CHARACTER = /[\w:/.\->]/
+const ALLOWED_VALUE = /^(?=[\s(])\s*(?:\(\s*)?(?:new:\s*)?(?:-?\d+\s*(?:->|→)\s*)?(-?\d+)/
+
+export interface AllowanceSource {
+  inForce: () => readonly { words: string, cards: readonly number[], written: boolean }[]
+}
+
+export function cardAllowancesIn(decisions: AllowanceSource, cardId: number | null | undefined): string[] {
+  return allowancesOf(decisions.inForce().map(decision => ({ text: decision.words, cards: decision.cards, owner: decision.written })), cardId)
+}
+
+export function allowancesOf(decisions: readonly OwnerAllowance[], cardId: number | null | undefined): string[] {
+  if (cardId === null || cardId === undefined)
+    return []
+  return decisions.filter(decision => decision.owner && decision.cards.includes(cardId)).map(decision => decision.text)
+}
+
+function valuesAllowedFor(row: string, text: string): number[] {
+  const values: number[] = []
+  for (let at = text.indexOf(row); at !== -1; at = text.indexOf(row, at + 1)) {
+    if (at > 0 && ROW_CHARACTER.test(text[at - 1]!))
+      continue
+    const value = ALLOWED_VALUE.exec(text.slice(at + row.length))?.[1]
+    if (value !== undefined)
+      values.push(Number(value))
+  }
+  return values
+}
+
+export function allowedEntry(entry: string, allowances: readonly string[]): boolean {
+  const measured = MEASURED_ROW.exec(entry)
+  if (measured === null)
+    return allowances.some(text => text.includes(entry))
+  const [, row, , grownTo, newAt] = measured as unknown as [string, string, string | undefined, string | undefined, string | undefined]
+  const value = Number(grownTo ?? newAt)
+  return allowances.some(text => valuesAllowedFor(row, text).some(allowed => value <= allowed))
+}
+
+export function unallowedGrowth(grown: readonly GrownDerived[], allowances: readonly string[]): GrownDerived[] {
+  return grown.flatMap((each) => {
+    const entries = each.entries.filter(entry => !allowedEntry(entry, allowances))
+    return entries.length === 0 ? [] : [{ file: each.file, entries }]
+  })
+}
+
 export function derivedGrowthLine(grown: readonly GrownDerived[]): string {
   return `the derived ${grown.map(each => `${each.file} grows by ${each.entries.join(', ')}`).join('; ')}; the rerun reproduces it, and growth is the owner's decision (${DECISION}), so it waits for the owner`
 }

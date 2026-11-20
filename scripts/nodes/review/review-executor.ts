@@ -443,6 +443,8 @@ export class ReviewExecutor {
     const repeats = this.repeatsAnEarlierRound(lease, review)
     const limit = this.roundLimit(lease, review, repeats)
     completeTask(db, this.parts.cards, this.ts(), lease, [this.recorded(lease, { ...reviewed, review }, marked.drip, tailCard), ...this.dripEvents(lease, marked.drip), ...(limit === null ? [] : [limit.event])])
+    if (review.verdict === 'pass' && review.findings.length === 0)
+      this.supersededTails(lease)
     if (limit !== null && limit.rule.kind !== 'extend' && lease.pr !== null) {
       if (limit.rule.kind !== 'park')
         this.noted(lease.pr, repeats ? repeatStopLine(lease.pr) : roundLimitLine(lease.pr, REVIEW_ROUNDS))
@@ -463,6 +465,15 @@ export class ReviewExecutor {
     catch (error) {
       console.error(`${PREFIX}PR #${lease.pr}: every finding is a surviving mutation, but the tail card was not filed, so the verdict is changes: ${error instanceof Error ? error.message : String(error)}`)
       return { review: { ...review, verdict: 'changes' }, tailCard: null }
+    }
+  }
+
+  private supersededTails(lease: Lease): void {
+    try {
+      this.parts.tail?.supersede?.({ parent: lease.cardId, pr: lease.pr, head: lease.head, taskKey: lease.taskKey })
+    }
+    catch (error) {
+      console.error(`${PREFIX}PR #${lease.pr}: the clean pass was recorded, but the earlier tail cards of card #${lease.cardId} were not dropped: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 

@@ -1,9 +1,9 @@
 import type { DerivedReading, DerivedRegistry, DerivedVerdict } from './derived-files.js'
 import { FACTORY_FOLDERS, FACTORY_NAMED, GENERATED_FILES, RATCHET_FILE } from '../core/factory-paths.js'
-import { derivedGrowthLine, derivedRefusalLine, isDerived, judgeDerived, removesEntriesOnly } from './derived-files.js'
+import { allowancesOf, cardAllowancesIn, derivedGrowthLine, derivedRefusalLine, isDerived, judgeDerived, removesEntriesOnly, unallowedGrowth } from './derived-files.js'
 
-export type { DerivedReading, DerivedRerun, DerivedVerdict, GrownDerived, RefusedDerived } from './derived-files.js'
-export { derivedGrowthLine, derivedRefusalLine, removesEntriesOnly }
+export type { AllowanceSource, DerivedReading, DerivedRerun, DerivedVerdict, GrownDerived, OwnerAllowance, RefusedDerived } from './derived-files.js'
+export { allowancesOf, cardAllowancesIn, derivedGrowthLine, derivedRefusalLine, removesEntriesOnly, unallowedGrowth }
 export { boundaryRowsOf, placementGraphOf, placementGrowth } from './placement-growth.js'
 
 export const PREFIX_SUFFIX = '/**'
@@ -132,7 +132,7 @@ export interface DerivedHold {
   detail: string
 }
 
-export function derivedHoldOf(scope: { touches: readonly string[], creates: readonly string[] }, files: readonly string[], reading: () => DerivedReading | null): DerivedHold | null {
+export function derivedHoldOf(scope: { touches: readonly string[], creates: readonly string[] }, files: readonly string[], reading: () => DerivedReading | null, allowances: () => readonly string[] = () => []): DerivedHold | null {
   const derived = pathsOutside(scope.touches, scope.creates, files).filter(isRegisteredDerived)
   if (derived.length === 0)
     return null
@@ -142,7 +142,8 @@ export function derivedHoldOf(scope: { touches: readonly string[], creates: read
   const verdict = derivedVerdictOf(derived, read)
   if (verdict.refused.length > 0)
     return { kind: 'refused', detail: derivedRefusalLine(verdict.refused) }
-  return verdict.grown.length === 0 ? null : { kind: 'grown', detail: derivedGrowthLine(verdict.grown) }
+  const grown = verdict.grown.length === 0 ? [] : unallowedGrowth(verdict.grown, allowances())
+  return grown.length === 0 ? null : { kind: 'grown', detail: derivedGrowthLine(grown) }
 }
 
 export function textBeforePatch(after: string, patch: string): string | null {

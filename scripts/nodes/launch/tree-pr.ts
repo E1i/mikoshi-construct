@@ -20,7 +20,7 @@ import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { classify, MorseRefusal } from '../../policy/morse/rules.js'
 import { MATRIX_COUNT_LINE, pathWithoutMatrix } from '../../policy/policy.js'
 import { matchGlob } from '../../policy/shredder/glob.js'
-import { COMPOSITION_ROOT, derivedGrowthLine, derivedRefusalLine, derivedVerdictOf, followsTouches, isRegisteredDerived, neverFollows, OWNER_MERGES, pathsOutside, runsCover, TEST_ROOTS, withinTouches } from '../../policy/touch-scope.js'
+import { COMPOSITION_ROOT, derivedGrowthLine, derivedRefusalLine, derivedVerdictOf, followsTouches, isRegisteredDerived, neverFollows, OWNER_MERGES, pathsOutside, runsCover, TEST_ROOTS, unallowedGrowth, withinTouches } from '../../policy/touch-scope.js'
 import { ownerGlobs } from '../../policy/widening.js'
 import { changedFilesFrom } from '../../ports/diff.js'
 import { pnpmRerun, treeReading } from '../../ports/git.js'
@@ -81,6 +81,7 @@ export interface TreePrPorts {
   pushPolicy?: (worktree: string) => PushPolicy
   rebuild?: TwinRebuild
   ownerWait?: OwnerWaitOpener
+  allowances?: (cardId: number) => readonly string[]
 }
 
 export type OwnerWaitOpener = (cardId: number | null, text: string) => string
@@ -274,12 +275,16 @@ export interface DerivedSplit {
   rest: string[]
 }
 
-export function derivedSplit(git: TreePrPorts['git'], worktree: string, outside: readonly string[], run: TreeRun): DerivedSplit {
+export function derivedSplit(git: TreePrPorts['git'], worktree: string, outside: readonly string[], run: TreeRun, allowances: readonly string[] = []): DerivedSplit {
   const derived = outside.filter(isRegisteredDerived)
   const rest = outside.filter(file => !isRegisteredDerived(file))
   if (derived.length === 0)
     return { followed: [], refused: [], grown: [], rest }
-  return { ...derivedVerdictOf(derived, treeReading(git, worktree, PR_BASE, run)), rest }
+  const verdict = derivedVerdictOf(derived, treeReading(git, worktree, PR_BASE, run))
+  const grown = unallowedGrowth(verdict.grown, allowances)
+  const stillGrown = new Set(grown.map(each => each.file))
+  const allowed = verdict.grown.map(each => each.file).filter(file => !stillGrown.has(file))
+  return { followed: inOrderOf(derived, verdict.followed, allowed), refused: verdict.refused, grown, rest }
 }
 
 function heldBack(split: DerivedSplit): string[] {
@@ -303,13 +308,13 @@ function admittedMasksOf(cardBody: string | null, reach: AdmittedReach): string[
   return reach.touches.length === 0 && reach.runs.length === 0 ? [] : layerMasksOf(cardBody ?? '')
 }
 
-export function answerFollowed(git: TreePrPorts['git'], worktree: string, outside: readonly string[], cardId: number, cardBody: string | null, coverage: TestCoverage, catalog: BusCatalog = busCheckCatalog(), run: TreeRun = pnpmRerun): TouchesFollowed {
+export function answerFollowed(git: TreePrPorts['git'], worktree: string, outside: readonly string[], cardId: number, cardBody: string | null, coverage: TestCoverage, catalog: BusCatalog = busCheckCatalog(), run: TreeRun = pnpmRerun, allowances: readonly string[] = []): TouchesFollowed {
   const reach = admittedReachOf(cardId, cardBody)
   const { runs } = cardReadingOf(reach.touches, reach.runs, admittedMasksOf(cardBody, reach), catalog)
   const unrun = outside.filter(file => !runsCover(file, runs))
   if (unrun.length === 0)
     return { followed: [], outside: [] }
-  const derived = derivedSplit(git, worktree, unrun, run)
+  const derived = derivedSplit(git, worktree, unrun, run, allowances)
   const touched = touchesFollowed(derived.rest, { touches: reach.touches, added: addedSinceBase(git, worktree, derived.rest), compositionRecords: compositionRecordsAtBase(git, worktree) }, coverage)
   return { followed: inOrderOf(unrun, touched.followed, derived.followed), outside: inOrderOf(unrun, touched.outside, heldBack(derived)) }
 }
@@ -323,9 +328,9 @@ interface ChangedOutside extends TouchesFollowed {
   grown: GrownDerived[]
 }
 
-function changedOutsideTouches(git: TreePrPorts['git'], worktree: string, files: readonly DiffEntry[], card: TreeCard, run: TreeRun): ChangedOutside {
+function changedOutsideTouches(git: TreePrPorts['git'], worktree: string, files: readonly DiffEntry[], card: TreeCard, run: TreeRun, allowances: readonly string[]): ChangedOutside {
   const outside = files.map(file => file.path).filter(file => !withinTouches(file, card.touches) && !runsCover(file, card.runs))
-  const derived = derivedSplit(git, worktree, outside, run)
+  const derived = derivedSplit(git, worktree, outside, run, allowances)
   const added = new Set(files.filter(file => file.status === 'A').map(file => file.path))
   const compositionRecords = derived.rest.length === 0 ? [] : compositionRecordsAtBase(git, worktree)
   const touched = touchesFollowed(derived.rest, { touches: card.touches, added, compositionRecords }, worktreeCoverage(git, worktree))
@@ -593,7 +598,7 @@ export function treePr(ports: TreePrPorts, card: TreeCard, worktree: string, rep
       return gap === null ? { kind: 'pr', number: open, followed: [] } : lacking(card.branch, [gap])
     }
     const shifted = shiftedPath(ports.git, worktree, card, report)
-    const touched = changedOutsideTouches(ports.git, worktree, shifted.files, card, ports.rebuild ?? pnpmRerun)
+    const touched = changedOutsideTouches(ports.git, worktree, shifted.files, card, ports.rebuild ?? pnpmRerun, card.cardId === undefined ? [] : ports.allowances?.(card.cardId) ?? [])
     const body = prBodyOf(card, shifted.line, touched, matrixCountLineOf(report))
     const gaps = [...formatGaps(body, shifted, publishedRootsAt(ports.git, worktree), touched.outside, readShiftGate(worktree).codeMatrix, card.fullReading), ...derivedGaps(worktree, [...touched.refused, ...unwaitedGrowth(ports, touched.grown)])]
     if (gaps.length > 0)

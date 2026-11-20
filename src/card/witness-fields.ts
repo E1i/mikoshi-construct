@@ -28,6 +28,8 @@ export interface RenderedWitness {
 export type ParsedWitnessList = { kind: 'fields', fields: WitnessField[] } | { kind: 'refused', reasons: string[] }
 
 const WITNESSES_FIELD = 'witnesses: '
+const WITNESSES_HEADING = 'Witnesses:'
+const WITNESS_ITEM = /^- (.+)$/
 const RUNS_FIELD = 'runs: '
 const LAYER_MAP = FACTORY_RUNTIME.layerMap
 const LAYER_MAP_ROOTS = [import.meta.dirname, path.resolve(import.meta.dirname, '..', '..')]
@@ -227,6 +229,37 @@ export function judgedCommand(field: WitnessField): string {
 
 export function statesAnExit(field: Pick<WitnessField, 'head' | 'base'>): boolean {
   return [field.head, field.base].some(expectation => expectation.startsWith(EXIT_PREFIX))
+}
+
+export interface JudgedWitness {
+  criterion: string
+  command: string
+  onBase?: { command: string, stated: string }
+}
+
+export function judgedFieldWitnessesOf(body: string): { acceptance: JudgedWitness[], invariants: JudgedWitness[] } | null {
+  const fields = witnessFieldsOf(body)
+  if (fields === null)
+    return null
+  const judged = (field: WitnessField): JudgedWitness => ({ criterion: witnessText(field), command: judgedCommand(field) })
+  const acceptance = (field: WitnessField): JudgedWitness => statesAnExit(field) ? { ...judged(field), onBase: { command: fieldCommand(field), stated: field.base } } : judged(field)
+  return {
+    acceptance: fields.filter(isAcceptanceField).map(acceptance),
+    invariants: fields.filter(field => !isAcceptanceField(field)).map(judged),
+  }
+}
+
+export function witnessesOf(body: string): string[] {
+  const fields = witnessFieldsOf(body)
+  if (fields !== null)
+    return fields.map(witnessText)
+  const lines = body.split('\n')
+  const at = lines.findIndex(line => line.trim() === WITNESSES_HEADING)
+  if (at === -1)
+    return []
+  const after = lines.slice(at + 1).map(line => WITNESS_ITEM.exec(line.trim())?.[1])
+  const end = after.indexOf(undefined)
+  return (end === -1 ? after : after.slice(0, end)) as string[]
 }
 
 export function commandInsideJudgedWrap(command: string): string | null {
