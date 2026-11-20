@@ -4,7 +4,11 @@
 #              split into parallel jobs; scripts/tests/ci/quality-steps.test.ts holds them to exactly
 #              that list. They run on every change, the fast path included, because most of them read
 #              docs/ and architecture/*.md. checks also runs scripts/release/version-pr-guard.ts, red on a
-#              changeset-release/* pull request whose merged tree still carries a changeset.
+#              changeset-release/* pull request whose merged tree still carries a changeset. On every other
+#              pull request it runs scripts/release/version-rehearsal.ts: in a git worktree of HEAD it runs
+#              pnpm version-packages, then privacy:check and the tests that read .changeset and CHANGELOG.md
+#              over the versioned tree, so a changeset whose release notes break that tree is red on its
+#              own pull request, not first on the version pull request.
 #              On a pull request that is not changeset-release/* the vitest job runs only the tests that
 #              scripts/ci/select.ts reaches: the touched layers and every layer that depends on them,
 #              by the dependency-cruiser graph. A path in no layer, push, merge_group and
@@ -93,7 +97,7 @@ jobs:
 
   checks:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -107,6 +111,9 @@ jobs:
       - run: pnpm privacy:check
       - run: pnpm layers:check
       - run: pnpm exec tsx scripts/release/version-pr-guard.ts
+      - name: Rehearse the version step over this pull request's changesets
+        if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'changeset-release/')
+        run: pnpm exec tsx scripts/release/version-rehearsal.ts
 
   lint:
     runs-on: ubuntu-24.04
