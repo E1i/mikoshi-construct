@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { Witness } from '../scripts/ports/witnesses.js'
 import type { RequestTools } from '../scripts/window/window-requests.js'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -8,6 +9,7 @@ import { appendEvent, BUS_DB_VARIABLE, openBus } from '../scripts/core/db.js'
 import { REQUEST_DONE, REQUEST_REFUSED, WITNESS_RECORDED } from '../scripts/core/events.js'
 import { reduce } from '../scripts/core/reducer.js'
 import { busIntakePorts } from '../scripts/intake/intake.js'
+import { runOnTree } from '../scripts/ports/witnesses.js'
 import { busProjections } from '../scripts/supervisor/composition.js'
 import { requestFromWindow, WindowRequests } from '../scripts/window/window-requests.js'
 import { witnessFieldsOf, witnessText } from '../src/card/witness-fields.js'
@@ -135,6 +137,34 @@ describe('replacing a witness the bus recorded dead is an amendment, not a downg
   it('a red on the base it declared red keeps the witness alive', () => {
     expect(deadOnTheBase(W1_TEXT, [{ verdict: 'red', detail: `P7: install failed on the base ${BASE}` }])).toBe(false)
     expect(deadOnTheBase(W1_TEXT, [{ verdict: 'unfit', detail: `witness "${witnessText(witnessFieldsOf(ADMITTED)![1]!)}" ran no test on the base ${BASE}` }])).toBe(false)
-    expect(deadOnTheBase(W1_TEXT, [{ verdict: 'red', detail: `P7: invariant "${W1_TEXT}" exits 1 on the clean base ${BASE}: 1 failed` }])).toBe(true)
+    expect(deadOnTheBase(W1_TEXT, [{ verdict: 'red', detail: `P7: invariant "${W1_TEXT}" exits 1 on the clean base ${BASE}: 1 failed` }])).toBe(false)
+  })
+
+  it('reads death from the refusals the witness run itself words, against the declared base', () => {
+    const W4 = { id: 'W4', run: 'true', test: null, head: 'fail', base: 'pass', proves: 'a stated base' }
+    const texts = witnessFieldsOf(body([W1, W2, W4]))!.map(witnessText)
+    const [w1, w2, w4] = texts as [string, string, string]
+    const CASES: Record<string, { witness: string, status: number, acceptance: Witness[], invariants: Witness[], dead: boolean }> = {
+      'green on the base it declared red': { witness: w1, status: 0, acceptance: [{ criterion: w1, command: 'true' }], invariants: [], dead: true },
+      'red invariant on the base it declared green': { witness: w2, status: 1, acceptance: [], invariants: [{ criterion: w2, command: 'true' }], dead: true },
+      'red on the base its field states green': { witness: w4, status: 1, acceptance: [{ criterion: w4, command: 'true', onBase: { command: 'true', stated: 'pass' } }], invariants: [], dead: true },
+      'red on the base it declared red': { witness: w1, status: 1, acceptance: [{ criterion: w1, command: 'true' }], invariants: [], dead: false },
+    }
+    const verdicts = Object.fromEntries(Object.entries(CASES).map(([name, { witness, status, acceptance, invariants }]) => {
+      const tree = mkdtempSync(path.join(tmpdir(), 'intake-dead-witness-tree-'))
+      roots.push(tree)
+      const refusals: string[] = []
+      try {
+        runOnTree({ tree, base: BASE, log() {}, refuse: (step, problem) => {
+          if (problem !== null)
+            throw new Error(`${step}: ${problem}`)
+        }, shell: () => ({ status, output: '' }), time: (_name, run) => run() }, { acceptance, invariants, harnessCommand: null, sketchSha: null, changed: null, witnessesDir: tree, creates: [] })
+      }
+      catch (error) {
+        refusals.push((error as Error).message)
+      }
+      return [name, deadOnTheBase(witness, refusals.map(detail => ({ verdict: 'red', detail })))]
+    }))
+    expect(verdicts).toEqual(Object.fromEntries(Object.entries(CASES).map(([name, { dead }]) => [name, dead])))
   })
 })

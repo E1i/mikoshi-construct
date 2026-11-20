@@ -398,24 +398,39 @@ export function untransferred(downgrades: readonly string[], previousText: strin
   })
 }
 
-const UNFIT_VERDICT = 'unfit'
-const RED_VERDICT = 'red'
-const GREEN_VERDICT = 'green'
-const AGAINST_ITS_STATED_BASE = /^ exits (?:\S+|without a status) on the clean base /
+const EXIT_ON_THE_BASE = /^ exits (\d+) on the (?:clean )?base /
+const NO_TEST_ON_THE_BASE = /^ matched no test on the base /
+const NO_TEST = 'no test'
 
-function deadIn(record: RecordedWitnessVerdict, witness: string): boolean {
-  const quoted = `"${witness}"`
-  if (record.verdict === UNFIT_VERDICT)
-    return record.detail.includes(`witness ${quoted}`)
-  return record.verdict === RED_VERDICT && record.detail.split(quoted).slice(1).some(after => AGAINST_ITS_STATED_BASE.test(after))
+function baseReadingOf(record: RecordedWitnessVerdict, witness: string): typeof NO_TEST | number | null | undefined {
+  if (record.verdict === 'unfit')
+    return record.detail.includes(`witness "${witness}" `) ? NO_TEST : undefined
+  const opening = ['witness', 'invariant'].map(label => `P7: ${label} "${witness}"`).find(start => record.verdict === 'red' && record.detail.startsWith(start))
+  if (opening === undefined)
+    return undefined
+  const rest = record.detail.slice(opening.length)
+  if (NO_TEST_ON_THE_BASE.test(rest))
+    return NO_TEST
+  const status = EXIT_ON_THE_BASE.exec(rest)?.[1]
+  return status === undefined ? null : Number(status)
+}
+
+function meets(declared: WitnessExpectation, status: number): boolean {
+  if (declared === 'pass')
+    return status === 0
+  if (declared === 'fail')
+    return status !== 0
+  return declared === `exit:${status}`
 }
 
 export function deadOnTheBase(witness: string, records: readonly RecordedWitnessVerdict[]): boolean {
+  const declared = renderedWitness(witness)?.base ?? null
   for (const record of [...records].reverse()) {
-    if (record.verdict === GREEN_VERDICT)
+    if (record.verdict === 'green')
       return false
-    if (deadIn(record, witness))
-      return true
+    const reading = baseReadingOf(record, witness)
+    if (reading !== undefined)
+      return reading === NO_TEST || (reading !== null && declared !== null && !meets(declared, reading))
   }
   return false
 }
