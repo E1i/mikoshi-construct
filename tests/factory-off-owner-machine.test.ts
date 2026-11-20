@@ -247,7 +247,7 @@ describe('per-repository bus home', () => {
 describe('the gh token stays with gh', () => {
   it('the rendered launchd job starts the bus in the factory checkout with what the token source prints, and does not start when the source fails or prints nothing or the checkout is gone, and the log names the empty token and the missing checkout', () => {
     const factory = path.join(scratch, 'factory')
-    const shellLineWith = (tokenSource: string): string => [...renderAgent(readFileSync(PLIST, 'utf8'), { factoryDir: factory, tokenSource }).matchAll(/<string>([^<]*)<\/string>/g)].map(match => match[1]!).at(-1)!.replaceAll('&gt;', '>').replaceAll('&lt;', '<').replaceAll('&apos;', '\'').replaceAll('&amp;', '&')
+    const shellLineWith = (tokenSource: string): string => [...renderAgent(readFileSync(PLIST, 'utf8'), { factoryDir: factory, tokenSource, startedMark: path.join(home, '.construct', 'bus', 'factory.started') }).matchAll(/<string>([^<]*)<\/string>/g)].map(match => match[1]!).at(-1)!.replaceAll('&gt;', '>').replaceAll('&lt;', '<').replaceAll('&apos;', '\'').replaceAll('&amp;', '&')
     const bin = path.join(home, '.local', 'bin')
     mkdirSync(factory)
     mkdirSync(bin, { recursive: true })
