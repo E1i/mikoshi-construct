@@ -5747,14 +5747,13 @@
       "scripts/ports/main-merge.ts": {
         "constants": [],
         "functions": {
-          "conflictingCardOf": "(db: DatabaseSync, cardId: number, branch: string, head: string): ConflictingCard",
+          "conflictingCardOf": "(outsideTheBody: OutsideTheBody, cardId: number, branch: string, head: string): ConflictingCard",
           "mainKeptInTheTree": "(tree: string): MergeMain",
           "mainMergeInCardTree": "(git: TreeGit, treeOf: (cardId: number) => string, run: RebuildRunner = pnpmRebuild, merged: MergedMain = 'pushed'): MergeMain"
         },
         "language": "technology",
         "reexports": [],
         "technologyWords": [
-          "database",
           "git",
           "pnpm",
           "stderr"
@@ -5764,6 +5763,7 @@
           "MainMerge": "type MainMerge = { kind: 'merged'; to: string; tookMain: string[]; rebuilt: string[]; } | { kind: 'inside'; files: string[]; } | { kind: 'refused'; why: string; }",
           "MergeMain": "type MergeMain = (card: ConflictingCard) => MainMerge",
           "MergedMain": "type MergedMain = 'pushed' | 'kept-in-the-tree'",
+          "OutsideTheBody": "type OutsideTheBody = (cardId: number, files: readonly string[]) => string[]",
           "RebuildRunner": "type RebuildRunner = (cwd: string, args: readonly string[]) => { status: number | null; stderr: string; }",
           "TreeGit": "type TreeGit = (cwd: string, args: string[]) => string"
         }

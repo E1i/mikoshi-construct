@@ -14,6 +14,7 @@ import type { TreeOwned, TreePushPolicy } from './duties/tree.js'
 import { existsSync, readFileSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { riskOf } from '../../../src/card/risk.js'
+import { pathsOutsideTheBody } from '../../core/card-bodies.js'
 import { answersWithdrawnByAClosedHold, holdRecheckAt, LIVE_SESSION_IN_THE_TREE, queueAgain, sessionStopOf } from '../../core/card-hold.js'
 import { appendEvent, inTransaction, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
@@ -302,7 +303,7 @@ export class AnswerExecutor {
     if (lease.head === null)
       return
     const mergeMain = (this.parts.mergeMain ?? mainKeptInTheTree)(card.worktree)
-    const merged = mergeMain(conflictingCardOf(this.parts.db, lease.cardId, card.branch, lease.head))
+    const merged = mergeMain(conflictingCardOf((cardId, files) => pathsOutsideTheBody(this.parts.db, cardId, files.join('\n')), lease.cardId, card.branch, lease.head))
     if (merged.kind === 'merged' && merged.to !== lease.head)
       console.log(`${PREFIX}card #${lease.cardId}: ${MAIN_BRANCH} merged into ${card.worktree} at ${merged.to} before the answer session`)
   }

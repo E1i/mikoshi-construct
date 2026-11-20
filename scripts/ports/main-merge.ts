@@ -1,6 +1,4 @@
-import type { DatabaseSync } from 'node:sqlite'
 import { spawnSync } from 'node:child_process'
-import { pathsOutsideTheBody } from '../core/card-bodies.js'
 import { messageOf } from '../core/errors.js'
 import { commandLine, isRebuiltOnUpdate, rebuildsOf, SHARED_APPEND_PATHS } from '../core/generated-files.js'
 import { MAIN_BRANCH } from './snapshot.js'
@@ -75,8 +73,10 @@ function rebuildGenerated(git: TreeGit, tree: string, card: ConflictingCard, fil
   return null
 }
 
-export function conflictingCardOf(db: DatabaseSync, cardId: number, branch: string, head: string): ConflictingCard {
-  return { cardId, branch, outsideTheCard: files => pathsOutsideTheBody(db, cardId, files.join('\n')), head }
+export type OutsideTheBody = (cardId: number, files: readonly string[]) => string[]
+
+export function conflictingCardOf(outsideTheBody: OutsideTheBody, cardId: number, branch: string, head: string): ConflictingCard {
+  return { cardId, branch, outsideTheCard: files => outsideTheBody(cardId, files), head }
 }
 
 export type MergedMain = 'pushed' | 'kept-in-the-tree'
