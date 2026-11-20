@@ -5,7 +5,7 @@ const REPO_RUN_TIMEOUT = 180_000
 
 const CADENCE = 'scripts/core/cadence.ts'
 const NETWATCH = 'scripts/ports/netwatch.ts'
-const SUPERVISOR_ROOTS_OF_NETWATCH = new Set(['scripts/supervisor/run.ts', 'scripts/supervisor/composition.ts'])
+const SUPERVISOR_ROOTS_OF_NETWATCH = new Set(['scripts/supervisor/run.ts', 'scripts/supervisor/composition.ts', 'scripts/supervisor/netwatch-root.ts'])
 const VIOLATING_IMPORTS_AFTER_THE_MOVE = 1076
 
 function importsNetwatchOutsideItsRoots(from: string): boolean {
