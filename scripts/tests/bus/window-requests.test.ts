@@ -31,7 +31,6 @@ import { decisionsAdder } from '../../policy/decisions/projection.js'
 import { roundLimitDecisionOf } from '../../policy/round-limit-decision.js'
 import { decisionsInForceAt } from '../../policy/shards.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
-import { NetWatch } from '../../ports/netwatch.js'
 import { WORKTREE_HOME_VARIABLE } from '../../ports/worktree-home.js'
 import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
@@ -41,6 +40,7 @@ import { countLineAppender, realRequestTools, worktreesHolding } from '../../win
 import { ALLOW_MERGE_RECORD, ANSWER_SOURCE, pendingRequests, PREFIX, REQUEST_KINDS, REQUEST_RULE, requestFromWindow, runRequest, USAGE, WindowRequests } from '../../window/window-requests.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
+import { benchNetWatch } from './net-watch-bench.js'
 
 const PR = 970
 const CARD = PR + 100
@@ -235,7 +235,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:${CARD}`, payload: { card: `#${CARD}`, lane: 'lane-1', text, textSha: textSha(text) }, legacy: false })
     const request = ask(made, { kind: 'tree.cut', card: CARD })
     const outcomes: unknown[] = []
-    const busTick = new BusTick(bench.db, busProjections(), new NetWatch(bench.db, bench.gitHub.client, bench.clock.now), bench.clock.now, () => outcomes.push(...made.requests().run()))
+    const busTick = new BusTick(bench.db, busProjections(), benchNetWatch(bench.db, bench.gitHub.client, bench.clock.now), bench.clock.now, () => outcomes.push(...made.requests().run()))
 
     expect(busTick.run()?.poll.kind).toBe('ticked')
     expect(outcomes).toEqual([{ kind: 'done', request, detail: `cut ${path.join(made.root, 'worktrees', `mc-${CARD}`)} on feat/card-${CARD}` }])

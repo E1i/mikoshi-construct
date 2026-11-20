@@ -21,13 +21,13 @@ import { fullReview } from '../../nodes/review/review-depth.js'
 import { ReviewWorker } from '../../nodes/review/review-worker.js'
 import { claudeReviewer, GIT_TREE_TOOLS, ReviewTrees } from '../../nodes/review/reviewer.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
-import { NetWatch } from '../../ports/netwatch.js'
 import { cutTree, FREE_TREE_CAPACITY, treeOriginIn, treeOriginLine } from '../../ports/worktree.js'
 import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { Clock, FakeGitHub } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
+import { benchNetWatch } from './net-watch-bench.js'
 import { detectReview } from './review-detection.js'
 
 const FIRST = 1701
@@ -89,7 +89,7 @@ function reviewBench(root: string): { db: DatabaseSync, gitHub: FakeGitHub, tick
   const db = openBus(path.join(root, 'bus.db'))
   const gitHub = new FakeGitHub()
   const clock = new Clock()
-  const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now)
+  const busTick = new BusTick(db, busProjections(), benchNetWatch(db, gitHub.client, clock.now), clock.now)
   const publish: StatusPublisher = () => {}
   return {
     db,

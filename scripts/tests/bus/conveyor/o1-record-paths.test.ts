@@ -1,4 +1,5 @@
 import type { GitHub } from '../../../ports/github.js'
+import type { NetWatch } from '../../../ports/netwatch.js'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -6,9 +7,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { TICK_MS } from '../../../core/cadence.js'
 import { openBus } from '../../../core/db.js'
 import { EVENT_PAYLOADS, MAIN_ADVANCED, PR_OBSERVED } from '../../../core/events.js'
-import { NetWatch } from '../../../ports/netwatch.js'
 import { MAIN_FILES_CAP, PULL_FILES_PAGE, PULL_FILES_PAGES } from '../../../ports/snapshot.js'
 import { Clock, FakeGitHub, MAIN_1, MAIN_2, MAIN_3, REPO, sha } from '../github-fake.js'
+import { benchNetWatch } from '../net-watch-bench.js'
 
 const roots: string[] = []
 
@@ -25,7 +26,7 @@ function setUp(client?: (gitHub: FakeGitHub) => GitHub): { db: Bus, gitHub: Fake
   const db = openBus(path.join(root, 'bus.db'))
   const gitHub = new FakeGitHub()
   const clock = new Clock()
-  const netWatch = new NetWatch(db, client === undefined ? gitHub.client : client(gitHub), clock.now)
+  const netWatch = benchNetWatch(db, client === undefined ? gitHub.client : client(gitHub), clock.now)
   netWatch.poll()
   return { db, gitHub, clock, netWatch, tick: () => {
     clock.advance(TICK_MS)

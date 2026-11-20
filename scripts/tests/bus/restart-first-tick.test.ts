@@ -17,8 +17,9 @@ import { DATABASE_LOCKED, SWITCH_FLAG } from '../../core/node.js'
 import { reduce, reducedThrough, SNAPSHOT } from '../../core/reducer.js'
 import { WATERMARKS } from '../../core/watermark.js'
 import { runRestartWorker } from '../../nodes/restart/restart-worker.js'
+import { REQUIRED_CHECK } from '../../ports/gh.js'
 import { NetWatch } from '../../ports/netwatch.js'
-import { launchName } from '../../supervisor/bg.js'
+import { launchName, RUN_SCRIPT } from '../../supervisor/bg.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { BusTick, tickOrLocked } from '../../supervisor/run.js'
 import { recordWorkerDown, WorkerKeeper } from '../../supervisor/supervisor.js'
@@ -126,7 +127,7 @@ class NetWatchWithNothingNew extends NetWatch {
 }
 
 function busTickOn(db: Bus, clock: Clock): BusTick {
-  return new BusTick(db, busProjections(), new NetWatchWithNothingNew(db, new FakeGitHub().client, clock.now), clock.now)
+  return new BusTick(db, busProjections(), new NetWatchWithNothingNew(db, new FakeGitHub().client, clock.now, RUN_SCRIPT, () => REQUIRED_CHECK), clock.now)
 }
 
 function threadWorkMs(since?: NodeJS.CpuUsage): number {
