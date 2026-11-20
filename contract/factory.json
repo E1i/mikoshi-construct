@@ -1564,7 +1564,7 @@
     "versionRecord": "PRAGMA application_id"
   },
   "card": {
-    "cardVersion": 2,
+    "cardVersion": 3,
     "contracts": {
       "board": [
         "id",
@@ -1668,6 +1668,7 @@
       "draft.creates": "string[]",
       "draft.decision": "string",
       "draft.depends": "string[]",
+      "draft.imports": "DraftImport[]",
       "draft.item": "string",
       "draft.kind": "string",
       "draft.milestone": "string",
@@ -4055,6 +4056,7 @@
           "scripts/policy/widening.ts",
           "scripts/policy/touch-scope.ts",
           "scripts/policy/derived-files.ts",
+          "scripts/policy/placement-growth.ts",
           "scripts/morse/**",
           "scripts/core/push-policy.ts"
         ],
@@ -4185,7 +4187,8 @@
           ],
           "card": [
             1,
-            2
+            2,
+            3
           ]
         }
       },
@@ -4207,7 +4210,8 @@
           ],
           "card": [
             1,
-            2
+            2,
+            3
           ]
         }
       },
@@ -4243,7 +4247,8 @@
           ],
           "card": [
             1,
-            2
+            2,
+            3
           ]
         }
       },
@@ -4269,7 +4274,8 @@
           ],
           "card": [
             1,
-            2
+            2,
+            3
           ]
         }
       },
@@ -4299,7 +4305,8 @@
           ],
           "card": [
             1,
-            2
+            2,
+            3
           ]
         }
       },
@@ -4323,7 +4330,8 @@
           ],
           "card": [
             1,
-            2
+            2,
+            3
           ]
         }
       },
@@ -4344,12 +4352,13 @@
           ],
           "card": [
             1,
-            2
+            2,
+            3
           ]
         }
       }
     },
-    "nodesVersion": 3
+    "nodesVersion": 4
   },
   "overlaps": {
     "answer-duties": {

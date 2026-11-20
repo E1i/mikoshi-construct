@@ -4,6 +4,7 @@ import { allowancesOf, cardAllowancesIn, derivedGrowthLine, derivedRefusalLine, 
 
 export type { AllowanceSource, DerivedReading, DerivedRerun, DerivedVerdict, GrownDerived, OwnerAllowance, RefusedDerived } from './derived-files.js'
 export { allowancesOf, cardAllowancesIn, derivedGrowthLine, derivedRefusalLine, removesEntriesOnly, unallowedGrowth }
+export { boundaryRowsOf, placementGraphOf, placementGrowth } from './placement-growth.js'
 
 export const PREFIX_SUFFIX = '/**'
 export const CHANGESET_COMPANION = `.changeset${PREFIX_SUFFIX}`
