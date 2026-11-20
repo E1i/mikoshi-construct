@@ -7,7 +7,6 @@ import process from 'node:process'
 import { FACTORY_RUNTIME } from '../../../core/factory-paths.js'
 import { commandWords } from '../../isolation.js'
 import { reviewModelOf } from '../../session.js'
-import { settingsFlag, shiftSettings } from '../../shift-settings.js'
 
 const CLAUDE_COMMAND = 'claude'
 const CLAUDE_PROCESS_NAMES = [CLAUDE_COMMAND, '/^[0-9]+[.][0-9]+[.][0-9]+$/']
@@ -79,6 +78,17 @@ const COMPACT_WINDOW_SETTING = 'autoCompactWindow'
 const COMPACT_WINDOW_MAX = 1_000_000
 const COMPACT_ABOVE_LINE = 1.5
 
+interface SessionGate {
+  prepush: string[]
+  handoffWrite: null
+  codeMatrix: null
+}
+
+export interface ShiftSettingsSource<Settings extends object> {
+  shiftSettings: (tree: string, gate: SessionGate, writable: string[]) => Settings
+  settingsFlag: (settings: Settings) => string[]
+}
+
 export interface CardLine {
   line: number
   key: string
@@ -143,7 +153,7 @@ function userInstructionsOff(): { autoMemoryEnabled: false, claudeMdExcludes: st
   return { autoMemoryEnabled: false, claudeMdExcludes: [path.join(os.homedir(), '.claude', 'CLAUDE.md')] }
 }
 
-function settingsOf({ role, cwd, policy }: SessionSpec): string[] {
+function settingsOf<Settings extends object>({ shiftSettings, settingsFlag }: ShiftSettingsSource<Settings>, { role, cwd, policy }: SessionSpec): string[] {
   const narrowed = CARD_SESSION_ROLES.has(role)
   if (policy.profile !== 'sandboxed')
     return narrowed ? ['--settings', JSON.stringify(userInstructionsOff())] : []
@@ -175,22 +185,24 @@ function invocationOf(args: string[], stdin: string | null = null, env: NodeJS.P
   return { command: CLAUDE_COMMAND, args, env: { ...env }, stdin }
 }
 
-function headlessSession(spec: SessionSpec): Invocation {
-  return invocationOf([...settingsOf(spec), ...selectionOf(spec), ...toolsOf(spec), ...HEADLESS_OUTPUT, ...mcpOf(spec.policy), ...identityOf(spec), spec.prompt])
+type SessionFlags = (spec: SessionSpec) => string[]
+
+function headlessSession(settings: SessionFlags, spec: SessionSpec): Invocation {
+  return invocationOf([...settings(spec), ...selectionOf(spec), ...toolsOf(spec), ...HEADLESS_OUTPUT, ...mcpOf(spec.policy), ...identityOf(spec), spec.prompt])
 }
 
-function cardSession(spec: SessionSpec): Invocation {
-  const flags = [...CARD_PERMISSION, ...settingsOf(spec), ...selectionOf(spec), ...toolsOf(spec), ...mcpOf(spec.policy), '-p', ...identityOf(spec)]
+function cardSession(settings: SessionFlags, spec: SessionSpec): Invocation {
+  const flags = [...CARD_PERMISSION, ...settings(spec), ...selectionOf(spec), ...toolsOf(spec), ...mcpOf(spec.policy), '-p', ...identityOf(spec)]
   return spec.kind === 'start' ? invocationOf(flags, spec.prompt) : invocationOf([...flags, spec.prompt])
 }
 
-function windowSession(spec: SessionSpec): Invocation | Refusal {
+function windowSession(_settings: SessionFlags, spec: SessionSpec): Invocation | Refusal {
   if (spec.kind === 'resume')
     return { kind: 'refused', reason: WINDOW_RESUME_REFUSAL }
   return invocationOf([...WINDOW_FLAGS, ...selectionOf(spec), ...(spec.prompt === '' ? [] : [spec.prompt])], null, WINDOW_ENV)
 }
 
-const SESSION_OF_ROLE: Record<Role, (spec: SessionSpec) => Invocation | Refusal> = {
+const SESSION_OF_ROLE: Record<Role, (settings: SessionFlags, spec: SessionSpec) => Invocation | Refusal> = {
   review: headlessSession,
   answer: headlessSession,
   ghost: headlessSession,
@@ -231,26 +243,29 @@ export function cardIsolationCommand(client: string): string[] {
   return [...commandWords(client), ...CARD_PERMISSION]
 }
 
-export const claudeAdapter: ClientAdapter = {
-  id: 'claude',
-  capabilities: {
-    identity: 'assigned',
-    ladder: true,
-    reports: { cost: true, turns: true, model: true, denials: true, journal: true },
-    guarantees: { allowlist: true, writeConfinement: true, mcpOff: true, toolNarrowing: true, guardFailsClosed: true },
-  },
-  invocation: spec => SESSION_OF_ROLE[spec.role](spec),
-  reading: place => readingOf(place),
-  readBudget,
-  models,
-  modelFor,
-  processes: {
-    isClient: isClaudeArgv,
-    sessionMarker: session => `${SESSION_ID_FLAG} ${session}`,
-    processNames: CLAUDE_PROCESS_NAMES,
-    isolationCommand: () => [CLAUDE_COMMAND, ...HEADLESS_OUTPUT, MCP_OFF_FLAG, SESSION_ID_FLAG],
-  },
-  ownSession: env => env[SESSION_VARIABLE] || null,
+export function claudeAdapterWith<Settings extends object>(source: ShiftSettingsSource<Settings>): ClientAdapter {
+  const settings: SessionFlags = spec => settingsOf(source, spec)
+  return {
+    id: 'claude',
+    capabilities: {
+      identity: 'assigned',
+      ladder: true,
+      reports: { cost: true, turns: true, model: true, denials: true, journal: true },
+      guarantees: { allowlist: true, writeConfinement: true, mcpOff: true, toolNarrowing: true, guardFailsClosed: true },
+    },
+    invocation: spec => SESSION_OF_ROLE[spec.role](settings, spec),
+    reading: place => readingOf(place),
+    readBudget,
+    models,
+    modelFor,
+    processes: {
+      isClient: isClaudeArgv,
+      sessionMarker: session => `${SESSION_ID_FLAG} ${session}`,
+      processNames: CLAUDE_PROCESS_NAMES,
+      isolationCommand: () => [CLAUDE_COMMAND, ...HEADLESS_OUTPUT, MCP_OFF_FLAG, SESSION_ID_FLAG],
+    },
+    ownSession: env => env[SESSION_VARIABLE] || null,
+  }
 }
 
 export function windowCommand(env: NodeJS.ProcessEnv): string {

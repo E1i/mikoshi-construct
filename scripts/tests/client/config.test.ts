@@ -1,9 +1,10 @@
 import type { ClientRecord } from '../../../src/manifest.js'
 import { describe, expect, it } from 'vitest'
 import { CLIENT_IDS, CLIENT_ROLES, DEFAULT_CLIENT_MODEL } from '../../../src/manifest.js'
-import { claudeAdapter } from '../../ports/client/claude/adapter.js'
 import { codexAdapter } from '../../ports/client/codex/adapter.js'
 import { clientAdapter, clientAdapterById, clientForRole } from '../../ports/client/index.js'
+
+const claudeAdapter = clientAdapter()
 
 const UNKNOWN = 'no-such-client'
 

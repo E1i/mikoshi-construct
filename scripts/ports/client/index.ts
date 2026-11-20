@@ -1,7 +1,8 @@
 import type { ClientRecord, ClientRole } from '../../../src/manifest.js'
 import type { ClientAdapter, ModelChoice, Refusal } from './contract.js'
 import { clientIdFor, clientModelOf } from '../../../src/manifest.js'
-import { claudeAdapter } from './claude/adapter.js'
+import { settingsFlag, shiftSettings } from '../shift-settings.js'
+import { claudeAdapterWith } from './claude/adapter.js'
 import { codexAdapter } from './codex/adapter.js'
 
 export interface ClientChoice {
@@ -9,8 +10,10 @@ export interface ClientChoice {
   model: ModelChoice
 }
 
+let builtDefaultAdapter: ClientAdapter | undefined
+
 function adapters(): readonly ClientAdapter[] {
-  return [claudeAdapter, codexAdapter]
+  return [clientAdapter(), codexAdapter]
 }
 
 function noAdapterFor(id: string): Refusal {
@@ -18,7 +21,8 @@ function noAdapterFor(id: string): Refusal {
 }
 
 export function clientAdapter(): ClientAdapter {
-  return claudeAdapter
+  builtDefaultAdapter ??= claudeAdapterWith({ shiftSettings, settingsFlag })
+  return builtDefaultAdapter
 }
 
 export function clientAdapterById(id: string): ClientAdapter | Refusal {
