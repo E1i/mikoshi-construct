@@ -23,7 +23,7 @@ function relativeImportsOf(file: string): string[] {
     .map(text => path.posix.join(path.posix.dirname(file), text.replace(/\.js$/, '.ts')))
 }
 
-const RAISED_BY_THE_OWNER: RatchetNumbers = { 'boundary:node-review->decisions': 1 }
+const RAISED_BY_THE_OWNER: RatchetNumbers = { 'boundary:node-review->decisions': 1, 'boundary:window->ports': 36 }
 
 function raisedByTheOwnerTo(recordedAtHead: RatchetNumbers, key: string, measured: number): boolean {
   return Object.hasOwn(RAISED_BY_THE_OWNER, key) && RAISED_BY_THE_OWNER[key] === measured && recordedAtHead[key] === measured

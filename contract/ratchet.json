@@ -226,7 +226,7 @@
   "boundary:window->node-restart": 5,
   "boundary:window->node-review": 1,
   "boundary:window->node-update": 1,
-  "boundary:window->ports": 35,
+  "boundary:window->ports": 36,
   "boundary:window->ports-adapters": 4,
   "boundary:window->pr-record": 6,
   "boundary:window->project": 1,
