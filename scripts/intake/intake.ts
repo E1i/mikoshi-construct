@@ -38,6 +38,7 @@ import { activeWindowShards } from '../policy/shards.js'
 import { createdPaths, withinTouches } from '../policy/touch-scope.js'
 import { ANY, BusRead } from '../ports/bus-read.js'
 import { clientAdapter } from '../ports/client/index.js'
+import { withWitnessRecords, witnessRecordsOf } from '../quality/witness-records.js'
 import { tabWindowOf } from '../window/tab.js'
 import { windowSessionOf } from '../window/window-heartbeat.js'
 import { INTAKE_ACTOR_PREFIX } from './admissions.js'
@@ -111,7 +112,7 @@ export function busCardAdmissions(db: DatabaseSync): CardAdmissionsPort {
     if (admission === undefined)
       return null
     const text = admittedBodyText(db, cardId)
-    return text === null ? admission : { ...admission, text }
+    return withWitnessRecords(text === null ? admission : { ...admission, text }, witnessRecordsOf(db, cardId))
   }
 }
 

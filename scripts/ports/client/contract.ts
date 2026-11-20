@@ -16,10 +16,16 @@ export interface Refusal {
   reason: string
 }
 
+export interface WindowCommand {
+  variable: string
+  command: (env: NodeJS.ProcessEnv) => string
+}
+
 export interface ClientAdapter {
   readonly id: string
   readonly capabilities: Capabilities
   invocation: (spec: SessionSpec) => Invocation | Refusal
+  window: () => WindowCommand | Refusal
   reading: (place: SessionPlace) => SessionReading
   readBudget: (place: BudgetPlace) => ReadBudget
   models: () => ModelOffer[] | null

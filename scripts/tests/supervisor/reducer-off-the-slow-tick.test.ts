@@ -12,7 +12,9 @@ import { appendEvent, openBus, openBusWait } from '../../core/db.js'
 import { CARD_FELL, REDUCED, REQUEST_DONE, REQUEST_REFUSED } from '../../core/events.js'
 import { OWNER_WAITS } from '../../core/projection-types.js'
 import { reducedThrough } from '../../core/reducer.js'
+import { REQUIRED_CHECK } from '../../ports/gh.js'
 import { NetWatch } from '../../ports/netwatch.js'
+import { RUN_SCRIPT } from '../../supervisor/bg.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { lockedLine, REDUCER_LOOP_BUS_PATH, REDUCER_LOOP_HOME, REDUCER_LOOP_PERIOD, REDUCER_PASS_DONE, REDUCER_PERIOD_MS, REDUCER_PREFIX, REDUCER_THREAD, ReducerLoop, ReducerPass, reducerThreadBeside, startReducerLoop } from '../../supervisor/reducer-loop.js'
 import { BusTick, TICK_STEPS, tickWhileReducing } from '../../supervisor/run.js'
@@ -79,7 +81,7 @@ function slowTick(db: DatabaseSync, done: () => boolean): { tick: BusTick, heldM
       holdTheThread(HOLD_STEP_MS)
     }
   }
-  return { tick: new BusTick(db, null, new NetWatchThatTicks(db, new FakeGitHub().client, clock.now), clock.now, () => {}, () => {}, stalled), heldMs: () => heldMs }
+  return { tick: new BusTick(db, null, new NetWatchThatTicks(db, new FakeGitHub().client, clock.now, RUN_SCRIPT, () => REQUIRED_CHECK), clock.now, () => {}, () => {}, stalled), heldMs: () => heldMs }
 }
 
 function lagOf(db: DatabaseSync): number {

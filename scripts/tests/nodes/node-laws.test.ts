@@ -49,7 +49,6 @@ import { dryRun } from '../../nodes/review/review-worker.js'
 import { claudeReviewer, ReviewTrees } from '../../nodes/review/reviewer.js'
 import { updateCandidates } from '../../nodes/update/update-candidates.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
-import { NetWatch } from '../../ports/netwatch.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
 import { launchName } from '../../supervisor/bg.js'
 import { answerParts, busProjections, cardTransitions, nodeSupply, updateParts } from '../../supervisor/composition.js'
@@ -61,6 +60,7 @@ import { workerLaunches } from '../../supervisor/workers.js'
 import { ranTheGreenGate } from '../bus/gate-stream.js'
 import { Clock, FakeGitHub, sha } from '../bus/github-fake.js'
 import { eventsOf, liveBench, mergeBench } from '../bus/merge-bench.js'
+import { benchNetWatch } from '../bus/net-watch-bench.js'
 import { reachesSite } from './law-reach.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
@@ -348,7 +348,7 @@ function abandonedRunIsRerun(): void {
       const body = response.body as { check_runs: { name: string, conclusion: string | null }[] }
       return { ...response, body: { check_runs: body.check_runs.map(check => check.name === 'required' && check.conclusion === 'failure' ? { ...check, id: 77, output: { annotations_count: 1, annotations_url: url } } : check) } }
     }
-    const busTick = new BusTick(db, busProjections(), new NetWatch(db, client, clock.now), clock.now)
+    const busTick = new BusTick(db, busProjections(), benchNetWatch(db, client, clock.now), clock.now)
     busTick.run()
     clock.advance(TICK_MS)
     gitHub.open({ number: 1493, required: 'failure', failed: [], runs: [{ id: 4343, run_attempt: 1, status: 'completed', conclusion: 'failure' }] })

@@ -18,9 +18,9 @@ import { overlapDeclarationsOf } from '../../../core/order/overlap.js'
 import { BUS_ORDERS, ORDER_ACTOR, orderEventsFrom, orderGroups, PrOrderTick, readOrder } from '../../../core/order/turn.js'
 import { BusRead } from '../../../ports/bus-read.js'
 import { mainMergeInCardTree } from '../../../ports/main-merge.js'
-import { NetWatch } from '../../../ports/netwatch.js'
 import { MAIN_BRANCH } from '../../../ports/snapshot.js'
 import { Clock, FakeGitHub, sha } from '../github-fake.js'
+import { benchNetWatch } from '../net-watch-bench.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../../..')
 const DECLARATIONS = 'declarations'
@@ -109,7 +109,7 @@ function observedBus(cards: readonly Card[]): { db: Bus, declarations: OverlapDe
   const db = openBus(path.join(scratch('r-events-bus-'), 'bus.db'))
   const gitHub = new FakeGitHub()
   cards.forEach((card, at) => gitHub.open({ number: card.pr, files: changedPaths(card), head: sha(String.fromCharCode(97 + at)) }))
-  new NetWatch(db, gitHub.client, new Clock().now).poll()
+  benchNetWatch(db, gitHub.client, new Clock().now).poll()
   for (const card of cards)
     appendEvent(db, { ts: '2026-11-17T00:00:01Z', type: PR_ORDERED, actor: ORDER_ACTOR, cardId: null, pr: card.pr, head: null, dedupeKey: `${PR_ORDERED}:${card.pr}:r-events`, payload: { by: BUS_ORDERS }, legacy: false })
   return { db, declarations: overlapDeclarationsOf(readDeclarations()) }

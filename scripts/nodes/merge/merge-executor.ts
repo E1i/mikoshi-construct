@@ -28,7 +28,7 @@ import { followsTouches, pathsOutside, removesEntriesOnly, textBeforePatch } fro
 import { ciOf, GitHubCommitCi } from '../../ports/ci-reading.js'
 import { REVIEW_STATUS_CONTEXT } from '../../ports/github-status.js'
 import { Meter, RateLimited, retryAfterSeconds } from '../../ports/meter.js'
-import { MAIN_BRANCH, MERGEABLE_OF_STATE, OPEN_PULLS_PAGE, requiredCheckOf, verdictOf } from '../../ports/snapshot.js'
+import { MAIN_BRANCH, MERGEABLE_OF_STATE, OPEN_PULLS_PAGE, verdictOf } from '../../ports/snapshot.js'
 import { mergeCandidates } from './merge-candidates.js'
 
 export const MERGE_METHOD = 'squash'
@@ -73,6 +73,7 @@ export interface ExecutorParts {
   pushPolicy?: () => PushPolicy
   overlaps: MainOverlap
   rules: CandidateRules
+  requiredCheck: () => string
 }
 
 interface Pull {
@@ -287,7 +288,7 @@ export class MergeExecutor {
         const unmergeable = decidedPastRoundLimit === null ? this.notClean(pull, lease) : null
         if (unmergeable !== null)
           return { kind: 'denied', denial: unmergeable }
-        const ci = ciOf(meter, lease.head!, requiredCheckOf())
+        const ci = ciOf(meter, lease.head!, this.parts.requiredCheck())
         if (ci === 'red')
           return technical('ci_red', `CI is red on ${lease.head}`)
         if (ci !== 'green')
@@ -384,13 +385,25 @@ export class MergeExecutor {
   private versionLock(lease: Lease): MergeDenial | null {
     try {
       const meter = new Meter(this.parts.gitHub, () => this.parts.clock().getTime())
+      const ci = new GitHubCommitCi(meter)
       const open = meter.get(`${REPO}/pulls?state=open&per_page=${OPEN_PULLS_PAGE}`) as Pull[]
-      const versionPr = open.find(candidate => candidate.number !== lease.pr && VERSION_BRANCH.test(candidate.head?.ref ?? '') && new GitHubCommitCi(meter).approvedRunOn(candidate.head?.sha))
-      return versionPr === undefined ? null : { kind: 'technical', reason: 'version_pr_open', detail: `#${versionPr.number} is a version pull request with approved runs on ${versionPr.head?.sha} and locks every merge` }
+      const versionPr = open.find(candidate => candidate.number !== lease.pr && VERSION_BRANCH.test(candidate.head?.ref ?? '') && ci.approvedRunOn(candidate.head?.sha) && this.greenOn(ci, candidate.head?.sha))
+      if (versionPr === undefined || this.cardNamesTheVersionPr(lease, versionPr.number))
+        return null
+      return { kind: 'technical', reason: 'version_pr_open', detail: `#${versionPr.number} is a version pull request with approved runs and green CI on ${versionPr.head?.sha} and locks every merge` }
     }
     catch (error) {
       return { kind: 'technical', reason: 'github_error', detail: messageOf(error) }
     }
+  }
+
+  private greenOn(ci: GitHubCommitCi, head: string | undefined): boolean {
+    return head !== undefined && ci.onCommit(head, this.parts.requiredCheck()).state === 'green'
+  }
+
+  private cardNamesTheVersionPr(lease: Lease, versionPr: number | undefined): boolean {
+    const text = cardContract(this.parts.db, lease.cardId)?.text
+    return versionPr !== undefined && text !== undefined && new RegExp(`\\bPR #${versionPr}(?!\\d)`).test(text)
   }
 
   private finished(lease: Lease, commit: string, rule: AllowedRule, spent: string | null, witnessBase: string | null = null): MergeOutcome {

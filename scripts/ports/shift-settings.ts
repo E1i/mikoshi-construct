@@ -5,6 +5,7 @@ import path from 'node:path'
 import { allowRule, daemonProgram, shippedDaemonCommands } from '../../src/commands/attach/daemon-commands.js'
 import { SETTINGS_FILE } from '../../src/commands/attach/settings.js'
 import { isJsonObject } from '../../src/materialize/strategies.js'
+import { cardOfTree, grantOf } from './card-grants.js'
 import { WIDE_VITEST_HOOKS } from './wide-vitest-guard.js'
 
 const SANDBOX_UID = os.userInfo().uid
@@ -24,7 +25,7 @@ const REPOSITORY_SETTINGS_FILES = ['.claude/settings.json', SETTINGS_FILE]
 const GITDIR_POINTER = /^gitdir:[ \t]*(\S.*)$/m
 
 export interface ShiftSettings {
-  sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[], filesystem?: { denyWrite: string[] } }
+  sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[], filesystem?: { allowWrite?: string[], denyWrite?: string[] }, network: { allowedDomains?: string[] } }
   permissions: { allow: string[], deny?: string[] }
   env: typeof SESSION_BASH_CAP
   hooks: typeof WIDE_VITEST_HOOKS
@@ -87,19 +88,30 @@ function protectedPaths(tree: string, daemon: InstalledDaemon): { copy: string, 
   return { copy: path.join(tree, DAEMON_SOURCE_DIRECTORY, path.basename(daemon.program)), installed: path.dirname(path.dirname(daemon.program)) }
 }
 
-export function shiftSettings(tree: string, gate: ShiftGate, writable: string[] = [], home: string = os.homedir()): ShiftSettings {
+function grantedSandbox(card: number | null, home: string): ShiftSettings['sandbox'] {
+  const grant = grantOf(card)
+  if (grant === null)
+    return CARD_SESSION_SANDBOX
+  const network = { ...CARD_SESSION_SANDBOX.network, allowedDomains: [...grant.domains] }
+  const allowWrite = grant.homeWrites.map(entry => path.join(home, entry))
+  return allowWrite.length === 0 ? { ...CARD_SESSION_SANDBOX, network } : { ...CARD_SESSION_SANDBOX, network, filesystem: { allowWrite } }
+}
+
+export function shiftSettings(tree: string, gate: ShiftGate, writable: string[] = [], home: string = os.homedir(), card: number | null = cardOfTree(tree)): ShiftSettings {
   const installed = installedDaemonCommands(tree, home)
   const allow = [
     ...gate.prepush.map(command => `Bash(${command})`),
     `Edit(/${tree}/**)`,
     ...installed.map(daemon => allowRule(daemon.command)),
     ...writable.map(file => `Edit(/${file})`),
+    ...grantOf(card)?.allow ?? [],
   ]
+  const sandbox = grantedSandbox(card, home)
   if (installed.length === 0)
-    return { sandbox: CARD_SESSION_SANDBOX, permissions: { allow }, env: SESSION_BASH_CAP, hooks: WIDE_VITEST_HOOKS }
+    return { sandbox, permissions: { allow }, env: SESSION_BASH_CAP, hooks: WIDE_VITEST_HOOKS }
   const guarded = installed.map(daemon => protectedPaths(tree, daemon))
   return {
-    sandbox: { ...CARD_SESSION_SANDBOX, excludedCommands: installed.map(daemon => daemon.command), filesystem: { denyWrite: guarded.flatMap(paths => [paths.copy, paths.installed]) } },
+    sandbox: { ...sandbox, excludedCommands: installed.map(daemon => daemon.command), filesystem: { ...sandbox.filesystem, denyWrite: guarded.flatMap(paths => [paths.copy, paths.installed]) } },
     permissions: { allow, deny: guarded.flatMap(paths => [`Edit(/${paths.copy})`, `Edit(/${paths.installed}/**)`]) },
     env: SESSION_BASH_CAP,
     hooks: WIDE_VITEST_HOOKS,

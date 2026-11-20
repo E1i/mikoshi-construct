@@ -1,3 +1,4 @@
+import type { NetWatch } from '../../ports/netwatch.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -7,9 +8,9 @@ import { TICK_MS } from '../../core/cadence.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
-import { NetWatch } from '../../ports/netwatch.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { Clock, FakeGitHub } from './github-fake.js'
+import { benchNetWatch } from './net-watch-bench.js'
 
 const roots: string[] = []
 const MARKERLESS = 'A pull request opened by hand, with no card line.'
@@ -27,7 +28,7 @@ function bench(): { db: Bus, gitHub: FakeGitHub, netWatch: NetWatch, clock: Cloc
   const db = openBus(path.join(root, 'bus.db'))
   const gitHub = new FakeGitHub()
   const clock = new Clock()
-  return { db, gitHub, netWatch: new NetWatch(db, gitHub.client, clock.now), clock }
+  return { db, gitHub, netWatch: benchNetWatch(db, gitHub.client, clock.now), clock }
 }
 
 function admitBody(db: Bus, cardId: number, branch: string): void {

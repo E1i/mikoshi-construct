@@ -5,10 +5,10 @@ import YAML from 'yaml'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 
-interface Step { 'run'?: string, 'working-directory'?: string }
+interface Step { 'run'?: string, 'if'?: string, 'working-directory'?: string }
 interface Job { strategy?: { matrix?: Record<string, unknown> }, steps: Step[] }
 
-const workflow = YAML.parse(readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8')) as { jobs: Record<string, Job> }
+const workflow = YAML.parse(readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8')) as { on: Record<string, unknown>, jobs: Record<string, Job> }
 const scripts = (JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')) as { scripts: Record<string, string> }).scripts
 
 const SCRIPT_CALL = /^pnpm (?:run )?([\w:.-]+)(\s.*)?$/
@@ -53,6 +53,15 @@ describe('the CI jobs run exactly the steps of package.json\'s quality:steps', (
     expect(aliases).toContain('ci')
     for (const whole of ['quality', 'quality:steps', ...aliases])
       expect(invocations.filter(invocation => invocation.script === whole)).toEqual([])
+  })
+
+  it('ci runs the version rehearsal on every pull request', () => {
+    const rehearsals = Object.entries(workflow.jobs).flatMap(([job, { steps }]) => steps
+      .filter(step => step.run?.trim() === 'pnpm exec tsx scripts/release/version-rehearsal.ts')
+      .map(step => ({ job, if: step.if })))
+
+    expect(rehearsals).toEqual([{ job: 'checks', if: 'github.event_name == \'pull_request\' && !startsWith(github.head_ref, \'changeset-release/\')' }])
+    expect(workflow.on).toHaveProperty('pull_request', null)
   })
 
   it('runs every vitest shard, one per matrix leg', () => {

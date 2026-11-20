@@ -18,9 +18,14 @@
 #
 # A staged version is installable only once a human approves it, so the stage id is uploaded as the
 # release-stage artifact: Release verification reads it to tell a publish awaiting approval from one
-# that is absent. `changeset tag` then writes the git-tag report the action turns into tags and
-# GitHub releases, which `changeset publish` wrote before. The last step writes `npm stage approve <id>`
-# into the run summary, with the id from that record, or says nothing was staged.
+# that is absent. `changeset tag` then writes the git-tag report the action turns into tags, which
+# `changeset publish` wrote before. The action creates no GitHub release: it would send the whole
+# CHANGELOG section as the body, which GitHub refuses past 125000 characters. The step after it creates
+# the release of the tag (actions/github-script) from the body scripts/release-notes/release-body.ts
+# renders, a summary within a fixed budget that links the CHANGELOG at the tag; version-pr-guard.ts
+# renders the same body on the version pull request and is red when it is over the budget.
+# The last step writes `npm stage approve <id>` into the run summary, with the id from that record,
+# or says nothing was staged.
 #
 # When the action creates or updates the version pull request, its body gets a block of its own with
 # the diff of architecture/security-invariants.md since the last release tag, or «без изменений».
@@ -106,9 +111,41 @@ jobs:
           publish-script: pnpm release
           commit-message: 'chore: version packages'
           pr-title: 'chore: version packages'
+          create-github-releases: false
+          push-git-tags: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_CONFIG_PROVENANCE: 'true'
+
+      - name: Render the GitHub release body within its budget
+        id: release-body
+        if: steps.changesets.outputs.published == 'true'
+        run: pnpm exec tsx scripts/release-notes/release-body.ts
+
+      - name: GitHub release from the rendered release body
+        if: steps.changesets.outputs.published == 'true'
+        uses: actions/github-script@v8
+        env:
+          TAG: ${{ steps.release-body.outputs.tag }}
+          BODY_FILE: ${{ steps.release-body.outputs.body-file }}
+          SHA: ${{ github.sha }}
+        with:
+          script: |
+            const fs = require('node:fs')
+            const { TAG, BODY_FILE, SHA } = process.env
+            const body = fs.readFileSync(BODY_FILE, 'utf8')
+            const { owner, repo } = context.repo
+            try {
+              const { data } = await github.rest.repos.getReleaseByTag({ owner, repo, tag: TAG })
+              await github.rest.repos.updateRelease({ owner, repo, release_id: data.id, body })
+              core.info(`Updated the GitHub release ${TAG} with a body of ${body.length} characters.`)
+            }
+            catch (error) {
+              if (error.status !== 404)
+                throw error
+              await github.rest.repos.createRelease({ owner, repo, tag_name: TAG, name: TAG, target_commitish: SHA, body })
+              core.info(`Created the GitHub release ${TAG} with a body of ${body.length} characters.`)
+            }
 
       - name: Security invariants diff in the version pull request
         if: steps.changesets.outputs.published != 'true' && steps.changesets.outputs.pr-number != ''
