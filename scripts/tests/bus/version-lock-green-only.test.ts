@@ -44,6 +44,27 @@ describe('the version lock holds only a green version pull request', () => {
     expect(eventsOf(made.db, 'policy.denied')).toEqual([])
   })
 
+  it('a version pull request whose CI is still pending does not lock main', () => {
+    const made = bench()
+    made.gitHub.open({ number: 980, review: 'success' })
+    made.gitHub.open({ number: VERSION_PR, head: sha('c'), ref: VERSION_REF, runs: APPROVED, required: 'pending' })
+    made.tick()
+
+    expect(made.merge(made.lease()!)).toMatchObject({ kind: 'merged', commit: MAIN_2 })
+    expect(eventsOf(made.db, 'policy.denied')).toEqual([])
+  })
+
+  it('a card where PR #<n> is glued to a preceding word does not name the version pull request', () => {
+    const made = bench()
+    admittedNaming(made, 1080, `A token like XPR #${VERSION_PR} is not a pull request reference.`)
+    made.gitHub.open({ number: 980, review: 'success' })
+    made.gitHub.open({ number: VERSION_PR, head: sha('c'), ref: VERSION_REF, runs: APPROVED })
+    made.tick()
+
+    expect(made.merge(made.lease()!)).toMatchObject({ kind: 'denied', denial: { kind: 'technical', reason: 'version_pr_open' }, next: 'queued' })
+    expect(made.gitHub.puts).toEqual([])
+  })
+
   it('a card that names the version pull request merges through the lock', () => {
     const made = bench()
     admittedNaming(made, 1080, `Repair the version pull request PR #${VERSION_PR} so its CI turns green.`)
