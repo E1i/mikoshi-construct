@@ -20,7 +20,7 @@ export interface PortsSection {
 
 export type ImportedNames = ReadonlyMap<string, ReadonlySet<string>>
 
-export const PORTS_VERSION = 5
+export const PORTS_VERSION = 6
 
 const PRODUCT_TREE = 'src'
 const FACTORY_TREE = 'scripts'

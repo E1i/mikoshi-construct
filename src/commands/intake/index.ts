@@ -89,7 +89,9 @@ export type CardEventPort = ((event: CardEvent) => void) & { allOrNothing?: (eve
 
 export type CardStatesPort = () => CardsOfTheBus
 
-export interface RecordedIntake { card: string, bodySha: unknown, ts: unknown, confirmation: unknown, source: unknown, text?: string }
+export interface RecordedWitnessVerdict { verdict: string, detail: string }
+
+export interface RecordedIntake { card: string, bodySha: unknown, ts: unknown, confirmation: unknown, source: unknown, text?: string, witnessRecords?: readonly RecordedWitnessVerdict[] }
 
 export type CardAdmissionsPort = (cardId: number) => RecordedIntake | null
 
