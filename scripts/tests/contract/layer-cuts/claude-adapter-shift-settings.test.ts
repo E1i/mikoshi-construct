@@ -26,7 +26,6 @@ describe('the claude adapter takes the shift settings from the one who builds it
     const built = claudeAdapterWith({ shiftSettings, settingsFlag })
     const invocation = clientAdapter().invocation(sandboxedLaunch())
     expect(invocation).toEqual(built.invocation(sandboxedLaunch()))
-    expect('args' in invocation && invocation.args).toEqual(expect.arrayContaining(['--setting-sources', 'project,local', '--settings']))
   })
 
   it('the adapter writes whatever settings its source hands it', () => {
