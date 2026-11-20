@@ -15,6 +15,7 @@ import { byId, latest, ofCard, perCard } from './events-query.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CONTINUED, CARD_STARTED, FACTORY_MODE, SLICE_PARENTS_BACKFILLED } from './events.js'
 import { openDatabase } from './sqlite.js'
 
+export { CARD_BLOCKS, registerCardFunctions } from '../../src/card/grammar.js'
 export const CARD_BODIES = 'card_bodies'
 export const FACTORY_MODES = ['window', 'parallel'] as const
 export const DEFAULT_MODE: FactoryMode = 'window'

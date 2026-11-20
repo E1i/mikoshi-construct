@@ -4556,6 +4556,7 @@
       },
       "src/card/grammar.ts": {
         "constants": [
+          "CARD_BLOCKS",
           "CARD_PATH_REASON",
           "SIZES"
         ],
@@ -4563,7 +4564,8 @@
           "cardLine": "(card: Omit<Card, 'line'>): string",
           "cardTerms": "(card: Card): string",
           "parseCard": "(text: string, milestones?: readonly string[]): ParsedCard",
-          "readBodyCard": "(body: string): ParsedCard"
+          "readBodyCard": "(body: string): ParsedCard",
+          "registerCardFunctions": "(db: DatabaseSync): DatabaseSync"
         },
         "reexports": [],
         "types": {

@@ -5,13 +5,13 @@ import { screenLines, waitsLines } from '../../../src/commands/board/screens.js'
 import { PLAIN_LORE } from '../../../src/ui/lore.js'
 import { CARD_TYPES_FOLDED_ON_APPEND, CARDS, DECISIONS, openOwnerWaits, OWNER_WAITS, PROJECTION_TYPES, readCurrent, staleProjection } from '../../core/bus-readings.js'
 import { appendedOnCard, CARD_FOLDS, CARDS_PROJECTION } from '../../core/card-automaton.js'
-import { appendEvent, openBus, openOwnerWait } from '../../core/db.js'
+import { appendEvent, openOwnerWait } from '../../core/db.js'
 import { CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_OPENED, QUESTION_OWNER } from '../../core/events.js'
 import { runInbox } from '../../core/inbox.js'
 import { reduce, reducedTypes, SNAPSHOT } from '../../core/reducer.js'
 import { watermarkOf } from '../../core/watermark.js'
 import { currentDecisions, DECISION_FOLDS, inForceDecisions, recordDecision } from '../../policy/decisions/index.js'
-import { busOwnerWaitFolds, busProjections } from '../../supervisor/composition.js'
+import { busOwnerWaitFolds, busProjections, openComposedBus } from '../../supervisor/composition.js'
 
 const TS = '2026-11-09T08:02:45.000Z'
 const CARD = 7
@@ -23,7 +23,7 @@ afterEach(() => {
 })
 
 function bus(): DatabaseSync {
-  const db = openBus(':memory:')
+  const db = openComposedBus(':memory:')
   opened.push(db)
   return db
 }

@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { BUS_REQUEST_COMMAND } from '../core/owner-commands.js'
 import { RequestContext } from './requests/context.js'
 import { dispatchRequest } from './requests/index.js'
-import { ANSWER_SOURCE, appendEvent, cardIdOf, clientAdapter, CLOSED_WAIT, declaredPayload, defaultBusPath, FACTORY_MODES, ghApi, inTransaction, isFactoryMode, isFullSha, isOwnerMoveRequest, isOwnerWaitNeed, listFlagOf, openBus, openOwnerWait, OWNER_WAIT_CLOSED, OWNER_WAIT_NEEDS, OWNER_WAIT_OPENED, OWNER_WAITS, ownerChannelOf, ownerMoveRequestOf, ownerMoveUsage, parseTaken, POLICY_DENIED, prOf, QUEUE_ACTOR, readReleaseVersion, REQUEST_DONE, REQUEST_REFUSED, storedByKey, WINDOW_REQUEST } from './requests/reach.js'
+import { ANSWER_SOURCE, appendEvent, cardIdOf, clientAdapter, CLOSED_WAIT, declaredPayload, defaultBusPath, FACTORY_MODES, ghApi, inTransaction, isFactoryMode, isFullSha, isOwnerMoveRequest, isOwnerWaitNeed, listFlagOf, openBus, openOwnerWait, OWNER_WAIT_CLOSED, OWNER_WAIT_NEEDS, OWNER_WAIT_OPENED, OWNER_WAITS, ownerChannelOf, ownerMoveRequestOf, ownerMoveUsage, parseTaken, POLICY_DENIED, prOf, QUEUE_ACTOR, readReleaseVersion, registerCardFunctions, REQUEST_DONE, REQUEST_REFUSED, storedByKey, WINDOW_REQUEST } from './requests/reach.js'
 import { foreignIdsOf, HEAD_WORD, isRequestKind, OWNER_ANSWER_USAGE, PLAN_OPS, REQUEST_KINDS, text } from './requests/request.js'
 
 export { SESSION_VARIABLE } from '../ports/client/claude/adapter.js'
@@ -74,7 +74,7 @@ export class WindowRequests {
   private readonly context: RequestContext
 
   constructor(private readonly db: DatabaseSync, clock: () => Date, private readonly tools: RequestTools, ownerChannel: string = ownerChannelOf(os.homedir()), releaseVersion: () => string | null = () => readReleaseVersion(), repository: string = process.cwd(), gitHub: GitHub = ghApi(repository)) {
-    this.context = new RequestContext(db, clock, tools, ownerChannel, releaseVersion, repository, gitHub)
+    this.context = new RequestContext(registerCardFunctions(db), clock, tools, ownerChannel, releaseVersion, repository, gitHub)
   }
 
   run(): RequestOutcome[] {

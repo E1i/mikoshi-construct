@@ -12,6 +12,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { registerCardFunctions } from '../../src/card/grammar.js'
 import { BOARD_PERIOD_MS, startBoardTimer } from '../cli/board-page.js'
 import { busDirOf } from '../core/bus-path.js'
 import { CHECK_MS, TICK_MS } from '../core/cadence.js'
@@ -28,7 +29,7 @@ import { realRequestTools } from '../window/window-request-tools.js'
 import { WindowRequests } from '../window/window-requests.js'
 import { alive, BUS_RUN_MARKERS, instancesOf, processBeatsOn, psList, RUN_SCRIPT } from './bg.js'
 import { closeWaitsOfEndedCards } from './card-waits.js'
-import { busProjections, cardTransitions, deadEndParts, deriveQueuesOfTheBus, gateRunSpoolPlaces, recordOwnStart, requiredCheckAt } from './composition.js'
+import { busProjections, cardTransitions, deadEndParts, deriveQueuesOfTheBus, gateRunSpoolPlaces, openComposedBus, recordOwnStart, requiredCheckAt } from './composition.js'
 import { DeadEnds } from './dead-ends.js'
 import { GateRunSpool } from './gate-run-spool.js'
 import { sessionLifeIn } from './recorded-worker.js'
@@ -178,6 +179,7 @@ export class BusTick {
   private readonly inlineReducer: ReducerPass | null
 
   constructor(private readonly db: DatabaseSync, reducedInline: Projections | ReducerPass | null, private readonly netWatch: NetWatch, private readonly clock: () => Date, requests: () => void = () => {}, private readonly statuses: () => void = () => {}, private readonly stalled: () => void = () => {}, private readonly spools: () => string[] = () => [], private readonly elapsedMs: () => number = () => performance.now(), private readonly deadEnds: () => void = () => {}) {
+    registerCardFunctions(db)
     this.inlineReducer = reducedInline === null || reducedInline instanceof ReducerPass ? reducedInline : new ReducerPass(db, reducedInline, clock, requests)
   }
 
@@ -291,7 +293,7 @@ async function main(): Promise<number> {
     console.error(lock.stderr.join('\n'))
     return lock.exitCode
   }
-  const db = openBus(busPath)
+  const db = openComposedBus(busPath)
   recordOwnStart(db, 'run')
   const closed = startBus(db, () => new Date())
   if (closed.length > 0)

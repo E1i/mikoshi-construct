@@ -3,7 +3,6 @@ import type { OwnerWaitNeed } from './bus-readings.js'
 import { appendFileSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { parseCard } from '../../src/card/grammar.js'
 import { CLOSED_WAIT, OPEN_WAIT, OWNER_WAIT_NEEDS, OWNER_WAITS } from './bus-readings.js'
 import { OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PROCESS_HEARTBEAT } from './events.js'
 import { isActor, isFullSha, prOf } from './identifiers.js'
@@ -11,7 +10,6 @@ import { openDatabase } from './sqlite.js'
 
 export { BUS_DB_VARIABLE, defaultBusPath } from './bus-path.js'
 export const BUSY_TIMEOUT_MS = 30_000
-export const CARD_BLOCKS = 'card_blocks'
 export const DECISION_IN_FORCE = 'in-force'
 export const DECISION_ARCHIVED = 'archived'
 
@@ -236,20 +234,12 @@ export interface BusEvent {
   legacy: boolean
 }
 
-function blocksOfCardLine(line: unknown): string | null {
-  if (typeof line !== 'string')
-    return null
-  const parsed = parseCard(line)
-  return parsed.kind === 'card' ? JSON.stringify(parsed.card.blocks) : null
-}
-
 export function openBus(file: string): DatabaseSync {
   mkdirSync(path.dirname(file), { recursive: true })
   const db = openDatabase(file, { timeout: BUSY_TIMEOUT_MS })
   db.exec(`PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA cache_size = -${CACHE_KIB};`)
   db.exec(SCHEMA)
   addMissingColumns(db)
-  db.function(CARD_BLOCKS, { deterministic: true }, blocksOfCardLine)
   if (file !== IN_MEMORY)
     watchLocks(db, { now: () => performance.now(), observe: lockLogger(locksLogOf(file)) })
   return db
