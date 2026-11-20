@@ -9,7 +9,7 @@ import type { CardScope } from '../test-runner.js'
 import type { CheckedCard } from './check.js'
 import type { Confirmation } from './confirm.js'
 import type { DraftCard } from './draft.js'
-import type { CardAdmissionsPort, CardEventPort, CardStatesPort, RecordedIntake } from './index.js'
+import type { CardAdmissionsPort, CardEventPort, CardStatesPort, RecordedIntake, RecordedWitnessVerdict } from './index.js'
 import type { SlicedCard } from './slice.js'
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -398,6 +398,32 @@ export function untransferred(downgrades: readonly string[], previousText: strin
   })
 }
 
+const UNFIT_VERDICT = 'unfit'
+const RED_VERDICT = 'red'
+const GREEN_VERDICT = 'green'
+const AGAINST_ITS_STATED_BASE = /^ exits (?:\S+|without a status) on the clean base /
+
+function deadIn(record: RecordedWitnessVerdict, witness: string): boolean {
+  const quoted = `"${witness}"`
+  if (record.verdict === UNFIT_VERDICT)
+    return record.detail.includes(`witness ${quoted}`)
+  return record.verdict === RED_VERDICT && record.detail.split(quoted).slice(1).some(after => AGAINST_ITS_STATED_BASE.test(after))
+}
+
+export function deadOnTheBase(witness: string, records: readonly RecordedWitnessVerdict[]): boolean {
+  for (const record of [...records].reverse()) {
+    if (record.verdict === GREEN_VERDICT)
+      return false
+    if (deadIn(record, witness))
+      return true
+  }
+  return false
+}
+
+function withoutDead(downgrades: readonly string[], records: readonly RecordedWitnessVerdict[]): string[] {
+  return downgrades.filter(witness => !deadOnTheBase(witness, records))
+}
+
 function standingReplacementAllowed(decisions: DecisionsPort, cardId: number): boolean {
   return writtenByTheOwner(decisions)
     .some(decision => (decision.cards.length === 0 || decision.cards.includes(cardId)) && decision.words.startsWith(EQUIVALENT_REPLACEMENT_ALLOWANCE))
@@ -660,7 +686,8 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const scope: BaseScope = { dir: options.dir, card: { touches: checked.touches, creates: createdPaths(checked.creates) }, createdAreTheChange: unreplaced.length > 0 && createdPathsAreTheChange(decisions) }
   const unrefined = unreplaced.length > 0 ? withoutRefinements(unreplaced, previous, witnessesOf(admitted.text), scope) : unreplaced
   const unmoved = unrefined.length > 0 ? withoutOwnerMoves(decisions, card.id, unrefined, previous, witnessesOf(admitted.text)) : unrefined
-  const downgrades = unmoved.length > 0 && witnessTransferIsNoDowngrade(decisions) ? untransferred(unmoved, recorded?.text ?? '', openCardTextsBeside(card.id, cards, options.admissions).flatMap(other => witnessFieldsOf(other) ?? [])) : unmoved
+  const untransferredDowngrades = unmoved.length > 0 && witnessTransferIsNoDowngrade(decisions) ? untransferred(unmoved, recorded?.text ?? '', openCardTextsBeside(card.id, cards, options.admissions).flatMap(other => witnessFieldsOf(other) ?? [])) : unmoved
+  const downgrades = withoutDead(untransferredDowngrades, recorded?.witnessRecords ?? [])
   if (downgrades.length > 0 && !ownerAllowed(decisions, card.id, downgrades, previous)) {
     const actions = downgrades.map(witness => downgradeAction(card.id, witness, previous))
     if (!options.dryRun)

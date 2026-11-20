@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { RequestContext, RequestExecutor } from './context.js'
 import type { AdmitResult, AmendedStop, AmendFlags, CardAdmissionsPort, CardEventPort } from './reach.js'
 import type { Executed, RequestPayload } from './request.js'
-import { answerToResumeAfterAmend, appendCardEvent, bodyNotFoldedYet, BusDecisions, CARD_ADMITTED, CARD_BODIES, cardBodyText, cardIdOf, correctionText, INTAKE_ACTOR_PREFIX, inTransaction, laid, launchWaitsOf, layLanes, OPEN_OWNER_STOP_OF_CARD, queueAgain, repositoryLanes, runAmend } from './reach.js'
+import { answerToResumeAfterAmend, appendCardEvent, bodyNotFoldedYet, BusDecisions, CARD_ADMITTED, CARD_BODIES, cardBodyText, cardIdOf, correctionText, INTAKE_ACTOR_PREFIX, inTransaction, laid, launchWaitsOf, layLanes, OPEN_OWNER_STOP_OF_CARD, queueAgain, repositoryLanes, runAmend, withWitnessRecords, witnessRecordsOf } from './reach.js'
 import { messageOf, text } from './request.js'
 
 const HELD_WITHOUT_STATE = 'held'
@@ -21,7 +21,7 @@ function latestAdmissionOf(db: DatabaseSync): CardAdmissionsPort {
     const { card, bodySha, confirmation, source } = JSON.parse(row.payload) as { card: string, bodySha: unknown, confirmation: unknown, source: unknown }
     const body = cardBodyText(db, cardId)
     const admission = { card, bodySha, ts: row.ts, confirmation, source, event: row.id }
-    return body === null ? admission : { ...admission, text: body }
+    return withWitnessRecords(body === null ? admission : { ...admission, text: body }, witnessRecordsOf(db, cardId))
   }
 }
 
