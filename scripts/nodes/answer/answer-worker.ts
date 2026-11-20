@@ -17,6 +17,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { registerCardFunctions } from '../../../src/card/grammar.js'
 import { cardToolsOf, parseParkingFile } from '../../../src/card/parking.js'
 import { defaultBusDir } from '../../core/bus-path.js'
 import { NOT_MINE, notMine } from '../../core/card-automaton.js'
@@ -240,7 +241,8 @@ export interface AnswerRun {
   pushPolicy?: AnswerParts['pushPolicy']
 }
 
-export function answerNodeOf(run: AnswerRun, db: DatabaseSync, mode: DetectionMode): AnswerNode {
+export function answerNodeOf(run: AnswerRun, bus: DatabaseSync, mode: DetectionMode): AnswerNode {
+  const db = registerCardFunctions(bus)
   return new AnswerNode({ ...nodeLiveness(), db, answerer: run.answerer, ownerMerges: run.ownerMerges, cardText: run.cardText, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, prompts: promptsDirOf(run.busPath), publishing: run.publishing, pushPolicy: run.pushPolicy, allowances: cardAllowances(db) })
 }
 

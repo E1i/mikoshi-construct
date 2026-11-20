@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { AnswerRun } from '../../../nodes/answer/answer-worker.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -6,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { CARD_BLOCKS } from '../../../../src/card/grammar.js'
 import { repositoryReport } from '../../../contract/module-graph/report.js'
 import { openBus } from '../../../core/db.js'
+import { answerNodeOf } from '../../../nodes/answer/answer-worker.js'
 import { openComposedBus } from '../../../supervisor/composition.js'
 
 const DB = 'scripts/core/db.ts'
@@ -45,6 +47,14 @@ describe('the bus opens the database and the card owner registers its own SQL fu
     expect(JSON.parse(String(blocksOf(db, CARD_LINE)))).toEqual([2114, 2115])
     expect(blocksOf(db, NOT_A_CARD)).toBeNull()
     expect(blocksOf(db, null)).toBeNull()
+  })
+
+  it('the answer node registers card_blocks on the bare bus its worker opened', () => {
+    const db = openBus(busFile())
+    opened.push(db)
+    const run: AnswerRun = { busPath: ':memory:', answerer: async () => Promise.reject(new Error('no answer runs here')), ownerMerges: () => '', cardText: () => null, session: 'worker-1', pause: async () => {}, isolation: () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }) }
+    answerNodeOf(run, db, 'shadow')
+    expect(JSON.parse(String(blocksOf(db, CARD_LINE)))).toEqual([2114, 2115])
   })
 
   it('a bare bus knows no card grammar', () => {

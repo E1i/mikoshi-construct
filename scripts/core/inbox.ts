@@ -192,8 +192,12 @@ export function runInbox(db: DatabaseSync, out: (line: string) => void): number 
   return 0
 }
 
+function openInboxBus(): DatabaseSync {
+  return registerCardFunctions(openBus(defaultBusPath()))
+}
+
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const db = registerCardFunctions(openBus(defaultBusPath()))
+  const db = openInboxBus()
   try {
     process.exitCode = runInbox(db, line => console.log(line))
   }
