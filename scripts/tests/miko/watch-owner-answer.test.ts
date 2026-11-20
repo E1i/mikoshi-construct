@@ -14,7 +14,7 @@ import { recordDecision } from '../../policy/decisions/index.js'
 import { decisionsAdderOfBus, decisionsSettlerOfBus } from '../../policy/decisions/projection.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { productionDeps, selectOnce } from '../../window/watch.js'
-import { WindowRequests } from '../../window/window-requests.js'
+import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
 import { sha } from '../bus/github-fake.js'
 import { liveBench } from '../bus/merge-bench.js'
 
@@ -63,7 +63,7 @@ function tools(at: Room): RequestTools {
 }
 
 function ownerAnswers(at: Room, named: string, words: string): void {
-  expect(runOwnerAnswer([named, words], at.bench.db, at.channel, at.bench.clock.now(), () => {})).toBe(0)
+  expect(runOwnerAnswer([named, words], at.bench.db, at.channel, at.bench.clock.now(), () => {}, requestFromWindow)).toBe(0)
   reduce(at.bench.db, 'pending', busProjections())
   const outcomes = new WindowRequests(at.bench.db, at.bench.clock.now, tools(at), at.channel, () => null, process.cwd(), at.bench.gitHub.client).run()
   reduce(at.bench.db, 'pending', busProjections())

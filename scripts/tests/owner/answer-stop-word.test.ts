@@ -22,6 +22,7 @@ import { busProjections } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { RequestContext } from '../../window/requests/context.js'
 import { OWNER_STOP_CODE, ownerStopExecutor } from '../../window/requests/owner-stop.js'
+import { requestFromWindow } from '../../window/window-requests.js'
 import { mergeBench } from '../bus/merge-bench.js'
 
 const CARD = 1950
@@ -135,7 +136,7 @@ describe('owner:answer with a stop word', () => {
     expect(alive(pid)).toBe(true)
     const said: string[] = []
 
-    expect(runOwnerAnswer([`#${CARD}`, `stop: ${REASON}`], made.bench.db, path.join(made.root, 'owner-answers'), made.bench.clock.now(), line => said.push(line))).toBe(0)
+    expect(runOwnerAnswer([`#${CARD}`, `stop: ${REASON}`], made.bench.db, path.join(made.root, 'owner-answers'), made.bench.clock.now(), line => said.push(line), requestFromWindow)).toBe(0)
     expect(said.join('\n')).toContain('owner.stop')
     expect(busRuns(made)).toMatchObject({ done: true })
     reduce(made.bench.db, 'pending', busProjections())

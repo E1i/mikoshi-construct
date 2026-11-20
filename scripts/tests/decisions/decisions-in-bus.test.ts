@@ -14,7 +14,7 @@ import { liveDecisionOf } from '../../policy/live-decision.js'
 import { reservationOf } from '../../policy/policy.js'
 import { decisionsInForceAt, unspentShard } from '../../policy/shards.js'
 import { busProjections } from '../../supervisor/composition.js'
-import { pendingRequests } from '../../window/window-requests.js'
+import { pendingRequests, runRequest } from '../../window/window-requests.js'
 
 const NOW = new Date('2026-11-05T10:00:00Z')
 const LATER = new Date('2026-11-05T12:00:00Z')
@@ -198,14 +198,14 @@ describe('owner decisions live in the bus', () => {
 
     const channel = path.join(made.root, 'channel')
     const outcome: string[] = []
-    expect(requestFromOwnerShell(['--card', '#730', '[owner] third.'], channel, made.db, NOW, line => outcome.push(line), line => outcome.push(line))).toBe(0)
+    expect(requestFromOwnerShell(['--card', '#730', '[owner] third.'], channel, made.db, NOW, line => outcome.push(line), line => outcome.push(line), runRequest)).toBe(0)
     const [asked] = pendingRequests(made.db)
     expect(JSON.parse(asked!.payload)).toEqual({ kind: 'decisions:add', text: '[owner] third.', from: 'answer', cards: ['#730'], supersedes: [] })
     expect(readFileSync(path.join(channel, readdirSync(channel)[0]!), 'utf8')).toContain('third.')
     expect(readFileSync(made.file, 'utf8')).toBe(rebuilt)
 
     const windowOut: string[] = []
-    expect(requestDecision(['--from', 'answer', '[owner] fourth.'], made.db, NOW, 'window-1', line => windowOut.push(line))).toBe(0)
+    expect(requestDecision(['--from', 'answer', '[owner] fourth.'], made.db, NOW, 'window-1', line => windowOut.push(line), runRequest)).toBe(0)
     expect(pendingRequests(made.db)).toHaveLength(2)
     expect(readFileSync(made.file, 'utf8')).toBe(rebuilt)
   })
@@ -215,7 +215,7 @@ describe('owner decisions live in the bus', () => {
     const channel = path.join(made.root, 'channel')
     mkdirSync(channel)
     const refused: string[] = []
-    expect(requestFromOwnerShell(['[operator] paraphrase.'], channel, made.db, NOW, () => {}, line => refused.push(line))).toBe(1)
+    expect(requestFromOwnerShell(['[operator] paraphrase.'], channel, made.db, NOW, () => {}, line => refused.push(line), runRequest)).toBe(1)
     expect(refused).toHaveLength(1)
     expect(pendingRequests(made.db)).toEqual([])
     expect(readdirSync(channel)).toEqual([])
@@ -283,8 +283,8 @@ describe('owner decisions live in the bus', () => {
     const made = bench()
     const channel = path.join(made.root, 'channel')
     mkdirSync(channel)
-    expect(requestFromOwnerShell(['--file', made.file, '[owner] x.'], channel, made.db, NOW, () => {}, () => {})).toBe(2)
-    expect(requestFromOwnerShell(['--settled', '#730', '[owner] x.'], channel, made.db, NOW, () => {}, () => {})).toBe(2)
+    expect(requestFromOwnerShell(['--file', made.file, '[owner] x.'], channel, made.db, NOW, () => {}, () => {}, runRequest)).toBe(2)
+    expect(requestFromOwnerShell(['--settled', '#730', '[owner] x.'], channel, made.db, NOW, () => {}, () => {}, runRequest)).toBe(2)
     expect(readdirSync(channel)).toEqual([])
     expect(pendingRequests(made.db)).toEqual([])
   })

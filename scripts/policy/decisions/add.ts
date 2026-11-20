@@ -28,6 +28,8 @@ const CREATES_FLAG = '--creates'
 const PR_AT_A_SHA = new RegExp(`^(?:${OWNER_SOURCE.replace(/[[\]]/g, '\\$&')} )?\\S+ PR #([1-9]\\d*) at ([0-9a-f]+)(?![0-9a-f])`, 'i')
 const ANY_FULL_HEAD = '0'.repeat(40)
 
+export type WindowRequestRun = (argv: readonly string[], db: DatabaseSync, now: Date, session: string, out: (line: string) => void) => number
+
 export interface DecisionsAddDeps {
   decisions: string
   now: () => Date
@@ -330,12 +332,12 @@ function headRefusalIn(args: readonly string[], db: DatabaseSync): string | null
   return args.filter(arg => !arg.startsWith('--')).map(arg => roundLimitHeadRefusal(arg.trim(), pr => observedHeadsOf(db, pr))).find(refusal => refusal !== null) ?? null
 }
 
-function requestWidening(db: DatabaseSync, cards: readonly number[], creates: readonly string[], now: Date, session: string, out: (line: string) => void): boolean {
+function requestWidening(db: DatabaseSync, cards: readonly number[], creates: readonly string[], now: Date, session: string, out: (line: string) => void, run: WindowRequestRun): boolean {
   const change = creates.map(file => `+${file}`).join(',')
-  return cards.every(card => runRequest(['amend', '--card', String(card), '--touches', change, '--auto-confirm'], db, now, session, out) === 0)
+  return cards.every(card => run(['amend', '--card', String(card), '--touches', change, '--auto-confirm'], db, now, session, out) === 0)
 }
 
-export function requestDecision(args: readonly string[], db: DatabaseSync, now: Date, session: string, out: (line: string) => void): number {
+export function requestDecision(args: readonly string[], db: DatabaseSync, now: Date, session: string, out: (line: string) => void, run: WindowRequestRun): number {
   const { creates, rest } = splitCreates(args)
   const headRefusal = headRefusalIn(rest, db)
   if (headRefusal !== null) {
@@ -348,11 +350,11 @@ export function requestDecision(args: readonly string[], db: DatabaseSync, now: 
       out(`${PREFIX}${CREATES_FLAG} names a file a card's decision requires and needs --card; nothing requested`)
       return 2
     }
-    if (!requestWidening(db, cards, creates, now, session, out))
+    if (!requestWidening(db, cards, creates, now, session, out, run))
       return 1
   }
   const lines: string[] = []
-  const code = runRequest(['decisions:add', ...rest], db, now, session, line => lines.push(line))
+  const code = run(['decisions:add', ...rest], db, now, session, line => lines.push(line))
   for (const line of lines)
     out(line)
   if (code === 0)
@@ -360,17 +362,7 @@ export function requestDecision(args: readonly string[], db: DatabaseSync, now: 
   return code
 }
 
-function requestFromThisWindow(session: string, args: string[]): number {
-  const db = openBus(defaultBusPath())
-  try {
-    return requestDecision(args, db, new Date(), session, line => console.log(line))
-  }
-  finally {
-    db.close()
-  }
-}
-
-export function requestFromOwnerShell(args: string[], channel: string, db: DatabaseSync, now: Date, out: (line: string) => void, err: (line: string) => void): number {
+export function requestFromOwnerShell(args: string[], channel: string, db: DatabaseSync, now: Date, out: (line: string) => void, err: (line: string) => void, run: WindowRequestRun): number {
   const parsed = parseArgs(splitCreates(args).rest)
   if (parsed === null || parsed.file !== null || parsed.settled.length > 0) {
     err(`${PREFIX}${OWNER_SHELL_USAGE}`)
@@ -387,7 +379,7 @@ export function requestFromOwnerShell(args: string[], channel: string, db: Datab
     return 1
   }
   sayToOwnerChannel(channel, parsed.text.slice(OWNER_SOURCE.length), now)
-  return requestDecision(['--from', 'answer', ...args], db, now, OWNER_SHELL_SESSION, out)
+  return requestDecision(['--from', 'answer', ...args], db, now, OWNER_SHELL_SESSION, out, run)
 }
 
 export function withOwnerShellBus(run: (db: DatabaseSync, channel: string) => number): number {
@@ -401,11 +393,19 @@ export function withOwnerShellBus(run: (db: DatabaseSync, channel: string) => nu
   }
 }
 
-function requestFromThisShell(args: string[]): number {
-  return withOwnerShellBus((db, channel) => requestFromOwnerShell(args, channel, db, new Date(), line => console.log(line), line => console.error(line)))
-}
-
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const args = process.argv.slice(2)
   const windowSession = process.env[SESSION_VARIABLE]?.trim()
-  process.exitCode = windowSession ? requestFromThisWindow(windowSession, process.argv.slice(2)) : requestFromThisShell(process.argv.slice(2))
+  if (windowSession) {
+    const db = openBus(defaultBusPath())
+    try {
+      process.exitCode = requestDecision(args, db, new Date(), windowSession, line => console.log(line), runRequest)
+    }
+    finally {
+      db.close()
+    }
+  }
+  else {
+    process.exitCode = withOwnerShellBus((db, channel) => requestFromOwnerShell(args, channel, db, new Date(), line => console.log(line), line => console.error(line), runRequest))
+  }
 }
