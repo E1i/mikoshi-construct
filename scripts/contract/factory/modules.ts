@@ -244,7 +244,7 @@ export const MODULES: Readonly<Record<string, ModuleSpec>> = carvedOut(drawnWith
 const WORKER_FILE = /-worker\.ts$/
 const WORKER_ENTRIES = [...Object.values(FACTORY_WORKERS).filter(file => WORKER_FILE.test(file)), ...Object.values(FACTORY_WORKERS).filter(file => !WORKER_FILE.test(file))]
 
-const PROCESS_ROOTS = [...supervisor('start', 'run', 'supervisor', 'review-bg', 'netwatch-root'), ...core('report.ts', 'reducer.ts'), ...WORKER_ENTRIES, factory('window/handoff-write.ts')]
+const PROCESS_ROOTS = [...supervisor('start', 'run', 'supervisor', 'review-bg', 'netwatch-root'), ...core('report.ts', 'reducer.ts'), ...WORKER_ENTRIES, factory('window/handoff-write.ts'), factory('owner/inbox.ts')]
 
 export const COMPOSITION_IMPORTS: Readonly<Record<string, readonly string[]>> = { [COMPOSITION_MODULE]: PROCESS_ROOTS }
 

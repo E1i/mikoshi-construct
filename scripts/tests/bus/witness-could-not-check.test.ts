@@ -7,7 +7,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
-import { appendEvent, openBus } from '../../core/db.js'
+import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, POLICY_DENIED, PR_OBSERVED, WITNESS_RECORDED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
@@ -17,7 +17,7 @@ import { WitnessNode } from '../../nodes/witness/witness-worker.js'
 import { GREEN, RED, UNCHECKED, witnessDenial, witnessRecordOf, witnessSubjectOf } from '../../policy/policy.js'
 import { SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
 import { greenWitnesses } from '../../release/evidence.js'
-import { answerParts, busProjections, witnessParts } from '../../supervisor/composition.js'
+import { answerParts, busProjections, openComposedBus, witnessParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 
 const CARD = 1698
@@ -93,7 +93,7 @@ function world(port: number, onBase: Record<string, string>, onHead: Record<stri
   const base = commit(repo, { 'README.md': 'base\n', [LAB]: LAB_TEXT, ...onBase }, 'base')
   const head = commit(repo, { 'done.txt': 'done\n', ...onHead }, 'head')
   const bus = path.join(root, 'bus.db')
-  const db = openBus(bus)
+  const db = openComposedBus(bus)
   dbs.push(db)
   const body = `Serve the page.\n\nWitnesses:\n- \`node ${LAB} page http://127.0.0.1:${port}/\` exits 0; red on main`
   const text = parkingFileText({ card: `#${CARD} unchecked [implement/construct/S/cheap/auto] · depends — · blocks —`, branch: 'feat/unchecked', touches: ['done.txt'], continue: 'stop', who: 'shift', body })

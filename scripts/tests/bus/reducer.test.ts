@@ -17,7 +17,7 @@ import { sayToOwnerChannel } from '../../owner/channel.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { allowLiveCommand } from '../../policy/live-decision.js'
 import { closeWaitsOfEndedCards } from '../../supervisor/card-waits.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, openComposedBus } from '../../supervisor/composition.js'
 import { lostRecutWaitText } from '../../supervisor/derive-queues.js'
 import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
 
@@ -35,7 +35,7 @@ afterEach(() => {
 function newBus(): ReturnType<typeof openBus> {
   const root = mkdtempSync(path.join(tmpdir(), 'bus-reducer-'))
   roots.push(root)
-  return openBus(path.join(root, 'bus.db'))
+  return openComposedBus(path.join(root, 'bus.db'))
 }
 
 function ownerChannelWith(...words: string[]): string {

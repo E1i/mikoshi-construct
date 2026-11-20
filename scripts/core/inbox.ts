@@ -1,16 +1,14 @@
 import type { DatabaseSync } from 'node:sqlite'
-import { realpathSync } from 'node:fs'
-import process from 'node:process'
-import { fileURLToPath } from 'node:url'
 import { DECISIONS, readCurrent, staleLine } from './bus-readings.js'
-import { CARD_BLOCKS, CARD_BODIES, registerCardFunctions } from './card-bodies.js'
-import { CLOSED_WAIT, defaultBusPath, openBus, OWNER_WAITS } from './db.js'
+import { CARD_BODIES } from './card-bodies.js'
+import { CLOSED_WAIT, OWNER_WAITS } from './db.js'
 import { CARD_ADMITTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, QUESTION_OWNER, SHARD_DECIDED, WINDOW_REQUEST } from './events.js'
 
 export { RESTART_MISSED } from './events.js'
 export const OWNER = 'owner'
 export const ANSWER_SOURCE = 'answer'
 export const PREFIX = '[bus:inbox] '
+export const CARD_BLOCKS = 'card_blocks'
 
 function blocksIn(event: string): string {
   return `coalesce(json_extract(${event}.payload, '$.card.blocks'), ${CARD_BLOCKS}(json_extract(${event}.payload, '$.card')))`
@@ -190,18 +188,4 @@ export function runInbox(db: DatabaseSync, out: (line: string) => void): number 
   if (lines.length === 0)
     out(`${PREFIX}the owner inbox is empty`)
   return 0
-}
-
-function openInboxBus(): DatabaseSync {
-  return registerCardFunctions(openBus(defaultBusPath()))
-}
-
-if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const db = openInboxBus()
-  try {
-    process.exitCode = runInbox(db, line => console.log(line))
-  }
-  finally {
-    db.close()
-  }
 }

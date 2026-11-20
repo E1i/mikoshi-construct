@@ -5,12 +5,12 @@ import { copyFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { appendEvent, openBus } from '../../core/db.js'
+import { appendEvent } from '../../core/db.js'
 import { prBodySha, taskKey } from '../../core/identifiers.js'
 import { completeTask, leaseNext } from '../../core/lease.js'
 import { queueTask, reviewCandidates, reviewKeysOfAnOldInput, reviewKeysOfTheCurrentInputAgain } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
-import { busProjections, candidateRules, cardTransitions, deriveQueuesOfTheBus } from '../../supervisor/composition.js'
+import { busProjections, candidateRules, cardTransitions, deriveQueuesOfTheBus, openComposedBus } from '../../supervisor/composition.js'
 
 const HEADS = ['0123456789abcdef0123456789abcdef01234567', '89abcdef0123456789abcdef0123456789abcdef']
 const MAIN = 'fedcba9876543210fedcba9876543210fedcba98'
@@ -25,7 +25,7 @@ afterEach(() => {
 function newBus(): DatabaseSync {
   const root = mkdtempSync(path.join(tmpdir(), 'bus-replay-'))
   roots.push(root)
-  return openBus(path.join(root, 'bus.db'))
+  return openComposedBus(path.join(root, 'bus.db'))
 }
 
 function live(type: string, dedupeKey: string, fields: Partial<BusEvent>): BusEvent {
@@ -117,7 +117,7 @@ describe('replay determinism', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'bus-replay-'))
     roots.push(root)
     const liveFile = path.join(root, 'bus.db')
-    const source = openBus(liveFile)
+    const source = openComposedBus(liveFile)
     for (const each of LOG)
       appendEvent(source, each)
     const prs = [930, 931, 932]
@@ -135,7 +135,7 @@ describe('replay determinism', () => {
     const copyFile = path.join(root, 'bus-copy.db')
     copyFileSync(liveFile, copyFile)
 
-    const copy = openBus(copyFile)
+    const copy = openComposedBus(copyFile)
     const before = projectionDump(copy)
     reduce(copy, 'pending', busProjections())
     expect(projectionDump(copy)).toBe(before)
@@ -168,7 +168,7 @@ describe('replay determinism', () => {
     source.prepare('VACUUM INTO ?').run(snapshot)
     source.close()
 
-    const copy = openBus(snapshot)
+    const copy = openComposedBus(snapshot)
     expect(copy.prepare('SELECT count(*) AS events FROM events').get()).not.toEqual({ events: 0 })
     expectReplayKeepsOldReviews(copy)
     copy.close()

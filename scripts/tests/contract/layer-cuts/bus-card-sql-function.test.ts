@@ -1,14 +1,18 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { AnswerRun } from '../../../nodes/answer/answer-worker.js'
+import { spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { CARD_BLOCKS } from '../../../../src/card/grammar.js'
 import { repositoryReport } from '../../../contract/module-graph/report.js'
-import { openBus } from '../../../core/db.js'
+import { BUS_DB_VARIABLE, openBus } from '../../../core/db.js'
+import { CARD_BLOCKS } from '../../../core/inbox.js'
 import { answerNodeOf } from '../../../nodes/answer/answer-worker.js'
 import { openComposedBus } from '../../../supervisor/composition.js'
+
+const INBOX_ROOT = path.join(import.meta.dirname, '..', '..', '..', 'owner', 'inbox.ts')
 
 const DB = 'scripts/core/db.ts'
 const GRAMMAR = 'src/card/grammar.ts'
@@ -62,4 +66,12 @@ describe('the bus opens the database and the card owner registers its own SQL fu
     opened.push(db)
     expect(() => blocksOf(db, CARD_LINE)).toThrow(/no such function/)
   })
+
+  it('the inbox root reads the owner inbox from a bus the composition opened', () => {
+    const file = busFile()
+    const printed = spawnSync(process.execPath, ['--import', 'tsx', INBOX_ROOT], { env: { ...process.env, [BUS_DB_VARIABLE]: file }, encoding: 'utf8' })
+    expect(printed.stderr).toBe('')
+    expect(printed.stdout).toContain('the owner inbox is empty')
+    expect(printed.status).toBe(0)
+  }, 60_000)
 })

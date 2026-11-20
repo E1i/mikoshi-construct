@@ -134,8 +134,6 @@ export function parseCard(text: string, milestones?: readonly string[]): ParsedC
   return { kind: 'card', card: { id: Number(id), name, kind, milestone, size, contour, decision, depends, blocks, line } }
 }
 
-export const CARD_BLOCKS = 'card_blocks'
-
 function blocksOfCardLine(line: unknown): string | null {
   if (typeof line !== 'string')
     return null
@@ -143,8 +141,8 @@ function blocksOfCardLine(line: unknown): string | null {
   return parsed.kind === 'card' ? JSON.stringify(parsed.card.blocks) : null
 }
 
-export function registerCardFunctions(db: DatabaseSync): DatabaseSync {
-  db.function(CARD_BLOCKS, { deterministic: true }, blocksOfCardLine)
+export function registerCardFunctions(db: DatabaseSync, blocks: string): DatabaseSync {
+  db.function(blocks, { deterministic: true }, blocksOfCardLine)
   return db
 }
 

@@ -2308,7 +2308,6 @@
           "scripts/cli/slot.ts",
           "scripts/conveyor/measures.ts",
           "scripts/core/bus-path.ts",
-          "scripts/core/inbox.ts",
           "scripts/core/journal.ts",
           "scripts/core/machine-sessions.ts",
           "scripts/core/reducer.ts",
@@ -3417,7 +3416,8 @@
         "scripts/nodes/update/update-worker.ts",
         "scripts/nodes/witness/witness-worker.ts",
         "scripts/nodes/launch/launch-root.ts",
-        "scripts/window/handoff-write.ts"
+        "scripts/window/handoff-write.ts",
+        "scripts/owner/inbox.ts"
       ]
     },
     "composition_roots": [
@@ -4556,7 +4556,6 @@
       },
       "src/card/grammar.ts": {
         "constants": [
-          "CARD_BLOCKS",
           "CARD_PATH_REASON",
           "SIZES"
         ],
@@ -4565,7 +4564,7 @@
           "cardTerms": "(card: Card): string",
           "parseCard": "(text: string, milestones?: readonly string[]): ParsedCard",
           "readBodyCard": "(body: string): ParsedCard",
-          "registerCardFunctions": "(db: DatabaseSync): DatabaseSync"
+          "registerCardFunctions": "(db: DatabaseSync, blocks: string): DatabaseSync"
         },
         "reexports": [],
         "types": {

@@ -7,14 +7,13 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { openBus } from '../../scripts/core/db.js'
 import { PROCESS_HEARTBEAT } from '../../scripts/core/events.js'
 import { ANSWER_SOURCE } from '../../scripts/core/inbox.js'
 import { Node } from '../../scripts/core/node.js'
 import { reduce } from '../../scripts/core/reducer.js'
 import { busCardEvents } from '../../scripts/intake/intake.js'
 import { sayToOwnerChannel } from '../../scripts/owner/channel.js'
-import { busProjections, nodeSupply } from '../../scripts/supervisor/composition.js'
+import { busProjections, nodeSupply, openComposedBus } from '../../scripts/supervisor/composition.js'
 import { SILENT_MS } from '../../scripts/supervisor/liveness-sites.js'
 import { slotsVariable } from '../../scripts/supervisor/scheduler.js'
 import { requestFromWindow, WindowRequests } from '../../scripts/window/window-requests.js'
@@ -119,7 +118,7 @@ describe('the board bus reader', () => {
 
   it('a wait the window opened shows on the board until it is closed', () => {
     const file = path.join(scratch(), 'bus.db')
-    const db = openBus(file)
+    const db = openComposedBus(file)
     const clock = (): Date => NOW
     const refusing = (): never => {
       throw new Error('not used by an owner wait')
@@ -329,7 +328,7 @@ describe('the board bus reader', () => {
 
   it('the slot total of a queue is what the last real node tick beat into the heartbeat table', async () => {
     const busFile = path.join(scratch(), 'bus.db')
-    const db = openBus(busFile)
+    const db = openComposedBus(busFile)
     try {
       for (const [beatAt, slots] of [[ago(2 * 60_000), '2'], [ago(60_000), '3']] as const) {
         const controller = new AbortController()
@@ -355,7 +354,7 @@ describe('the board bus reader', () => {
     mkdirSync(path.join(root, 'repo', 'src'), { recursive: true })
     writeFileSync(path.join(root, 'repo', 'src', 'a.ts'), '')
     const busFile = path.join(root, 'bus.db')
-    const db = openBus(busFile)
+    const db = openComposedBus(busFile)
     try {
       const events = busCardEvents(db, 'by-hand')
       expect(runAdmit({ file, dir: path.join(root, 'repo'), dryRun: false, autoConfirm: true, parkingRoot: parking, events }, () => NOW).status).toBe('admitted')

@@ -5,12 +5,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { appendEvent, BUS_DB_VARIABLE, openBus } from '../scripts/core/db.js'
+import { appendEvent, BUS_DB_VARIABLE } from '../scripts/core/db.js'
 import { REQUEST_DONE, REQUEST_REFUSED, WITNESS_RECORDED } from '../scripts/core/events.js'
 import { reduce } from '../scripts/core/reducer.js'
 import { busIntakePorts } from '../scripts/intake/intake.js'
 import { runOnTree } from '../scripts/ports/witnesses.js'
-import { busProjections } from '../scripts/supervisor/composition.js'
+import { busProjections, openComposedBus } from '../scripts/supervisor/composition.js'
 import { requestFromWindow, WindowRequests } from '../scripts/window/window-requests.js'
 import { witnessFieldsOf, witnessText } from '../src/card/witness-fields.js'
 import { deadOnTheBase, runAdmit } from '../src/commands/intake/admit.js'
@@ -52,7 +52,7 @@ function world(): World {
   const bus = path.join(root, 'bus.db')
   vi.stubEnv(BUS_DB_VARIABLE, bus)
   vi.stubEnv('HOME', root)
-  return { db: openBus(bus), repo, root }
+  return { db: openComposedBus(bus), repo, root }
 }
 
 function intakeOf(w: World) {

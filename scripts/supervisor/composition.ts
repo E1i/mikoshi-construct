@@ -36,10 +36,10 @@ import { appendedOnCard, CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpene
 import { admittedCardVersion, backfillPendingSliceParents, cardOfBranch } from '../core/card-bodies.js'
 import { cardDecisionReads, reviewedUnderTheCardDecision, reviewsTheCardDecisionReopens, withDecidedContinuations } from '../core/card-decisions.js'
 import { CHAINS_PROJECTION } from '../core/chain.js'
-import { openBus } from '../core/db.js'
+import { defaultBusPath, openBus } from '../core/db.js'
 import { CARD_DEFERRED, CARD_MOVED, CARD_PLANNED, CARD_STOPPED, CARD_UNPLANNED, DECISION_RECORDED, DECISIONS_IMPORTED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OBSERVED, PR_OPENED, RATCHET_THRESHOLD_SET, SLICE_PARENTS_BACKFILLED, TASK_ENQUEUED, TASK_REQUEUED } from '../core/events.js'
 import { isFullSha, prOf } from '../core/identifiers.js'
-import { OWNER, ownerQuestionAnswered } from '../core/inbox.js'
+import { CARD_BLOCKS, OWNER, ownerQuestionAnswered } from '../core/inbox.js'
 import { foreignVersion, instanceOf, provenIdentity, recordWorkerIdentity, UNHANDED } from '../core/node.js'
 import { orderDeclarationsAt, overlaps } from '../core/order/overlap.js'
 import { ownerWaitCommand } from '../core/owner-commands.js'
@@ -256,8 +256,12 @@ function decisionsAt(db: DatabaseSync, ts: string): InForceDecision[] {
   return decisionsInForceAt(db, new Date(ts))
 }
 
-export function openComposedBus(file: string): DatabaseSync {
-  return registerCardFunctions(openBus(file))
+export function composeBus(db: DatabaseSync): DatabaseSync {
+  return registerCardFunctions(db, CARD_BLOCKS)
+}
+
+export function openComposedBus(file: string = defaultBusPath()): DatabaseSync {
+  return composeBus(openBus(file))
 }
 
 export function candidateRules(): CandidateRules {
