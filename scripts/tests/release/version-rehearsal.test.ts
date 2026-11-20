@@ -1,12 +1,17 @@
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { afterAll, describe, expect, it } from 'vitest'
 import { processGit } from '../../ports/git.js'
+import { VERSION_PR_BRANCH_PREFIX } from '../../release/version-pr-guard.js'
 import { PRIVACY_STEP, rehearseVersion, VERSION_STEP, VERSIONED_TREE_TESTS } from '../../release/version-rehearsal.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..', '..')
 const MODULES = path.join(REPO_ROOT, 'node_modules')
+const REHEARSAL_SCRIPT = path.join(REPO_ROOT, 'scripts', 'release', 'version-rehearsal.ts')
+const FEATURE_BRANCH = 'feat/a-change'
 const REHEARSAL_TIMEOUT = 120_000
 const COPIED = ['.changeset/config.json', 'scripts/release-notes', 'scripts/privacy', 'scripts/core/owner-commands.ts']
 const REAL_SCRIPTS = ['version-packages', 'release-notes:render', 'privacy:check']
@@ -55,6 +60,51 @@ function fixtureRepository(summary: string, files: Record<string, string> = {}, 
   processGit.read(root, ['-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--quiet', '-m', 'fixture'])
   return root
 }
+
+function runRehearsal(root: string, headRef: string): { status: number | null, stdout: string, stderr: string } {
+  symlinkSync(MODULES, path.join(root, 'node_modules'), 'dir')
+  const ran = spawnSync(process.execPath, ['--import', 'tsx', REHEARSAL_SCRIPT], {
+    cwd: root,
+    encoding: 'utf8',
+    env: { ...process.env, GITHUB_HEAD_REF: headRef },
+  })
+  return { status: ran.status, stdout: ran.stdout, stderr: ran.stderr }
+}
+
+describe('the version rehearsal run as CI runs it', () => {
+  const breaking = `The bus records \`${DOTTED_EVENT_NAME}\` when a shift starts.`
+
+  it('on the version pull request rehearses nothing and exits 0, even when the tree would be red', { timeout: REHEARSAL_TIMEOUT }, () => {
+    const headRef = `${VERSION_PR_BRANCH_PREFIX}main`
+    const root = fixtureRepository(breaking)
+
+    const ran = runRehearsal(root, headRef)
+
+    expect(ran).toEqual({ status: 0, stdout: expect.stringContaining(`${headRef} is the version pull request`), stderr: '' })
+    expect(ran.stdout).not.toContain('version rehearsal is')
+  })
+
+  it('on any other pull request a red rehearsal exits 1 and writes its verdict to stderr only', { timeout: REHEARSAL_TIMEOUT }, () => {
+    const root = fixtureRepository(breaking)
+
+    const ran = runRehearsal(root, FEATURE_BRANCH)
+
+    expect(ran.status).toBe(1)
+    expect(ran.stdout).toBe('')
+    expect(ran.stderr).toContain(`version rehearsal is red at ${PRIVACY_STEP}, docs/release-notes/index.md:`)
+  })
+
+  it('a green rehearsal exits 0 and writes its verdict to stdout only', { timeout: REHEARSAL_TIMEOUT }, () => {
+    const passing = ['import { expect, it } from \'vitest\'', 'it(\'passes\', () => { expect(true).toBe(true) })', ''].join('\n')
+    const root = fixtureRepository('The bus records a shift when it starts.', Object.fromEntries(VERSIONED_TREE_TESTS.map(test => [test, passing])))
+
+    const ran = runRehearsal(root, FEATURE_BRANCH)
+
+    expect(ran.stderr).toBe('')
+    expect(ran.stdout).toContain('version rehearsal is green:')
+    expect(ran.status).toBe(0)
+  })
+})
 
 describe('every pull request rehearses the version step its changesets will take', () => {
   it('a changeset that breaks the versioned tree is red in the rehearsal', { timeout: REHEARSAL_TIMEOUT }, () => {
