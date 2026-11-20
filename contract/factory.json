@@ -2531,6 +2531,19 @@
         "source": "owner",
         "writers": []
       },
+      "~/.construct/bus/factory.started": {
+        "derived": false,
+        "directory": false,
+        "namedIn": [
+          "scripts/supervisor/launchd/install.ts",
+          "scripts/supervisor/start.ts"
+        ],
+        "owner": "scripts/supervisor/start.ts",
+        "source": "owner",
+        "writers": [
+          "scripts/supervisor/start.ts"
+        ]
+      },
       "~/.construct/bus/launch": {
         "derived": false,
         "directory": true,

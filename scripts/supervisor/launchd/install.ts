@@ -7,10 +7,10 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
-import { OWNER_AGENT } from '../../core/bus-path.js'
+import { busDirOf, OWNER_AGENT } from '../../core/bus-path.js'
 import { pnpmCommand } from '../../core/owner-commands.js'
 import { printBg } from '../bg.js'
-import { LAUNCH_AGENTS } from '../start.js'
+import { factoryBusOf, LAUNCH_AGENTS, startedMarkOf } from '../start.js'
 
 export const AGENT_COMMAND_PREFIX = '[bus:agent] '
 export const FACTORY_DIR_FLAG = 'factory-dir'
@@ -30,6 +30,10 @@ export interface AgentValues {
   tokenSource: string
 }
 
+export interface RenderedValues extends AgentValues {
+  startedMark: string
+}
+
 export interface AgentCommand extends AgentValues {
   apply: boolean
 }
@@ -42,6 +46,7 @@ export interface AgentParts {
   template: string
   home: string
   uid: number
+  startedMarkOf: (factoryDir: string) => string
   diff: (installed: string, rendered: string) => DiffRun
   launchctl: (args: string[]) => LaunchctlRun
 }
@@ -54,10 +59,11 @@ function shellQuoted(value: string): string {
   return `'${value.replaceAll('\'', `'\\''`)}'`
 }
 
-export function renderAgent(template: string, values: AgentValues): string {
+export function renderAgent(template: string, values: RenderedValues): string {
   const rendered = new Map([
     ['factoryDir', xmlEscaped(shellQuoted(values.factoryDir))],
     ['tokenSource', xmlEscaped(values.tokenSource)],
+    ['startedMark', xmlEscaped(values.startedMark)],
   ])
   return template.replaceAll(PLACEHOLDER, (placeholder: string, name: string) => {
     const value = rendered.get(name)
@@ -104,7 +110,7 @@ export function runAgentCommand(command: AgentCommand, parts: AgentParts): BgRes
   const refusals = refusalsOf(command)
   if (refusals.length > 0)
     return refused(refusals)
-  const rendered = renderAgent(parts.template, command)
+  const rendered = renderAgent(parts.template, { ...command, startedMark: parts.startedMarkOf(command.factoryDir) })
   const installed = path.join(parts.home, LAUNCH_AGENTS, `${OWNER_AGENT}.plist`)
   const diff = parts.diff(installed, rendered)
   if (diff.status > DIFF_FOUND_CHANGES)
@@ -155,6 +161,7 @@ function main(): void {
     template: readFileSync(TEMPLATE, 'utf8'),
     home: os.homedir(),
     uid: process.getuid?.() ?? 0,
+    startedMarkOf: factoryDir => startedMarkOf(busDirOf(factoryBusOf({ ...process.env }, os.homedir(), factoryDir))),
     diff: systemDiff,
     launchctl: systemLaunchctl,
   }))
