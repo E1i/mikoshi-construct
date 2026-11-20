@@ -7,10 +7,15 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { repositoryReport } from '../../../contract/module-graph/report.js'
-import { BUS_DB_VARIABLE, openBus } from '../../../core/db.js'
+import { appendEvent, BUS_DB_VARIABLE, openBus, openBusWait } from '../../../core/db.js'
+import { CARD_STOPPED, QUESTION_OWNER, REQUEST_DONE, REQUEST_REFUSED } from '../../../core/events.js'
 import { CARD_BLOCKS } from '../../../core/inbox.js'
+import { reduce } from '../../../core/reducer.js'
 import { answerNodeOf } from '../../../nodes/answer/answer-worker.js'
-import { openComposedBus } from '../../../supervisor/composition.js'
+import { cardDecisionCommand } from '../../../policy/shards.js'
+import { busProjections, openComposedBus } from '../../../supervisor/composition.js'
+import { runReducerLoop } from '../../../supervisor/reducer-thread.js'
+import { OWNER_WORD_NEEDED, runRequest } from '../../../window/window-requests.js'
 
 const INBOX_ROOT = path.join(import.meta.dirname, '..', '..', '..', 'owner', 'inbox.ts')
 
@@ -18,6 +23,8 @@ const DB = 'scripts/core/db.ts'
 const GRAMMAR = 'src/card/grammar.ts'
 const CARD_LINE = '#2113 cut-bus-card-sql-function [implement/construct/M/cheap/auto] · depends — · blocks #2114 #2115'
 const NOT_A_CARD = 'not a card line'
+const STOPPED_CARD = 2113
+const NOW = new Date('2026-11-21T09:00:00.000Z')
 
 const opened: DatabaseSync[] = []
 const dirs: string[] = []
@@ -73,5 +80,24 @@ describe('the bus opens the database and the card owner registers its own SQL fu
     expect(printed.stderr).toBe('')
     expect(printed.stdout).toContain('the owner inbox is empty')
     expect(printed.status).toBe(0)
+  }, 60_000)
+  it('the reducer thread answers an owner-wait-close request that reads card_blocks on the bus it opened', async () => {
+    const file = busFile()
+    const setup = openComposedBus(file)
+    opened.push(setup)
+    const ts = NOW.toISOString()
+    const wait = openBusWait(setup, ts, 'worker:answer:s1', { need: 'decision', text: `card #${STOPPED_CARD} asks: which path?`, command: cardDecisionCommand(STOPPED_CARD), card: STOPPED_CARD })
+    appendEvent(setup, { ts, type: CARD_STOPPED, actor: 'worker:answer:s1', cardId: STOPPED_CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${STOPPED_CARD}`, payload: { reason: QUESTION_OWNER, detail: 'which path?' }, legacy: false })
+    reduce(setup, 'pending', busProjections())
+    expect(runRequest(['owner.wait.close', '--id', wait, '--answer', 'go'], setup, NOW, 'test', () => {})).toBe(0)
+
+    let passes = 0
+    await runReducerLoop(file, path.join(path.dirname(file), 'home'), 0, () => passes++ === 0, () => {}, () => {})
+
+    const outcomes = setup.prepare('SELECT type, payload FROM events WHERE type IN (?, ?)').all(REQUEST_DONE, REQUEST_REFUSED) as { type: string, payload: string }[]
+    expect(outcomes).toHaveLength(1)
+    expect(outcomes[0]!.payload).not.toContain('no such function')
+    expect(outcomes[0]!.type).toBe(REQUEST_REFUSED)
+    expect(outcomes[0]!.payload).toContain(OWNER_WORD_NEEDED)
   }, 60_000)
 })

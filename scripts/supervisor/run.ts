@@ -243,6 +243,7 @@ export interface ComposedTick {
 export const QUIET_REDUCED_MS = TICK_MS
 
 export function composeReducerPass(db: DatabaseSync, busPath: string, clock: () => Date, home: string, repo: string = process.cwd(), env: NodeJS.ProcessEnv = process.env, log: (line: string) => void = console.log, quietMs: number = QUIET_REDUCED_MS): ReducerPass {
+  composeBus(db)
   const projections = busProjections()
   const requests = new WindowRequests(db, clock, realRequestTools(db, busPath, repo, env, projections), ownerChannelOfBus(home, busPath))
   const answer = (): void => {
