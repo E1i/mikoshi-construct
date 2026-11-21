@@ -4399,7 +4399,7 @@
       "scripts/intake/parking-reads.ts": 1,
       "scripts/intake/witness-fields-backfill.ts": 2,
       "scripts/ladder/ledger.ts": 2,
-      "scripts/nodes/answer/answer-candidates.ts": 7,
+      "scripts/nodes/answer/answer-candidates.ts": 4,
       "scripts/nodes/answer/answer-source.ts": 11,
       "scripts/nodes/answer/answer-worker.ts": 2,
       "scripts/nodes/answer/duties/publishing.ts": 3,
