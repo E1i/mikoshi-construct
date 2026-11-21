@@ -1,5 +1,6 @@
+import type { SpawnSyncReturns } from 'node:child_process'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -12,7 +13,7 @@ import { USAGE as OWNER_SAY_USAGE, PREFIX } from '../scripts/owner/say.js'
 import { USAGE as SHARD_USAGE } from '../scripts/policy/shard.js'
 import { USAGE as FACTORY_START_USAGE } from '../scripts/supervisor/start.js'
 import { USAGE as MIKO_WATCH_USAGE } from '../scripts/window/watch.js'
-import { assetsNamedBy, copyFactoryAssets, FACTORY_DIRECTORIES, factoryAssets, factoryBuild, factoryEntries, factoryGraph, importsOf, locatedBy, OUT_DIR, productBuild, scriptsNamedBy } from '../tsup.config.js'
+import { assetsNamedBy, copyFactoryAssets, FACTORY_DIRECTORIES, factoryAssets, factoryBuild, factoryEntries, factoryGraph, generatedRecordsReadBy, importsOf, locatedBy, OUT_DIR, productBuild, scriptsNamedBy } from '../tsup.config.js'
 
 const REPOSITORY = path.resolve(import.meta.dirname, '..')
 const PACKAGE_NAME = 'mikoshi-construct'
@@ -73,6 +74,26 @@ const OPENED_BY_PATH: Record<string, string> = {
 
 const PATH_BESIDE_AN_ENTRY = /path\.dirname\(FACTORY_\w+\.\w+\)/
 
+const REVIEW_PLANNER_PORT = 'scripts/ports/review-planner.ts'
+const REVIEW_WORKER = 'scripts/nodes/review/review-worker.ts'
+const LAYER_MAP_READER = 'scripts/core/layer-map.ts'
+const PLANNER_TIMEOUT_MS = 60_000
+const UNKNOWN_HEAD_LEASE = { taskKey: 'review:1:consumer', queue: 'review', cardId: 1, pr: null, head: null, leaseGen: 1, actor: 'worker:review' }
+const ANSWERED_CARD = '#1'
+const ANSWER_WORDS = 'go on from the package'
+const ANSWER_BIN = 'construct-answer'
+const TARBALL_ROOT = 'package'
+const OWNER_ANSWER_REQUEST = `owner.answer ${ANSWERED_CARD}`
+const MISSING_FILE = /ENOENT|ERR_MODULE_NOT_FOUND|Cannot find module/
+
+interface ConsumerRun {
+  script: string
+  args: string[]
+  plan: { depth: string }
+  childPlan: { depth: string }
+  globals: number
+}
+
 interface Packed {
   root: string
   files: string[]
@@ -80,7 +101,21 @@ interface Packed {
   prefix: string
 }
 
+interface Tarball {
+  root: string
+  file: string
+  files: string[]
+}
+
+interface Consumer {
+  root: string
+  directory: string
+  installed: string
+  files: string[]
+}
+
 let packed: Packed
+let consumer: Consumer
 
 function builtPathOf(source: string): string {
   return path.join(OUT_DIR, source.replace(/\.ts$/, '.js'))
@@ -112,19 +147,64 @@ function builtFiles(directory: string): string[] {
     .map(entry => path.join(entry.parentPath, entry.name))
 }
 
-async function packAndInstall(): Promise<Packed> {
-  const root = mkdtempSync(path.join(tmpdir(), 'package-factory-'))
+function reviewFromTheConsumer(consumer: Consumer): { run: SpawnSyncReturns<string>, read: () => ConsumerRun } {
+  const modules = {
+    port: pathToFileURL(path.join(consumer.installed, builtPathOf(REVIEW_PLANNER_PORT))).href,
+    worker: pathToFileURL(path.join(consumer.installed, builtPathOf(REVIEW_WORKER))).href,
+    layers: pathToFileURL(path.join(consumer.installed, builtPathOf(LAYER_MAP_READER))).href,
+  }
+  const evaluate = [
+    'const { port, worker, layers } = JSON.parse(process.env.MODULES)',
+    'const { PLANNER_ARGUMENTS, plannerProcess, REVIEW_PLANNER_SCRIPT } = await import(port)',
+    'const { childReviewPlanner } = await import(worker)',
+    'const { readLayerMap } = await import(layers)',
+    'const signal = AbortSignal.timeout(Number(process.env.PLANNER_TIMEOUT_MS))',
+    'const lease = JSON.parse(process.env.LEASE)',
+    'const printed = await plannerProcess(process.cwd(), JSON.stringify({ lease, earlier: null }), signal)',
+    'const plan = JSON.parse(printed.trim().split(\'\\n\').at(-1))',
+    'const childPlan = await childReviewPlanner(process.cwd())(lease, null, signal)',
+    'console.log(JSON.stringify({ script: REVIEW_PLANNER_SCRIPT, args: PLANNER_ARGUMENTS, plan, childPlan, globals: readLayerMap().globals.length }))',
+  ].join('\n')
+  const env = { ...cleanEnv(consumer.root, `home-${path.basename(consumer.directory)}`), MODULES: JSON.stringify(modules), LEASE: JSON.stringify(UNKNOWN_HEAD_LEASE), PLANNER_TIMEOUT_MS: String(PLANNER_TIMEOUT_MS) }
+  const run = spawnSync(process.execPath, ['--input-type=module', '--eval', evaluate], { cwd: consumer.directory, env, encoding: 'utf8' })
+  return { run, read: () => JSON.parse(run.stdout) as ConsumerRun }
+}
+
+async function packTarball(prefix: string): Promise<Tarball> {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), prefix)))
   const stage = path.join(root, 'stage')
   for (const file of PACKED_BESIDE_THE_BUILD)
     cpSync(path.join(REPOSITORY, file), path.join(stage, file), { recursive: true })
   const outDir = path.join(stage, OUT_DIR)
   await build({ ...productBuild, outDir, config: false, silent: true })
   await build({ ...factoryBuild, outDir, config: false, silent: true, onSuccess: async () => copyFactoryAssets(outDir) })
-  const env = npmEnv(root)
-  const [tarball] = JSON.parse(execFileSync('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', root], { cwd: stage, env, encoding: 'utf8' })) as { filename: string, files: { path: string }[] }[]
+  const [tarball] = JSON.parse(execFileSync('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', root], { cwd: stage, env: npmEnv(root), encoding: 'utf8' })) as { filename: string, files: { path: string }[] }[]
+  return { root, file: path.join(root, tarball!.filename), files: tarball!.files.map(file => file.path) }
+}
+
+async function packAndInstall(): Promise<Packed> {
+  const { root, file, files } = await packTarball('package-factory-')
   const prefix = path.join(root, 'prefix')
-  execFileSync('npm', ['install', '--global', '--prefix', prefix, path.join(root, tarball.filename), '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: root, env, encoding: 'utf8' })
-  return { root, files: tarball.files.map(file => file.path), installed: path.join(prefix, 'lib', 'node_modules', PACKAGE_NAME), prefix }
+  execFileSync('npm', ['install', '--global', '--prefix', prefix, file, '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: root, env: npmEnv(root), encoding: 'utf8' })
+  return { root, files, installed: path.join(prefix, 'lib', 'node_modules', PACKAGE_NAME), prefix }
+}
+
+async function packIntoAnEmptyConsumer(): Promise<Consumer> {
+  const { root, file, files } = await packTarball('package-consumer-')
+  const directory = path.join(root, 'consumer')
+  const modules = path.join(directory, 'node_modules')
+  mkdirSync(modules, { recursive: true })
+  writeFileSync(path.join(directory, 'package.json'), `${JSON.stringify({ name: 'consumer', private: true }, null, 2)}\n`)
+  execFileSync('tar', ['-xzf', file, '-C', modules])
+  renameSync(path.join(modules, TARBALL_ROOT), path.join(modules, PACKAGE_NAME))
+  const installed = path.join(modules, PACKAGE_NAME)
+  const { dependencies = {} } = JSON.parse(readFileSync(path.join(installed, 'package.json'), 'utf8')) as { dependencies?: Record<string, string> }
+  for (const dependency of Object.keys(dependencies)) {
+    const link = path.join(modules, dependency)
+    mkdirSync(path.dirname(link), { recursive: true })
+    symlinkSync(path.join(REPOSITORY, 'node_modules', dependency), link, 'dir')
+  }
+  return { root, directory, installed, files }
 }
 
 describe('what the factory build reaches from its entries', () => {
@@ -150,6 +230,21 @@ describe('what the factory build reaches from its entries', () => {
       'const CRUISER = path.join(REPO_ROOT, \'node_modules\', \'dependency-cruiser\', \'bin\', \'dependency-cruiser.mjs\')',
     ].join('\n')
     expect(locatedBy('scripts/nodes/x.ts', text).sort()).toEqual(['.claude/hooks/eddies-measure.mjs', 'scripts/nodes/launch/header.md'])
+  })
+
+  it('locates a worker named by a URL beside the module', () => {
+    const text = 'const PLANNER = fileURLToPath(new URL(\'../nodes/review/review-planner-worker.ts\', import.meta.url))\nconst ROOT = fileURLToPath(new URL(\'../..\', import.meta.url))'
+    expect(locatedBy('scripts/ports/x.ts', text)).toEqual(['scripts/nodes/review/review-planner-worker.ts'])
+  })
+
+  it('takes a generated record a module reads from its own location as an asset, and never a generated source or a record named without that anchor', () => {
+    expect(generatedRecordsReadBy('const ROOT = path.resolve(import.meta.dirname, \'..\', \'..\')\nconst RECORD = GENERATED_FILES.factory.path\nconst OWNS = GENERATED_FILES.moduleOwns.path')).toEqual(['contract/factory.json'])
+    expect(generatedRecordsReadBy('export function read(tree: string) { return path.join(tree, GENERATED_FILES.factory.path) }')).toEqual([])
+  })
+
+  it('ships contract/factory.json and builds the review planner worker, the two files a consumer opened and could not find', () => {
+    expect(factoryAssets()).toContain('contract/factory.json')
+    expect(factoryGraph()).toContain('scripts/nodes/review/review-planner-worker.ts')
   })
 
   it('has an entry started from the package for every factory directory, and every started entry is a factory entry', () => {
@@ -267,4 +362,44 @@ describe('the factory in the published package', () => {
     expect(empty.status).toBe(2)
     expect(readdirSync(channel)).toHaveLength(1)
   })
+})
+
+describe('the packed tarball in an empty consumer', () => {
+  beforeAll(async () => {
+    consumer = await packIntoAnEmptyConsumer()
+  }, PACK_TIMEOUT_MS)
+
+  afterAll(() => {
+    if (consumer !== undefined)
+      rmSync(consumer.root, { recursive: true, force: true })
+  })
+
+  it('the packed tarball installed into an empty consumer runs the review planner and reads contract/factory.json without ENOENT', () => {
+    const { run, read } = reviewFromTheConsumer(consumer)
+
+    expect(run.stderr).not.toMatch(MISSING_FILE)
+    expect(run.status, run.stderr).toBe(0)
+    const { script, args, plan, globals } = read()
+    expect(path.relative(consumer.installed, script).startsWith('..')).toBe(false)
+    expect(existsSync(script)).toBe(true)
+    expect(script.endsWith('.js')).toBe(true)
+    expect(args).not.toContain(TSX)
+    expect(plan.depth).toBe('full')
+    expect(globals).toBeGreaterThan(0)
+    expect(consumer.files).toContain(path.join(OUT_DIR, 'contract', 'factory.json'))
+  }, PACK_TIMEOUT_MS)
+
+  it('the packed tarball installed into an empty consumer runs a review and an answer round, not only the start', () => {
+    const { run, read } = reviewFromTheConsumer(consumer)
+    expect(run.status, run.stderr).toBe(0)
+    expect(read().childPlan.depth).toBe('full')
+
+    const { bin } = JSON.parse(readFileSync(path.join(consumer.installed, 'package.json'), 'utf8')) as { bin: Record<string, string> }
+    const env = cleanEnv(consumer.root, 'home-answer-round')
+    const answer = spawnSync(process.execPath, [path.join(consumer.installed, bin[ANSWER_BIN]!), ANSWERED_CARD, ANSWER_WORDS], { cwd: consumer.directory, env, encoding: 'utf8' })
+    expect(answer.stderr).not.toMatch(MISSING_FILE)
+    expect(answer.status, `${answer.stdout}\n${answer.stderr}`).toBe(0)
+    expect(answer.stdout).toContain(OWNER_ANSWER_REQUEST)
+    expect(existsSync(env.CONSTRUCT_BUS_DB!)).toBe(true)
+  }, PACK_TIMEOUT_MS)
 })
