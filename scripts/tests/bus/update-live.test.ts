@@ -11,7 +11,7 @@ import { detectionMode } from '../../core/node.js'
 import { keyOf } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, reviewLaunch } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { switchDetection, switchWorker, wantedLaunches } from '../../supervisor/workers.js'
 import { MAIN_2, MAIN_3, sha } from './github-fake.js'
@@ -19,7 +19,7 @@ import { benchOrderTick, eventsOf, mergeBench } from './merge-bench.js'
 import { benchNetWatch } from './net-watch-bench.js'
 
 const benches: MergeBench[] = []
-const NO_PREFLIGHT = (): string[] => []
+const NO_PREFLIGHT = reviewLaunch(() => [])
 
 beforeEach(() => {
   vi.spyOn(console, 'log').mockImplementation(() => {})

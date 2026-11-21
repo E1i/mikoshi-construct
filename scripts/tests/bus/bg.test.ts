@@ -17,9 +17,10 @@ import { MergeNode } from '../../nodes/merge/merge-worker.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
 import { AGENT_ENV, alive, BUS_FLAG, BUS_RUN_LAUNCH, BUS_RUN_MARKERS, busInArgs, carriesMarker, flagsInArgs, instancesOf, launchArgv, launchName, PREFIX, psList, RUN_SCRIPT, runBusBg, runningBus, runningInstance, servesBus, SHADOW_LOG, START_LOCK, START_LOCK_LIMIT_MS, startDetached, withBuses } from '../../supervisor/bg.js'
+import { REVIEW_WORKER_MARKERS, reviewLaunch } from '../../supervisor/composition.js'
 import { recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
-import { REVIEW_WORKER_MARKERS, startReviewWorker } from '../../supervisor/review-bg.js'
+import { startReviewWorker } from '../../supervisor/review-bg.js'
 import { factoryBusOf } from '../../supervisor/start.js'
 import { bgCommand, BusSupervisor, entryOf, gitCode, lastMainAdvance, mainAdvancedSince, startUnderAgentEnv, stopInstance, SUPERVISOR_LAUNCH, switchCommand } from '../../supervisor/supervisor.js'
 import { busLaunches, switchDetection, switchedOn, switchWorker, wantedLaunches, WORKERS_FILE } from '../../supervisor/workers.js'
@@ -44,6 +45,7 @@ afterEach(() => {
 
 const SYSTEM_BIN_DIRS = ['/bin', '/usr/bin']
 const NO_PREFLIGHT = (): string[] => []
+const NO_REVIEW_PREFLIGHT = reviewLaunch(NO_PREFLIGHT)
 const UNREAD_INSTANCE_FILE = 'bus-run.pid'
 const SUPERVISOR_ENTRY = path.resolve(import.meta.dirname, '..', '..', 'supervisor', 'supervisor.ts')
 
@@ -144,7 +146,7 @@ const SUPERVISOR_LINE = 'node /x/node_modules/tsx/dist/cli.mjs scripts/superviso
 const OWN_PACKAGE = '/own/package'
 
 function mergeLaunch(): DetachedLaunch {
-  return busLaunches(NO_PREFLIGHT).find(launch => launch.script === 'bus:merge')!
+  return busLaunches(NO_REVIEW_PREFLIGHT).find(launch => launch.script === 'bus:merge')!
 }
 
 interface Hand {
@@ -456,7 +458,7 @@ describe('pnpm bus:bg', () => {
     switchWorker(w.busDir, 'merge', true)
     const mergeByHand: RunningProcess = { pid: 4242, args: 'node /x/node_modules/tsx/dist/cli.mjs scripts/nodes/merge/merge-worker.ts --on' }
     const processes: ProcessList = () => [...w.processes(), mergeByHand]
-    const first = runBusBg(w.busDir, wantedLaunches(w.busDir, NO_PREFLIGHT), w.env, processes)
+    const first = runBusBg(w.busDir, wantedLaunches(w.busDir, NO_REVIEW_PREFLIGHT), w.env, processes)
     started.push(...pidsOf(first))
     expect(first.exitCode).toBe(0)
     expect(pidsOf(first)).toHaveLength(2)
@@ -464,7 +466,7 @@ describe('pnpm bus:bg', () => {
     expect(existsSync(path.join(w.busDir, 'bus-merge.pid'))).toBe(false)
     expect(readFileSync(path.join(w.busDir, 'bus-review.pid'), 'utf8').trim()).toBe(String(pidsOf(first)[1]))
     expect((await argvLines(w, 2)).sort()).toEqual(['--silent bus:review --on', '--silent bus:run'])
-    const second = runBusBg(w.busDir, wantedLaunches(w.busDir, NO_PREFLIGHT), w.env, processes)
+    const second = runBusBg(w.busDir, wantedLaunches(w.busDir, NO_REVIEW_PREFLIGHT), w.env, processes)
     expect(second.exitCode).toBe(0)
     expect(pidsOf(second)).toEqual([])
     expect(second.stdout).toHaveLength(3)
@@ -481,7 +483,7 @@ describe('pnpm bus:bg', () => {
     recordProcessHeartbeat(db, new Date().toISOString(), 'bus:review')
     db.close()
     const table = new InMemoryProcessTable({ rows: [{ pid: process.ppid, ppid: 1, pgid: process.ppid, started: 'Sun Nov  8 10:00:00 2026', command: `node --import tsx ${REVIEW_WORKER_MARKERS[0]} ${BUS_FLAG} ${bus}` }] })
-    const result = runBusBg(w.busDir, wantedLaunches(w.busDir, NO_PREFLIGHT).filter(launch => launch.script === 'bus:review'), { ...w.env, CONSTRUCT_BUS_DB: bus }, psList(table), startReviewWorker)
+    const result = runBusBg(w.busDir, wantedLaunches(w.busDir, NO_REVIEW_PREFLIGHT).filter(launch => launch.script === 'bus:review'), { ...w.env, CONSTRUCT_BUS_DB: bus }, psList(table), startReviewWorker)
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toEqual([`${PREFIX}bus:review --on is already running as pid ${process.ppid}; left alone`])
     expect(w.processes()).toEqual([])
@@ -495,7 +497,7 @@ describe('pnpm bus:bg', () => {
     const db = openBus(bus)
     recordProcessHeartbeat(db, new Date().toISOString(), 'bus:review')
     db.close()
-    const result = runBusBg(w.busDir, wantedLaunches(w.busDir, NO_PREFLIGHT).filter(launch => launch.script === 'bus:review'), { ...w.env, CONSTRUCT_BUS_DB: bus }, psList(new InMemoryProcessTable({ rows: [] })), startReviewWorker)
+    const result = runBusBg(w.busDir, wantedLaunches(w.busDir, NO_REVIEW_PREFLIGHT).filter(launch => launch.script === 'bus:review'), { ...w.env, CONSTRUCT_BUS_DB: bus }, psList(new InMemoryProcessTable({ rows: [] })), startReviewWorker)
     expect(result.exitCode).toBe(0)
     expect(pidsOf(result)).toHaveLength(1)
     expect(result.stdout.some(line => line.includes('already running'))).toBe(false)
@@ -509,7 +511,7 @@ describe('pnpm bus:bg', () => {
     expect(switchWorker(w.busDir, 'merge', false)).toEqual(['update'])
     switchWorker(w.busDir, 'update', false)
     expect(switchedOn(w.busDir)).toEqual([])
-    const result = runBusBg(w.busDir, wantedLaunches(w.busDir, NO_PREFLIGHT), w.env, w.processes)
+    const result = runBusBg(w.busDir, wantedLaunches(w.busDir, NO_REVIEW_PREFLIGHT), w.env, w.processes)
     started.push(...pidsOf(result))
     expect(result.exitCode).toBe(0)
     expect(pidsOf(result)).toHaveLength(1)
@@ -602,7 +604,7 @@ describe('pnpm bus:bg', () => {
     expect(own).not.toBe(machine)
     const busDir = busDirOf(own)
     switchWorker(busDir, 'review', true)
-    const launches = wantedLaunches(busDir, NO_PREFLIGHT)
+    const launches = wantedLaunches(busDir, NO_REVIEW_PREFLIGHT)
     const factoryOfA = launches.map((launch, index) => ({ pid: 4242 + index, args: `node /x/node_modules/tsx/dist/cli.mjs ${launch.markers[0]}`, bus: machine }))
     const result = runBusBg(busDir, launches, w.env, () => [...w.processes(), ...factoryOfA], startReviewWorker)
     started.push(...pidsOf(result))
@@ -690,7 +692,7 @@ interface Repo {
   commit: (file: string) => string
 }
 
-const ENTRIES = ['scripts/supervisor/supervisor.ts', ...busLaunches(() => []).map(launch => entryOf(launch)!)]
+const ENTRIES = ['scripts/supervisor/supervisor.ts', ...busLaunches(NO_REVIEW_PREFLIGHT).map(launch => entryOf(launch)!)]
 const SHARED_IMPORTS = `import './db.js'\nimport { LEASE_MS } from './lease.js'\nexport * from './queue.js'\n`
 const SHARED_FILE = 'scripts/core/db.ts'
 
@@ -734,8 +736,8 @@ function supervised(r: Repo, busDir: string, running: RunningProcess[], code: Bu
   const freed: string[][] = []
   let alive = [...running]
   const supervisor = new BusSupervisor({
-    known: busLaunches(reviewPreflight),
-    wanted: () => wantedLaunches(busDir, reviewPreflight),
+    known: busLaunches(reviewLaunch(reviewPreflight)),
+    wanted: () => wantedLaunches(busDir, reviewLaunch(reviewPreflight)),
     start: (launch: DetachedLaunch) => {
       const answered = startedAs(launch)
       if (answered !== null)

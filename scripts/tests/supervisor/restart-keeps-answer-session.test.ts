@@ -14,7 +14,7 @@ import { ChildLog, INSTANCE_VARIABLE, Node } from '../../core/node.js'
 import { keyOf, queueTaskWithin } from '../../core/queue.js'
 import { AnswerOutcomes } from '../../nodes/answer/duties/outcomes.js'
 import { launchName, PREFIX } from '../../supervisor/bg.js'
-import { cardTransitions, nodeSupply } from '../../supervisor/composition.js'
+import { cardTransitions, nodeSupply, reviewLaunch } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { slotsVariable } from '../../supervisor/scheduler.js'
 import { RESTART_WHY, signalLog } from '../../supervisor/signal-sent.js'
@@ -89,7 +89,7 @@ function bench() {
   const clock = { now: 0 }
   const date = (): Date => new Date(MERGED_AT + clock.now)
   const ts = (): string => date().toISOString()
-  const { answer, close } = workerLaunches(() => [])
+  const { answer, close } = workerLaunches(reviewLaunch(() => []))
   let alive: RunningProcess[] = [
     { pid: CLOSE_PID, args: `node pnpm.cjs --silent ${launchName(close)}` },
     { pid: ANSWER_WRAPPER_PID, args: `node pnpm.cjs --silent ${launchName(answer)}` },

@@ -42,7 +42,7 @@ import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { sessionEnv } from '../../ports/session.js'
 import { SESSION_BASH_CAP, TSX_PIPE_DIRECTORY } from '../../ports/shift-settings.js'
 import { WIDE_VITEST_HOOKS } from '../../ports/wide-vitest-guard.js'
-import { busProjections, cardTransitions, nodeSupply } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions, nodeSupply, reviewLaunch } from '../../supervisor/composition.js'
 import { recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { busLaunches } from '../../supervisor/workers.js'
@@ -1126,7 +1126,7 @@ describe('the launch queue', () => {
     await once()
     expect(starter.starts.map(card => card.cardId)).toEqual([960])
     expect(taskState(bench.db, launch(960))).toMatchObject({ state: 'completed' })
-    expect(busLaunches(() => []).map(each => [each.script, ...each.args].join(' '))).toContain('bus:launch --on')
+    expect(busLaunches(reviewLaunch(() => [])).map(each => [each.script, ...each.args].join(' '))).toContain('bus:launch --on')
     bench.close()
   })
 })
