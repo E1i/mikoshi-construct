@@ -6,7 +6,7 @@ import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { build } from 'tsup'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { FACTORY_FORMER_FOLDERS, FACTORY_NAMED } from '../scripts/core/factory-paths.js'
+import { FACTORY_FORMER_FOLDERS, FACTORY_NAMED, FACTORY_RUNTIME } from '../scripts/core/factory-paths.js'
 import { ownerChannelOfBus, UNUSED_WORD } from '../scripts/owner/channel.js'
 import { USAGE as OWNER_SAY_USAGE, PREFIX } from '../scripts/owner/say.js'
 import { USAGE as SHARD_USAGE } from '../scripts/policy/shard.js'
@@ -63,6 +63,15 @@ const READ_BESIDE_THE_MODULE: Record<string, string> = {
   'contract/contours': 'scripts/contract/contours.ts',
   'scripts/core/layer-map.json': 'scripts/core/layer-map.ts',
 }
+
+const OPENED_BY_PATH: Record<string, string> = {
+  windowMcpConfig: 'scripts/ports/client/claude/adapter.ts',
+  shiftHeader: 'scripts/nodes/launch/launch-root.ts',
+  knownLivenessSites: 'scripts/supervisor/liveness-sites.ts',
+  layerMap: 'scripts/core/layer-map.ts',
+}
+
+const PATH_BESIDE_AN_ENTRY = /path\.dirname\(FACTORY_\w+\.\w+\)/
 
 interface Packed {
   root: string
@@ -154,6 +163,22 @@ describe('what the factory build reaches from its entries', () => {
     const assets = factoryAssets()
     expect(Object.entries(SPAWNED_BY_THE_FACTORY).filter(([spawned, by]) => !graph.includes(spawned) || !graph.includes(by)).map(([spawned]) => spawned)).toEqual([])
     expect(Object.entries(READ_BESIDE_THE_MODULE).filter(([asset, by]) => !assets.includes(asset) || !graph.includes(by)).map(([asset]) => asset)).toEqual([])
+  })
+
+  it('every path-opened runtime asset is a declared runtime entry that copyFactoryAssets ships', () => {
+    const runtime: Record<string, string> = FACTORY_RUNTIME
+    const graph = factoryGraph()
+    const assets = factoryAssets()
+    expect(Object.keys(runtime).filter(entry => !runtime[entry]!.endsWith('.ts')).sort()).toEqual(Object.keys(OPENED_BY_PATH).sort())
+    expect(assets).toContain(runtime.windowMcpConfig)
+    expect(Object.entries(OPENED_BY_PATH).filter(([entry, opener]) => runtime[entry] === undefined
+      || !assets.includes(runtime[entry]!)
+      || !graph.includes(opener)
+      || !readFileSync(path.join(REPOSITORY, opener), 'utf8').includes(`FACTORY_RUNTIME.${entry}`)).map(([entry]) => entry)).toEqual([])
+  })
+
+  it('no factory source builds a path to an asset beside another runtime entry', () => {
+    expect(factoryGraph().filter(source => PATH_BESIDE_AN_ENTRY.test(readFileSync(path.join(REPOSITORY, source), 'utf8')))).toEqual([])
   })
 
   it('copies a plain .mjs module a factory script imports as it is, and never hands it to tsup as an entry', () => {
