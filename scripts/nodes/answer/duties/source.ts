@@ -2,9 +2,10 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../../core/lease.js'
 import type { AnswerSource, CardSession } from '../answer-source.js'
 import type { TreeMerge } from './tree.js'
-import { CLOSED_WAIT, OWNER_WAITS } from '../../../core/bus-readings.js'
+import { CLOSED_WAIT, openOwnerWaits, OWNER_WAITS } from '../../../core/bus-readings.js'
+import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../../../core/card-automaton.js'
 import { closeOwnerWait, inTransaction, openBusWait } from '../../../core/db.js'
-import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_CLOSED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER, WITNESS_RECORDED } from '../../../core/events.js'
+import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_DROPPED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, WITNESS_RECORDED } from '../../../core/events.js'
 import { openDecisionWaitsOf, unmergedDependenciesOf } from '../../../core/queue.js'
 import { cardDecisionCommand, decisionsInForceAt } from '../../../policy/shards.js'
 import { BusRead } from '../../../ports/bus-read.js'
@@ -45,6 +46,65 @@ const RED_WITNESS_ON_HEAD = `
   WHERE red.id = (SELECT max(latest.id) FROM events AS latest WHERE latest.type = '${WITNESS_RECORDED}' AND latest.legacy = 0 AND latest.pr = ? AND latest.head = ?)
     AND json_extract(red.payload, '$.verdict') = 'red'
 `
+
+const FULL_SHA = /^[0-9a-f]{40}$/
+const CARD_ENDS: readonly string[] = [MERGED_CARD, CLOSED_CARD, DROPPED_CARD]
+const LATER_TURNS = [CARD_STOPPED, CARD_STARTED] as const
+const PULL_REQUEST_LINKS = [PR_OPENED, PR_OBSERVED] as const
+const CARD_END_EVENTS = [CARD_CLOSED, CARD_DROPPED] as const
+const NOBODY_IGNORED = ''
+
+export interface StrandedAnswer {
+  session: string
+  from: string | null
+  to: string
+}
+
+function underAnOpenOwnerWait(db: DatabaseSync, read: BusRead): (cardId: number) => boolean {
+  const reduced = new Set(openOwnerWaits(db).flatMap(wait => wait.card === null ? [] : [wait.card]))
+  let closed: ReadonlySet<unknown> | undefined
+  return (cardId) => {
+    if (reduced.has(cardId))
+      return true
+    const opened = read.where({ card: cardId }).slice(OWNER_WAIT_OPENED, ['id'])
+    if (opened.length === 0)
+      return false
+    closed ??= new Set(read.slice(OWNER_WAIT_CLOSED, ['id']).map(event => event.fields.id))
+    return opened.some(event => !closed!.has(event.fields.id))
+  }
+}
+
+function strandedAnswerIn(read: BusRead, waited: (cardId: number) => boolean, cardId: number): StrandedAnswer | null {
+  const card = read.where({ card: cardId })
+  const answer = card.slice(CARD_ANSWERED, ['session', 'from', 'to'], 'last')[0]
+  const { session, from, to } = answer?.fields ?? {}
+  if (answer === undefined || answer.pr !== null || typeof to !== 'string' || !FULL_SHA.test(to))
+    return null
+  if (LATER_TURNS.some(type => card.slice(type, [], 'last').some(turn => turn.id > answer.id)))
+    return null
+  if (PULL_REQUEST_LINKS.some(type => card.where({ legacy: true }).slice(type, []).some(link => link.pr !== null)))
+    return null
+  if (CARD_END_EVENTS.some(type => card.where({ legacy: true }).slice(type, [], 'last').length > 0))
+    return null
+  if (waited(cardId))
+    return null
+  return { session: typeof session === 'string' ? session : '', from: typeof from === 'string' ? from : null, to }
+}
+
+export function strandedAnswerOf(db: DatabaseSync, cardId: number, head: string): StrandedAnswer | null {
+  const read = new BusRead(db)
+  const stranded = strandedAnswerIn(read, underAnOpenOwnerWait(db, read), cardId)
+  return stranded?.to === head ? stranded : null
+}
+
+export function strandedAnswers(db: DatabaseSync): { card: number, answer: StrandedAnswer }[] {
+  const read = new BusRead(db)
+  const waited = underAnOpenOwnerWait(db, read)
+  return read.cardsNobodyHolds(CARD_ENDS, NOBODY_IGNORED).filter(card => card.pr === null).flatMap((card) => {
+    const answer = strandedAnswerIn(read, waited, card.card)
+    return answer === null ? [] : [{ card: card.card, answer }]
+  })
+}
 
 export class AnswerSources {
   constructor(private readonly parts: SourceParts) {}

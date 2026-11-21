@@ -363,6 +363,7 @@
     "scripts/tests/bus/answer-pulls-main.test.ts",
     "scripts/tests/bus/answer-pushes-only-after-the-gate.test.ts",
     "scripts/tests/bus/answer-queue.test.ts",
+    "scripts/tests/bus/answer-republish.test.ts",
     "scripts/tests/bus/answer-slots.test.ts",
     "scripts/tests/bus/answer-stale-head.test.ts",
     "scripts/tests/bus/answer-standing-decision.test.ts",
