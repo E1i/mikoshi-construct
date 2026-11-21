@@ -65,77 +65,79 @@ function withTasks(): DatabaseSync {
   return bus
 }
 
-describe('the card domain reads tasks and prs through their owners, not through SQL of its own', () => {
-  it('tasks.ofCard gives the launch lease the session read by its own SQL', () => {
-    db = withTasks()
-    const before = { ...db.prepare('SELECT task_key, state, lease_gen FROM tasks WHERE queue = \'launch\' AND card_id = ? ORDER BY event_id DESC LIMIT 1').get(CARD) }
-    const now = tasks.ofCard(db, CARD, { queue: 'launch' }).at(-1)!
-    expect({ task_key: now.task_key, state: now.state, lease_gen: now.lease_gen }).toEqual(before)
-    expect(before).toEqual({ task_key: 'launch:0', state: 'leased', lease_gen: 3 })
+describe('the card domain reads the tables of other owners only through their contracts', () => {
+  describe('the card domain reads tasks and prs through their owners, not through SQL of its own', () => {
+    it('tasks.ofCard gives the launch lease the session read by its own SQL', () => {
+      db = withTasks()
+      const before = { ...db.prepare('SELECT task_key, state, lease_gen FROM tasks WHERE queue = \'launch\' AND card_id = ? ORDER BY event_id DESC LIMIT 1').get(CARD) }
+      const now = tasks.ofCard(db, CARD, { queue: 'launch' }).at(-1)!
+      expect({ task_key: now.task_key, state: now.state, lease_gen: now.lease_gen }).toEqual(before)
+      expect(before).toEqual({ task_key: 'launch:0', state: 'leased', lease_gen: 3 })
+    })
+
+    it('tasks.ofCard gives the withdrawn answers since an event that card-hold read by its own SQL', () => {
+      db = withTasks()
+      const since = 1
+      const before = plain(db.prepare('SELECT task_key, queue, card_id, pr, head, state, event_id FROM tasks WHERE card_id = ? AND queue = \'answer\' AND state = ? AND event_id > ? ORDER BY task_key').all(CARD, 'withdrawn', since) as Record<string, unknown>[])
+      const now = tasks.ofCard(db, CARD, { queue: 'answer', state: 'withdrawn', after: since })
+        .map(({ task_key, queue, card_id, pr, head, state, event_id }) => ({ task_key, queue, card_id, pr, head, state, event_id }))
+        .sort((a, b) => a.task_key.localeCompare(b.task_key))
+      expect(now).toEqual(before)
+      expect(now.map(task => task.task_key)).toEqual(['answer:a'])
+    })
+
+    it('tasks.ofCard keeps the order of events and leaves out the tasks of other cards', () => {
+      db = withTasks()
+      expect(tasks.ofCard(db, CARD).map(task => task.task_key)).toEqual(['answer:z', 'launch:1', 'launch:0', 'answer:a'])
+      expect(tasks.ofCard(db, OTHER_CARD).map(task => task.task_key)).toEqual(['launch:2'])
+      expect(tasks.ofCard(db, 1)).toEqual([])
+    })
+
+    it('prs.ofPr and prs.ofCard give the rows of prs as values', () => {
+      db = openBus(':memory:')
+      const event = anEvent(db, CARD, 0)
+      aPr(db, 52, CARD, 'merged', event)
+      aPr(db, 51, CARD, 'open', event)
+      aPr(db, 53, null, 'open', event)
+      expect(prs.ofPr(db, 52)).toEqual({ ...db.prepare('SELECT * FROM prs WHERE pr = 52').get() })
+      expect(prs.ofPr(db, 52)?.state).toBe('merged')
+      expect(prs.ofPr(db, 99)).toBeNull()
+      expect(prs.ofCard(db, CARD).map(row => row.pr)).toEqual([51, 52])
+      expect(prs.ofCard(db, OTHER_CARD)).toEqual([])
+    })
   })
 
-  it('tasks.ofCard gives the withdrawn answers since an event that card-hold read by its own SQL', () => {
-    db = withTasks()
-    const since = 1
-    const before = plain(db.prepare('SELECT task_key, queue, card_id, pr, head, state, event_id FROM tasks WHERE card_id = ? AND queue = \'answer\' AND state = ? AND event_id > ? ORDER BY task_key').all(CARD, 'withdrawn', since) as Record<string, unknown>[])
-    const now = tasks.ofCard(db, CARD, { queue: 'answer', state: 'withdrawn', after: since })
-      .map(({ task_key, queue, card_id, pr, head, state, event_id }) => ({ task_key, queue, card_id, pr, head, state, event_id }))
-      .sort((a, b) => a.task_key.localeCompare(b.task_key))
-    expect(now).toEqual(before)
-    expect(now.map(task => task.task_key)).toEqual(['answer:a'])
+  async function ruleWithoutExceptions(): Promise<ESLint> {
+    const eslint = new ESLint({ cwd: REPO_ROOT })
+    const config = await eslint.calculateConfigForFile(path.join(REPO_ROOT, CARD_HOLD)) as { languageOptions: { parser: Linter.Parser } }
+    return new ESLint({
+      cwd: REPO_ROOT,
+      overrideConfigFile: true,
+      overrideConfig: [
+        { files: ['**/*.{ts,mts,cts,js,mjs,cjs}'], languageOptions: { parser: config.languageOptions.parser, sourceType: 'module' }, linterOptions: { reportUnusedDisableDirectives: 'off' } },
+        ...FOREIGN_TABLE_SQL_POLICY.map(block => ({ ...block, ignores: (block.ignores ?? []).filter(ignored => !EXCEPTED.includes(ignored)) })),
+      ],
+    })
+  }
+
+  async function foreignTablesOf(files: readonly string[]): Promise<Record<string, string[]>> {
+    const results = await (await ruleWithoutExceptions()).lintFiles([...files])
+    return Object.fromEntries(results.map(result => [
+      path.relative(REPO_ROOT, result.filePath),
+      [...new Set(result.messages.filter(message => message.ruleId === RULE).map(message => NAMED_TABLE.exec(message.message)?.[1] ?? message.message))].sort(),
+    ]))
+  }
+
+  describe('what the card domain still names of a foreign table', () => {
+    it('card-hold names no foreign table and has left the excepted list', async () => {
+      expect(EXCEPTED).not.toContain(CARD_HOLD)
+      expect(await foreignTablesOf([CARD_HOLD])).toEqual({ [CARD_HOLD]: [] })
+    }, LINT_MS)
+
+    it('card-automaton and card-waits name only the foreign tables of the table, and stay excepted for them', async () => {
+      for (const file of Object.keys(FOREIGN_TABLES_LEFT))
+        expect(EXCEPTED, file).toContain(file)
+      expect(await foreignTablesOf(Object.keys(FOREIGN_TABLES_LEFT))).toEqual(FOREIGN_TABLES_LEFT)
+    }, LINT_MS)
   })
-
-  it('tasks.ofCard keeps the order of events and leaves out the tasks of other cards', () => {
-    db = withTasks()
-    expect(tasks.ofCard(db, CARD).map(task => task.task_key)).toEqual(['answer:z', 'launch:1', 'launch:0', 'answer:a'])
-    expect(tasks.ofCard(db, OTHER_CARD).map(task => task.task_key)).toEqual(['launch:2'])
-    expect(tasks.ofCard(db, 1)).toEqual([])
-  })
-
-  it('prs.ofPr and prs.ofCard give the rows of prs as values', () => {
-    db = openBus(':memory:')
-    const event = anEvent(db, CARD, 0)
-    aPr(db, 52, CARD, 'merged', event)
-    aPr(db, 51, CARD, 'open', event)
-    aPr(db, 53, null, 'open', event)
-    expect(prs.ofPr(db, 52)).toEqual({ ...db.prepare('SELECT * FROM prs WHERE pr = 52').get() })
-    expect(prs.ofPr(db, 52)?.state).toBe('merged')
-    expect(prs.ofPr(db, 99)).toBeNull()
-    expect(prs.ofCard(db, CARD).map(row => row.pr)).toEqual([51, 52])
-    expect(prs.ofCard(db, OTHER_CARD)).toEqual([])
-  })
-})
-
-async function ruleWithoutExceptions(): Promise<ESLint> {
-  const eslint = new ESLint({ cwd: REPO_ROOT })
-  const config = await eslint.calculateConfigForFile(path.join(REPO_ROOT, CARD_HOLD)) as { languageOptions: { parser: Linter.Parser } }
-  return new ESLint({
-    cwd: REPO_ROOT,
-    overrideConfigFile: true,
-    overrideConfig: [
-      { files: ['**/*.{ts,mts,cts,js,mjs,cjs}'], languageOptions: { parser: config.languageOptions.parser, sourceType: 'module' }, linterOptions: { reportUnusedDisableDirectives: 'off' } },
-      ...FOREIGN_TABLE_SQL_POLICY.map(block => ({ ...block, ignores: (block.ignores ?? []).filter(ignored => !EXCEPTED.includes(ignored)) })),
-    ],
-  })
-}
-
-async function foreignTablesOf(files: readonly string[]): Promise<Record<string, string[]>> {
-  const results = await (await ruleWithoutExceptions()).lintFiles([...files])
-  return Object.fromEntries(results.map(result => [
-    path.relative(REPO_ROOT, result.filePath),
-    [...new Set(result.messages.filter(message => message.ruleId === RULE).map(message => NAMED_TABLE.exec(message.message)?.[1] ?? message.message))].sort(),
-  ]))
-}
-
-describe('what the card domain still names of a foreign table', () => {
-  it('card-hold names no foreign table and has left the excepted list', async () => {
-    expect(EXCEPTED).not.toContain(CARD_HOLD)
-    expect(await foreignTablesOf([CARD_HOLD])).toEqual({ [CARD_HOLD]: [] })
-  }, LINT_MS)
-
-  it('card-automaton and card-waits name only the foreign tables of the table, and stay excepted for them', async () => {
-    for (const file of Object.keys(FOREIGN_TABLES_LEFT))
-      expect(EXCEPTED, file).toContain(file)
-    expect(await foreignTablesOf(Object.keys(FOREIGN_TABLES_LEFT))).toEqual(FOREIGN_TABLES_LEFT)
-  }, LINT_MS)
 })
