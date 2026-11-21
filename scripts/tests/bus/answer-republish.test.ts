@@ -9,8 +9,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
+import { openOwnerWaits } from '../../core/bus-readings.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, PR_OBSERVED, PR_OPENED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, PR_OBSERVED, PR_OPENED, QUESTION_OWNER } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { queueTask } from '../../core/queue.js'
 import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
@@ -140,4 +141,60 @@ describe('an answered card the answer round left with no pull request', () => {
     expect(outcome).toMatchObject({ kind: 'denied', denial: { reason: 'nothing_to_answer' } })
     expect(bench.liveTasks()).toEqual([])
   })
+
+  it('a publish that opens no pull request stops the card for the owner', async () => {
+    const bench = answeredCardWithNoPullRequest()
+    const publish = vi.fn()
+
+    const outcome = await bench.answer(publish)
+    bench.made.tick()
+
+    expect(publish).toHaveBeenCalledTimes(1)
+    expect(outcome).toMatchObject({ kind: 'stopped', reason: QUESTION_OWNER, detail: expect.stringContaining(`card #${CARD} was answered at ${sha('b')} with no pull request`) })
+    expect(openOwnerWaits(bench.made.db).filter(wait => wait.card === CARD)).toHaveLength(1)
+  })
+
+  it('a stranded card leased on a head other than the answered one is not published', async () => {
+    const bench = answeredCardWithNoPullRequest(anAnswerTaskOn(sha('c')))
+    const publish = vi.fn()
+
+    expect(bench.liveTasks()).toEqual([`answer:${CARD}:-:${sha('c')}`])
+    const outcome = await bench.answer(publish)
+
+    expect(publish).not.toHaveBeenCalled()
+    expect(outcome.kind).not.toBe('published')
+    expect(outcome.kind).not.toBe('stopped')
+  })
+
+  it('an answer whose to is not a full sha leaves no stranded card', () => {
+    const bench = answeredCardWithNoPullRequest(answeredAgainTo('main'))
+
+    expect(bench.liveTasks()).toEqual([])
+    expect(bench.candidates()).not.toContain(CARD)
+  })
+
+  it('a pull request opened after the lease keeps the answer node from republishing the card', async () => {
+    const bench = answeredCardWithNoPullRequest()
+    const publish = vi.fn()
+    treePrOpens(bench.made, OPENED_PR)()
+
+    const outcome = await bench.answer(publish)
+
+    expect(publish).not.toHaveBeenCalled()
+    expect(outcome.kind).not.toBe('published')
+    expect(outcome.kind).not.toBe('stopped')
+    expect(openOwnerWaits(bench.made.db).filter(wait => wait.card === CARD)).toEqual([])
+  })
 })
+
+function anAnswerTaskOn(head: string): Condition {
+  return (made) => {
+    queueTask(made.db, made.clock.now().toISOString(), { queue: 'answer', cardId: CARD, head })
+  }
+}
+
+function answeredAgainTo(to: string): Condition {
+  return (made) => {
+    appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_ANSWERED, actor: 'worker:answer:worker-1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ANSWERED}:${CARD}:second`, payload: { session: SESSION, worktree: 'unused', resumed: true, source: 'question', from: sha('b'), to }, legacy: false })
+  }
+}
