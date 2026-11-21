@@ -16,6 +16,7 @@ import type { WitnessParts } from '../nodes/witness/witness-candidates.js'
 import type { InForceDecision } from '../policy/decisions/index.js'
 import type { GitHub } from '../ports/github.js'
 import type { PlanParts } from '../window/plan-folds.js'
+import type { DetachedLaunch } from './bg.js'
 import type { CardWaitParts } from './card-waits.js'
 import type { DeadEndEvents, DeadEndParts } from './dead-ends.js'
 import type { QueuePass } from './derive-queues.js'
@@ -38,9 +39,10 @@ import { cardDecisionReads, reviewedUnderTheCardDecision, reviewsTheCardDecision
 import { CHAINS_PROJECTION } from '../core/chain.js'
 import { defaultBusPath, openBus } from '../core/db.js'
 import { CARD_DEFERRED, CARD_MOVED, CARD_PLANNED, CARD_STOPPED, CARD_UNPLANNED, DECISION_RECORDED, DECISIONS_IMPORTED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OBSERVED, PR_OPENED, RATCHET_THRESHOLD_SET, SLICE_PARENTS_BACKFILLED, TASK_ENQUEUED, TASK_REQUEUED } from '../core/events.js'
+import { FACTORY_WORKERS } from '../core/factory-paths.js'
 import { isFullSha, prOf } from '../core/identifiers.js'
 import { CARD_BLOCKS, OWNER, ownerQuestionAnswered } from '../core/inbox.js'
-import { foreignVersion, instanceOf, provenIdentity, recordWorkerIdentity, UNHANDED } from '../core/node.js'
+import { foreignVersion, instanceOf, provenIdentity, recordWorkerIdentity, SWITCH_FLAG, UNHANDED } from '../core/node.js'
 import { orderDeclarationsAt, overlaps } from '../core/order/overlap.js'
 import { ownerWaitCommand } from '../core/owner-commands.js'
 import { linkRefusal, openedPrOf, prFolds, prRow } from '../core/pr-folds.js'
@@ -75,6 +77,26 @@ import { busSessionPulse, heartbeatEnv, measureCardSession, ownStart, recordProc
 import { SILENT_MS } from './liveness-sites.js'
 import { ownIdentity, tableIdentity } from './recorded-worker.js'
 import { slotsOf, slotsVariable } from './scheduler.js'
+
+export const REVIEW_PREFIX = '[bus:review:bg] '
+export const REVIEW_SCRIPT = 'bus:review'
+export const REVIEW_LOG = 'review.log'
+export const REVIEW_INSTANCE_FILE = 'bus-review.pid'
+export const REVIEW_START_LOCK = 'bus-review-bg.lock'
+export const REVIEW_WORKER_MARKERS = [`${FACTORY_WORKERS.review} ${SWITCH_FLAG}`, `--silent ${REVIEW_SCRIPT} ${SWITCH_FLAG}`] as const
+
+export function reviewLaunch(preflight: () => string[]): DetachedLaunch {
+  return {
+    prefix: REVIEW_PREFIX,
+    script: REVIEW_SCRIPT,
+    args: [SWITCH_FLAG],
+    markers: REVIEW_WORKER_MARKERS,
+    instanceFile: REVIEW_INSTANCE_FILE,
+    startLock: REVIEW_START_LOCK,
+    log: REVIEW_LOG,
+    preflight,
+  }
+}
 
 export interface NodeLiveness {
   silentMs: number

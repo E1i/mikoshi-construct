@@ -20,7 +20,7 @@ import { runRestartWorker } from '../../nodes/restart/restart-worker.js'
 import { REQUIRED_CHECK } from '../../ports/gh.js'
 import { NetWatch } from '../../ports/netwatch.js'
 import { launchName, RUN_SCRIPT } from '../../supervisor/bg.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, reviewLaunch } from '../../supervisor/composition.js'
 import { BusTick, tickOrLocked } from '../../supervisor/run.js'
 import { recordWorkerDown, WorkerKeeper } from '../../supervisor/supervisor.js'
 import { workerLaunches } from '../../supervisor/workers.js'
@@ -253,7 +253,7 @@ describe('a bus:run restart holds no write longer than a node waits', () => {
     clock.advance(TICK_MS)
     expect(tickOrLocked(busTick)).not.toEqual([])
     const supervisorDb = openBus(file)
-    const restart = workerLaunches(() => []).restart
+    const restart = workerLaunches(reviewLaunch(() => [])).restart
     const journal: Record<string, unknown>[] = []
     const keeper = new WorkerKeeper({
       wanted: () => [restart],

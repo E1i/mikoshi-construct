@@ -4,13 +4,14 @@ import path from 'node:path'
 import process from 'node:process'
 import { Writable } from 'node:stream'
 import { describe, expect, it } from 'vitest'
+import { reviewLaunch } from '../../supervisor/composition.js'
 import { LineStamper, STAMP_ENV, stampLogOutput, stampStream } from '../../supervisor/stamp.js'
 import { SUPERVISOR_LAUNCH } from '../../supervisor/supervisor.js'
 import { busLaunches } from '../../supervisor/workers.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const PACKAGE_SCRIPTS = (JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')) as { scripts: Record<string, string> }).scripts
-const DETACHED_SCRIPTS = [...busLaunches(() => []), SUPERVISOR_LAUNCH].map(launch => launch.script)
+const DETACHED_SCRIPTS = [...busLaunches(reviewLaunch(() => [])), SUPERVISOR_LAUNCH].map(launch => launch.script)
 
 function entryOf(script: string): string {
   const command = PACKAGE_SCRIPTS[script] ?? ''

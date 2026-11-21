@@ -6,20 +6,12 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { busDirOf, pinBus } from '../core/bus-path.js'
 import { openBus } from '../core/db.js'
-import { FACTORY_WORKERS } from '../core/factory-paths.js'
 import { nodeProcess } from '../core/node.js'
 import { shadowReading } from '../core/report.js'
-import { REVIEW_READS, SWITCH_FLAG } from '../nodes/review/review-worker.js'
+import { REVIEW_READS } from '../nodes/review/review-worker.js'
 import { printBg, psList, startDetached, thisBus } from './bg.js'
-import { busProjections } from './composition.js'
+import { busProjections, REVIEW_INSTANCE_FILE, REVIEW_WORKER_MARKERS, reviewLaunch } from './composition.js'
 import { recordedWorker } from './recorded-worker.js'
-
-export const PREFIX = '[bus:review:bg] '
-export const REVIEW_SCRIPT = 'bus:review'
-export const REVIEW_LOG = 'review.log'
-export const REVIEW_INSTANCE_FILE = 'bus-review.pid'
-export const REVIEW_START_LOCK = 'bus-review-bg.lock'
-export const REVIEW_WORKER_MARKERS = [`${FACTORY_WORKERS.review} ${SWITCH_FLAG}`, `--silent ${REVIEW_SCRIPT} ${SWITCH_FLAG}`] as const
 
 export function busShadowProblems(busPath: string): string[] {
   if (!existsSync(busPath))
@@ -43,19 +35,6 @@ export function startReviewWorker(launch: DetachedLaunch, busDir: string, env: N
   if (held !== undefined)
     return { stdout: [], stderr: [`${launch.prefix}${launch.script} is already running as pid ${held.pid} (${held.args}); nothing started`], exitCode: 1, alreadyRunning: held }
   return startDetached(launch, busDir, env, processes)
-}
-
-export function reviewLaunch(preflight: () => string[]): DetachedLaunch {
-  return {
-    prefix: PREFIX,
-    script: REVIEW_SCRIPT,
-    args: [SWITCH_FLAG],
-    markers: REVIEW_WORKER_MARKERS,
-    instanceFile: REVIEW_INSTANCE_FILE,
-    startLock: REVIEW_START_LOCK,
-    log: REVIEW_LOG,
-    preflight,
-  }
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {

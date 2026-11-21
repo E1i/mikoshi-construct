@@ -7,10 +7,10 @@ import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../../core/db.js'
 import { PREFIX as BG_PREFIX, processBeatsOn, psList, runBusBg, runningBus, runningInstance, startDetached } from '../../supervisor/bg.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, REVIEW_INSTANCE_FILE, REVIEW_LOG, REVIEW_PREFIX, REVIEW_START_LOCK, REVIEW_WORKER_MARKERS, reviewLaunch } from '../../supervisor/composition.js'
 import { recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
-import { busShadowProblems, PREFIX, REVIEW_INSTANCE_FILE, REVIEW_LOG, REVIEW_START_LOCK, REVIEW_WORKER_MARKERS, reviewLaunch, startReviewWorker } from '../../supervisor/review-bg.js'
+import { busShadowProblems, startReviewWorker } from '../../supervisor/review-bg.js'
 import { BusTick } from '../../supervisor/run.js'
 import { settled } from '../shift/fixtures/settled.js'
 import { waitFor } from '../wait-for.js'
@@ -280,7 +280,7 @@ describe('pnpm bus:review:bg', () => {
     const missing = startDetached(launch, w.busDir, w.env, w.processes)
     expect(missing.exitCode).toBe(1)
     expect(missing.stdout).toEqual([])
-    expect(missing.stderr[0]!.startsWith(PREFIX)).toBe(true)
+    expect(missing.stderr[0]!.startsWith(REVIEW_PREFIX)).toBe(true)
     expect(missing.stderr.join('\n')).toContain(busPath)
     expect(existsSync(busPath)).toBe(false)
     expect(existsSync(path.join(w.busDir, REVIEW_INSTANCE_FILE))).toBe(false)

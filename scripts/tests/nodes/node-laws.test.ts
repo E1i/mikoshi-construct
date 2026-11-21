@@ -51,7 +51,7 @@ import { updateCandidates } from '../../nodes/update/update-candidates.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
 import { launchName } from '../../supervisor/bg.js'
-import { answerParts, busProjections, cardTransitions, nodeSupply, updateParts } from '../../supervisor/composition.js'
+import { answerParts, busProjections, cardTransitions, nodeSupply, reviewLaunch, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { slotsVariable } from '../../supervisor/scheduler.js'
@@ -142,7 +142,7 @@ async function restartKeepsSession(node: LawNode): Promise<void> {
   const db = openBus(path.join(root, 'bus.db'))
   const date = (): Date => new Date('2026-11-09T18:45:26.000Z')
   const ts = (): string => date().toISOString()
-  const launches = workerLaunches(() => [])
+  const launches = workerLaunches(reviewLaunch(() => []))
   const { close } = launches
   const sessionLaunch = launches[node as BusWorker]
   let alive: RunningProcess[] = [

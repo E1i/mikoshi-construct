@@ -3,11 +3,9 @@ import type { DetachedLaunch } from './bg.js'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { FACTORY_WORKERS } from '../core/factory-paths.js'
-import { LIVE_FLAG } from '../core/node.js'
-import { SWITCH_FLAG } from '../nodes/review/review-worker.js'
+import { LIVE_FLAG, SWITCH_FLAG } from '../core/node.js'
 import { liveDecisionOf } from '../policy/live-decision.js'
 import { BUS_RUN_LAUNCH, PREFIX } from './bg.js'
-import { reviewLaunch } from './review-bg.js'
 
 export const WORKERS_FILE = 'workers.json'
 export const WORKERS = ['review', 'merge', 'update', 'launch', 'restart', 'answer', 'close', 'witness'] as const
@@ -49,8 +47,8 @@ function queueWorkerLaunch(worker: Exclude<BusWorker, 'review'>): DetachedLaunch
   }
 }
 
-export function workerLaunches(reviewPreflight: () => string[]): Record<BusWorker, DetachedLaunch> {
-  return { review: reviewLaunch(reviewPreflight), merge: queueWorkerLaunch('merge'), update: queueWorkerLaunch('update'), launch: queueWorkerLaunch('launch'), restart: queueWorkerLaunch('restart'), answer: queueWorkerLaunch('answer'), close: queueWorkerLaunch('close'), witness: queueWorkerLaunch('witness') }
+export function workerLaunches(review: DetachedLaunch): Record<BusWorker, DetachedLaunch> {
+  return { review, merge: queueWorkerLaunch('merge'), update: queueWorkerLaunch('update'), launch: queueWorkerLaunch('launch'), restart: queueWorkerLaunch('restart'), answer: queueWorkerLaunch('answer'), close: queueWorkerLaunch('close'), witness: queueWorkerLaunch('witness') }
 }
 
 function workersRecord(busDir: string): Record<string, unknown> | null {
@@ -135,13 +133,13 @@ export function switchDetection(busDir: string, worker: BusWorker, live: boolean
   return next
 }
 
-export function wantedLaunches(busDir: string, reviewPreflight: () => string[], decisions: readonly InForceDecision[] = [], now: Date = new Date()): DetachedLaunch[] {
+export function wantedLaunches(busDir: string, review: DetachedLaunch, decisions: readonly InForceDecision[] = [], now: Date = new Date()): DetachedLaunch[] {
   returnToWindowAtTermEnd(busDir, now)
-  const launches = workerLaunches(reviewPreflight)
+  const launches = workerLaunches(review)
   const live = [...liveWorkers(busDir), ...(liveDecisionOf(decisions, 'launch') === null ? [] : ['launch' as const])]
   return [BUS_RUN_LAUNCH, ...switchedOn(busDir).map(worker => live.includes(worker) ? { ...launches[worker], args: [...launches[worker].args, LIVE_FLAG] } : launches[worker])]
 }
 
-export function busLaunches(reviewPreflight: () => string[]): DetachedLaunch[] {
-  return [BUS_RUN_LAUNCH, ...Object.values(workerLaunches(reviewPreflight))]
+export function busLaunches(review: DetachedLaunch): DetachedLaunch[] {
+  return [BUS_RUN_LAUNCH, ...Object.values(workerLaunches(review))]
 }

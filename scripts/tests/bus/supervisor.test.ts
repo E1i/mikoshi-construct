@@ -9,9 +9,9 @@ import { busDirOf } from '../../core/bus-path.js'
 import { openBus } from '../../core/db.js'
 import { importClosure } from '../../core/import-closure.js'
 import { BUS_FLAG, launchName, RUN_SCRIPT } from '../../supervisor/bg.js'
+import { reviewLaunch } from '../../supervisor/composition.js'
 import { recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
-import { reviewLaunch } from '../../supervisor/review-bg.js'
 import { holdRunLock, lockBreakerOf, RUN_LOCK } from '../../supervisor/run.js'
 import { BusSupervisor, entryOf, gitCode, LOCAL_MAIN_REF, SUPERVISOR_LAUNCH } from '../../supervisor/supervisor.js'
 import { busLaunches, workerLaunches } from '../../supervisor/workers.js'
@@ -192,17 +192,17 @@ describe('the code a bus process runs', () => {
   const runsOf = (launch: DetachedLaunch): ReadonlySet<string> => code.runs(entryOf(launch)!)
 
   it('every launch the supervisor knows, and the supervisor itself, names an entry its checkout holds', () => {
-    for (const launch of [...busLaunches(() => []), SUPERVISOR_LAUNCH])
+    for (const launch of [...busLaunches(reviewLaunch(() => [])), SUPERVISOR_LAUNCH])
       expect(runsOf(launch).has(entryOf(launch)!)).toBe(true)
   })
 
   it('the shared bus code is in the code of every node, and one node\'s worker is not in another\'s', () => {
-    const { answer, close } = workerLaunches(() => [])
-    for (const launch of [...busLaunches(() => []), SUPERVISOR_LAUNCH]) {
+    const { answer, close } = workerLaunches(reviewLaunch(() => []))
+    for (const launch of [...busLaunches(reviewLaunch(() => [])), SUPERVISOR_LAUNCH]) {
       for (const shared of ['scripts/core/db.ts', 'scripts/core/node.ts', 'scripts/core/lease.ts', 'scripts/core/queue.ts', 'scripts/core/reducer.ts'])
         expect(runsOf(launch)).toContain(shared)
     }
-    for (const launch of Object.values(workerLaunches(() => [])))
+    for (const launch of Object.values(workerLaunches(reviewLaunch(() => []))))
       expect(runsOf(launch)).toContain('scripts/core/node.ts')
     expect(runsOf(close)).not.toContain(entryOf(answer))
     expect(runsOf(answer)).not.toContain(entryOf(close))
