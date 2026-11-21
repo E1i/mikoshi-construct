@@ -10,7 +10,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { gapRows, LAW_CELLS } from '../nodes/laws.js'
 import { processGit } from '../ports/git.js'
-import { FACTORY_CONTRACT, graphOfSection, MODULE_GRAPH } from './factory/modules.js'
+import { FACTORY_CONTRACT, graphOfSection, MODULE_GRAPH, SOURCE_TREES } from './factory/modules.js'
 import { findSites, overlapsSection } from './factory/overlaps.js'
 import { parsedFiles } from './factory/walk.js'
 import { BOUNDARY_PREFIX, boundaryNumbers, boundaryReport, exportedNames, identifiedViolations, movedRows } from './module-graph/boundary.js'
@@ -29,7 +29,7 @@ const MERGE_COMMIT_EVENTS = new Set(['pull_request', 'merge_group'])
 const FIRST_PARENT = 'HEAD^1'
 const SECOND_PARENT = 'HEAD^2'
 const GATED_MODULE = 'bus'
-const GATE_TREES = ['src', 'scripts', 'tests']
+const GATE_TREES = [...SOURCE_TREES, 'tests']
 const TEST_FILE = /\.test\.m?ts$/
 
 export type SpecReader = (tree: string) => ModuleGraphSpec
