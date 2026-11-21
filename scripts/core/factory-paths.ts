@@ -26,6 +26,7 @@ export const FACTORY_RUNTIME = {
   shiftBriefFinish: 'scripts/ladder/brief-finish-cli.ts',
   shiftHeader: 'scripts/nodes/launch/header.md',
   shiftTreePr: 'scripts/nodes/launch/tree-pr-cli.ts',
+  windowMcpConfig: 'scripts/window/window-mcp.json',
 } as const
 
 export const FACTORY_WORKERS = {

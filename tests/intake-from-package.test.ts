@@ -1,4 +1,4 @@
-import type { ChildProcess, SpawnSyncReturns } from 'node:child_process'
+import type { ChildProcess, SpawnSyncOptionsWithStringEncoding, SpawnSyncReturns } from 'node:child_process'
 import type { DatabaseSync } from 'node:sqlite'
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { chmodSync, closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -42,6 +42,9 @@ const GITHUB_WITH_NO_PULL_REQUESTS = 'case "$*" in *pulls*) body=\'[]\' ;; *) bo
 const PACKED_BESIDE_THE_BUILD = ['package.json', 'README.md', 'LICENSE', 'templates']
 const PACK_TIMEOUT_MS = 300_000
 const STARTED_WITHIN_MS = 60_000
+const CHILD_WITHIN_MS = 60_000
+const NPM_WITHIN_MS = 120_000
+const SYNC_CHILD_CALLS = ['execFileSync', 'spawnSync']
 const SYSTEM_BIN_DIRS = ['/usr/bin', '/bin', '/usr/sbin', '/sbin']
 const LINUX_SANDBOX_BINS = ['bwrap', 'socat']
 const CLIENT_LISTED_SECONDS = 20
@@ -111,8 +114,39 @@ function stub(bin: string, name: string, body: string): void {
 }
 
 function git(cwd: string, ...args: string[]): void {
-  execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: CHILD_WITHIN_MS })
 }
+
+function boundedSpawn(file: string, args: string[], options: SpawnSyncOptionsWithStringEncoding, withinMs = CHILD_WITHIN_MS): SpawnSyncReturns<string> {
+  const result = spawnSync(file, args, { ...options, timeout: withinMs })
+  if (result.error !== undefined)
+    throw new Error(`${[file, ...args].join(' ')} did not end within ${withinMs} ms`, { cause: result.error })
+  return result
+}
+
+function unboundedSyncChildCalls(source: string): string[] {
+  const calls: string[] = []
+  for (const match of source.matchAll(new RegExp(`\\b(?:${SYNC_CHILD_CALLS.join('|')})\\(`, 'g'))) {
+    let depth = 0
+    let end = match.index
+    for (; end < source.length; end += 1) {
+      if (source[end] === '(')
+        depth += 1
+      else if (source[end] === ')' && --depth === 0)
+        break
+    }
+    const call = source.slice(match.index, end + 1)
+    if (!call.includes('timeout'))
+      calls.push(call)
+  }
+  return calls
+}
+
+describe('the synchronous child calls of this file', () => {
+  it('every synchronous child call of this file carries a timeout', () => {
+    expect(unboundedSyncChildCalls(readFileSync(import.meta.filename, 'utf8'))).toEqual([])
+  })
+})
 
 function cardEvents(bus: string): string[] {
   if (!existsSync(bus))
@@ -151,9 +185,9 @@ async function packAndInstall(root: string): Promise<{ installed: string, prefix
 
 function installStage(root: string, stage: string): { installed: string, prefix: string } {
   const env = { ...process.env, npm_config_cache: path.join(root, 'npm-cache'), npm_config_update_notifier: 'false' }
-  const [tarball] = JSON.parse(execFileSync('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', root], { cwd: stage, env, encoding: 'utf8' })) as { filename: string }[]
+  const [tarball] = JSON.parse(execFileSync('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', root], { cwd: stage, env, encoding: 'utf8', timeout: NPM_WITHIN_MS })) as { filename: string }[]
   const prefix = path.join(root, 'prefix')
-  execFileSync('npm', ['install', '--global', '--prefix', prefix, path.join(root, tarball!.filename), '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: root, env, encoding: 'utf8' })
+  execFileSync('npm', ['install', '--global', '--prefix', prefix, path.join(root, tarball!.filename), '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: root, env, encoding: 'utf8', timeout: NPM_WITHIN_MS })
   return { installed: path.join(prefix, 'lib', 'node_modules', PACKAGE_NAME), prefix }
 }
 
@@ -164,10 +198,10 @@ function foreignRepository(root: string, prefix: string, env: NodeJS.ProcessEnv)
   git(repo, 'init', '-q', '-b', 'main')
   git(repo, 'config', 'user.email', 'user@example.invalid')
   git(repo, 'config', 'user.name', 'user')
-  execFileSync(path.join(prefix, 'bin', CLI_BIN), ['init', '--yes', '--preset', 'node-backend', '--dir', repo, '--plain'], { cwd: repo, env, encoding: 'utf8' })
+  execFileSync(path.join(prefix, 'bin', CLI_BIN), ['init', '--yes', '--preset', 'node-backend', '--dir', repo, '--plain'], { cwd: repo, env, encoding: 'utf8', timeout: CHILD_WITHIN_MS })
   git(repo, 'add', '-A')
   git(repo, 'commit', '-qm', 'init')
-  execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin])
+  execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin], { timeout: CHILD_WITHIN_MS })
   git(repo, 'remote', 'add', 'origin', origin)
   git(repo, 'push', '-q', 'origin', 'main')
   return repo
@@ -197,8 +231,8 @@ describe('a factory installed from the packed package', () => {
     writeFileSync(taken, '')
     foreign = { root, installed, prefix, repo, home, bus, calls, env }
     packagedVersion = installedVersion()
-    intake = spawnSync(path.join(prefix, 'bin', INTAKE_BIN), ['--draft', draft, '--taken', taken, '--auto-confirm', '--plain'], { cwd: repo, env, encoding: 'utf8' })
-    beside = spawnSync(path.join(prefix, 'bin', CLI_BIN), ['intake', '--draft', draft, '--taken', taken, '--auto-confirm', '--plain'], { cwd: repo, env, encoding: 'utf8' })
+    intake = boundedSpawn(path.join(prefix, 'bin', INTAKE_BIN), ['--draft', draft, '--taken', taken, '--auto-confirm', '--plain'], { cwd: repo, env, encoding: 'utf8' })
+    beside = boundedSpawn(path.join(prefix, 'bin', CLI_BIN), ['intake', '--draft', draft, '--taken', taken, '--auto-confirm', '--plain'], { cwd: repo, env, encoding: 'utf8' })
   }, PACK_TIMEOUT_MS)
 
   afterAll(() => {
@@ -227,7 +261,7 @@ describe('a factory installed from the packed package', () => {
 
     it('the published launch path starts a session for an admitted card, or denies it disk_low on a runner under the disk floor', async () => {
       const built = (entry: string): string => path.join(foreign.installed, OUT_DIR, 'scripts', entry)
-      const reduce = spawnSync(process.execPath, [built('core/reducer.js')], { cwd: foreign.repo, env: foreign.env, encoding: 'utf8' })
+      const reduce = boundedSpawn(process.execPath, [built('core/reducer.js')], { cwd: foreign.repo, env: foreign.env, encoding: 'utf8' })
       expect(reduce.status, reduce.stderr).toBe(0)
       const underTheFloor = freeBytes(statfsReader(foreign.repo)) < DISK_FLOOR_BYTES
       let worker: ChildProcess | undefined
@@ -259,7 +293,7 @@ describe('a factory installed from the packed package', () => {
       const bins = (JSON.parse(readFileSync(path.join(foreign.installed, 'package.json'), 'utf8')) as { bin: Record<string, string> }).bin
       expect(bins[ANSWER_BIN]).toBe(path.join(OUT_DIR, ANSWER_ENTRY))
       expect(bins[ANSWER_BIN]).not.toBe(bins[CLI_BIN])
-      const usage = spawnSync(path.join(foreign.prefix, 'bin', ANSWER_BIN), [], { cwd: foreign.repo, env: foreign.env, encoding: 'utf8' })
+      const usage = boundedSpawn(path.join(foreign.prefix, 'bin', ANSWER_BIN), [], { cwd: foreign.repo, env: foreign.env, encoding: 'utf8' })
       expect(usage.status).toBe(2)
       expect(usage.stdout).toContain(`${ANSWER_PREFIX}usage: ${ANSWER_BIN} `)
     })
@@ -270,7 +304,7 @@ describe('a factory installed from the packed package', () => {
       db.close()
       const before = eventsOf(foreign.bus, ['window.request']).length
 
-      const run = spawnSync(path.join(foreign.prefix, 'bin', ANSWER_BIN), [wait, ANSWER_WORDS], { cwd: foreign.repo, env: foreign.env, encoding: 'utf8' })
+      const run = boundedSpawn(path.join(foreign.prefix, 'bin', ANSWER_BIN), [wait, ANSWER_WORDS], { cwd: foreign.repo, env: foreign.env, encoding: 'utf8' })
 
       expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
       expect(run.stdout.startsWith(ANSWER_PREFIX)).toBe(true)
@@ -299,7 +333,7 @@ describe('a factory installed from the packed package', () => {
     it('the published dist/cli.js imports no factory script for the owner answer', () => {
       expect(readFileSync(path.join(foreign.installed, OUT_DIR, 'cli.js'), 'utf8')).not.toMatch(/runOwnerAnswer|requestFromWindow|owner\.answer\b|scripts\/owner\/answer/)
       expect(existsSync(path.join(foreign.prefix, 'bin', ANSWER_BIN))).toBe(true)
-      const help = spawnSync(path.join(foreign.prefix, 'bin', CLI_BIN), ['--help'], { cwd: foreign.repo, env: foreign.env, encoding: 'utf8' })
+      const help = boundedSpawn(path.join(foreign.prefix, 'bin', CLI_BIN), ['--help'], { cwd: foreign.repo, env: foreign.env, encoding: 'utf8' })
       expect(help.status, help.stderr).toBe(0)
       expect(help.stdout).not.toMatch(/\|answer\b|\banswer\|/)
       expect(help.stdout).not.toMatch(/^\s+answer\s{2,}/m)
@@ -359,7 +393,7 @@ describe('a factory installed from the packed package', () => {
   }
 
   function reduced(): void {
-    const reduce = spawnSync(process.execPath, [path.join(foreign.installed, OUT_DIR, REDUCER_ENTRY)], { cwd: foreign.repo, env: foreign.env, encoding: 'utf8' })
+    const reduce = boundedSpawn(process.execPath, [path.join(foreign.installed, OUT_DIR, REDUCER_ENTRY)], { cwd: foreign.repo, env: foreign.env, encoding: 'utf8' })
     expect(reduce.status, reduce.stderr).toBe(0)
   }
 
@@ -370,7 +404,7 @@ describe('a factory installed from the packed package', () => {
     const taken = path.join(foreign.root, `${name}.taken.txt`)
     writeFileSync(draft, JSON.stringify({ cards: DRAFT.cards.map(card => ({ ...card, name, touches: [`${name}.md`], creates: [`${name}.md`] })) }))
     writeFileSync(taken, '')
-    const admitted = spawnSync(path.join(foreign.prefix, 'bin', INTAKE_BIN), ['--draft', draft, '--taken', taken, '--auto-confirm', '--plain'], { cwd: foreign.repo, env: foreign.env, encoding: 'utf8' })
+    const admitted = boundedSpawn(path.join(foreign.prefix, 'bin', INTAKE_BIN), ['--draft', draft, '--taken', taken, '--auto-confirm', '--plain'], { cwd: foreign.repo, env: foreign.env, encoding: 'utf8' })
     expect(admitted.status, `${admitted.stdout}\n${admitted.stderr}`).toBe(0)
     const busDir = busDirOf(foreign.bus)
     mkdirSync(busDir, { recursive: true })
@@ -440,7 +474,7 @@ describe('a factory installed from the packed package', () => {
       writeFileSync(path.join(foreign.repo, `${freshName('USER_CHANGE')}.md`), 'a change of the user\n')
       git(foreign.repo, 'add', '-A')
       git(foreign.repo, 'commit', '-qm', 'a change of the user')
-      const head = execFileSync('git', ['-C', foreign.repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+      const head = execFileSync('git', ['-C', foreign.repo, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: CHILD_WITHIN_MS }).trim()
       const restarted = await restartedFactory('generation-after-commit')
       expectGeneration(restarted, installedVersion())
       expect(generationsOf(restarted.starts, WORKER_STARTED)).not.toContain(head)
