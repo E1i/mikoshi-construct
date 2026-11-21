@@ -226,7 +226,7 @@ const EVERY_CAPABILITY: ReadonlySet<Capability> = new Set(CAPABILITIES)
 export interface Suite {
   vitest: (args: readonly string[]) => VitestRun
   liveness: () => Stale[] | null
-  queue: (step: () => Promise<number>) => Promise<number>
+  queue: Queue
   log: (line: string) => void
   capabilities?: () => Promise<ReadonlySet<Capability>>
   record?: (ran: GateOutcome) => void
@@ -283,7 +283,9 @@ export function cleanTreeGate(read: Git): Gate | null {
   return dirty || !allPushed ? null : { lines: ['prepush: clean — the tree holds no change and no unpushed commit; no check started.'], code: 0 }
 }
 
-export function throughQueue(run: Run, step: () => Promise<number>, queue: (step: () => Promise<number>) => Promise<number> = heavyStep): Promise<number> {
+export type Queue = (step: () => Promise<number>) => Promise<number>
+
+export function throughQueue(run: Run, step: () => Promise<number>, queue: Queue): Promise<number> {
   return run.kind === 'full' ? queue(step) : step()
 }
 
@@ -411,7 +413,7 @@ export async function prepush(parts: PrepushParts): Promise<number> {
   return tested === 0 ? mutationStep(selection.changed, graph, card, parts) : tested
 }
 
-function processParts(): PrepushParts {
+function processParts(queue: Queue): PrepushParts {
   return {
     argv: process.argv.slice(2),
     git,
@@ -421,7 +423,7 @@ function processParts(): PrepushParts {
     testText: readTest,
     exists: existsSync,
     lint: eslint,
-    suite: { vitest: args => runVitest(args), liveness: sandboxLiveness, queue: heavyStep },
+    suite: { vitest: args => runVitest(args), liveness: sandboxLiveness, queue },
     log: line => console.log(line),
     root: REPO_ROOT,
     mutations: (changed, graph, witnesses) => processMutationGate(changed, graph, witnesses, readTest, REPO_ROOT),
@@ -429,4 +431,4 @@ function processParts(): PrepushParts {
 }
 
 if (process.argv[1] === import.meta.filename)
-  process.exitCode = await prepush(processParts())
+  process.exitCode = await prepush(processParts(heavyStep))
