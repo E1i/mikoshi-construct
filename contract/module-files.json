@@ -712,6 +712,7 @@
     "scripts/tests/contract/layer-cuts/claude-adapter-shift-settings.test.ts",
     "scripts/tests/contract/layer-cuts/decisions-window-runner.test.ts",
     "scripts/tests/contract/layer-cuts/ports-card-and-attach.test.ts",
+    "scripts/tests/contract/layer-cuts/prepush-heavy-step.test.ts",
     "scripts/tests/contract/lease-contour.test.ts",
     "scripts/tests/contract/lore-names.test.ts",
     "scripts/tests/contract/module-graph-boundary.test.ts",
