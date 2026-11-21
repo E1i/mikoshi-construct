@@ -449,6 +449,9 @@ describe('the answer queue', () => {
 
     bench.stopped(920, { reason: 'question.agent', detail: 'and which one owns the lease?' })
     bench.tick()
+    const leased = bench.leaseAnswer()
+    expect(leased?.taskKey).not.toContain(':stop-')
+    expect(leased).toMatchObject({ taskKey: `answer:920:-:${sha('f')}`, pr: null, head: sha('f') })
     expect(bench.leaseAnswer()).toBeNull()
     bench.close()
   })
