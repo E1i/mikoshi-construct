@@ -383,14 +383,15 @@ describe('the answer node', () => {
     await once(node)
     expect(node.found({ cardId: 905 })).toEqual([questionKey(905, asked)])
 
-    answered(made, 905)
-    expect(node.found()).toEqual([questionKey(906, other)])
-    expect(node.found({ cardId: 905 })).toEqual([])
+    const answeredWithNoPullRequest = answered(made, 905)
+    const publishedWithNoPullRequest = keyOf({ queue: 'answer', cardId: 905, head: sha('e') })
+    expect(node.found()).toEqual([questionKey(906, other), publishedWithNoPullRequest])
+    expect(node.found({ cardId: 905 })).toEqual([publishedWithNoPullRequest])
     expect(node.found({ cardId: 906 })).toEqual([questionKey(906, other)])
 
     const later = stopped(made, 907)
     await once(node)
-    expect(detected(made, 'event')).toEqual([{ key: questionKey(907, later), via: 'event', event_id: later }])
+    expect(detected(made, 'event')).toEqual([{ key: publishedWithNoPullRequest, via: 'event', event_id: answeredWithNoPullRequest }, { key: questionKey(907, later), via: 'event', event_id: later }])
   })
 
   it('the node and answerCandidates find one set on one snapshot, and shadow records node.equivalence with nothing on one side only', async () => {
