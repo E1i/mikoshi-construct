@@ -166,6 +166,7 @@
     "scripts/core/sqlite.ts",
     "scripts/core/stored.ts",
     "scripts/core/task-must-wait.ts",
+    "scripts/core/tasks-query.ts",
     "scripts/core/watermark.ts"
   ],
   "card-model": [
@@ -725,6 +726,7 @@
     "scripts/tests/contract/module-ownership-generated.test.ts",
     "scripts/tests/contract/one-writer-per-table.test.ts",
     "scripts/tests/contract/owner-commands-detector.test.ts",
+    "scripts/tests/contract/owner-reads/card-domain.test.ts",
     "scripts/tests/contract/owner-reads/card-reads-events-through-bus.test.ts",
     "scripts/tests/contract/owner-reads/events-query.test.ts",
     "scripts/tests/contract/permanent-suite-holds-on-any-base.test.ts",
@@ -1670,6 +1672,7 @@
   "pr-record": [
     "scripts/core/merge-event.ts",
     "scripts/core/pr-folds.ts",
+    "scripts/core/pr-readings.ts",
     "scripts/core/pr-status.ts",
     "scripts/nodes/review/dry-run-record.ts",
     "scripts/nodes/review/pr-close.ts",

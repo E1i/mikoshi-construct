@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { CardAutomaton, CardCondition, CardsSelected, NodeCandidates } from '../ci/card-automaton.js'
 import type { Understood } from '../core/bus-version.js'
+import type { CardPrReadings } from '../core/card-automaton.js'
 import type { SliceParentsBackfill } from '../core/card-bodies.js'
 import type { CardTransitions, HolderStart, Lease } from '../core/lease.js'
 import type { NodeKind, NodeSupply, ProcessIdentity, WorkerIdentity } from '../core/node.js'
@@ -33,7 +34,7 @@ import { automatonOf, selectingNodes } from '../ci/card-automaton.js'
 import { GATE_RUN_SPOOL } from '../ci/gate-runs.js'
 import { driftOfRun } from '../ci/weights-law.js'
 import { CHECK_MS, TICK_MS } from '../core/cadence.js'
-import { appendedOnCard, CARD_FOLDS, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION, cardsAnswered, CHANGES_CARD, CLOSED_CARD, DEFERRED_CARD, DROPPED_CARD, FALLEN_CARD, IN_REVIEW_CARD, MERGED_CARD, QUEUED_CARD, READY_CARD, RUNNING_CARD, STOPPED_CARD } from '../core/card-automaton.js'
+import { appendedOnCard, cardFolds, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION, cardsAnswered, CHANGES_CARD, CLOSED_CARD, DEFERRED_CARD, DROPPED_CARD, FALLEN_CARD, IN_REVIEW_CARD, MERGED_CARD, QUEUED_CARD, READY_CARD, RUNNING_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { admittedCardVersion, backfillPendingSliceParents, cardOfBranch } from '../core/card-bodies.js'
 import { cardDecisionReads, reviewedUnderTheCardDecision, reviewsTheCardDecisionReopens, withDecidedContinuations } from '../core/card-decisions.js'
 import { CHAINS_PROJECTION } from '../core/chain.js'
@@ -46,6 +47,7 @@ import { foreignVersion, instanceOf, provenIdentity, recordWorkerIdentity, SWITC
 import { orderDeclarationsAt, overlaps } from '../core/order/overlap.js'
 import { ownerWaitCommand } from '../core/owner-commands.js'
 import { linkRefusal, openedPrOf, prFolds, prRow } from '../core/pr-folds.js'
+import * as prs from '../core/pr-readings.js'
 import { closeCandidates, keyOf, reviewCandidates, taskRow, TASKS_PROJECTION } from '../core/queue.js'
 import { payloadOf, storedByKey } from '../core/stored.js'
 import { BusWeightsRecompute } from '../intake/intake.js'
@@ -197,8 +199,14 @@ export function derivedHolds(db: DatabaseSync, readTree: typeof cardTreeReading 
   return (cardId, scope, files) => derivedHoldOf(scope, files, () => readTree(db, cardId), () => allowances(cardId))
 }
 
+const CARD_PR_READINGS: CardPrReadings = { stateOf: (db, pr) => prs.ofPr(db, pr)?.state ?? null }
+
+export function busCardFolds(): Record<string, Fold> {
+  return cardFolds(CARD_PR_READINGS)
+}
+
 function cardWaitParts(): CardWaitParts {
-  return { archiveSpentDecisions, prRow }
+  return { archiveSpentDecisions, prRow, prsOfCard: (db, cardId) => prs.ofCard(db, cardId).map(row => row.pr), cardFolds: busCardFolds() }
 }
 
 const PR_FIELDS = { isFullSha, prOf }
@@ -240,7 +248,7 @@ export function busCardLinkFolds(): Record<string, Fold> {
 
 function releaseTheCardsTheDecisionsAnswer(db: DatabaseSync, event: StoredEvent): void {
   for (const answer of answersOfTheDecisions(db, event.id))
-    cardsAnswered(db, JSON.parse(answer.scope) as number[], answer.named, event.id)
+    cardsAnswered(db, JSON.parse(answer.scope) as number[], answer.named, event.id, CARD_PR_READINGS)
 }
 
 export function busCardReleaseFolds(): Record<string, Fold> {
@@ -269,7 +277,7 @@ export function busOwnerWaitFolds(): Record<string, Fold> {
 
 export function busProjections(): Projections {
   return {
-    folds: [releasingTakeoverOnPush(busPrFolds(), [PR_OBSERVED, PR_OPENED], db => new BusRead(db)), TASKS_PROJECTION.folds, CHAINS_PROJECTION.folds, ROLES_PROJECTION.folds, busDecisionFolds(), CARD_FOLDS, busOwnerWaitFolds(), PLAN_FOLDS, cardWaitFolds(cardWaitParts())],
+    folds: [releasingTakeoverOnPush(busPrFolds(), [PR_OBSERVED, PR_OPENED], db => new BusRead(db)), TASKS_PROJECTION.folds, CHAINS_PROJECTION.folds, ROLES_PROJECTION.folds, busDecisionFolds(), busCardFolds(), busOwnerWaitFolds(), PLAN_FOLDS, cardWaitFolds(cardWaitParts())],
     incremental: [ROLES_PROJECTION, TASKS_PROJECTION, CHAINS_PROJECTION, CARDS_PROJECTION],
   }
 }

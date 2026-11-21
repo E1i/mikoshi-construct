@@ -7,7 +7,6 @@
   "scripts/core/bus-readings.ts",
   "scripts/core/card-automaton.ts",
   "scripts/core/card-decisions.ts",
-  "scripts/core/card-hold.ts",
   "scripts/core/chain.ts",
   "scripts/core/db.ts",
   "scripts/core/dependency-wait.ts",
