@@ -1,11 +1,11 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { build } from 'tsup'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import { copyFactoryAssets, factoryBuild, OUT_DIR, productBuild } from '../tsup.config.js'
 
 const REPOSITORY = path.resolve(import.meta.dirname, '..')
@@ -14,6 +14,7 @@ const PACKED_BESIDE_THE_BUILD = ['package.json', 'README.md', 'LICENSE', 'templa
 const PACK_TIMEOUT_MS = 300_000
 const REGISTRY_MODULE = 'scripts/core/factory-paths.js'
 const TYPESCRIPT = '.ts'
+const TARBALL_ROOT = 'package'
 
 const OPENERS: Record<string, { module: string, exported: string }> = {
   'the window session': { module: 'scripts/ports/client/claude/adapter.js', exported: 'WINDOW_MCP_CONFIG' },
@@ -33,14 +34,23 @@ interface Opened {
   exports: Record<string, string>
 }
 
-let installed: Installed
+let installed: Installed | undefined
 
 function npmEnv(root: string): NodeJS.ProcessEnv {
   return { ...process.env, npm_config_cache: path.join(root, 'npm-cache'), npm_config_update_notifier: 'false' }
 }
 
+function linkDependenciesFromTheRepository(modules: string): void {
+  const { dependencies = {} } = JSON.parse(readFileSync(path.join(modules, PACKAGE_NAME, 'package.json'), 'utf8')) as { dependencies?: Record<string, string> }
+  for (const dependency of Object.keys(dependencies)) {
+    const link = path.join(modules, dependency)
+    mkdirSync(path.dirname(link), { recursive: true })
+    symlinkSync(path.join(REPOSITORY, 'node_modules', dependency), link, 'dir')
+  }
+}
+
 async function packIntoScratchRepository(): Promise<Installed> {
-  const root = mkdtempSync(path.join(tmpdir(), 'packed-path-opened-'))
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'packed-path-opened-')))
   const stage = path.join(root, 'stage')
   for (const file of PACKED_BESIDE_THE_BUILD)
     cpSync(path.join(REPOSITORY, file), path.join(stage, file), { recursive: true })
@@ -50,13 +60,16 @@ async function packIntoScratchRepository(): Promise<Installed> {
   const env = npmEnv(root)
   const [tarball] = JSON.parse(execFileSync('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', root], { cwd: stage, env, encoding: 'utf8' })) as { filename: string }[]
   const scratch = path.join(root, 'scratch')
-  mkdirSync(scratch)
+  const modules = path.join(scratch, 'node_modules')
+  mkdirSync(modules, { recursive: true })
   writeFileSync(path.join(scratch, 'package.json'), `${JSON.stringify({ name: 'scratch', private: true }, null, 2)}\n`)
-  execFileSync('npm', ['install', path.join(root, tarball!.filename), '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: scratch, env, encoding: 'utf8' })
+  execFileSync('tar', ['-xzf', path.join(root, tarball!.filename), '-C', modules])
+  renameSync(path.join(modules, TARBALL_ROOT), path.join(modules, PACKAGE_NAME))
+  linkDependenciesFromTheRepository(modules)
   return { root, scratch, dist: path.join(scratch, 'node_modules', PACKAGE_NAME, OUT_DIR) }
 }
 
-function openedFromThePackage(): Opened {
+function openedFromThePackage(installed: Installed): Opened {
   const modules = { registry: pathToFileURL(path.join(installed.dist, REGISTRY_MODULE)).href, openers: Object.fromEntries(Object.values(OPENERS).map(({ module, exported }) => [exported, pathToFileURL(path.join(installed.dist, module)).href])) }
   const evaluate = [
     'const { registry, openers } = JSON.parse(process.env.MODULES)',
@@ -72,23 +85,21 @@ function openedFromThePackage(): Opened {
   return JSON.parse(run.stdout) as Opened
 }
 
-describe('the packed tarball installed into a scratch repository', () => {
-  beforeAll(async () => {
-    installed = await packIntoScratchRepository()
-  }, PACK_TIMEOUT_MS)
-
+describe('path-opened assets in the published package', () => {
   afterAll(() => {
     if (installed !== undefined)
       rmSync(installed.root, { recursive: true, force: true })
   })
 
-  it('opens every path-opened asset of the window and bus entries', () => {
-    const { runtime, exports } = openedFromThePackage()
+  it('the packed tarball installed into a scratch repository opens every path-opened asset of the window and bus entries', async () => {
+    installed = await packIntoScratchRepository()
+    const { dist } = installed
+    const { runtime, exports } = openedFromThePackage(installed)
     const assets = Object.values(runtime).filter(file => !file.endsWith(TYPESCRIPT))
     expect(assets.length).toBeGreaterThan(0)
-    expect(assets.filter(asset => !existsSync(path.join(installed.dist, asset)))).toEqual([])
-    const openedPaths = Object.entries(OPENERS).map(([opener, { exported }]) => [opener, path.isAbsolute(exports[exported]!) ? exports[exported]! : path.join(installed.dist, exports[exported]!)] as const)
-    expect(openedPaths.filter(([, opened]) => !existsSync(opened) || path.relative(installed.dist, opened).startsWith('..')).map(([opener, opened]) => `${opener}: ${opened}`)).toEqual([])
-    expect(existsSync(path.join(installed.dist, 'scripts', 'window', 'window-mcp.json'))).toBe(true)
+    expect(assets.filter(asset => !existsSync(path.join(dist, asset)))).toEqual([])
+    const openedPaths = Object.entries(OPENERS).map(([opener, { exported }]) => [opener, path.isAbsolute(exports[exported]!) ? exports[exported]! : path.join(dist, exports[exported]!)] as const)
+    expect(openedPaths.filter(([, opened]) => !existsSync(opened) || path.relative(dist, opened).startsWith('..')).map(([opener, opened]) => `${opener}: ${opened}`)).toEqual([])
+    expect(existsSync(path.join(dist, 'scripts', 'window', 'window-mcp.json'))).toBe(true)
   }, PACK_TIMEOUT_MS)
 })
