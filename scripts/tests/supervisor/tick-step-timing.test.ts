@@ -6,13 +6,12 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { machineBusPath, snapshotPathOf } from '../../core/bus-path.js'
-import { openBus } from '../../core/db.js'
 import { LAST_STATUS_SET_ON_HEAD } from '../../core/pr-status.js'
 import { decisionsInForceAt, withDecisionsHeldAt } from '../../policy/shards.js'
 import { REQUIRED_CHECK } from '../../ports/gh.js'
 import { NetWatch } from '../../ports/netwatch.js'
 import { RUN_SCRIPT } from '../../supervisor/bg.js'
-import { busPrFolds, deriveQueuesOfTheBus } from '../../supervisor/composition.js'
+import { busPrFolds, deriveQueuesOfTheBus, openComposedBus } from '../../supervisor/composition.js'
 import { BusTick, INLINE_REDUCER_STEP, TICK_STEPS, tickLines, tickOrLocked } from '../../supervisor/run.js'
 import { Clock, FakeGitHub } from '../bus/github-fake.js'
 
@@ -52,7 +51,7 @@ afterEach(() => {
 })
 
 function bus(file = ':memory:'): DatabaseSync {
-  const db = openBus(file)
+  const db = openComposedBus(file)
   buses.push(db)
   return db
 }

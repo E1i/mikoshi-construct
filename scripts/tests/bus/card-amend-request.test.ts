@@ -6,12 +6,12 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { riskLines, riskReading } from '../../../src/card/risk.js'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
-import { BUS_DB_VARIABLE, openBus } from '../../core/db.js'
+import { BUS_DB_VARIABLE } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_MOVED, REQUEST_DONE, REQUEST_REFUSED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardAdmissions, busCardEvents, busHeldCards } from '../../intake/intake.js'
 import { recordDecision } from '../../policy/decisions/index.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, openComposedBus } from '../../supervisor/composition.js'
 import { requestFromWindow, requestOf, WindowRequests } from '../../window/window-requests.js'
 
 const NOW = new Date('2026-11-05T09:00:00.000Z')
@@ -48,7 +48,7 @@ function world(): World {
   const bus = path.join(root, 'bus.db')
   vi.stubEnv(BUS_DB_VARIABLE, bus)
   vi.stubEnv('HOME', root)
-  return { db: openBus(bus), repo, root }
+  return { db: openComposedBus(bus), repo, root }
 }
 
 function admitted(w: World, id: number, text: string = body(id)): void {

@@ -6,9 +6,8 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendCardEvent, backfillSliceParents, foldCardBody, SLICE_PARENTS_BUS_ACTOR } from '../../core/card-bodies.js'
-import { openBus } from '../../core/db.js'
 import { CARD_ADMITTED, SLICE_PARENTS_BACKFILLED } from '../../core/events.js'
-import { deriveQueuesOfTheBus, sliceParentsOnce } from '../../supervisor/composition.js'
+import { deriveQueuesOfTheBus, openComposedBus, sliceParentsOnce } from '../../supervisor/composition.js'
 
 const TS = '2026-11-17T09:00:00.000Z'
 const LATER = '2026-11-17T10:00:00.000Z'
@@ -22,7 +21,7 @@ afterEach(() => {
 function bus(): DatabaseSync {
   const root = mkdtempSync(path.join(tmpdir(), 'slice-parent-backfill-step-'))
   roots.push(root)
-  return openBus(path.join(root, 'bus.db'))
+  return openComposedBus(path.join(root, 'bus.db'))
 }
 
 function admitBeforeTheField(db: DatabaseSync, id: number, name: string): void {

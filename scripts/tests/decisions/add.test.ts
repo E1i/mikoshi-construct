@@ -5,13 +5,12 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
-import { openBus } from '../../core/db.js'
 import { CARD_ADMITTED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardAdmissions, busCardEvents } from '../../intake/intake.js'
 import { ARCHIVE_HEADER, requestDecision, runDecisionsAdd } from '../../policy/decisions/add.js'
 import { runDecisionsRead } from '../../policy/decisions/read.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, openComposedBus } from '../../supervisor/composition.js'
 import { pendingRequests, WindowRequests } from '../../window/window-requests.js'
 
 const FILE = '/d/owner-decisions.md'
@@ -201,7 +200,7 @@ describe('pnpm decisions:add appends one owner decision', () => {
 describe('pnpm decisions:add in a window session asks the bus', () => {
   it('queues a window.request, says the decision is not written yet, and refuses --file', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'decisions-request-'))
-    const db = openBus(path.join(root, 'bus.db'))
+    const db = openComposedBus(path.join(root, 'bus.db'))
     try {
       const out: string[] = []
       expect(requestDecision(['--from', 'answer', '--file', FILE, '[owner] x.'], db, NOW, 'window-1', line => out.push(line))).toBe(2)
@@ -225,7 +224,7 @@ describe('pnpm decisions:add in a window session asks the bus', () => {
     const repo = path.join(root, 'repo')
     mkdirSync(path.join(repo, 'src'), { recursive: true })
     writeFileSync(path.join(repo, 'src/a.ts'), '')
-    const db = openBus(path.join(root, 'bus.db'))
+    const db = openComposedBus(path.join(root, 'bus.db'))
     try {
       const text = 'card: #5 card-5 [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-5\ntouches: src/a.ts\ncontinue: stop\nwho: shift\n\nDo the thing.\n'
       busCardEvents(db, 's1')({ type: CARD_ADMITTED, cardId: 5, ts: NOW.toISOString(), dedupeKey: 'admit-5', payload: { card: text.split('\n')[0]!.slice('card: '.length), depends: [], decision: 'auto', contour: 'cheap', bodySha: textSha(text), text, textSha: textSha(text) } })

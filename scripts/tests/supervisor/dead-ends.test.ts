@@ -2,9 +2,9 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { GitHub } from '../../window/requests/reach.js'
 import type { RequestTools } from '../../window/requests/request.js'
 import { afterEach, describe, expect, it } from 'vitest'
-import { appendEvent, openBus, openOwnerWait } from '../../core/db.js'
+import { appendEvent, openOwnerWait } from '../../core/db.js'
 import { BOARD_ALARM, CARD_HELD, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_OBSERVED, QUESTION_OWNER, TASK_ENQUEUED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../../core/events.js'
-import { deadEndEvents, deadEndParts } from '../../supervisor/composition.js'
+import { deadEndEvents, deadEndParts, openComposedBus } from '../../supervisor/composition.js'
 import { DEAD_END_ACTOR, DeadEnds, UNMEASURED_ROUND_MINUTES } from '../../supervisor/dead-ends.js'
 import { RequestContext } from '../../window/requests/context.js'
 import { requeue } from '../../window/requests/requeue.js'
@@ -45,7 +45,7 @@ afterEach(() => {
 })
 
 function bus(): DatabaseSync {
-  const db = openBus(':memory:')
+  const db = openComposedBus(':memory:')
   buses.push(db)
   return db
 }
