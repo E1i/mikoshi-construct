@@ -4,8 +4,13 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
 export const REVIEW_PLAN_FLAG = '--plan'
-export const REVIEW_PLANNER_SCRIPT = fileURLToPath(new URL('../nodes/review/review-planner-worker.ts', import.meta.url))
-export const PLANNER_ARGUMENTS: readonly string[] = Object.freeze(['--import', 'tsx', REVIEW_PLANNER_SCRIPT, REVIEW_PLAN_FLAG])
+const SOURCE_MODULE = /\.ts$/
+const BUILT_MODULE = '.js'
+const RUNS_FROM_THE_BUILD = !SOURCE_MODULE.test(fileURLToPath(import.meta.url))
+const PLANNER_SOURCE = fileURLToPath(new URL('../nodes/review/review-planner-worker.ts', import.meta.url))
+const SOURCE_LOADER = ['--import', 'tsx']
+export const REVIEW_PLANNER_SCRIPT = RUNS_FROM_THE_BUILD ? PLANNER_SOURCE.replace(SOURCE_MODULE, BUILT_MODULE) : PLANNER_SOURCE
+export const PLANNER_ARGUMENTS: readonly string[] = Object.freeze([...(RUNS_FROM_THE_BUILD ? [] : SOURCE_LOADER), REVIEW_PLANNER_SCRIPT, REVIEW_PLAN_FLAG])
 const PLAN_OUTPUT_LIMIT = 1 << 26
 
 export function plannerProcess(cwd: string, request: string, signal: AbortSignal): Promise<string> {
