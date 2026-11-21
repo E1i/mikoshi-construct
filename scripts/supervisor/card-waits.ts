@@ -1,9 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Fold, StoredEvent } from '../core/stored.js'
 import { latestOfEachType } from '../core/bus-readings.js'
-import { CARD_FOLDS, CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.js'
+import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.js'
 import { foldCardBody } from '../core/card-bodies.js'
 import { appendEvent, CLOSED_WAIT, isOwnerWaitNeed, OPEN_WAIT, OWNER_WAIT_NEEDS, WAIT_ID } from '../core/db.js'
+import { EITHER_JOURNAL, events } from '../core/events-query.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_MOVED, CARD_WAITING, DECISION_RECORDED, DECISIONS_CUT_OVER, DECISIONS_IMPORTED, MERGE_DONE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, WITNESS_DOWNGRADE } from '../core/events.js'
 import { cardIdOf, prOf } from '../core/identifiers.js'
 import { ADMIT_COMMAND } from '../core/owner-commands.js'
@@ -12,6 +13,8 @@ import { payloadOf, reject } from '../core/stored.js'
 export interface CardWaitParts {
   archiveSpentDecisions: (db: DatabaseSync) => void
   prRow: (db: DatabaseSync, pr: number) => { card_id: number | null } | undefined
+  prsOfCard: (db: DatabaseSync, cardId: number) => readonly number[]
+  cardFolds: Readonly<Record<string, Fold>>
 }
 
 export const DOWNGRADE_WAIT_PREFIX = 'W'
@@ -101,13 +104,19 @@ function foldWitnessDowngradeWait(db: DatabaseSync, event: StoredEvent, parts: O
   parts.closeWaitsOfAnEndedCard(db, cardId, event.id)
 }
 
+function waitsOpenedForTheCommands(db: DatabaseSync, commands: readonly string[]): number[] {
+  if (commands.length === 0)
+    return []
+  return events(db, { types: [OWNER_WAIT_OPENED], legacy: EITHER_JOURNAL }).filter(opened => typeof opened.data?.command === 'string' && commands.includes(opened.data.command)).map(opened => opened.id)
+}
+
 function closeWaitsTheDecisionsAnswer(db: DatabaseSync, event: StoredEvent, parts: OwnerWaitParts): void {
   for (const decision of parts.answersOfTheDecisions(db, event.id)) {
     const named = JSON.stringify(decision.named)
     db.prepare(`
       UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ?
-      WHERE state = '${OPEN_WAIT}' AND (event_id IN (SELECT id FROM events WHERE type = '${OWNER_WAIT_OPENED}' AND json_extract(payload, '$.command') IN (SELECT value FROM json_each(?))) OR (need IN ('decision', 'command') AND card_id IN (SELECT value FROM json_each(?)) AND (json_array_length(?) = 0 OR id IN (SELECT value FROM json_each(?)))))
-    `).run(decision.answer, event.id, JSON.stringify(decision.commands), decision.scope, named, named)
+      WHERE state = '${OPEN_WAIT}' AND (event_id IN (SELECT value FROM json_each(?)) OR (need IN ('decision', 'command') AND card_id IN (SELECT value FROM json_each(?)) AND (json_array_length(?) = 0 OR id IN (SELECT value FROM json_each(?)))))
+    `).run(decision.answer, event.id, JSON.stringify(waitsOpenedForTheCommands(db, decision.commands)), decision.scope, named, named)
   }
 }
 
@@ -163,7 +172,7 @@ export function closeWaitsOfEndedCards(db: DatabaseSync, ts: string): string[] {
 }
 
 function foldEndingTheWaitsOfAnEndedCard(db: DatabaseSync, event: StoredEvent, parts: CardWaitParts): void {
-  CARD_FOLDS[event.type]!(db, event)
+  parts.cardFolds[event.type]!(db, event)
   closeWaitsOfAnEndedCard(db, event.card_id, event.id)
   parts.archiveSpentDecisions(db)
 }
@@ -178,19 +187,19 @@ function checkTheChildrenADropNames(event: StoredEvent): void {
     reject('a drop naming children names no reason')
 }
 
-function closeWaitsOnThePrsOfADroppedCard(db: DatabaseSync, event: StoredEvent): void {
+function closeWaitsOnThePrsOfADroppedCard(db: DatabaseSync, event: StoredEvent, parts: CardWaitParts): void {
   if (event.card_id === null)
     return
-  db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE state = '${OPEN_WAIT}' AND pr IN (SELECT pr FROM prs WHERE card_id = ?)
+  db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE state = '${OPEN_WAIT}' AND pr IN (SELECT value FROM json_each(?))
     AND EXISTS (SELECT 1 FROM cards WHERE card_id = ? AND state = '${DROPPED_CARD}')`)
-    .run(endedCardAnswer(event.card_id, DROPPED_CARD), event.id, event.card_id, event.card_id)
+    .run(endedCardAnswer(event.card_id, DROPPED_CARD), event.id, JSON.stringify(parts.prsOfCard(db, event.card_id)), event.card_id)
 }
 
 function foldDropNamingItsChildren(db: DatabaseSync, event: StoredEvent, parts: CardWaitParts): void {
   checkTheChildrenADropNames(event)
-  CARD_FOLDS[event.type]!(db, event)
+  parts.cardFolds[event.type]!(db, event)
   closeWaitsOfAnEndedCard(db, event.card_id, event.id)
-  closeWaitsOnThePrsOfADroppedCard(db, event)
+  closeWaitsOnThePrsOfADroppedCard(db, event, parts)
   parts.archiveSpentDecisions(db)
 }
 
@@ -215,8 +224,8 @@ function closeDecisionWaitsTheAmendAnswers(db: DatabaseSync, event: StoredEvent)
     .run(`card #${event.card_id} amended`, event.id, event.card_id, event.id)
 }
 
-function foldAdmittedWithBody(db: DatabaseSync, event: StoredEvent): void {
-  CARD_FOLDS[CARD_ADMITTED]!(db, event)
+function foldAdmittedWithBody(db: DatabaseSync, event: StoredEvent, parts: CardWaitParts): void {
+  parts.cardFolds[CARD_ADMITTED]!(db, event)
   foldCardBody(db, event)
   closeDowngradeWaitsTheAdmissionAnswers(db, event)
   closeAmendWaitsTheAdmissionAnswers(db, event)
@@ -241,6 +250,6 @@ export function cardWaitFolds(parts: CardWaitParts): Record<string, Fold> {
     [CARD_CLOSED]: ending,
     [CARD_MOVED]: ending,
     [CARD_DROPPED]: (db, event) => foldDropNamingItsChildren(db, event, parts),
-    [CARD_ADMITTED]: foldAdmittedWithBody,
+    [CARD_ADMITTED]: (db, event) => foldAdmittedWithBody(db, event, parts),
   }
 }

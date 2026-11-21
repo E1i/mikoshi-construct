@@ -30,6 +30,7 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/core/every.ts`,
     `${FACTORY_ROOT}/core/watermark.ts`,
     `${FACTORY_ROOT}/core/events-query.ts`,
+    `${FACTORY_ROOT}/core/tasks-query.ts`,
     `${FACTORY_ROOT}/core/entry.ts`,
     `${FACTORY_ROOT}/core/observations.ts`,
     `${FACTORY_ROOT}/core/task-must-wait.ts`,
@@ -151,6 +152,7 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/nodes/review/dry-run-record.ts`,
     `${FACTORY_ROOT}/core/merge-event.ts`,
     `${FACTORY_ROOT}/core/pr-folds.ts`,
+    `${FACTORY_ROOT}/core/pr-readings.ts`,
     `${FACTORY_ROOT}/core/pr-status.ts`,
   ],
   'project': [

@@ -9,6 +9,7 @@ import { byId, events, latest, perCard } from './events-query.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_DEFERRED, CARD_DROPPED, CARD_FELL, CARD_MOVED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, DROPPED_LANE, MERGE_DONE, PR_OPENED, QUESTION_OWNER, REVIEW_RECORDED, TERMINAL_LANES, WITNESS_RECORDED } from './events.js'
 import { legacyHistory } from './legacy-history.js'
 import { payloadOf, reject } from './stored.js'
+import * as tasks from './tasks-query.js'
 import { lastEventId, markReduced, reduceProjection, watermarkOf } from './watermark.js'
 
 export const QUEUED_CARD = 'queued'
@@ -58,12 +59,20 @@ function sharedByADecisionRecorded(db: DatabaseSync, cardId: number, pr: number)
   return events(db, { types: [CARD_VERIFIED], card: cardId, pr }).some(event => typeof event.data?.sharedBy === 'string')
 }
 
-const CURRENT_LAUNCH_LEASE = `SELECT task_key, state, lease_gen FROM tasks WHERE queue = 'launch' AND card_id = ? ORDER BY event_id DESC LIMIT 1`
+const LAUNCH_QUEUE = 'launch'
 
 interface LaunchLease {
   task_key: string
   state: string
   lease_gen: number
+}
+
+function currentLaunchLease(db: DatabaseSync, cardId: number): LaunchLease | undefined {
+  return tasks.ofCard(db, cardId, { queue: LAUNCH_QUEUE }).at(-1)
+}
+
+export interface CardPrReadings {
+  stateOf: (db: DatabaseSync, pr: number) => string | null
 }
 
 interface Card {
@@ -79,9 +88,9 @@ function stateOf(db: DatabaseSync, cardId: number): CardState {
   return cardOf(db, cardId)?.state ?? null
 }
 
-function linkedPrState(db: DatabaseSync, cardId: number): string | null {
-  const row = db.prepare('SELECT prs.state FROM cards JOIN prs ON prs.pr = cards.pr WHERE cards.card_id = ?').get(cardId) as { state: string | null } | undefined
-  return row?.state ?? null
+function linkedPrState(db: DatabaseSync, cardId: number, prs: CardPrReadings): string | null {
+  const pr = cardOf(db, cardId)?.pr ?? null
+  return pr === null ? null : prs.stateOf(db, pr)
 }
 
 function moveCard(db: DatabaseSync, cardId: number, state: string, eventId: number): void {
@@ -145,7 +154,7 @@ function leaseGenCarriedBy(event: StoredEvent, current: LaunchLease | undefined)
 }
 
 function restoreFromFault(db: DatabaseSync, event: StoredEvent, cardId: number): void {
-  const current = db.prepare(CURRENT_LAUNCH_LEASE).get(cardId) as LaunchLease | undefined
+  const current = currentLaunchLease(db, cardId)
   const carried = leaseGenCarriedBy(event, current)
   if (carried === null || carried !== current?.lease_gen)
     reject(`card ${cardId} is ${STOPPED_CARD} by ${FAULT}, and ${event.type} restores it only under the current lease_gen ${current?.lease_gen ?? 'of no launch'} of its launch, not ${carried ?? 'none'}`)
@@ -201,12 +210,12 @@ function foldStarted(db: DatabaseSync, event: StoredEvent): void {
   moveCard(db, cardId, RUNNING_CARD, event.id)
 }
 
-function backInWork(db: DatabaseSync, cardId: number): string {
-  return linkedPrState(db, cardId) === 'open' ? IN_REVIEW_CARD : QUEUED_CARD
+function backInWork(db: DatabaseSync, cardId: number, prs: CardPrReadings): string {
+  return linkedPrState(db, cardId, prs) === 'open' ? IN_REVIEW_CARD : QUEUED_CARD
 }
 
-function cardReleased(db: DatabaseSync, cardId: number, eventId: number): void {
-  moveCard(db, cardId, backInWork(db, cardId), eventId)
+function cardReleased(db: DatabaseSync, cardId: number, eventId: number, prs: CardPrReadings): void {
+  moveCard(db, cardId, backInWork(db, cardId, prs), eventId)
 }
 
 function stoppedOnAnOwnerQuestion(db: DatabaseSync, cardId: number, before: number): boolean {
@@ -219,17 +228,17 @@ function aWaitItDidNotNameStaysOpen(db: DatabaseSync, cardId: number, named: rea
   return named.length > 0 && db.prepare(`SELECT 1 FROM owner_waits WHERE state = '${OPEN_WAIT}' AND card_id = ? AND id NOT IN (SELECT value FROM json_each(?)) LIMIT 1`).get(cardId, JSON.stringify(named)) !== undefined
 }
 
-export function cardsAnswered(db: DatabaseSync, cards: readonly number[], named: readonly string[], eventId: number): void {
+export function cardsAnswered(db: DatabaseSync, cards: readonly number[], named: readonly string[], eventId: number, prs: CardPrReadings): void {
   for (const cardId of cards) {
     if (stoppedOnAnOwnerQuestion(db, cardId, eventId) && !aWaitItDidNotNameStaysOpen(db, cardId, named))
-      cardReleased(db, cardId, eventId)
+      cardReleased(db, cardId, eventId, prs)
   }
 }
 
-function foldAnswered(db: DatabaseSync, event: StoredEvent): void {
+function foldAnswered(db: DatabaseSync, event: StoredEvent, prs: CardPrReadings): void {
   const cardId = event.card_id ?? reject(`${CARD_ANSWERED} needs a card_id`)
-  const readmittedWithItsPullRequestOpen = stateOf(db, cardId) === QUEUED_CARD && linkedPrState(db, cardId) === 'open'
-  claimed(db, event, readmittedWithItsPullRequestOpen ? new Set([QUEUED_CARD]) : ANSWERED, backInWork(db, cardId))
+  const readmittedWithItsPullRequestOpen = stateOf(db, cardId) === QUEUED_CARD && linkedPrState(db, cardId, prs) === 'open'
+  claimed(db, event, readmittedWithItsPullRequestOpen ? new Set([QUEUED_CARD]) : ANSWERED, backInWork(db, cardId, prs))
 }
 
 const GREEN_VERDICT = 'green'
@@ -284,16 +293,17 @@ export function unsatisfiedDependencies(db: DatabaseSync): UnsatisfiedDependenci
   }
 }
 
-function sharedByADecision(db: DatabaseSync, cardId: number, pr: number | null): boolean {
+const MERGED_PR = 'merged'
+
+function sharedByADecision(db: DatabaseSync, cardId: number, pr: number | null, prs: CardPrReadings): boolean {
   if (pr === null)
     return false
-  const merged = db.prepare(`SELECT 1 FROM prs WHERE pr = ? AND state = 'merged'`).get(pr) !== undefined
-  return merged && sharedByADecisionRecorded(db, cardId, pr)
+  return prs.stateOf(db, pr) === MERGED_PR && sharedByADecisionRecorded(db, cardId, pr)
 }
 
-function foldClosed(db: DatabaseSync, event: StoredEvent): void {
+function foldClosed(db: DatabaseSync, event: StoredEvent, prs: CardPrReadings): void {
   const cardId = event.card_id ?? reject(`${CARD_CLOSED} needs a card_id`)
-  if (stateOf(db, cardId) !== MERGED_CARD && linkedPrState(db, cardId) !== 'merged' && !(event.pr === null && (closedByReport(db, cardId) || witnessedOnMain(db, cardId))) && !sharedByADecision(db, cardId, event.pr))
+  if (stateOf(db, cardId) !== MERGED_CARD && linkedPrState(db, cardId, prs) !== MERGED_PR && !(event.pr === null && (closedByReport(db, cardId) || witnessedOnMain(db, cardId))) && !sharedByADecision(db, cardId, event.pr, prs))
     reject(`card ${cardId} is ${stateOf(db, cardId) ?? 'without state'} and its pull request is not merged, and ${CARD_CLOSED} closes only a merged card`)
   moveCard(db, cardId, CLOSED_CARD, event.id)
 }
@@ -304,13 +314,13 @@ function foldFell(db: DatabaseSync, event: StoredEvent): void {
   claimed(db, event, FALLS, FALLEN_CARD)
 }
 
-function foldMoved(db: DatabaseSync, event: StoredEvent): void {
+function foldMoved(db: DatabaseSync, event: StoredEvent, prs: CardPrReadings): void {
   const cardId = event.card_id ?? reject(`${CARD_MOVED} needs a card_id`)
   const lane = payloadOf(event).lane
   if (typeof lane === 'string' && TERMINAL_LANES.has(lane) && !ENDED.has(stateOf(db, cardId)))
     moveCard(db, cardId, DROPPED_CARD, event.id)
   else if (stateOf(db, cardId) === DEFERRED_CARD)
-    moveCard(db, cardId, backInWork(db, cardId), event.id)
+    moveCard(db, cardId, backInWork(db, cardId, prs), event.id)
 }
 
 function foldDeferred(db: DatabaseSync, event: StoredEvent): void {
@@ -345,16 +355,18 @@ export const CARD_FOLDED_ON_APPEND: readonly string[] = Object.keys(CARD_ON_APPE
 
 export const CARDS_PROJECTION: IncrementalProjection = { table: 'cards', folds: CARD_ON_APPEND_FOLDS }
 
-export const CARD_FOLDS: Record<string, Fold> = {
-  ...CARD_ON_APPEND_FOLDS,
-  [CARD_ADMITTED]: foldAdmitted,
-  [CARD_STARTED]: foldStarted,
-  [CARD_ANSWERED]: foldAnswered,
-  [CARD_CLOSED]: foldClosed,
-  [CARD_FELL]: foldFell,
-  [CARD_MOVED]: foldMoved,
-  [CARD_DEFERRED]: foldDeferred,
-  [CARD_DROPPED]: foldDropped,
+export function cardFolds(prs: CardPrReadings): Record<string, Fold> {
+  return {
+    ...CARD_ON_APPEND_FOLDS,
+    [CARD_ADMITTED]: foldAdmitted,
+    [CARD_STARTED]: foldStarted,
+    [CARD_ANSWERED]: (db, event) => foldAnswered(db, event, prs),
+    [CARD_CLOSED]: (db, event) => foldClosed(db, event, prs),
+    [CARD_FELL]: foldFell,
+    [CARD_MOVED]: (db, event) => foldMoved(db, event, prs),
+    [CARD_DEFERRED]: foldDeferred,
+    [CARD_DROPPED]: foldDropped,
+  }
 }
 
 export function appendedOnCard(db: DatabaseSync, event: BusEvent): boolean {
