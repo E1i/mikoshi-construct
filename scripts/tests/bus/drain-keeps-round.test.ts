@@ -13,7 +13,7 @@ import { completeTask, leasedByRetiring, leaseWhileFree, recordWorkerStarted, re
 import { Node, recordChildStarted } from '../../core/node.js'
 import { keyOf, queueTaskWithin } from '../../core/queue.js'
 import { launchName, PREFIX } from '../../supervisor/bg.js'
-import { cardTransitions, nodeSupply } from '../../supervisor/composition.js'
+import { cardTransitions, nodeSupply, reviewLaunch } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { slotsVariable } from '../../supervisor/scheduler.js'
 import { busDrain, BusSupervisor, DRAIN_LIMIT_MS, freeLeasesOf, withoutRetiring } from '../../supervisor/supervisor.js'
@@ -91,7 +91,7 @@ function bench(holderStart: { pid: number, started: string } | null = { pid: OLD
   const clock = { now: 0 }
   const date = (): Date => new Date(MERGED_AT + clock.now)
   const ts = (): string => date().toISOString()
-  const { answer, close } = workerLaunches(() => [])
+  const { answer, close } = workerLaunches(reviewLaunch(() => []))
   let alive: RunningProcess[] = [{ pid: OLD_WRAPPER_PID, args: `node pnpm.cjs --silent ${launchName(answer)}` }, { pid: OLD_PID, args: `node --import tsx scripts/nodes/answer/answer-worker.ts --on` }]
   const started: string[] = []
   const stopped: number[] = []

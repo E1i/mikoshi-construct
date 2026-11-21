@@ -8,7 +8,7 @@ import { LEASES_DRAINING } from '../../core/events.js'
 import { completeTask, drainOpen, leaseNext, leaseWhileFree } from '../../core/lease.js'
 import { queueTaskWithin } from '../../core/queue.js'
 import { launchName, PREFIX } from '../../supervisor/bg.js'
-import { cardTransitions } from '../../supervisor/composition.js'
+import { cardTransitions, reviewLaunch } from '../../supervisor/composition.js'
 import { busDrain, BusSupervisor, freeLeasesOf } from '../../supervisor/supervisor.js'
 import { workerLaunches } from '../../supervisor/workers.js'
 
@@ -31,7 +31,7 @@ function bench() {
   const ts = (): string => new Date(MERGED_AT + clock.now).toISOString()
   const inFlight = leaseWhileFree(db, ts(), { queue: 'close', cardId: 1438, pr: 1243, head: OLD_MAIN }, 'worker:close:old', 1)!
   queueTaskWithin(db, ts(), { queue: 'launch', cardId: 1462 })
-  const { close, launch } = workerLaunches(() => [])
+  const { close, launch } = workerLaunches(reviewLaunch(() => []))
   let pid = 700
   let alive: RunningProcess[] = [{ pid: 600, args: `node pnpm.cjs --silent ${launchName(close)} --on` }, { pid: 601, args: `node pnpm.cjs --silent ${launchName(launch)} --on` }]
   const started: string[] = []

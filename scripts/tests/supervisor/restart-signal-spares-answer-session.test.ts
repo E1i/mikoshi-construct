@@ -17,7 +17,7 @@ import { completeTask, leaseWhileFree, recordWorkerStarted, RESTART_CUT } from '
 import { keyOf } from '../../core/queue.js'
 import { AnswerOutcomes } from '../../nodes/answer/duties/outcomes.js'
 import { BUS_RUN_LAUNCH, PREFIX } from '../../supervisor/bg.js'
-import { cardTransitions } from '../../supervisor/composition.js'
+import { cardTransitions, reviewLaunch } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { busDrain, BusSupervisor, groupedPsList, stopInstance, withoutRetiring } from '../../supervisor/supervisor.js'
 import { workerLaunches } from '../../supervisor/workers.js'
@@ -113,7 +113,7 @@ describe('a restart signal spares the session of a retiring answer worker', () =
       { pid: busRun.pid!, ppid: process.pid, pgid: busRun.pid!, started: '', command: `node -e bus ${BUS_RUN_LAUNCH.markers[0]!}` },
     ]))
 
-    const { answer } = workerLaunches(() => [])
+    const { answer } = workerLaunches(reviewLaunch(() => []))
     recordWorkerStarted(db, ts(), 'worker:answer:old', { pid: worker.pid!, started: ts() })
     const lease = leaseWhileFree(db, ts(), { queue: 'answer', cardId: 1852 }, 'worker:answer:old', 2)!
     const drain = busDrain(db, ts)

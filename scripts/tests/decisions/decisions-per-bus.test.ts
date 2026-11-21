@@ -14,6 +14,7 @@ import { OWNER_WORD_NOT_FOUND, ownerChannelOf, ownerChannelOfBus, sayToOwnerChan
 import { decisionsFileOf } from '../../policy/decisions/decisions.js'
 import { inForceDecisions, recordDecision } from '../../policy/decisions/index.js'
 import { liveDecisionOf } from '../../policy/live-decision.js'
+import { reviewLaunch } from '../../supervisor/composition.js'
 import { composeBusTick } from '../../supervisor/run.js'
 import { startingMode, wantedLaunches } from '../../supervisor/workers.js'
 import { requestFromWindow } from '../../window/window-requests.js'
@@ -75,7 +76,7 @@ function answerOf(db: DatabaseSync, request: number): { type: string, detail: st
 
 function liveLaunches(bus: Bus, decisions = inForceDecisions(bus.db)): string[] {
   startingMode(busDirOf(bus.path))
-  return wantedLaunches(busDirOf(bus.path), () => [], decisions).filter(launch => launch.args.includes(LIVE_FLAG)).map(launch => launch.script)
+  return wantedLaunches(busDirOf(bus.path), reviewLaunch(() => []), decisions).filter(launch => launch.args.includes(LIVE_FLAG)).map(launch => launch.script)
 }
 
 describe('owner decisions belong to the bus of their repository', () => {

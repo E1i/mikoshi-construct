@@ -20,6 +20,7 @@ import { LIVE_FLAG } from '../scripts/core/node.js'
 import { sayToOwnerChannel, USED_WORD } from '../scripts/owner/channel.js'
 import { activeWindowShards } from '../scripts/policy/shards.js'
 import { BUS_FLAG, BUS_RUN_LAUNCH, carriesMarker, installedPackage, launchArgv, runBusBg } from '../scripts/supervisor/bg.js'
+import { reviewLaunch } from '../scripts/supervisor/composition.js'
 import { agentEnvStamp } from '../scripts/supervisor/stamp.js'
 import { AGENT_LOG, agentLabel, factoryBusOf, ghostProtocolWord, HOLD_CHECK_MS, HOLD_FLAG, holdWhileSupervised, installKeepAlive, KEEP_ALIVE_PLATFORM, KEEP_ALIVE_PROGRAM, LAUNCH_AGENTS, MIKO_FLAG, RAISED_WITHIN_S, runMode, runStart, sayCommand, START_BIN, startAndHold, startCommandOf, startedMarkOf, USAGE } from '../scripts/supervisor/start.js'
 import { startUnderAgentEnv, SUPERVISE_FLAG, SUPERVISOR_LAUNCH } from '../scripts/supervisor/supervisor.js'
@@ -595,7 +596,7 @@ describe('the modes of the factory', () => {
     const parts = keepAliveParts(tempRoot('factory-home-'), recordingLaunchctl().run, 'linux')
 
     await runStart(tempRoot('factory-user-'), REPOSITORY, parts, fresh)
-    const launches = wantedLaunches(parts.busDir, () => [], [], NOW)
+    const launches = wantedLaunches(parts.busDir, reviewLaunch(() => []), [], NOW)
 
     expect(liveWorkers(parts.busDir)).toEqual(WINDOW_WORKERS)
     expect(launches.filter(launch => launch.args.includes(LIVE_FLAG)).map(launch => launch.script).sort()).toEqual(['bus:answer', 'bus:launch', 'bus:review', 'bus:witness'])
@@ -716,7 +717,7 @@ describe('the modes of the factory', () => {
     const bench = modeBench()
     sayToOwnerChannel(bench.channel, ghostProtocolWord(8), NOW)
     runMode(modeCommand('--mode', 'ghost-protocol', '--hours', '8'), bench.parts)
-    const scripts = (now: Date) => wantedLaunches(bench.parts.busDir, () => [], [], now).map(launch => launch.script)
+    const scripts = (now: Date) => wantedLaunches(bench.parts.busDir, reviewLaunch(() => []), [], now).map(launch => launch.script)
 
     expect(termEndOf(bench.parts.busDir)).toBe(TERM_END)
     expect(scripts(new Date('2026-10-25T19:59:59.000Z'))).toContain('bus:merge')

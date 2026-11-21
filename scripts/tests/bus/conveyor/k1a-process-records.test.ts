@@ -30,7 +30,7 @@ import { WitnessNode } from '../../../nodes/witness/witness-worker.js'
 import { identityOf, OsProcessTable } from '../../../ports/process-table.js'
 import { SetupTurns, withWorktreeAsync } from '../../../ports/worktree.js'
 import { BUS_RUN_LAUNCH, handedIdentity, launchArgv, recordSpawned, runBusBg, runsBusEntryItself, spawnedActor, startDetached } from '../../../supervisor/bg.js'
-import { busProjections, cardTransitions, nodeSupply, recordOwnStart, workerIdentity } from '../../../supervisor/composition.js'
+import { busProjections, cardTransitions, nodeSupply, recordOwnStart, reviewLaunch, workerIdentity } from '../../../supervisor/composition.js'
 import { SILENT_MS } from '../../../supervisor/liveness-sites.js'
 import { generationEnv, ownIdentity, tableIdentity } from '../../../supervisor/recorded-worker.js'
 import { workerLaunches } from '../../../supervisor/workers.js'
@@ -92,7 +92,7 @@ describe('k1a [needs ps]: a worker started through startDetached records its ide
   it('a worker started through startDetached records its identity', async () => {
     const { busDir, busPath, db } = bus()
     const env = { ...process.env, [BUS_DB_VARIABLE]: busPath, [GENERATION_VARIABLE]: GENERATION }
-    const result = startDetached(workerLaunches(() => []).restart, busDir, env, noProcesses)
+    const result = startDetached(workerLaunches(reviewLaunch(() => [])).restart, busDir, env, noProcesses)
     expect(result.exitCode, result.stderr.join('\n')).toBe(0)
     const spawned = Number(result.stdout[0])
     groups.push(spawned)
@@ -273,7 +273,7 @@ describe('k1a [needs ps]: every process the supervisor starts has exactly one li
   it('every process the supervisor starts has exactly one live record matching the process table', async () => {
     const { busDir, busPath, db } = bus()
     const env = { ...process.env, [BUS_DB_VARIABLE]: busPath }
-    const restart = workerLaunches(() => []).restart
+    const restart = workerLaunches(reviewLaunch(() => [])).restart
     const busRunStandIn = ['nohup', 'sleep', '120']
     const result = runBusBg(busDir, [BUS_RUN_LAUNCH, restart], env, noProcesses, (launch: DetachedLaunch, dir, handedEnv, processes) => startDetached(launch, dir, generationEnv({ head: () => GENERATION }, handedEnv), processes, launch === BUS_RUN_LAUNCH ? { argv: busRunStandIn } : {}))
     expect(result.exitCode, result.stderr.join('\n')).toBe(0)

@@ -15,7 +15,7 @@ import { sayToOwnerChannel } from '../../owner/channel.js'
 import { decisionsFileOf } from '../../policy/decisions/decisions.js'
 import { allowLiveCommand, liveDecisionOf } from '../../policy/live-decision.js'
 import { activeWindowShards, decisionsInForceAt, windowShardEnded } from '../../policy/shards.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, reviewLaunch } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { busDecisionsAdder, busDecisionsText, ghostProtocolWord, runMode, startCommandOf } from '../../supervisor/start.js'
 import { liveWorkers, returnToWindowAtTermEnd, switchDetection, switchedOn, switchWorker, termEndOf, wantedLaunches } from '../../supervisor/workers.js'
@@ -85,7 +85,7 @@ function ghostProtocol(parts: ModeParts) {
 }
 
 function liveScripts(busDir: string, now: Date = NOW): string[] {
-  return wantedLaunches(busDir, () => [], [], now).filter(launch => launch.args.includes(LIVE_FLAG)).map(launch => launch.script)
+  return wantedLaunches(busDir, reviewLaunch(() => []), [], now).filter(launch => launch.args.includes(LIVE_FLAG)).map(launch => launch.script)
 }
 
 describe('oneword: the ghost-protocol word is the only owner word', () => {

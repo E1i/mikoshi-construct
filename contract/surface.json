@@ -1927,9 +1927,7 @@
       "exits": [
         1
       ],
-      "flags": [
-        "silent"
-      ],
+      "flags": [],
       "json": false,
       "unknownFlag": "not read"
     },

@@ -14,7 +14,7 @@ import { completeTask, recordWorkerStarted } from '../../core/lease.js'
 import { Node } from '../../core/node.js'
 import { queueTaskWithin } from '../../core/queue.js'
 import { launchName, PREFIX } from '../../supervisor/bg.js'
-import { cardTransitions, nodeSupply } from '../../supervisor/composition.js'
+import { cardTransitions, nodeSupply, reviewLaunch } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { slotsVariable } from '../../supervisor/scheduler.js'
 import { busDrain, BusSupervisor, freeLeasesOf, withoutRetiring } from '../../supervisor/supervisor.js'
@@ -84,7 +84,7 @@ async function untilTrue(condition: () => boolean): Promise<void> {
 }
 
 function supervised(db: DatabaseSync, ts: () => string): BusSupervisor {
-  const { review } = workerLaunches(() => [])
+  const { review } = workerLaunches(reviewLaunch(() => []))
   let alive: RunningProcess[] = [{ pid: OLD_PID, args: `node pnpm.cjs --silent ${launchName(review)}` }]
   let head = OLD_MAIN
   const processes = withoutRetiring(() => alive, db)

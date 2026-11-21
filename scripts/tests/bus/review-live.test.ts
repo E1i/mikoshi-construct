@@ -13,7 +13,7 @@ import { detectionMode } from '../../core/node.js'
 import { reduce } from '../../core/reducer.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { ReviewNode } from '../../nodes/review/review-worker.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, reviewLaunch } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { switchDetection, switchWorker, wantedLaunches } from '../../supervisor/workers.js'
 import { cardBody } from './github-fake.js'
@@ -23,7 +23,7 @@ import { benchNetWatch } from './net-watch-bench.js'
 const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
 
 const benches: MergeBench[] = []
-const NO_PREFLIGHT = (): string[] => []
+const NO_PREFLIGHT = reviewLaunch(() => [])
 
 beforeEach(() => {
   vi.spyOn(console, 'log').mockImplementation(() => {})
