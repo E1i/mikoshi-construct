@@ -9,7 +9,7 @@ import { BUS_DB_VARIABLE, BUS_FILE } from '../scripts/core/bus-path.js'
 import { factoryHomeFor } from '../src/commands/attach/beside.js'
 import { ATTACH_RECORD_FILE, EXCLUDE_FILE, planCarriers, readAttachRecord, readExcludeBlockPaths, runAttach, runAttachUpgrade, SETTINGS_FILE } from '../src/commands/attach/index.js'
 import { attachedVersionOf, carriersReading, writeAttachRecord } from '../src/commands/attach/record.js'
-import { browserLabExcludedCommand } from '../src/commands/attach/settings.js'
+import { browserLabExcludedCommand, daemonAllowRules } from '../src/commands/attach/settings.js'
 import { askDetach } from '../src/commands/detach/index.js'
 import { printDoctor, runDoctor } from '../src/commands/doctor/index.js'
 import { sha256 } from '../src/manifest.js'
@@ -382,7 +382,7 @@ describe('construct attach --upgrade', () => {
     writeAttachRecord(dir, record)
 
     await runAttachUpgrade(ui, { dir, yes: true })
-    expect(JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8'))).toEqual({ sandbox: { excludedCommands: [browserLabExcludedCommand()] } })
+    expect(JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8'))).toEqual({ sandbox: { excludedCommands: [browserLabExcludedCommand()] }, permissions: { allow: daemonAllowRules() } })
 
     expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     expect(existsSync(path.join(dir, SETTINGS_FILE))).toBe(false)
