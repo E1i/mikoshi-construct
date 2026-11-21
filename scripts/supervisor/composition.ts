@@ -89,7 +89,7 @@ export function reviewLaunch(preflight: () => string[]): DetachedLaunch {
   return {
     prefix: REVIEW_PREFIX,
     script: REVIEW_SCRIPT,
-    args: [SWITCH_FLAG],
+    args: Array.of(SWITCH_FLAG),
     markers: REVIEW_WORKER_MARKERS,
     instanceFile: REVIEW_INSTANCE_FILE,
     startLock: REVIEW_START_LOCK,
