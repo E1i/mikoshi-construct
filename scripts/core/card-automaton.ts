@@ -355,17 +355,21 @@ export const CARD_FOLDED_ON_APPEND: readonly string[] = Object.keys(CARD_ON_APPE
 
 export const CARDS_PROJECTION: IncrementalProjection = { table: 'cards', folds: CARD_ON_APPEND_FOLDS }
 
+const CARD_FOLDS: Record<string, Fold> = {
+  ...CARD_ON_APPEND_FOLDS,
+  [CARD_ADMITTED]: foldAdmitted,
+  [CARD_STARTED]: foldStarted,
+  [CARD_FELL]: foldFell,
+  [CARD_DEFERRED]: foldDeferred,
+  [CARD_DROPPED]: foldDropped,
+}
+
 export function cardFolds(prs: CardPrReadings): Record<string, Fold> {
   return {
-    ...CARD_ON_APPEND_FOLDS,
-    [CARD_ADMITTED]: foldAdmitted,
-    [CARD_STARTED]: foldStarted,
+    ...CARD_FOLDS,
     [CARD_ANSWERED]: (db, event) => foldAnswered(db, event, prs),
     [CARD_CLOSED]: (db, event) => foldClosed(db, event, prs),
-    [CARD_FELL]: foldFell,
     [CARD_MOVED]: (db, event) => foldMoved(db, event, prs),
-    [CARD_DEFERRED]: foldDeferred,
-    [CARD_DROPPED]: foldDropped,
   }
 }
 
