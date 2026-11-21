@@ -1,17 +1,23 @@
 import type { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { repositoryReport } from '../../../contract/module-graph/report.js'
 import { openBus } from '../../../core/db.js'
+import { ANSWER_SOURCE } from '../../../core/inbox.js'
 import { ANSWER_SESSION, runOwnerAnswer } from '../../../owner/answer.js'
 import { requestDecision, requestFromOwnerShell } from '../../../policy/decisions/add.js'
-import { ANSWER_SOURCE } from '../../../window/window-requests.js'
 
 const ADD = 'scripts/policy/decisions/add.ts'
 const ANSWER = 'scripts/owner/answer.ts'
 const WINDOW_REQUESTS = 'scripts/window/window-requests.ts'
+const DOOR = 'scripts/policy/decisions/window-door.ts'
+const INBOX = 'scripts/core/inbox.ts'
+const REPO = path.resolve(import.meta.dirname, '../../../..')
+const MAIN_GUARD = /^if \(process\.argv\[1\] !== undefined/
+const DOOR_IMPORT = /from '[^']*window-door\.js'/
+const RUNNERS_OF: Record<string, readonly string[]> = { [ADD]: ['runRequest', 'SESSION_VARIABLE'], [ANSWER]: ['requestFromWindow'] }
 const NOW = new Date('2026-11-21T10:00:00.000Z')
 const GIVEN_REQUEST = 41
 
@@ -26,6 +32,19 @@ function scratch(): { db: DatabaseSync, channel: string } {
   return { db, channel: path.join(dir, 'channel') }
 }
 
+function sourceLines(file: string): string[] {
+  return readFileSync(path.join(REPO, file), 'utf8').split('\n')
+}
+
+function linesNaming(lines: readonly string[], name: string): number[] {
+  const word = new RegExp(`\\b${name}\\b`)
+  return lines.flatMap((line, at) => word.test(line) && !DOOR_IMPORT.test(line) ? [at] : [])
+}
+
+function decisionsViolationsInto(holder: string): string[] {
+  return repositoryReport().violations.filter(v => v.fromModule === 'decisions' && v.toHolder === holder).map(({ from, to }) => `${from} -> ${to}`)
+}
+
 function eventCount(db: DatabaseSync): number {
   return (db.prepare('SELECT COUNT(*) AS count FROM events').get() as { count: number }).count
 }
@@ -38,9 +57,35 @@ afterEach(() => {
 })
 
 describe('add.ts and answer.ts take the window runner from their entry block', () => {
-  it('neither file reaches the window requests module past the one door it already has', () => {
+  it('the door is imported only by the two entry files and is their only way into the window', () => {
     const { graph } = repositoryReport()
-    expect(graph.imports.filter(({ from, to }) => (from === ADD || from === ANSWER) && to === WINDOW_REQUESTS)).toEqual([])
+    const sourceImporters = graph.imports.filter(({ from, to }) => to === DOOR && !from.startsWith('scripts/tests/')).map(({ from }) => from).sort()
+    expect(sourceImporters).toEqual([ANSWER, ADD])
+    expect(graph.imports.filter(({ from, to }) => (from === ADD || from === ANSWER) && to.startsWith('scripts/window/'))).toEqual([])
+  })
+
+  it('the door carries only the window runners and the session variable, and answer.ts takes ANSWER_SOURCE from inbox', () => {
+    const exported = /export \{([^}]*)\}/.exec(readFileSync(path.join(REPO, DOOR), 'utf8'))![1]!.split(',').map(name => name.trim()).sort()
+    expect(exported).toEqual(['SESSION_VARIABLE', 'requestFromWindow', 'runRequest'])
+    expect(repositoryReport().graph.imports.some(({ from, to }) => from === ANSWER && to === INBOX)).toBe(true)
+  })
+
+  it.each(Object.entries(RUNNERS_OF))('%s names what it takes from the door only in its entry block', (file, names) => {
+    const lines = sourceLines(file)
+    const guard = lines.findIndex(line => MAIN_GUARD.test(line))
+    expect(guard).toBeGreaterThan(0)
+    for (const name of names) {
+      const named = linesNaming(lines, name)
+      expect(named.length, name).toBeGreaterThan(0)
+      expect(named.filter(at => at < guard), name).toEqual([])
+    }
+  })
+
+  it('the decisions rows into window and ports stay one import each: the door and read.ts', () => {
+    expect(decisionsViolationsInto('window')).toEqual([`${DOOR} -> ${WINDOW_REQUESTS}`])
+    expect(decisionsViolationsInto('ports')).toHaveLength(1)
+    const ratchet = JSON.parse(readFileSync(path.join(REPO, 'contract/ratchet.json'), 'utf8')) as Record<string, number>
+    expect([ratchet['boundary:decisions->window'], ratchet['boundary:decisions->ports']]).toEqual([1, 1])
   })
 
   it('requestDecision carries the decision through the runner it is given, and the bus sees nothing else', () => {
