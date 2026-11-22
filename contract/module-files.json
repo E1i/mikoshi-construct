@@ -392,6 +392,8 @@
     "scripts/tests/bus/board-warnings.test.ts",
     "scripts/tests/bus/board.test.ts",
     "scripts/tests/bus/browser-preinstall.test.ts",
+    "scripts/tests/bus/bus-fake-conformance.test.ts",
+    "scripts/tests/bus/bus-fake.ts",
     "scripts/tests/bus/card-amend-request.test.ts",
     "scripts/tests/bus/card-automaton.test.ts",
     "scripts/tests/bus/card-bodies.test.ts",
