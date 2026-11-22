@@ -232,6 +232,7 @@
   "boundary:window->release": 1,
   "boundary:window->rules": 7,
   "boundary:window->session": 22,
+  "gate:bus": 728,
   "law-gaps:Z1:answer": 1,
   "law-gaps:Z1:launch": 1,
   "law-gaps:Z1:witness": 1,
