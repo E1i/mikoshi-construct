@@ -7,6 +7,7 @@ import { unsatisfiedDependencies } from '../../scripts/core/card-automaton.js'
 import { appendEvent, openBus } from '../../scripts/core/db.js'
 import { CARD_VERIFIED } from '../../scripts/core/events.js'
 import { reduce } from '../../scripts/core/reducer.js'
+import { dependencyReadings } from '../../scripts/nodes/launch/launch-candidates.js'
 import { busProjections } from '../../scripts/supervisor/composition.js'
 import { closedFromBus, closedTasks, endedCards, JOURNAL_HISTORY_ENDS, mergedTasks, writtenBeforeHistoryEnds } from '../../src/card/closed.js'
 
@@ -24,7 +25,7 @@ function unsatisfiedIn(events: Omit<BusEvent, 'ts' | 'head' | 'dedupeKey'>[], de
   try {
     events.forEach((event, at) => appendEvent(db, { ...event, ts: `2026-10-11T00:00:0${at}.000Z`, head: null, dedupeKey: `${event.type}:${event.cardId}:${at}` }))
     reduce(db, 'pending', busProjections())
-    return unsatisfiedDependencies(db)(depends)
+    return unsatisfiedDependencies(db, dependencyReadings(db))(depends)
   }
   finally {
     db.close()

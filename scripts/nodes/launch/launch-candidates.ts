@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ParkedTask, Priority } from '../../../src/card/parking.js'
 import type { ShiftTask } from '../../../src/card/task-file.js'
+import type { DependencyReadings } from '../../core/card-automaton.js'
 import type { SessionStopCode } from '../../core/card-hold.js'
 import type { MachineHold, MachineSessions } from '../../core/machine-sessions.js'
 import type { QueuedTask, QueueSource } from '../../core/queue.js'
@@ -16,7 +17,9 @@ import { cardHoldOf, SESSION_STOP_CODES } from '../../core/card-hold.js'
 import { appendEvent, DECISION_IN_FORCE, openOwnerWait } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_FELL, CARD_STARTED, CARD_STOPPED, CARD_WAITING, COMMAND_EXECUTED, DECISION_RECORDED, GHOST_ROW, LANE_HELD, OUTSIDE_TOUCHES, OWNER_WAIT_OPENED, PR_CLOSED, PR_OBSERVED, PR_OPENED, SESSION_HEARTBEAT, TASK_REQUEUED } from '../../core/events.js'
 import { prOf } from '../../core/identifiers.js'
+import { legacyHistory } from '../../core/legacy-history.js'
 import { busNameOfDb, machineHoldLine, machineSessions } from '../../core/machine-sessions.js'
+import * as prs from '../../core/pr-readings.js'
 import { namesQueueLive } from '../../policy/live-decision.js'
 import { ANY, BusRead } from '../../ports/bus-read.js'
 import { isAlive } from '../../quality/lock.js'
@@ -576,6 +579,8 @@ export function startHold(db: DatabaseSync, cardId: number, lanes: number, machi
   return machineHoldOf(machine)
 }
 
+export const dependencyReadings = (db: DatabaseSync): DependencyReadings => ({ pullRequests: () => prs.all(db), journal: () => legacyHistory(db) })
+
 interface QueuedView {
   queued: CardLife[]
   unsatisfied: ReturnType<typeof unsatisfiedDependencies>
@@ -594,7 +599,7 @@ function queuedView(db: DatabaseSync, treeLive: TreeReader, nowMs: number, withW
   const falls = fallCounts(db)
   const queued = [...lives.values()]
     .filter(life => !noLongerCandidates.has(life.cardId) && (withWindowCards || !life.windowsToWork) && (falls.get(life.cardId) ?? 0) < FALLS_BEFORE_CUT && isQueued(life, settled) && !heldOutside(life, openPrs, trees, beating) && cardHoldOf(db, life.cardId) === null)
-  return { queued, unsatisfied: unsatisfiedDependencies(db), holds: holdsOf(db, lives, merged, openPrs, beating), prNumbers: openPrNumbers(db) }
+  return { queued, unsatisfied: unsatisfiedDependencies(db, dependencyReadings(db)), holds: holdsOf(db, lives, merged, openPrs, beating), prNumbers: openPrNumbers(db) }
 }
 
 export function startableCards(db: DatabaseSync, treeLive: TreeReader = existsSync, now: () => number = Date.now, shared: readonly string[] = sharedAppendFiles(), lanes: () => number = repositoryLanes(process.cwd()), machine: MachineReader = machineSessions(isAlive)): StartableCard[] {
@@ -738,7 +743,7 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
   let free = machine.free()
   const merged = cardSet(db, MERGED_CARDS)
   const settled = settledCards(db, merged)
-  const unsatisfied = unsatisfiedDependencies(db)
+  const unsatisfied = unsatisfiedDependencies(db, dependencyReadings(db))
   const launching = cardSet(db, OPEN_LAUNCHES)
   const openPrs = cardSet(db, OPEN_PR_CARDS)
   const trees = standingTrees(db, treeLive)

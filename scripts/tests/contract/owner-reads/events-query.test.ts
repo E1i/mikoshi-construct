@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../../core/db.js'
 import { all, byId, EITHER_JOURNAL, events, latest, ofCard, ofPr, perCard } from '../../../core/events-query.js'
 import { CARD_ADMITTED, CARD_HELD, CARD_STOPPED, TASK_FAILED } from '../../../core/events.js'
+import * as prs from '../../../core/pr-readings.js'
+import * as tasks from '../../../core/tasks-query.js'
 import { lastEventId } from '../../../core/watermark.js'
 
 const TS = '2026-11-20T08:00:00.000Z'
@@ -117,5 +119,73 @@ describe('events query', () => {
     expect(events(db, { types: [] })).toEqual([])
     expect(events(db, { ids: [] })).toEqual([])
     expect(events(db, { keys: [] })).toEqual([])
+  })
+})
+
+const HEAD = 'b'.repeat(40)
+
+function aTask(db: DatabaseSync, row: { key: string, queue: string, card: number, state: string, gen: number, event: number }): void {
+  db.prepare('INSERT INTO tasks (task_key, queue, card_id, pr, head, state, lease_gen, event_id) VALUES (?, ?, ?, NULL, NULL, ?, ?, ?)').run(row.key, row.queue, row.card, row.state, row.gen, row.event)
+}
+
+function aPr(db: DatabaseSync, pr: number, card: number | null, state: string, event: number): void {
+  db.prepare('INSERT INTO prs (pr, card_id, base, head, state, event_id) VALUES (?, ?, \'main\', ?, ?, ?)').run(pr, card, HEAD, state, event)
+}
+
+function withTasks(): DatabaseSync {
+  const db = bus()
+  const ids = Array.from({ length: 6 }, (_, n) => append(db, { type: CARD_STOPPED, card: n % 2 === 0 ? CARD : OTHER_CARD, key: `t${n}` }))
+  aTask(db, { key: 'answer:z', queue: 'answer', card: CARD, state: 'withdrawn', gen: 0, event: ids[0]! })
+  aTask(db, { key: 'launch:1', queue: 'launch', card: CARD, state: 'done', gen: 1, event: ids[2]! })
+  aTask(db, { key: 'answer:a', queue: 'answer', card: CARD, state: 'withdrawn', gen: 0, event: ids[4]! })
+  aTask(db, { key: 'launch:2', queue: 'launch', card: OTHER_CARD, state: 'leased', gen: 7, event: ids[5]! })
+  aTask(db, { key: 'launch:0', queue: 'launch', card: CARD, state: 'leased', gen: 3, event: ids[3]! })
+  return db
+}
+
+function plain<T extends object>(rows: readonly T[]): T[] {
+  return rows.map(row => ({ ...row }))
+}
+
+describe('the card domain reads tasks and prs through their owners, not through SQL of its own', () => {
+  it('tasks.ofCard gives the launch lease card-automaton read by its own SQL', () => {
+    const db = withTasks()
+    const before = { ...db.prepare('SELECT task_key, state, lease_gen FROM tasks WHERE queue = \'launch\' AND card_id = ? ORDER BY event_id DESC LIMIT 1').get(CARD) }
+    const now = tasks.ofCard(db, CARD, { queue: 'launch' }).at(-1)!
+    expect({ task_key: now.task_key, state: now.state, lease_gen: now.lease_gen }).toEqual(before)
+    expect(before).toEqual({ task_key: 'launch:0', state: 'leased', lease_gen: 3 })
+  })
+
+  it('tasks.ofCard gives the withdrawn answers since an event that card-hold read by its own SQL', () => {
+    const db = withTasks()
+    const since = 1
+    const before = plain(db.prepare('SELECT task_key, queue, card_id, pr, head, state, event_id FROM tasks WHERE card_id = ? AND queue = \'answer\' AND state = ? AND event_id > ? ORDER BY task_key').all(CARD, 'withdrawn', since) as Record<string, unknown>[])
+    const now = tasks.ofCard(db, CARD, { queue: 'answer', state: 'withdrawn', after: since })
+      .map(({ task_key, queue, card_id, pr, head, state, event_id }) => ({ task_key, queue, card_id, pr, head, state, event_id }))
+      .sort((a, b) => a.task_key.localeCompare(b.task_key))
+    expect(now).toEqual(before)
+    expect(now.map(task => task.task_key)).toEqual(['answer:a'])
+  })
+
+  it('tasks.ofCard keeps the order of events and leaves out the tasks of other cards', () => {
+    const db = withTasks()
+    expect(tasks.ofCard(db, CARD).map(task => task.task_key)).toEqual(['answer:z', 'launch:1', 'launch:0', 'answer:a'])
+    expect(tasks.ofCard(db, OTHER_CARD).map(task => task.task_key)).toEqual(['launch:2'])
+    expect(tasks.ofCard(db, 1)).toEqual([])
+  })
+
+  it('prs.ofPr and prs.ofCard give the rows of prs as values', () => {
+    const db = bus()
+    const event = append(db, { type: CARD_STOPPED, card: CARD, key: 'p0' })
+    aPr(db, 52, CARD, 'merged', event)
+    aPr(db, 51, CARD, 'open', event)
+    aPr(db, 53, null, 'open', event)
+    expect(prs.ofPr(db, 52)).toEqual({ ...db.prepare('SELECT * FROM prs WHERE pr = 52').get() })
+    expect(prs.ofPr(db, 52)?.state).toBe('merged')
+    expect(prs.ofPr(db, 99)).toBeNull()
+    expect(prs.ofCard(db, CARD).map(row => row.pr)).toEqual([51, 52])
+    expect(prs.ofCard(db, OTHER_CARD)).toEqual([])
+    expect(prs.all(db)).toEqual(plain(db.prepare('SELECT * FROM prs ORDER BY pr').all() as Record<string, unknown>[]))
+    expect(prs.all(db).map(row => row.pr)).toEqual([51, 52, 53])
   })
 })
