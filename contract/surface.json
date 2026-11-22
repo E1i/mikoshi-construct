@@ -2020,7 +2020,8 @@
       ],
       "exits": [],
       "flags": [
-        "import"
+        "import",
+        "show-toplevel"
       ],
       "json": false,
       "unknownFlag": "not read"
