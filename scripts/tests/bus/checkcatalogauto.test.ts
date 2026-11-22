@@ -2,7 +2,7 @@ import type { Graph } from '../../ci/layers.js'
 import type { GitHub, GitHubPut } from '../../ports/github.js'
 import type { MergeBench } from './merge-bench.js'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -255,6 +255,40 @@ describe('rebuildCatalogAt', () => {
 
     expect(() => rebuildCatalogAt(commit, bus, clone)).toThrow('no depcruise here')
     expect(git(clone, 'worktree', 'list').split('\n')).toHaveLength(1)
+  })
+
+  it('a directory that is not a git checkout is skipped with its reason, and nothing is fetched', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'catalog-no-checkout-'))
+    roots.push(root)
+
+    const rebuilt = rebuildCatalogAt(MAIN_TIP, path.join(root, 'bus'), root)
+
+    expect(rebuilt).toEqual({ kind: 'skipped', reason: expect.stringContaining(`${root} is not a git checkout`) })
+    expect(existsSync(path.join(root, 'bus'))).toBe(false)
+  })
+
+  it('a checkout that carries no check-catalog is skipped with its reason, and its origin is not fetched', () => {
+    const { clone, bus } = aRepository()
+    writeFileSync(path.join(clone, 'README.md'), 'a consumer\n')
+    git(clone, 'add', 'README.md')
+    git(clone, 'commit', '-q', '-m', 'consumer')
+    git(clone, 'remote', 'set-url', 'origin', path.join(clone, 'no-such-origin'))
+
+    const rebuilt = rebuildCatalogAt(MAIN_TIP, bus, clone)
+
+    expect(rebuilt).toEqual({ kind: 'skipped', reason: expect.stringContaining('carries no scripts/cli/check-catalog.ts') })
+    expect(existsSync(bus)).toBe(false)
+  })
+
+  it('the merge node logs a skipped rebuild and raises no alarm', async () => {
+    const made = bench()
+    const lines: string[] = []
+    vi.mocked(console.log).mockImplementation((line: unknown) => void lines.push(String(line)))
+
+    await once(nodeOf(made, { rebuildCatalog: () => ({ kind: 'skipped', reason: 'no checkout here' }) }))
+
+    expect(lines.some(line => line.includes(`the check catalog is not rebuilt at ${MAIN_TIP}: no checkout here`))).toBe(true)
+    expect(eventsOf(made.db, BOARD_ALARM).filter(alarm => alarm.reason === CATALOG_REBUILD_FAILED)).toEqual([])
   })
 })
 

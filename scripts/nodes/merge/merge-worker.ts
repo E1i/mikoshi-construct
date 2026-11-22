@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
+import type { CatalogRebuilt } from '../../cli/check-catalog.js'
 import type { Lease } from '../../core/lease.js'
 import type { DetectionMode, NodeDeclaration, Scope } from '../../core/node.js'
 import type { QueuedTask } from '../../core/queue.js'
@@ -40,7 +41,7 @@ const WHOLE_QUEUE_ON: ReadonlySet<string> = new Set([REDUCED, PR_GROUPS, MERGE_D
 
 export type MergeStep = MergeOutcome
 
-export type CatalogRebuild = (ref: string) => void
+export type CatalogRebuild = (ref: string) => CatalogRebuilt | void
 
 export interface MergeWorkerParts {
   db: DatabaseSync
@@ -145,7 +146,9 @@ export class MergeNode extends Node<MergeStep> {
 
   private rebuildAt(ref: string): void {
     try {
-      this.rebuildCatalog?.(ref)
+      const rebuilt = this.rebuildCatalog?.(ref)
+      if (rebuilt?.kind === 'skipped')
+        this.log(`the check catalog is not rebuilt at ${ref}: ${rebuilt.reason}`)
     }
     catch (error) {
       this.catalogNotRebuilt(ref, error)
@@ -184,7 +187,7 @@ export async function runMergeWorker(argv: string[], run: MergeRun): Promise<num
 
 export function liveMergeRun(cwd: string, busPath: string): MergeRun {
   const gitHub = ghApi(cwd)
-  return { busPath, rebuildCatalog: ref => rebuildCatalogAt(ref, busPath), gitHub, put: ghApiPut(cwd), publish: ghStatusPublisher(cwd), session: randomUUID(), pause: sleep, pushPolicy: () => pushPolicyOf(readThroughPort, cwd), weights: weightsDriftWatch(gitHub, busPath) }
+  return { busPath, rebuildCatalog: ref => rebuildCatalogAt(ref, busPath, cwd), gitHub, put: ghApiPut(cwd), publish: ghStatusPublisher(cwd), session: randomUUID(), pause: sleep, pushPolicy: () => pushPolicyOf(readThroughPort, cwd), weights: weightsDriftWatch(gitHub, busPath) }
 }
 
 async function main(): Promise<number> {

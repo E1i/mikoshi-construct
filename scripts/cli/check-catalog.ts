@@ -372,12 +372,29 @@ export function changesTheCatalog(files: readonly string[]): boolean {
   return files.some(file => isTest(file) || file === LAYER_MAP)
 }
 
-export function rebuildCatalogAt(ref: string, busPath: string, repo: string = REPO_ROOT): void {
-  gitIn(repo, ['fetch', 'origin', MAIN_BRANCH])
-  withWorktree(repo, ref, (tree) => {
-    symlinkSync(path.join(repo, 'node_modules'), path.join(tree, 'node_modules'))
+export type CatalogRebuilt = { kind: 'rebuilt' } | { kind: 'skipped', reason: string }
+
+function checkoutOf(repo: string): string | null {
+  try {
+    return gitIn(repo, ['rev-parse', '--show-toplevel'])
+  }
+  catch {
+    return null
+  }
+}
+
+export function rebuildCatalogAt(ref: string, busPath: string, repo: string): CatalogRebuilt {
+  const checkout = checkoutOf(repo)
+  if (checkout === null)
+    return { kind: 'skipped', reason: `${repo} is not a git checkout, so there is no tree at ${ref} to catalog` }
+  if (!existsSync(path.join(checkout, CATALOG_SCRIPT)))
+    return { kind: 'skipped', reason: `the repository at ${checkout} carries no ${CATALOG_SCRIPT}, so its tests have no catalog to rebuild` }
+  gitIn(checkout, ['fetch', 'origin', MAIN_BRANCH])
+  withWorktree(checkout, ref, (tree) => {
+    symlinkSync(path.join(checkout, 'node_modules'), path.join(tree, 'node_modules'))
     execFileSync(process.execPath, ['--import', 'tsx', CATALOG_SCRIPT], { cwd: tree, env: { ...process.env, [BUS_DB_VARIABLE]: busPath }, timeout: REBUILD_MS, stdio: ['ignore', 'pipe', 'pipe'] })
   })
+  return { kind: 'rebuilt' }
 }
 
 function listedFiles(meter: Meter, pr: number): ListedFile[] {

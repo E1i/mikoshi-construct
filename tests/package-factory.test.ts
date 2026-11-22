@@ -76,6 +76,7 @@ const PATH_BESIDE_AN_ENTRY = /path\.dirname\(FACTORY_\w+\.\w+\)/
 
 const REVIEW_PLANNER_PORT = 'scripts/ports/review-planner.ts'
 const REVIEW_WORKER = 'scripts/nodes/review/review-worker.ts'
+const MERGE_WORKER = 'scripts/nodes/merge/merge-worker.ts'
 const LAYER_MAP_READER = 'scripts/core/layer-map.ts'
 const PLANNER_TIMEOUT_MS = 60_000
 const UNKNOWN_HEAD_LEASE = { taskKey: 'review:1:consumer', queue: 'review', cardId: 1, pr: null, head: null, leaseGen: 1, actor: 'worker:review' }
@@ -402,4 +403,36 @@ describe('the packed tarball in an empty consumer', () => {
     expect(answer.stdout).toContain(OWNER_ANSWER_REQUEST)
     expect(existsSync(env.CONSTRUCT_BUS_DB!)).toBe(true)
   }, PACK_TIMEOUT_MS)
+
+  it('the packed tarball installed into an empty consumer rebuilds the catalog in the consumer repository or skips it with a reason, never runs git in the installed package', () => {
+    const origin = path.join(consumer.root, 'consumer-origin.git')
+    execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin])
+    gitOfTheConsumer('init', '-q', '-b', 'main')
+    writeFileSync(path.join(consumer.directory, '.gitignore'), 'node_modules\n')
+    gitOfTheConsumer('add', 'package.json', '.gitignore')
+    gitOfTheConsumer('commit', '-q', '-m', 'consumer')
+    gitOfTheConsumer('remote', 'add', 'origin', origin)
+    gitOfTheConsumer('push', '-q', 'origin', 'main')
+
+    const worker = pathToFileURL(path.join(consumer.installed, builtPathOf(MERGE_WORKER))).href
+    const evaluate = [
+      'const { liveMergeRun } = await import(process.env.WORKER)',
+      'const rebuilt = liveMergeRun(process.cwd(), process.env.CONSTRUCT_BUS_DB).rebuildCatalog(process.env.REF)',
+      'console.log(JSON.stringify(rebuilt ?? null))',
+    ].join('\n')
+    const env = { ...cleanEnv(consumer.root, 'home-catalog-rebuild'), WORKER: worker, REF: 'origin/main' }
+    const run = spawnSync(process.execPath, ['--input-type=module', '--eval', evaluate], { cwd: consumer.directory, env, encoding: 'utf8' })
+
+    expect(run.stderr).not.toContain(consumer.installed)
+    expect(run.status, run.stderr).toBe(0)
+    const rebuilt = JSON.parse(run.stdout.trim().split('\n').at(-1)!) as { kind: string, reason?: string }
+    expect(rebuilt.kind).toBe('skipped')
+    expect(rebuilt.reason).toContain(realpathSync(consumer.directory))
+    expect(rebuilt.reason).not.toContain('node_modules')
+    expect(gitOfTheConsumer('worktree', 'list').trim().split('\n')).toHaveLength(1)
+  }, PACK_TIMEOUT_MS)
 })
+
+function gitOfTheConsumer(...args: string[]): string {
+  return execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-C', consumer.directory, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+}
