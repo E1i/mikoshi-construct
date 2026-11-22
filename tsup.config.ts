@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { cpSync, existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { defineConfig } from 'tsup'
-import { FACTORY_FOLDERS, FACTORY_NAMED, FACTORY_ROOT, FACTORY_RUNTIME } from './scripts/core/factory-paths.js'
+import { FACTORY_FOLDERS, FACTORY_NAMED, FACTORY_ROOT, FACTORY_RUNTIME, GENERATED_FILES } from './scripts/core/factory-paths.js'
 
 export const OUT_DIR = 'dist'
 export const FACTORY_DIRECTORIES = FACTORY_FOLDERS.entries
@@ -18,6 +18,10 @@ const NAMED_FILE = /['"]((?:scripts|src)\/[\w./-]+\.\w+)['"]/g
 const BESIDE_THE_MODULE = /path\.(?:join|resolve)\(import\.meta\.dirname((?:,\s*'[^']*')*)\)/g
 const ROOT_CONSTANT = /const (\w+) = path\.(?:join|resolve)\(import\.meta\.dirname((?:,\s*'[^']*')*)\)/g
 const SEGMENT = /'([^']*)'/g
+const BESIDE_THE_URL = /new URL\(\s*'(\.{1,2}\/[^']*\.\w+)',\s*import\.meta\.url\s*\)/g
+const ANCHORED_AT_THE_MODULE = /\bimport\.meta\.(?:dirname|url)\b/
+const GENERATED_ROW = /\bGENERATED_FILES\.(\w+)\.path\b/g
+const FOLDER_ROW = '/'
 const TEST_SOURCES = `${FACTORY_FOLDERS.tests[0]}/`
 const INSTALLED_DEPENDENCIES = 'node_modules/'
 const TYPESCRIPT = '.ts'
@@ -60,7 +64,16 @@ export function locatedBy(source: string, text: string): string[] {
   const fromRoots = roots.flatMap(([name, root]) => [...text.matchAll(new RegExp(`path\\.(?:join|resolve)\\(${escaped(name)}((?:,\\s*'[^']*')+)\\)`, 'g'))]
     .map(([, segments]) => path.join(root, ...segmentsOf(segments!))))
   const beside = [...text.matchAll(BESIDE_THE_MODULE)].map(([, segments]) => path.join(here, ...segmentsOf(segments!)))
-  return [...beside, ...fromRoots].filter(located => path.relative(located, here).startsWith('..') && !located.startsWith(INSTALLED_DEPENDENCIES))
+  const besideTheUrl = [...text.matchAll(BESIDE_THE_URL)].map(([, relative]) => path.join(here, relative!))
+  return [...beside, ...besideTheUrl, ...fromRoots].filter(located => path.relative(located, here).startsWith('..') && !located.startsWith(INSTALLED_DEPENDENCIES))
+}
+
+export function generatedRecordsReadBy(text: string): string[] {
+  if (!ANCHORED_AT_THE_MODULE.test(text))
+    return []
+  const rows: Readonly<Record<string, { path: string }>> = GENERATED_FILES
+  return [...new Set([...text.matchAll(GENERATED_ROW)].flatMap(([, id]) => rows[id!]?.path ?? []))]
+    .filter(record => !record.endsWith(TYPESCRIPT) && !record.endsWith(FOLDER_ROW))
 }
 
 function reach(entries: readonly string[]): { sources: string[], assets: string[] } {
@@ -73,7 +86,7 @@ function reach(entries: readonly string[]): { sources: string[], assets: string[
     sources.add(next)
     const text = readFileSync(next, 'utf8')
     const registry = next === FACTORY_NAMED.factoryRegistry
-    const located = [...locatedBy(next, text), ...(registry ? [] : assetsNamedBy(text))].filter(file => existsSync(file))
+    const located = [...locatedBy(next, text), ...(registry ? [] : [...assetsNamedBy(text), ...generatedRecordsReadBy(text)])].filter(file => existsSync(file))
     const imported = importsOf(next, text)
     pending.push(...imported.filter(file => !file.endsWith(PLAIN_MODULE)), ...(registry ? [] : scriptsNamedBy(text).filter(file => existsSync(file))), ...located.filter(file => file.endsWith(TYPESCRIPT)))
     for (const asset of [...located.filter(file => !file.endsWith(TYPESCRIPT)), ...imported.filter(file => file.endsWith(PLAIN_MODULE))])

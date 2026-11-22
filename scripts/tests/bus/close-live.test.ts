@@ -11,7 +11,7 @@ import { detectionMode } from '../../core/node.js'
 import { keyOf } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { CloseNode } from '../../nodes/close/close-worker.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, reviewLaunch } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { bgCommand, detectionCommand } from '../../supervisor/supervisor.js'
 import { liveWorkers, switchDetection, switchWorker, wantedLaunches, WORKERS, WORKERS_FILE } from '../../supervisor/workers.js'
@@ -25,7 +25,7 @@ interface Bench extends MergeBench {
 }
 
 const benches: Bench[] = []
-const NO_PREFLIGHT = (): string[] => []
+const NO_PREFLIGHT = reviewLaunch(() => [])
 
 beforeEach(() => {
   vi.spyOn(console, 'log').mockImplementation(() => {})

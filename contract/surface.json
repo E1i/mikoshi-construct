@@ -1927,9 +1927,7 @@
       "exits": [
         1
       ],
-      "flags": [
-        "silent"
-      ],
+      "flags": [],
       "json": false,
       "unknownFlag": "not read"
     },
@@ -2022,7 +2020,8 @@
       ],
       "exits": [],
       "flags": [
-        "import"
+        "import",
+        "show-toplevel"
       ],
       "json": false,
       "unknownFlag": "not read"

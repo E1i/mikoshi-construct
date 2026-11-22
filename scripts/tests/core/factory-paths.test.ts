@@ -4,6 +4,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { FACTORY_FOLDERS, FACTORY_FORMER_FOLDERS, FACTORY_NAMED, FACTORY_PATH_EXCLUSIONS, FACTORY_PATH_ROOTS, FACTORY_ROOT, FACTORY_RUNTIME, FACTORY_WORKERS, inScopes, scopeOf } from '../../core/factory-paths.js'
 import { builtEntryOf } from '../../supervisor/bg.js'
+import { reviewLaunch } from '../../supervisor/composition.js'
 import { SUPERVISOR_LAUNCH } from '../../supervisor/supervisor.js'
 import { busLaunches } from '../../supervisor/workers.js'
 
@@ -108,7 +109,7 @@ describe('the factory path registry', () => {
     expect(hooks.length).toBeGreaterThan(0)
     expect(hooks.filter(hook => !existsSync(path.join(REPO_ROOT, hook)))).toEqual([])
     const scripts = (JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')) as { scripts: Record<string, string> }).scripts
-    const launches = [...busLaunches(() => []), SUPERVISOR_LAUNCH]
+    const launches = [...busLaunches(reviewLaunch(() => [])), SUPERVISOR_LAUNCH]
     const spawned = launches.map((launch) => {
       const source = FACTORY_SCRIPT.exec(scripts[launch.script] ?? '')?.[1]
       return { launch, source, built: builtEntryOf(REPO_ROOT, launch.script) }

@@ -1,11 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BoundDecision } from '../../core/identifiers.js'
-import type { CandidateRules, QuestionAnswered, QueuedTask, QueueSource } from '../../core/queue.js'
+import type { Candidate, CandidateRules, QuestionAnswered, QueuedTask, QueueSource } from '../../core/queue.js'
 import { CARD_BODIES } from '../../core/card-bodies.js'
 import { CARD_HELD, CARD_RELEASED, CARD_STOPPED, POLICY_DENIED, WITNESS_RECORDED } from '../../core/events.js'
 import { MAIN_BRANCH } from '../../core/identifiers.js'
 import { A_RERUN_DUE } from '../../core/observations.js'
 import { A_LAUNCH_STOP_WITH_NO_PULL_REQUEST, aDowngradeWaitOpenOn, anOpenQuestion, answerCardBodyOf, candidateRows, cardBodyShaOf, everyRow, HELD_BY_A_DEPENDENCY, keyOf, latestQuestionStops, latestTurnOf, LEASED, MERGE_REFUSED, openCandidates, THE_WINDOW_AMENDS_THE_CARD_FIRST } from '../../core/queue.js'
+import { strandedAnswers } from './duties/index.js'
 
 export interface CardSqlParts {
   cardBody: (card: string) => string
@@ -74,6 +75,18 @@ function answerQueries(parts: AnswerParts): readonly string[] {
   ]
 }
 
+function shiftCardBodyOf(windowWho: string): string {
+  return `SELECT ${notAWindowCardOf(windowWho)(':card')} AS shift, ${cardBodyShaOf(':card')} AS card_body`
+}
+
+function strandedAnswerCandidates(db: DatabaseSync, windowWho: string): Candidate[] {
+  const shiftCardBody = db.prepare(shiftCardBodyOf(windowWho))
+  return strandedAnswers(db).flatMap(({ card, answer }) => {
+    const row = shiftCardBody.get({ card }) as { shift: number, card_body: unknown }
+    return row.shift === 1 ? [{ pr: null, card_id: card, head: answer.to, card_body: row.card_body }] : []
+  })
+}
+
 const ANSWERS_LEASED_NOW = `SELECT card_id, task_key FROM tasks WHERE queue = 'answer' AND state = '${LEASED}'`
 
 export function answerCandidates(db: DatabaseSync, ts: string, parts: AnswerParts): QueuedTask[] {
@@ -81,7 +94,8 @@ export function answerCandidates(db: DatabaseSync, ts: string, parts: AnswerPart
   const leased = db.prepare(ANSWERS_LEASED_NOW).all() as { card_id: number, task_key: string }[]
   const answering = new Set(leased.map(row => Number(row.card_id)))
   const leasedKeys = new Set(leased.map(row => row.task_key))
-  const planned = answerQueries(parts).flatMap(query => openCandidates(db, ts, 'answer', candidateRows(db, query, everyRow), rules)).filter(task => !answering.has(task.cardId) || leasedKeys.has(keyOf(task)))
+  const rows = [...answerQueries(parts).map(query => candidateRows(db, query, everyRow)), strandedAnswerCandidates(db, parts.windowWho)]
+  const planned = rows.flatMap(found => openCandidates(db, ts, 'answer', found, rules)).filter(task => !answering.has(task.cardId) || leasedKeys.has(keyOf(task)))
   return parts.continuations(db, planned, { decisions: rules.decisionsAt(db, ts), sql: { cardBody: cardBodyShaOf, latestTurn: latestTurnOf, notAWindowCard: notAWindowCardOf(parts.windowWho), downgradeWaitOpenOn: aDowngradeWaitOpenOn }, pastTheLimit: (pr, head) => rules.outOfRounds(db, 'answer', pr) && rules.mergeDecided(db, ts, pr, head) === null, cardBodyOf: answerCardBodyOf })
 }
 

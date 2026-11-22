@@ -2496,11 +2496,11 @@
         "derived": false,
         "directory": false,
         "namedIn": [
+          "scripts/supervisor/composition.ts",
           "scripts/supervisor/review-bg.ts",
-          "scripts/supervisor/supervisor.ts",
-          "scripts/supervisor/workers.ts"
+          "scripts/supervisor/supervisor.ts"
         ],
-        "owner": "scripts/supervisor/review-bg.ts",
+        "owner": "scripts/supervisor/composition.ts",
         "source": "owner",
         "writers": []
       },
@@ -2580,10 +2580,11 @@
         "derived": false,
         "directory": false,
         "namedIn": [
+          "scripts/supervisor/composition.ts",
           "scripts/supervisor/review-bg.ts",
-          "scripts/supervisor/workers.ts"
+          "scripts/supervisor/supervisor.ts"
         ],
-        "owner": "scripts/supervisor/review-bg.ts",
+        "owner": "scripts/supervisor/composition.ts",
         "source": "owner",
         "writers": []
       },

@@ -25,6 +25,7 @@ import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_MOVED, CARD_STARTED, CA
 import { assertHeld, failTask, leaseNext, StaleLease } from '../../core/lease.js'
 import { NODE_CURSORS } from '../../core/node.js'
 import { FAILURES_TO_STOP, keyOf, queueTask } from '../../core/queue.js'
+import { reduce } from '../../core/reducer.js'
 import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { AnswerNode, answerNodeOf } from '../../nodes/answer/answer-worker.js'
@@ -32,7 +33,7 @@ import { claudeAnswerer, tokensOf, windowGateRule } from '../../nodes/answer/ans
 import { answerPrompt } from '../../nodes/answer/duties/index.js'
 import { MAX_RESTARTS } from '../../nodes/launch/continuation.js'
 import { cardDecisionCommand, DECISIONS_SCOPE, OWNERS_UNDER_ANY_SHARD, VERSION_PR_RESERVATION } from '../../policy/shards.js'
-import { answerParts, cardTransitions } from '../../supervisor/composition.js'
+import { answerParts, busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { busSessionPulse, lastHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
@@ -383,14 +384,16 @@ describe('the answer node', () => {
     await once(node)
     expect(node.found({ cardId: 905 })).toEqual([questionKey(905, asked)])
 
-    answered(made, 905)
-    expect(node.found()).toEqual([questionKey(906, other)])
-    expect(node.found({ cardId: 905 })).toEqual([])
+    const answeredWithNoPullRequest = answered(made, 905)
+    const publishedWithNoPullRequest = keyOf({ queue: 'answer', cardId: 905, head: sha('e') })
+    reduce(made.db, 'pending', busProjections())
+    expect(node.found()).toEqual([questionKey(906, other), publishedWithNoPullRequest])
+    expect(node.found({ cardId: 905 })).toEqual([publishedWithNoPullRequest])
     expect(node.found({ cardId: 906 })).toEqual([questionKey(906, other)])
 
     const later = stopped(made, 907)
     await once(node)
-    expect(detected(made, 'event')).toEqual([{ key: questionKey(907, later), via: 'event', event_id: later }])
+    expect(detected(made, 'event')).toEqual([{ key: publishedWithNoPullRequest, via: 'event', event_id: answeredWithNoPullRequest }, { key: questionKey(907, later), via: 'event', event_id: later }])
   })
 
   it('the node and answerCandidates find one set on one snapshot, and shadow records node.equivalence with nothing on one side only', async () => {
