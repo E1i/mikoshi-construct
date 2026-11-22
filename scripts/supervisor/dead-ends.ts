@@ -2,14 +2,17 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Shape } from './expected-time.js'
 import { lastReducedOwnerWaits } from '../core/bus-readings.js'
 import { CLOSED_CARD, DEFERRED_CARD, DROPPED_CARD, MERGED_CARD, QUEUED_CARD, STOPPED_CARD } from '../core/card-automaton.js'
+import { holderOf, holdLayersOf } from '../core/card-hold.js'
 import { appendEvent, inTransaction, openOwnerWait } from '../core/db.js'
-import { BOARD_ALARM } from '../core/events.js'
+import { BOARD_ALARM, OWNER_WAIT_OPENED, REJECTED } from '../core/events.js'
+import { BusRead } from '../ports/bus-read.js'
 import { expectedMinutes, RoundMeasures } from './expected-time.js'
 
 export const DEAD_END = 'dead_end'
 export const DEAD_END_ACTOR = 'worker:supervisor:dead-ends'
 export const UNMEASURED_ROUND_MINUTES = 60
 const MINUTE_MS = 60_000
+const RAISED_TYPES = [BOARD_ALARM, OWNER_WAIT_OPENED] as const
 
 export const HELD_ELSEWHERE_STATES: readonly string[] = [MERGED_CARD, CLOSED_CARD, DROPPED_CARD, QUEUED_CARD, DEFERRED_CARD]
 
@@ -70,16 +73,19 @@ export function deadEndWaitText(end: DeadEnd): string {
 
 export class DeadEnds {
   private readonly measures: RoundMeasures
+  private readonly read: BusRead
 
   constructor(private readonly db: DatabaseSync, private readonly clock: () => Date, private readonly parts: DeadEndParts) {
     this.measures = new RoundMeasures(db)
+    this.read = new BusRead(db)
   }
 
   found(): DeadEnd[] {
     const at = this.clock()
     const now = at.getTime()
     const held = this.cardsUnderAnOpenOwnerWait()
-    const unheld = this.parts.events.cardsNobodyHolds(HELD_ELSEWHERE_STATES, DEAD_END_ACTOR).filter(card => !held.has(card.card))
+    const unheld = this.parts.events.cardsNobodyHolds(HELD_ELSEWHERE_STATES, DEAD_END_ACTOR)
+      .filter(card => !held.has(card.card) && !this.stoppedUnderAHold(card) && !this.lastMoveIsItsOwnRejectedRaise(card))
     if (unheld.length === 0)
       return []
     const samples = this.measures.samples()
@@ -108,6 +114,19 @@ export class DeadEnds {
       const wait = openOwnerWait(this.db, ts, DEAD_END_ACTOR, { need: 'decision', text: deadEndWaitText(end), card: end.card, ...(end.pr === null ? {} : { pr: end.pr }) })
       return [`${BOARD_ALARM} #${end.card} ${end.reason}; owner wait ${wait}`]
     }))
+  }
+
+  private stoppedUnderAHold(card: UnheldCard): boolean {
+    return card.state === STOPPED_CARD && holderOf(holdLayersOf(this.db, card.card)) !== null
+  }
+
+  private lastMoveIsItsOwnRejectedRaise(card: UnheldCard): boolean {
+    if (card.lastEvent.type !== REJECTED)
+      return false
+    const ofCard = this.read.where({ card: card.card })
+    const rejected = ofCard.where({ from: card.lastEvent.id }).slice(REJECTED, ['event_id'], 'last')[0]?.fields.event_id
+    const raised = new Set(RAISED_TYPES.flatMap(type => ofCard.where({ actor: DEAD_END_ACTOR }).slice(type, []).map(event => event.id)))
+    return raised.has(Number(rejected))
   }
 
   private stopReasonOf(card: UnheldCard): string | null {
