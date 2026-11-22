@@ -13,18 +13,14 @@ import * as tasks from '../../../core/tasks-query.js'
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../../..')
 const CONFIG_URL = pathToFileURL(path.join(REPO_ROOT, 'eslint.config.mjs')).href
 const { FOREIGN_TABLE_SQL_POLICY } = await import(CONFIG_URL) as { FOREIGN_TABLE_SQL_POLICY: Linter.Config[] }
+const MODULE_FILES = JSON.parse(readFileSync(path.join(REPO_ROOT, 'contract/module-files.json'), 'utf8')) as Record<string, string[]>
 const EXCEPTED = JSON.parse(readFileSync(path.join(REPO_ROOT, 'scripts/quality/foreign-table-sql-excepted.json'), 'utf8')) as string[]
 
 const RULE = 'tables/no-foreign-table-sql'
 const NAMED_TABLE = /^SQL names (\w+),/
 const LINT_MS = 120_000
 
-const CARD_HOLD = 'scripts/core/card-hold.ts'
-
-const FOREIGN_TABLES_LEFT: Readonly<Record<string, readonly string[]>> = {
-  'scripts/core/card-automaton.ts': ['cards', 'owner_waits', 'prs'],
-  'scripts/supervisor/card-waits.ts': ['cards', 'owner_waits'],
-}
+const CARD_DOMAIN_FILES = ['scripts/core/card-automaton.ts', 'scripts/core/card-hold.ts', 'scripts/supervisor/card-waits.ts']
 
 const CARD = 7301
 const OTHER_CARD = 7302
@@ -104,12 +100,14 @@ describe('the card domain reads the tables of other owners only through their co
       expect(prs.ofPr(db, 99)).toBeNull()
       expect(prs.ofCard(db, CARD).map(row => row.pr)).toEqual([51, 52])
       expect(prs.ofCard(db, OTHER_CARD)).toEqual([])
+      expect(prs.all(db)).toEqual((db.prepare('SELECT * FROM prs ORDER BY pr').all() as Record<string, unknown>[]).map(row => ({ ...row })))
+      expect(prs.all(db).map(row => row.pr)).toEqual([51, 52, 53])
     })
   })
 
   async function ruleWithoutExceptions(): Promise<ESLint> {
     const eslint = new ESLint({ cwd: REPO_ROOT })
-    const config = await eslint.calculateConfigForFile(path.join(REPO_ROOT, CARD_HOLD)) as { languageOptions: { parser: Linter.Parser } }
+    const config = await eslint.calculateConfigForFile(path.join(REPO_ROOT, CARD_DOMAIN_FILES[0]!)) as { languageOptions: { parser: Linter.Parser } }
     return new ESLint({
       cwd: REPO_ROOT,
       overrideConfigFile: true,
@@ -128,16 +126,14 @@ describe('the card domain reads the tables of other owners only through their co
     ]))
   }
 
-  describe('what the card domain still names of a foreign table', () => {
-    it('card-hold names no foreign table and has left the excepted list', async () => {
-      expect(EXCEPTED).not.toContain(CARD_HOLD)
-      expect(await foreignTablesOf([CARD_HOLD])).toEqual({ [CARD_HOLD]: [] })
-    }, LINT_MS)
+  describe('the card domain names no table of another owner', () => {
+    it('card-automaton, card-hold and card-waits are files of card-record and have left the excepted list', () => {
+      expect(MODULE_FILES['card-record']).toEqual(expect.arrayContaining(CARD_DOMAIN_FILES))
+      expect(EXCEPTED.filter(file => CARD_DOMAIN_FILES.includes(file))).toEqual([])
+    })
 
-    it('card-automaton and card-waits name only the foreign tables of the table, and stay excepted for them', async () => {
-      for (const file of Object.keys(FOREIGN_TABLES_LEFT))
-        expect(EXCEPTED, file).toContain(file)
-      expect(await foreignTablesOf(Object.keys(FOREIGN_TABLES_LEFT))).toEqual(FOREIGN_TABLES_LEFT)
+    it('the rule without exceptions finds no foreign table in them', async () => {
+      expect(await foreignTablesOf(CARD_DOMAIN_FILES)).toEqual(Object.fromEntries(CARD_DOMAIN_FILES.map(file => [file, []])))
     }, LINT_MS)
   })
 })

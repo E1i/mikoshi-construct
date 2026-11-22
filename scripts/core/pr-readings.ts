@@ -44,11 +44,18 @@ function prOfRow(row: StoredPr): PrRow {
   }
 }
 
+function selected(db: DatabaseSync, where: string, ...values: SQLInputValue[]): PrRow[] {
+  return (db.prepare(`SELECT ${PR_COLUMNS} FROM prs ${where} ORDER BY pr`).all(...values) as StoredPr[]).map(prOfRow)
+}
+
 export function ofPr(db: DatabaseSync, pr: number): PrRow | null {
-  const row = db.prepare(`SELECT ${PR_COLUMNS} FROM prs WHERE pr = ?`).get(pr) as StoredPr | undefined
-  return row === undefined ? null : prOfRow(row)
+  return selected(db, 'WHERE pr = ?', pr)[0] ?? null
 }
 
 export function ofCard(db: DatabaseSync, cardId: number): PrRow[] {
-  return (db.prepare(`SELECT ${PR_COLUMNS} FROM prs WHERE card_id = ? ORDER BY pr`).all(cardId) as StoredPr[]).map(prOfRow)
+  return selected(db, 'WHERE card_id = ?', cardId)
+}
+
+export function all(db: DatabaseSync): PrRow[] {
+  return selected(db, '')
 }

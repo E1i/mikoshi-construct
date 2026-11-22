@@ -18,7 +18,7 @@ import { BOARD_ALARM, CARD_ADMITTED, CARD_DROPPED, LANE_ASSIGNED, LANE_OVERLAP, 
 import { prOf } from '../../core/identifiers.js'
 import { effectivePaths, orderDeclarationsAt } from '../../core/order/overlap.js'
 import { processGit } from '../../ports/git.js'
-import { droppedCards, holdReason, laneHeadHolds, startableCards } from './launch-candidates.js'
+import { dependencyReadings, droppedCards, holdReason, laneHeadHolds, startableCards } from './launch-candidates.js'
 import { taskConflicts } from './overlap.js'
 import { sharedAppendFiles } from './shared-files.js'
 
@@ -738,7 +738,7 @@ function bodyDependsOf(db: DatabaseSync, cardId: number): number[] {
 }
 
 export function launchWaitsOf(db: DatabaseSync, repository: string = process.cwd()): LaunchWaits {
-  const unsatisfied = unsatisfiedDependencies(db)
+  const unsatisfied = unsatisfiedDependencies(db, dependencyReadings(db))
   let holds: Map<number, LaunchWait> | undefined
   return (cardId) => {
     if (unsatisfied([cardId]).length === 0)

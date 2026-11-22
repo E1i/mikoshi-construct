@@ -56,6 +56,9 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/intake/card-contract.ts`,
     `${FACTORY_ROOT}/intake/witness-fields-backfill.ts`,
     `${FACTORY_ROOT}/cli/card.ts`,
+    `${FACTORY_ROOT}/core/card-automaton.ts`,
+    `${FACTORY_ROOT}/core/card-hold.ts`,
+    `${FACTORY_ROOT}/supervisor/card-waits.ts`,
   ],
   'command-registry': [
     `${FACTORY_ROOT}/core/owner-commands.ts`,
@@ -220,8 +223,6 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/core/handoff-dir.ts`,
     `${FACTORY_ROOT}/core/handoff-fields.ts`,
     `${FACTORY_ROOT}/core/handoff-status.ts`,
-    `${FACTORY_ROOT}/core/card-automaton.ts`,
-    `${FACTORY_ROOT}/core/card-hold.ts`,
     `${FACTORY_ROOT}/core/chain.ts`,
     `${FACTORY_ROOT}/core/places.ts`,
     `${FACTORY_ROOT}/core/report.ts`,

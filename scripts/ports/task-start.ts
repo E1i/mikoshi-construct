@@ -21,7 +21,9 @@ import { busAdmittedBodies } from '../core/card-bodies.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
 import { ENTRY_RESULT, ENTRY_SCHEMA } from '../core/entry.js'
 import { CARD_ADMITTED, CARD_STARTED } from '../core/events.js'
+import { legacyHistory } from '../core/legacy-history.js'
 import { ADMIT_COMMAND, pnpmCommand } from '../core/owner-commands.js'
+import * as prs from '../core/pr-readings.js'
 import { cardBodyAdmissionOf, LEASED } from '../core/queue.js'
 import { slotsOf, slotsVariable } from '../supervisor/scheduler.js'
 import { STARTER_ACTOR, windowOpenPrs } from '../window/window-prs.js'
@@ -92,7 +94,7 @@ function unsatisfiedIn(bus: string, depends: readonly number[]): number[] {
     return [...depends]
   const db = openBus(bus)
   try {
-    return unsatisfiedDependencies(db)(depends)
+    return unsatisfiedDependencies(db, { pullRequests: () => prs.all(db), journal: () => legacyHistory(db) })(depends)
   }
   finally {
     db.close()

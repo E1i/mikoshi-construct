@@ -22,7 +22,7 @@ const OWNERS: Readonly<Record<string, string>> = {
   'scripts/core/pr-folds.ts': 'pr-record',
   'scripts/core/card-bodies.ts': 'card-record',
   'scripts/policy/decisions/wait-folds.ts': 'decisions',
-  'scripts/supervisor/card-waits.ts': 'session',
+  'scripts/supervisor/card-waits.ts': 'card-record',
   'scripts/core/stored-event.ts': 'events',
 }
 const JUDGED_ROWS = /^(?:boundary|lines):/

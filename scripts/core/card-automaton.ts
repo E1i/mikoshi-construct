@@ -7,7 +7,6 @@ import { isBackfill } from './backfill-source.js'
 import { appendEvent, OPEN_WAIT } from './db.js'
 import { byId, events, latest, perCard } from './events-query.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_DEFERRED, CARD_DROPPED, CARD_FELL, CARD_MOVED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, DROPPED_LANE, MERGE_DONE, PR_OPENED, QUESTION_OWNER, REVIEW_RECORDED, TERMINAL_LANES, WITNESS_RECORDED } from './events.js'
-import { legacyHistory } from './legacy-history.js'
 import { payloadOf, reject } from './stored.js'
 import * as tasks from './tasks-query.js'
 import { lastEventId, markReduced, reduceProjection, watermarkOf } from './watermark.js'
@@ -242,6 +241,7 @@ function foldAnswered(db: DatabaseSync, event: StoredEvent, prs: CardPrReadings)
 }
 
 const GREEN_VERDICT = 'green'
+const MERGED_PR = 'merged'
 
 function reportsAClose(event: EventRow): boolean {
   const report = event.data?.report
@@ -256,20 +256,37 @@ function witnessedOnMain(db: DatabaseSync, cardId: number): boolean {
   return latest(db, { types: [WITNESS_RECORDED], card: cardId, pr: null })?.data?.verdict === GREEN_VERDICT
 }
 
-const SATISFIED_IN_THE_BUS = `
-  SELECT card_id FROM cards WHERE state IN ('${MERGED_CARD}', '${CLOSED_CARD}')
-  UNION SELECT card_id FROM prs WHERE state = 'merged' AND card_id IS NOT NULL
-`
+const SATISFIED_IN_THE_BUS = `SELECT card_id FROM cards WHERE state IN ('${MERGED_CARD}', '${CLOSED_CARD}')`
 
 function closedByReportPerCard(db: DatabaseSync): number[] {
   return [...perCard(db, { types: [CARD_VERIFIED], pr: null })].filter(([, verified]) => verified.some(reportsAClose)).map(([cardId]) => cardId)
 }
 
-function satisfiedInTheBus(db: DatabaseSync): Set<number> {
-  return new Set([...(db.prepare(SATISFIED_IN_THE_BUS).all() as { card_id: number }[]).map(row => Number(row.card_id)), ...closedByReportPerCard(db)])
+interface PullRequestValue {
+  card_id: number | null
+  state: string | null
 }
 
-type JournalLine = ReturnType<typeof legacyHistory>[number]
+interface JournalLine {
+  event?: unknown
+  task?: unknown
+  verification?: unknown
+  report?: unknown
+  pr?: unknown
+}
+
+export interface DependencyReadings {
+  pullRequests: () => readonly PullRequestValue[]
+  journal: () => readonly JournalLine[]
+}
+
+function mergedPullRequestCards(pullRequests: readonly PullRequestValue[]): number[] {
+  return pullRequests.flatMap(pr => pr.state === MERGED_PR && pr.card_id !== null ? [pr.card_id] : [])
+}
+
+function satisfiedInTheBus(db: DatabaseSync, readings: DependencyReadings): Set<number> {
+  return new Set([...(db.prepare(SATISFIED_IN_THE_BUS).all() as { card_id: number }[]).map(row => Number(row.card_id)), ...mergedPullRequestCards(readings.pullRequests()), ...closedByReportPerCard(db)])
+}
 
 function satisfiedInTheJournal(history: readonly JournalLine[]): Set<number> {
   const probeClosedByReport = (entry: JournalLine): boolean => entry.event === 'path' && typeof entry.verification === 'string' && typeof entry.report === 'string' && entry.pr === undefined
@@ -278,22 +295,20 @@ function satisfiedInTheJournal(history: readonly JournalLine[]): Set<number> {
 
 export type UnsatisfiedDependencies = (depends: readonly number[]) => number[]
 
-export function unsatisfiedDependencies(db: DatabaseSync): UnsatisfiedDependencies {
+export function unsatisfiedDependencies(db: DatabaseSync, readings: DependencyReadings): UnsatisfiedDependencies {
   let inTheBus: Set<number> | undefined
   let inTheJournal: Set<number> | undefined
   return (depends) => {
     if (depends.length === 0)
       return []
-    inTheBus ??= satisfiedInTheBus(db)
+    inTheBus ??= satisfiedInTheBus(db, readings)
     const open = depends.filter(dependency => !inTheBus!.has(dependency))
     if (open.length === 0)
       return []
-    inTheJournal ??= satisfiedInTheJournal(legacyHistory(db))
+    inTheJournal ??= satisfiedInTheJournal(readings.journal())
     return open.filter(dependency => !inTheJournal!.has(dependency))
   }
 }
-
-const MERGED_PR = 'merged'
 
 function sharedByADecision(db: DatabaseSync, cardId: number, pr: number | null, prs: CardPrReadings): boolean {
   if (pr === null)
