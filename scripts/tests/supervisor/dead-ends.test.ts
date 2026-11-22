@@ -3,8 +3,9 @@ import type { GitHub } from '../../window/requests/reach.js'
 import type { RequestTools } from '../../window/requests/request.js'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openOwnerWait } from '../../core/db.js'
-import { BOARD_ALARM, CARD_HELD, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_OBSERVED, QUESTION_OWNER, TASK_ENQUEUED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../../core/events.js'
-import { deadEndEvents, deadEndParts, openComposedBus } from '../../supervisor/composition.js'
+import { BOARD_ALARM, CARD_HELD, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_OBSERVED, QUESTION_AGENT, QUESTION_OWNER, TASK_ENQUEUED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../../core/events.js'
+import { reduce } from '../../core/reducer.js'
+import { busProjections, deadEndEvents, deadEndParts, openComposedBus } from '../../supervisor/composition.js'
 import { DEAD_END_ACTOR, DeadEnds, UNMEASURED_ROUND_MINUTES } from '../../supervisor/dead-ends.js'
 import { RequestContext } from '../../window/requests/context.js'
 import { requeue } from '../../window/requests/requeue.js'
@@ -147,6 +148,66 @@ describe('a dead-end alarm names the task key a window requeue looks up', () => 
     placed(db, shape)
     expect(detector(db).step()).toHaveLength(1)
     expect(taskKeysOfAlarms(db, shape.card)).toEqual([null])
+  })
+})
+
+const ROUND_MS = UNMEASURED_ROUND_MINUTES * 60_000
+
+function reduced(db: DatabaseSync): void {
+  reduce(db, 'pending', busProjections())
+}
+
+function ticksPastTheRound(db: DatabaseSync, rounds: number): string[] {
+  return Array.from({ length: rounds }, (_, round) => {
+    const lines = detector(db, new Date(PAST_THE_ROUND.getTime() + round * 2 * ROUND_MS)).step()
+    reduced(db)
+    return lines
+  }).flat()
+}
+
+function holdEvent(db: DatabaseSync, card: number, type: typeof CARD_HELD | typeof CARD_RELEASED, key: string, payload: Record<string, unknown>): void {
+  appendEvent(db, { ts: LAST_EVENT_AT, type, actor: 'worker:window:s771', cardId: card, pr: null, head: null, dedupeKey: `fixture:${type}:${card}:${key}`, payload, legacy: false })
+  db.prepare('UPDATE cards SET event_id = (SELECT max(id) FROM events) WHERE card_id = ?').run(card)
+}
+
+describe('a stopped card the window holds, or one already raised, gets no new owner wait', () => {
+  const FAULT_STOP: DeadEndShape = { card: 2172, state: 'stopped', events: [{ type: CARD_STOPPED, payload: { reason: QUESTION_AGENT } }], named: `stopped (${QUESTION_AGENT})` }
+
+  it('a held stopped card is not a dead end', () => {
+    const db = bus()
+    placed(db, FAULT_STOP)
+    holdEvent(db, FAULT_STOP.card, CARD_HELD, 'hold', { reason: 'waits for #2177', request: 1 })
+    expect(detector(db).step()).toEqual([])
+    expect(alarmsOf(db, FAULT_STOP.card)).toEqual([])
+    expect(waitsOf(db, FAULT_STOP.card)).toEqual([])
+  })
+
+  it('a released stopped card with no task is a dead end again', () => {
+    const db = bus()
+    placed(db, FAULT_STOP)
+    holdEvent(db, FAULT_STOP.card, CARD_HELD, 'hold', { reason: 'waits for #2177', request: 1 })
+    holdEvent(db, FAULT_STOP.card, CARD_RELEASED, 'release', { request: 2 })
+    expect(detector(db).step()).toHaveLength(1)
+    expect(waitsOf(db, FAULT_STOP.card)).toHaveLength(1)
+    expect(alarmsOf(db, FAULT_STOP.card)[0]).toContain(`last event ${CARD_RELEASED}`)
+  })
+
+  it('a stopped fault card with an open dead-end wait gets no new wait over several round times', () => {
+    const db = bus()
+    placed(db, FAULT_STOP)
+    reduced(db)
+    expect(ticksPastTheRound(db, 5)).toHaveLength(1)
+    expect(waitsOf(db, FAULT_STOP.card)).toHaveLength(1)
+    expect(alarmsOf(db, FAULT_STOP.card)).toHaveLength(1)
+  })
+
+  it('a held stopped card gets no wait over several round times', () => {
+    const db = bus()
+    placed(db, FAULT_STOP)
+    holdEvent(db, FAULT_STOP.card, CARD_HELD, 'hold', { reason: 'waits for #2177', request: 1 })
+    reduced(db)
+    expect(ticksPastTheRound(db, 5)).toEqual([])
+    expect(waitsOf(db, FAULT_STOP.card)).toEqual([])
   })
 })
 
