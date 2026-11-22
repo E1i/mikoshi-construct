@@ -10,10 +10,12 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { gapRows, LAW_CELLS } from '../nodes/laws.js'
 import { processGit } from '../ports/git.js'
-import { FACTORY_CONTRACT, graphOfSection, MODULE_GRAPH } from './factory/modules.js'
+import { FACTORY_CONTRACT, graphOfSection, MODULE_GRAPH, SOURCE_TREES } from './factory/modules.js'
 import { findSites, overlapsSection } from './factory/overlaps.js'
 import { parsedFiles } from './factory/walk.js'
 import { BOUNDARY_PREFIX, boundaryNumbers, boundaryReport, exportedNames, identifiedViolations, movedRows } from './module-graph/boundary.js'
+import { buildImportGraph, isCodeFile } from './module-graph/imports.js'
+import { ownerOf, sourceFiles } from './module-graph/ownership.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const THRESHOLD_KEY = 'threshold'
@@ -26,6 +28,9 @@ const CI_EVENT = 'GITHUB_EVENT_NAME'
 const MERGE_COMMIT_EVENTS = new Set(['pull_request', 'merge_group'])
 const FIRST_PARENT = 'HEAD^1'
 const SECOND_PARENT = 'HEAD^2'
+const GATED_MODULE = 'bus'
+const GATE_TREES = [...SOURCE_TREES, 'tests']
+const TEST_FILE = /\.test\.m?ts$/
 
 export type SpecReader = (tree: string) => ModuleGraphSpec
 
@@ -43,6 +48,8 @@ export interface MoveSources extends BaseSources {
 }
 
 export const LAW_GAP_PREFIX = 'law-gaps:'
+
+export const GATE_PREFIX = 'gate:'
 
 export const RATCHET_RECORD = 'contract/ratchet.json'
 
@@ -64,8 +71,34 @@ export function lawGapNumbers(cells: LawCells = LAW_CELLS): RatchetNumbers {
   return Object.fromEntries(gapRows(cells).map(({ law, node }) => [`${LAW_GAP_PREFIX}${law}:${node}`, 1]))
 }
 
+function importersOf(root: string, files: readonly string[], code: readonly string[]): Map<string, string[]> {
+  const importers = new Map<string, string[]>()
+  for (const { from, to } of buildImportGraph(root, files, code))
+    importers.set(to, [...importers.get(to) ?? [], from])
+  return importers
+}
+
+function reachedBackFrom(seeds: readonly string[], importers: ReadonlyMap<string, readonly string[]>): Set<string> {
+  const reached = new Set(seeds)
+  const frontier = [...seeds]
+  for (let file = frontier.pop(); file !== undefined; file = frontier.pop()) {
+    for (const importer of (importers.get(file) ?? []).filter(importer => !reached.has(importer))) {
+      reached.add(importer)
+      frontier.push(importer)
+    }
+  }
+  return reached
+}
+
+export function gateNumbers(root: string, spec: ModuleGraphSpec = MODULE_GRAPH, module: string = GATED_MODULE): RatchetNumbers {
+  const files = sourceFiles(root, GATE_TREES.filter(tree => existsSync(path.join(root, tree))))
+  const code = files.filter(isCodeFile)
+  const reached = reachedBackFrom(code.filter(file => ownerOf(spec, file).includes(module)), importersOf(root, files, code))
+  return { [`${GATE_PREFIX}${module}`]: code.filter(file => TEST_FILE.test(file) && reached.has(file)).length }
+}
+
 export function generateNumbers(root: string, threshold: number): RatchetNumbers {
-  return { [THRESHOLD_KEY]: threshold, [LINE_SCOPE_KEY]: 1, ...overlapNumbers(overlapsSection(findSites(root))), ...bigFileNumbers(root, threshold), ...lawGapNumbers(), ...boundaryNumbers(boundaryReport(root).violations) }
+  return { [THRESHOLD_KEY]: threshold, [LINE_SCOPE_KEY]: 1, ...overlapNumbers(overlapsSection(findSites(root))), ...bigFileNumbers(root, threshold), ...lawGapNumbers(), ...boundaryNumbers(boundaryReport(root).violations), ...gateNumbers(root) }
 }
 
 function beyondMoved(moved: number, growth: number): string {
