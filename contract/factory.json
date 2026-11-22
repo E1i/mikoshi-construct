@@ -3489,6 +3489,7 @@
           "scripts/core/every.ts",
           "scripts/core/watermark.ts",
           "scripts/core/events-query.ts",
+          "scripts/core/tasks-query.ts",
           "scripts/core/entry.ts",
           "scripts/core/observations.ts",
           "scripts/core/task-must-wait.ts"
@@ -3515,6 +3516,7 @@
           "scripts/core/every.ts",
           "scripts/core/watermark.ts",
           "scripts/core/events-query.ts",
+          "scripts/core/tasks-query.ts",
           "scripts/core/entry.ts",
           "scripts/core/observations.ts",
           "scripts/core/task-must-wait.ts",
@@ -3556,11 +3558,15 @@
           "scripts/intake/card-archive.ts",
           "scripts/intake/card-contract.ts",
           "scripts/intake/witness-fields-backfill.ts",
-          "scripts/cli/card.ts"
+          "scripts/cli/card.ts",
+          "scripts/core/card-automaton.ts",
+          "scripts/core/card-hold.ts",
+          "scripts/supervisor/card-waits.ts"
         ],
         "may_use": [
           "bus",
           "card-model",
+          "command-registry",
           "events"
         ],
         "owns": [
@@ -3572,7 +3578,10 @@
           "scripts/intake/card-archive.ts",
           "scripts/intake/card-contract.ts",
           "scripts/intake/witness-fields-backfill.ts",
-          "scripts/cli/card.ts"
+          "scripts/cli/card.ts",
+          "scripts/core/card-automaton.ts",
+          "scripts/core/card-hold.ts",
+          "scripts/supervisor/card-waits.ts"
         ],
         "status": "decided"
       },
@@ -3959,6 +3968,7 @@
           "scripts/nodes/review/dry-run-record.ts",
           "scripts/core/merge-event.ts",
           "scripts/core/pr-folds.ts",
+          "scripts/core/pr-readings.ts",
           "scripts/core/pr-status.ts"
         ],
         "may_use": [
@@ -3973,6 +3983,7 @@
           "scripts/nodes/review/dry-run-record.ts",
           "scripts/core/merge-event.ts",
           "scripts/core/pr-folds.ts",
+          "scripts/core/pr-readings.ts",
           "scripts/core/pr-status.ts"
         ],
         "status": "decided"
@@ -4077,8 +4088,6 @@
           "scripts/core/handoff-dir.ts",
           "scripts/core/handoff-fields.ts",
           "scripts/core/handoff-status.ts",
-          "scripts/core/card-automaton.ts",
-          "scripts/core/card-hold.ts",
           "scripts/core/chain.ts",
           "scripts/core/places.ts",
           "scripts/core/report.ts",
@@ -4113,8 +4122,6 @@
           "scripts/core/handoff-dir.ts",
           "scripts/core/handoff-fields.ts",
           "scripts/core/handoff-status.ts",
-          "scripts/core/card-automaton.ts",
-          "scripts/core/card-hold.ts",
           "scripts/core/chain.ts",
           "scripts/core/places.ts",
           "scripts/core/report.ts",
@@ -4125,6 +4132,7 @@
           "scripts/cli/slot.ts",
           "src/commands/liveness.ts",
           "scripts/supervisor/**",
+          "!scripts/supervisor/card-waits.ts",
           "!scripts/supervisor/composition.ts",
           "!scripts/supervisor/netwatch-root.ts",
           "!scripts/supervisor/start.ts"
@@ -4373,9 +4381,8 @@
       "scripts/cli/card.ts": 1,
       "scripts/cli/check-catalog.ts": 1,
       "scripts/core/bus-readings.ts": 4,
-      "scripts/core/card-automaton.ts": 6,
+      "scripts/core/card-automaton.ts": 3,
       "scripts/core/card-decisions.ts": 5,
-      "scripts/core/card-hold.ts": 1,
       "scripts/core/chain.ts": 3,
       "scripts/core/db.ts": 3,
       "scripts/core/dependency-wait.ts": 3,
@@ -4387,11 +4394,13 @@
       "scripts/core/node.ts": 4,
       "scripts/core/observations.ts": 6,
       "scripts/core/pr-folds.ts": 3,
+      "scripts/core/pr-readings.ts": 1,
       "scripts/core/pr-status.ts": 6,
       "scripts/core/queue.ts": 23,
       "scripts/core/reducer.ts": 2,
       "scripts/core/report.ts": 5,
       "scripts/core/stored.ts": 1,
+      "scripts/core/tasks-query.ts": 1,
       "scripts/core/tasks.ts": 3,
       "scripts/core/watermark.ts": 2,
       "scripts/intake/card-contract.ts": 1,
