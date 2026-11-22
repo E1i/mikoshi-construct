@@ -4,8 +4,8 @@ import { lastReducedOwnerWaits } from '../core/bus-readings.js'
 import { CLOSED_CARD, DEFERRED_CARD, DROPPED_CARD, MERGED_CARD, QUEUED_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { holderOf, holdLayersOf } from '../core/card-hold.js'
 import { appendEvent, inTransaction, openOwnerWait } from '../core/db.js'
+import { ofCard } from '../core/events-query.js'
 import { BOARD_ALARM, OWNER_WAIT_OPENED, REJECTED } from '../core/events.js'
-import { BusRead } from '../ports/bus-read.js'
 import { expectedMinutes, RoundMeasures } from './expected-time.js'
 
 export const DEAD_END = 'dead_end'
@@ -73,11 +73,9 @@ export function deadEndWaitText(end: DeadEnd): string {
 
 export class DeadEnds {
   private readonly measures: RoundMeasures
-  private readonly read: BusRead
 
   constructor(private readonly db: DatabaseSync, private readonly clock: () => Date, private readonly parts: DeadEndParts) {
     this.measures = new RoundMeasures(db)
-    this.read = new BusRead(db)
   }
 
   found(): DeadEnd[] {
@@ -123,10 +121,10 @@ export class DeadEnds {
   private lastMoveIsItsOwnRejectedRaise(card: UnheldCard): boolean {
     if (card.lastEvent.type !== REJECTED)
       return false
-    const ofCard = this.read.where({ card: card.card })
-    const rejected = ofCard.where({ from: card.lastEvent.id }).slice(REJECTED, ['event_id'], 'last')[0]?.fields.event_id
-    const raised = new Set(RAISED_TYPES.flatMap(type => ofCard.where({ actor: DEAD_END_ACTOR }).slice(type, []).map(event => event.id)))
-    return raised.has(Number(rejected))
+    const rejected = ofCard(this.db, card.card, { types: [REJECTED], ids: [card.lastEvent.id] })[0]?.data?.event_id
+    if (typeof rejected !== 'number')
+      return false
+    return ofCard(this.db, card.card, { types: RAISED_TYPES, ids: [rejected] }).some(raised => raised.actor === DEAD_END_ACTOR)
   }
 
   private stopReasonOf(card: UnheldCard): string | null {
