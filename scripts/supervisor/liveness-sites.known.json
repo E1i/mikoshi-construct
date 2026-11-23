@@ -23,5 +23,6 @@
   { "file": "scripts/supervisor/run.ts", "kind": "imported-judge" },
   { "file": "scripts/window/exit.ts", "kind": "kill" },
   { "file": "scripts/window/loop.ts", "kind": "kill" },
-  { "file": "scripts/window/watch-store.ts", "kind": "imported-judge" }
+  { "file": "scripts/window/watch-store.ts", "kind": "imported-judge" },
+  { "file": "src/commands/attach/settings.ts", "kind": "ps" }
 ]
