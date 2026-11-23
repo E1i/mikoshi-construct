@@ -42,6 +42,7 @@ import { cardDecisionReads, reviewedUnderTheCardDecision, reviewsTheCardDecision
 import { openOwnerWaits } from '../core/card-readings.js'
 import { CHAINS_PROJECTION } from '../core/chain.js'
 import { defaultBusPath, openBus } from '../core/db.js'
+import { byId } from '../core/events-query.js'
 import { CARD_DEFERRED, CARD_MOVED, CARD_PLANNED, CARD_STOPPED, CARD_UNPLANNED, DECISION_RECORDED, DECISIONS_IMPORTED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OBSERVED, PR_OPENED, RATCHET_THRESHOLD_SET, SLICE_PARENTS_BACKFILLED, TASK_ENQUEUED, TASK_REQUEUED } from '../core/events.js'
 import { FACTORY_WORKERS } from '../core/factory-paths.js'
 import { isFullSha, prOf } from '../core/identifiers.js'
@@ -178,7 +179,7 @@ export function launchSessionEnv(cardId: number): Record<string, string> {
   return heartbeatEnv({ cardId, pr: null, head: null, queue: 'launch' })
 }
 
-const PLAN_PARTS: PlanParts = { owner: OWNER, recut: RECUT_ACTOR, payloadOf }
+const PLAN_PARTS: PlanParts = { owner: OWNER, recut: RECUT_ACTOR, payloadOf, actorOf: (db, event) => byId(db, event.id)?.actor ?? null }
 
 function foldPlanByItsActors(db: DatabaseSync, event: StoredEvent): void {
   foldPlanEvent(db, event, PLAN_PARTS)
