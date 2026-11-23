@@ -1,5 +1,4 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { BoardThreadDown, BoardTimerSpawn, StartedBoardTimer } from '../cli/board-page/timer.js'
 import type { GitHubPost } from '../core/pr-status.js'
 import type { Derived } from '../core/queue.js'
 import type { Projections, ReduceCount } from '../core/reducer.js'
@@ -13,7 +12,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { BOARD_PERIOD_MS, startBoardTimer } from '../cli/board-page/timer.js'
+import { BOARD_PERIOD_MS, startBoardTimer } from '../cli/board-page.js'
 import { busDirOf } from '../core/bus-path.js'
 import { CHECK_MS, TICK_MS } from '../core/cadence.js'
 import { closedWaitIds } from '../core/card-readings.js'
@@ -308,6 +307,86 @@ async function main(): Promise<number> {
   return superviseUntilEnd(() => tickWhileReducing(busTick, reducer), bothThreads(reducer, board), () => db.close())
 }
 
+type BoardTimerSpawn = NonNullable<Parameters<typeof startBoardTimer>[2]>
+type StartedBoardTimer = ReturnType<typeof startBoardTimer>
+
+export const BOARD_THREAD = 'bus:board-timer'
+export const BOARD_RESTART_CAP_MS = 300_000
+const PERIODS_THAT_CLEAR_THE_FAILURES = 2
+
+export interface BoardThreadDown {
+  worker: string
+  cause: string
+  failures: number
+  nextAttemptAt: Date
+}
+
+export function restartDelayMs(periodMs: number, failures: number): number {
+  return Math.min(periodMs * 2 ** Math.max(0, failures - 1), Math.max(periodMs, BOARD_RESTART_CAP_MS))
+}
+
+export function boardThreadEndedLine(cause: string, restartInMs: number): string {
+  return `${PREFIX}the board thread ended (${cause}), so the board page stops being written; bus:run records worker.down and starts the thread again in ${(restartInMs / 1000).toFixed(1)} s`
+}
+
+export function boardThreadDownUnrecordedLine(error: unknown): string {
+  return `${PREFIX}recording worker.down for ${BOARD_THREAD} failed: ${(error instanceof Error ? error.message : String(error)).split('\n')[0]}; the thread is started again all the same`
+}
+
+class KeptBoardThread {
+  private thread: StartedBoardTimer | null = null
+  private failures = 0
+  private startedMs = 0
+  private restart: ReturnType<typeof setTimeout> | null = null
+  private stopped = false
+
+  constructor(private readonly busPath: string, private readonly periodMs: number, private readonly spawn: BoardTimerSpawn | undefined, private readonly down: (down: BoardThreadDown) => void, private readonly now: () => number) {}
+
+  start(): StartedBoardTimer {
+    this.startedMs = this.now()
+    const thread: StartedBoardTimer = startBoardTimer(this.busPath, this.periodMs, this.spawn, cause => this.ended(thread, cause))
+    this.thread = thread
+    return thread
+  }
+
+  async stop(): Promise<void> {
+    this.stopped = true
+    if (this.restart !== null)
+      clearTimeout(this.restart)
+    this.restart = null
+    const thread = this.thread
+    this.thread = null
+    if (thread !== null)
+      await thread.stop()
+  }
+
+  private ended(thread: StartedBoardTimer, cause: string): void {
+    if (this.stopped || thread !== this.thread)
+      return
+    this.thread = null
+    this.failures = this.now() - this.startedMs >= this.periodMs * PERIODS_THAT_CLEAR_THE_FAILURES ? 1 : this.failures + 1
+    const delay = restartDelayMs(this.periodMs, this.failures)
+    console.error(boardThreadEndedLine(cause, delay))
+    try {
+      this.down({ worker: BOARD_THREAD, cause, failures: this.failures, nextAttemptAt: new Date(this.now() + delay) })
+    }
+    catch (error) {
+      console.error(boardThreadDownUnrecordedLine(error))
+    }
+    this.restart = setTimeout(() => {
+      this.restart = null
+      if (!this.stopped)
+        this.start()
+    }, delay)
+  }
+}
+
+export function keepBoardThread(busPath: string, periodMs: number = BOARD_PERIOD_MS, spawn?: BoardTimerSpawn, down: (down: BoardThreadDown) => void = () => {}, now: () => number = Date.now): StartedBoardTimer {
+  const kept = new KeptBoardThread(busPath, periodMs, spawn, down, now)
+  const first = kept.start()
+  return { file: first.file, dataFile: first.dataFile, stop: async () => kept.stop() }
+}
+
 export function boardThreadDownRecorder(db: DatabaseSync): (down: BoardThreadDown) => void {
   return (down) => {
     const ts = new Date().toISOString()
@@ -316,7 +395,7 @@ export function boardThreadDownRecorder(db: DatabaseSync): (down: BoardThreadDow
 }
 
 export function startBoardThread(db: DatabaseSync, busPath: string, periodMs: number = BOARD_PERIOD_MS, spawn?: BoardTimerSpawn): StartedBoardTimer {
-  return startBoardTimer(busPath, periodMs, spawn, boardThreadDownRecorder(db))
+  return keepBoardThread(busPath, periodMs, spawn, boardThreadDownRecorder(db))
 }
 
 export function tickWhileReducing(busTick: BusTick, reducer: Pick<StartedReducerLoop, 'failure'>): string[] {

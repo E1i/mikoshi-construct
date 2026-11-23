@@ -1,8 +1,9 @@
-import type { BoardThreadDown, BoardTimerSpawn } from '../../cli/board-page/timer.js'
+import type { BoardTimerSpawn } from '../../cli/board-page.js'
+import type { BoardThreadDown } from '../../supervisor/run.js'
 import { EventEmitter } from 'node:events'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { BOARD_RESTART_CAP_MS, BOARD_THREAD, BOARD_TIMER_BUS_PATH, BOARD_TIMER_PERIOD, BOARD_TIMER_PREFIX, boardThreadEndedLine, restartDelayMs, startBoardTimer } from '../../cli/board-page/timer.js'
-import { superviseUntilEnd } from '../../supervisor/run.js'
+import { BOARD_TIMER_BUS_PATH, BOARD_TIMER_PERIOD, BOARD_TIMER_PREFIX, startBoardTimer } from '../../cli/board-page.js'
+import { BOARD_RESTART_CAP_MS, BOARD_THREAD, boardThreadEndedLine, keepBoardThread, restartDelayMs, superviseUntilEnd } from '../../supervisor/run.js'
 
 class FakeWorker extends EventEmitter {
   terminated = false
@@ -35,7 +36,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('startBoardTimer', () => {
+describe('startBoardTimer and the board thread bus:run keeps', () => {
   it('starts the board timer worker with the bus path and the period', () => {
     const { spawn, started } = fakeSpawn()
     const timer = startBoardTimer('/bus/home/bus.db', 1234, spawn)
@@ -66,7 +67,7 @@ describe('startBoardTimer', () => {
     const fake = fakeSpawn()
     const downs: BoardThreadDown[] = []
     let now = 0
-    const timer = startBoardTimer('/bus/home/bus.db', 1000, fake.spawn, down => downs.push(down), () => now)
+    const timer = keepBoardThread('/bus/home/bus.db', 1000, fake.spawn, down => downs.push(down), () => now)
     fake.worker.emit('error', new Error('Cannot find module \'timer.ts\'\n    at somewhere'))
     fake.worker.emit('exit', 1)
     expect(downs).toEqual([{ worker: BOARD_THREAD, cause: 'Cannot find module \'timer.ts\'', failures: 1, nextAttemptAt: new Date(1000) }])
@@ -88,7 +89,7 @@ describe('startBoardTimer', () => {
     const fake = fakeSpawn()
     const downs: BoardThreadDown[] = []
     let now = 0
-    startBoardTimer('/bus/home/bus.db', 1000, fake.spawn, down => downs.push(down), () => now)
+    keepBoardThread('/bus/home/bus.db', 1000, fake.spawn, down => downs.push(down), () => now)
     fake.worker.emit('exit', 1)
     now = 1000
     vi.advanceTimersByTime(1000)
@@ -101,7 +102,7 @@ describe('startBoardTimer', () => {
     vi.useFakeTimers()
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
     const fake = fakeSpawn()
-    startBoardTimer('/bus/home/bus.db', 1000, fake.spawn, () => {
+    keepBoardThread('/bus/home/bus.db', 1000, fake.spawn, () => {
       throw new Error('database is locked')
     }, () => 0)
     fake.worker.emit('exit', 1)
@@ -113,7 +114,7 @@ describe('startBoardTimer', () => {
   it('an exit after stop is no failure', async () => {
     const fake = fakeSpawn()
     const downs: BoardThreadDown[] = []
-    const timer = startBoardTimer('/bus/home/bus.db', 1000, fake.spawn, down => downs.push(down))
+    const timer = keepBoardThread('/bus/home/bus.db', 1000, fake.spawn, down => downs.push(down))
     await timer.stop()
     fake.worker.emit('exit', 1)
     expect(downs).toEqual([])

@@ -10,7 +10,6 @@ import { builtEntry } from '../scripts/core/built-entry.js'
 import { FACTORY_RUNTIME, FACTORY_WORKERS } from '../scripts/core/factory-paths.js'
 import { readLayerMap } from '../scripts/core/layer-map.js'
 import { PLANNER_ARGUMENTS, REVIEW_PLANNER_SCRIPT } from '../scripts/ports/review-planner.js'
-import { REDUCER_THREAD, reducerThreadBeside } from '../scripts/supervisor/reducer-loop.js'
 import { OWNED_ATLAS_PAGE } from '../src/atlas/index.js'
 import { ATTACH_RUNTIME_BROWSER, ATTACH_RUNTIME_FILES, ATTACH_RUNTIME_RUN_DIRECTORY, ATTACH_RUNTIME_SHOT_SUFFIX, ATTACH_WRITES } from '../src/commands/attach/carriers.js'
 import { ATTACH_RECORD_FILE } from '../src/commands/attach/record.js'
@@ -31,8 +30,9 @@ const ENTRY_FROM_A_TS_URL = /new URL\(\s*['`](\.{1,2}\/[^'`]*\.ts)['`],\s*[\w.]+
 const THROUGH_BUILT_ENTRY = 'builtEntry('
 const WORKER_START = 'new Worker('
 const IMPORTS_BUILT_ENTRY = /^import \{[^}]*\bbuiltEntry\b[^}]*\} from '[./]+\/core\/built-entry\.js'$/m
-const BOARD_TIMER = 'scripts/cli/board-page/timer.ts'
+const BOARD_PAGE = 'scripts/cli/board-page.ts'
 const REDUCER_LOOP = 'scripts/supervisor/reducer-loop.ts'
+const REDUCER_THREAD = 'scripts/supervisor/reducer-thread.ts'
 
 function twinOf(source: string): string {
   return source.replace(SOURCE_MODULE, BUILT_MODULE)
@@ -121,7 +121,7 @@ describe('every runtime file and worker path resolves the same from the sources 
     const sources = factoryGraph().map(source => ({ source, text: readFileSync(path.join(ROOT, source), 'utf8') }))
     const sites = sources.flatMap(({ source, text }) => [...text.matchAll(ENTRY_FROM_A_TS_URL)]
       .map(match => ({ source, relative: match[1]!, resolved: text.slice(0, match.index).endsWith(THROUGH_BUILT_ENTRY) })))
-    expect(sites.filter(site => site.source === BOARD_TIMER).map(site => site.relative)).toEqual(['./timer.ts'])
+    expect(sites.filter(site => site.source === BOARD_PAGE).map(site => site.relative)).toEqual(['./board-page/timer.ts'])
     expect(sites.filter(site => !site.resolved).map(site => `${site.source}: ${site.relative}`)).toEqual([])
     expect(sources.filter(({ text }) => text.includes(WORKER_START) && !IMPORTS_BUILT_ENTRY.test(text)).map(({ source }) => source)).toEqual([])
 
@@ -130,7 +130,7 @@ describe('every runtime file and worker path resolves the same from the sources 
       return builtEntry(new URL(relative, module), module)
     })
     expect(shipped.filter(entry => !entry.file.endsWith(BUILT_MODULE) || entry.loader.length > 0 || !existsSync(entry.file)).map(entry => entry.file)).toEqual([])
-    expect(path.relative(dist, reducerThreadBeside(pathToFileURL(path.join(dist, twinOf(REDUCER_LOOP))).href).pathname)).toBe(twinOf(REDUCER_THREAD))
+    expect(readFileSync(path.join(ROOT, REDUCER_LOOP), 'utf8')).toMatch(IMPORTS_BUILT_ENTRY)
     expect(existsSync(path.join(dist, twinOf(REDUCER_THREAD)))).toBe(true)
   })
 

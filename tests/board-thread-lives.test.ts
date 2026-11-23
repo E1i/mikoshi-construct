@@ -7,10 +7,6 @@ import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { build } from 'tsup'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { BOARD_DATA_FILE } from '../scripts/cli/board-page.js'
-import { BOARD_PERIOD_MS, BOARD_THREAD } from '../scripts/cli/board-page/timer.js'
-import { WORKER_DOWN } from '../scripts/core/events.js'
-import { BOARD_FILE } from '../scripts/window/board.js'
 import { copyFactoryAssets, factoryBuild, OUT_DIR, productBuild } from '../tsup.config.js'
 
 const REPOSITORY = path.resolve(import.meta.dirname, '..')
@@ -19,16 +15,26 @@ const PACKED_BESIDE_THE_BUILD = ['package.json', 'README.md', 'LICENSE', 'templa
 const TARBALL_ROOT = 'package'
 const PACK_TIMEOUT_MS = 300_000
 const BUS_RUN = 'scripts/supervisor/run.ts'
+const BOARD_PAGE = 'scripts/cli/board-page.ts'
+const BOARD_WINDOW = 'scripts/window/board.ts'
+const EVENTS = 'scripts/core/events.ts'
 const BOARD_TIMER = 'scripts/cli/board-page/timer.ts'
 const BUS_DB = 'bus.db'
 const PROJECTED = 'board projected'
-const TWO_PERIODS_MS = 2 * BOARD_PERIOD_MS
 const PROJECTIONS_SEEN = 2
 const KILLED_THREAD_PERIOD_MS = 500
 const KILLED_THREAD_DEADLINE_MS = 30_000
 const KILLED_THREAD_SCRIPT = 'kill-the-board-thread.mjs'
 const KILLED_BY = 'the board thread was killed by an exception'
 const MISSING_FILE = /ENOENT|ERR_MODULE_NOT_FOUND|Cannot find module/
+
+interface Shipped {
+  BOARD_DATA_FILE: string
+  BOARD_FILE: string
+  BOARD_PERIOD_MS: number
+  BOARD_THREAD: string
+  WORKER_DOWN: string
+}
 
 interface Consumer {
   root: string
@@ -44,6 +50,7 @@ interface BusRun {
 }
 
 let consumer: Consumer
+let shipped: Shipped
 let busRun: Promise<BusRun> | null = null
 
 function builtPathOf(source: string): string {
@@ -82,12 +89,21 @@ async function packIntoAnEmptyConsumer(): Promise<Consumer> {
   return { root, directory, installed }
 }
 
+async function shippedReadings(): Promise<Shipped> {
+  const imported = await Promise.all([BOARD_PAGE, BOARD_WINDOW, BUS_RUN, EVENTS].map(async source => import(pathToFileURL(builtPathOf(source)).href) as Promise<Partial<Shipped>>))
+  return Object.assign({}, ...imported) as Shipped
+}
+
+function twoPeriodsMs(): number {
+  return 2 * shipped.BOARD_PERIOD_MS
+}
+
 async function runTheBusForTwoPeriods(): Promise<BusRun> {
   const env = consumerEnv('home-bus-run')
   const busPath = env.CONSTRUCT_BUS_DB!
-  const boardHtml = path.join(path.dirname(busPath), BOARD_FILE)
+  const boardHtml = path.join(path.dirname(busPath), shipped.BOARD_FILE)
   const started = performance.now()
-  const child = spawn(process.execPath, [builtPathOf(BUS_RUN)], { cwd: consumer.directory, env, stdio: ['ignore', 'pipe', 'pipe'], signal: AbortSignal.timeout(TWO_PERIODS_MS), killSignal: 'SIGKILL' })
+  const child = spawn(process.execPath, [builtPathOf(BUS_RUN)], { cwd: consumer.directory, env, stdio: ['ignore', 'pipe', 'pipe'], signal: AbortSignal.timeout(twoPeriodsMs()), killSignal: 'SIGKILL' })
   const ended = once(child, 'close')
   let output = ''
   let boardHtmlAtMs: number | null = null
@@ -116,6 +132,7 @@ function theBusRun(): Promise<BusRun> {
 describe('the board thread of bus:run started from the packed package in an empty consumer', () => {
   beforeAll(async () => {
     consumer = await packIntoAnEmptyConsumer()
+    shipped = await shippedReadings()
   }, PACK_TIMEOUT_MS)
 
   afterAll(() => {
@@ -131,20 +148,20 @@ describe('the board thread of bus:run started from the packed package in an empt
     const run = await theBusRun()
     expect(run.output).not.toMatch(MISSING_FILE)
     expect(run.boardHtmlAtMs, run.output).not.toBeNull()
-    expect(run.boardHtmlAtMs!).toBeLessThan(TWO_PERIODS_MS)
+    expect(run.boardHtmlAtMs!).toBeLessThan(twoPeriodsMs())
   }, PACK_TIMEOUT_MS)
 
   it('bus:run started from the packed package in an empty consumer rewrites board-data.js within two board periods', async () => {
     const run = await theBusRun()
     expect(run.output).not.toMatch(MISSING_FILE)
-    expect(existsSync(path.join(path.dirname(run.busPath), BOARD_DATA_FILE)), run.output).toBe(true)
-    expect(run.projectedAtMs.filter(at => at < TWO_PERIODS_MS).length, run.output).toBeGreaterThanOrEqual(2)
+    expect(existsSync(path.join(path.dirname(run.busPath), shipped.BOARD_DATA_FILE)), run.output).toBe(true)
+    expect(run.projectedAtMs.filter(at => at < twoPeriodsMs()).length, run.output).toBeGreaterThanOrEqual(2)
   }, PACK_TIMEOUT_MS)
 
   it('in a consumer running the packed package, a board thread killed by an exception writes a bus event and the board is rewritten again', () => {
     const env = consumerEnv('home-killed-thread')
     const busPath = env.CONSTRUCT_BUS_DB!
-    const dataFile = path.join(path.dirname(busPath), BOARD_DATA_FILE)
+    const dataFile = path.join(path.dirname(busPath), shipped.BOARD_DATA_FILE)
     const evaluate = [
       'const { Worker } = await import(\'node:worker_threads\')',
       'const { setTimeout: sleep } = await import(\'node:timers/promises\')',
@@ -168,7 +185,7 @@ describe('the board thread of bus:run started from the packed package in an empt
     writeFileSync(script, `${evaluate}\n`)
     const run = spawnSync(process.execPath, [script], {
       cwd: consumer.directory,
-      env: { ...env, DB_MODULE: pathToFileURL(builtPathOf('scripts/core/db.ts')).href, RUN_MODULE: pathToFileURL(builtPathOf(BUS_RUN)).href, KILLED_BY, PERIOD_MS: String(KILLED_THREAD_PERIOD_MS), DEADLINE_MS: String(KILLED_THREAD_DEADLINE_MS), DATA_FILE: dataFile, WORKER_DOWN },
+      env: { ...env, DB_MODULE: pathToFileURL(builtPathOf('scripts/core/db.ts')).href, RUN_MODULE: pathToFileURL(builtPathOf(BUS_RUN)).href, KILLED_BY, PERIOD_MS: String(KILLED_THREAD_PERIOD_MS), DEADLINE_MS: String(KILLED_THREAD_DEADLINE_MS), DATA_FILE: dataFile, WORKER_DOWN: shipped.WORKER_DOWN },
       encoding: 'utf8',
       timeout: KILLED_THREAD_DEADLINE_MS * 2,
     })
@@ -178,7 +195,7 @@ describe('the board thread of bus:run started from the packed package in an empt
     expect(run.stderr).toContain('the board thread ended')
     const result = JSON.parse(run.stdout.trim().split('\n').at(-1)!) as { spawned: number, downs: Record<string, unknown>[], rewritten: boolean }
     expect(result.spawned).toBeGreaterThanOrEqual(2)
-    expect(result.downs).toEqual([expect.objectContaining({ worker: BOARD_THREAD, failures: 1, cause: expect.stringContaining(KILLED_BY) })])
+    expect(result.downs).toEqual([expect.objectContaining({ worker: shipped.BOARD_THREAD, failures: 1, cause: expect.stringContaining(KILLED_BY) })])
     expect(result.rewritten).toBe(true)
   }, PACK_TIMEOUT_MS)
 })

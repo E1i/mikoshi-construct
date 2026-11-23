@@ -19,6 +19,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { Worker } from 'node:worker_threads'
 import { RUNS_PREFIX } from '../../src/card/covering-tests.js'
 import { fieldCommand } from '../../src/card/witness-fields.js'
 import { busFacts, CARD_STAGES, latestCardEvents, openTasks } from '../../src/commands/board/bus.js'
@@ -28,6 +29,7 @@ import { clientTranscriptReader, factoryLiveness, readTranscript } from '../../s
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 import { currentVersion, interfaceVersion } from '../../src/version.js'
 import { cardRunsOf, catalogLayersByTest, catalogModuleLayers } from '../ci/card-runs.js'
+import { builtEntry } from '../core/built-entry.js'
 import { staleLine } from '../core/bus-readings.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
 import { ANSWER_STEP, CARD_HELD, CARD_RELEASED, TASK_LEASED } from '../core/events.js'
@@ -1179,6 +1181,38 @@ export function boardProjection(db: DatabaseSync, busPath: string, tickMs: numbe
         console.error(`${PREFIX}${error instanceof Error ? error.message.split('\n')[0] : String(error)}`)
       }
     },
+  }
+}
+
+export const BOARD_PERIOD_MS = 10_000
+export const BOARD_TIMER_PREFIX = '[bus:board-timer] '
+export const BOARD_TIMER_BUS_PATH = 'boardTimerBusPath'
+export const BOARD_TIMER_PERIOD = 'boardTimerPeriodMs'
+const BOARD_TIMER_ENTRY = builtEntry(new URL('./board-page/timer.ts', import.meta.url), import.meta.url).url
+
+export interface ReadOnlyBoard { projection: BoardProjection, close: () => void }
+
+export function readOnlyBoardProjection(busPath: string, periodMs: number): ReadOnlyBoard {
+  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+  return { projection: boardProjection(db, busPath, periodMs), close: () => db.close() }
+}
+
+export interface StartedBoardTimer { file: string, dataFile: string, stop: () => Promise<void> }
+
+export type BoardTimerSpawn = (entry: URL, workerData: Record<string, unknown>) => { on: ((event: 'error', listener: (error: Error) => void) => unknown) & ((event: 'exit', listener: (code: number) => void) => unknown), terminate: () => Promise<unknown> }
+
+export function startBoardTimer(busPath: string, periodMs: number = BOARD_PERIOD_MS, spawn: BoardTimerSpawn = (entry, workerData) => new Worker(entry, { workerData }), ended: (cause: string) => void = () => {}): StartedBoardTimer {
+  let cause: string | null = null
+  const worker = spawn(BOARD_TIMER_ENTRY, { [BOARD_TIMER_BUS_PATH]: busPath, [BOARD_TIMER_PERIOD]: periodMs })
+  worker.on('error', (error) => {
+    cause = error.message.split('\n')[0]!
+    console.error(`${BOARD_TIMER_PREFIX}${cause}`)
+  })
+  worker.on('exit', code => ended(cause ?? `exit code ${code}`))
+  return {
+    file: path.join(path.dirname(busPath), BOARD_FILE),
+    dataFile: path.join(path.dirname(busPath), BOARD_DATA_FILE),
+    stop: async () => void await worker.terminate(),
   }
 }
 
