@@ -91,6 +91,7 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     'src/commands/intake/**',
   ],
   'layout': [
+    `${FACTORY_ROOT}/core/built-entry.ts`,
     `${FACTORY_ROOT}/core/factory-paths.ts`,
     `${FACTORY_ROOT}/core/generated-files.ts`,
     `${FACTORY_ROOT}/core/declarations.ts`,
