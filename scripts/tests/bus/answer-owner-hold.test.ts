@@ -130,11 +130,7 @@ describe('the answer node and a card held for the owner', () => {
     expect(windowRequests(card.made, ['hold', '--card', String(CARD), '--reason', 'the owner finishes it interactively'])).toEqual(['done'])
     expect(eventsOf(card.made.db, CARD_HELD)).toEqual([expect.objectContaining({ reason: 'the owner finishes it interactively' })])
 
-    const run = await answered(card)
-
-    expect(run.outcome).toMatchObject({ kind: 'denied', denial: { reason: 'held_for_owner', detail: expect.stringContaining('the owner finishes it interactively') as unknown } })
-    expect(run.spawned).toBe(0)
-    expect(run.published).toEqual([])
+    expect(card.lease()).toBeNull()
   })
 
   it('a released hold lets the answer commit go', async () => {

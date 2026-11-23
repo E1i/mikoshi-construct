@@ -956,3 +956,35 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(made.requests().run()).toEqual([])
   })
 })
+
+describe('a hold withdraws every queued task of the card', () => {
+  function tasksOfCard(made: Room): { queue: string, state: string }[] {
+    return made.bench.db.prepare('SELECT queue, state FROM tasks WHERE card_id = ? ORDER BY queue').all(CARD) as { queue: string, state: string }[]
+  }
+
+  function queuedLaunchAndAnswer(made: Room): void {
+    const ts = made.bench.clock.now().toISOString()
+    queueTask(made.bench.db, ts, { queue: 'launch', cardId: CARD })
+    queueTask(made.bench.db, ts, { queue: 'answer', cardId: CARD, pr: PR, head: HEAD })
+    queueTask(made.bench.db, ts, { queue: 'launch', cardId: CARD + 1 })
+  }
+
+  it('a hold withdraws every queued task of the card', () => {
+    const made = room()
+    queuedLaunchAndAnswer(made)
+    const request = ask(made, { kind: 'hold', card: CARD, reason: 'the owner holds it' })
+    expect(made.requests().run()).toMatchObject([{ kind: 'done', request }])
+    expect(tasksOfCard(made)).toEqual([{ queue: 'answer', state: 'withdrawn' }, { queue: 'launch', state: 'withdrawn' }])
+    expect(made.bench.db.prepare(`SELECT card_id FROM tasks WHERE state = 'queued'`).all()).toEqual([{ card_id: CARD + 1 }])
+  })
+
+  it('a release queues again every task the hold withdrew', () => {
+    const made = room()
+    queuedLaunchAndAnswer(made)
+    ask(made, { kind: 'hold', card: CARD, reason: 'the owner holds it' })
+    made.requests().run()
+    ask(made, { kind: 'release', card: CARD })
+    made.requests().run()
+    expect(tasksOfCard(made)).toEqual([{ queue: 'answer', state: 'queued' }, { queue: 'launch', state: 'queued' }])
+  })
+})
