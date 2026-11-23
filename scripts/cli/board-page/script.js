@@ -39,7 +39,7 @@
     if (!backlog)
       return
     const id = hash ? hash.slice(1) : ''
-    const onTheBoard = boardFilters === null ? Boolean(id) && Boolean(document.getElementById(id)) : boardFilters.includes(id)
+    const onTheBoard = boardFilters === null ? Boolean(id) && (written === '' || Boolean(document.getElementById(id))) : boardFilters.includes(id)
     if (onTheBoard)
       backlog.setAttribute(names.filterAttribute, hash.slice(1))
     else
