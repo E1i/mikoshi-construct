@@ -88,6 +88,7 @@ const CARRIERS: readonly Carrier[] = [
   { path: 'scripts/tests/ghosts/fixtures/world.sh', reason: 'the fake client a ghost fixture runs in place of the binary' },
   { path: 'scripts/tests/ghosts/watch-fixtures/world.sh', reason: 'the fake client a watch fixture runs in place of the binary' },
   { path: 'scripts/ports/shift-settings.ts', reason: 'the settings a card session runs under, with their flags; called by the adapter' },
+  { path: 'scripts/ports/card-grants.ts', reason: 'the grants table names the client command the owner runs outside the sandbox for a card (D-705, D-765); the entry stays literal so unsandboxed_command reads it in the diff', literal: /\bcodex exec\b/ },
   { path: 'scripts/ports/isolation.ts', reason: 'reads which settings the client would load, to refuse a card session without isolation' },
   { path: 'scripts/nodes/launch/launch-starter.ts', reason: 'the card argv launchArgv spawns, pinned against the adapter by the contract goldens' },
   { path: 'scripts/window/eddies-measure.ts', reason: 'the window side of the hook that the client calls with its project variable' },

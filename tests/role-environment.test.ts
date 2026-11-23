@@ -12,7 +12,7 @@ import { windowCommand } from '../scripts/ports/client/claude/adapter.js'
 import { shiftSettings } from '../scripts/ports/shift-settings.js'
 import { allowRule, shippedDaemonCommands } from '../src/commands/attach/daemon-commands.js'
 import { excludedBrowserLabInTheConstruct, settledProjectSettings } from '../src/commands/attach/index.js'
-import { browserLabExcludedCommand, browserLabInstalledScript, cardTreeGitWrites, GITHUB_API_DOMAIN, OWNER_CHANNEL_ENTRY, RECORDED_BY_AN_EARLIER_ATTACH, ROLE_DOMAINS, SETTINGS_FILE } from '../src/commands/attach/settings.js'
+import { browserLabExcludedCommand, browserLabInstalledScript, cardTreeGitWrites, GITHUB_API_DOMAIN, OWNER_CHANNEL_ENTRY, RECORDED_BY_AN_EARLIER_ATTACH, ROLE_DOMAINS, SETTINGS_FILE, wroteLocally } from '../src/commands/attach/settings.js'
 import { browserLabStep, cardFirstSteps, factoryChecklist, LAB_ROLES, readStep, roleSituations, windowFirstSteps } from '../src/commands/doctor/factory.js'
 import { FileReadings } from '../src/commands/doctor/readings.js'
 import { printFactoryChecklist } from '../src/commands/doctor/report.js'
@@ -223,6 +223,23 @@ describe('browser-lab is called only at its installed path, and starts where a r
 
     expect(readFileSync(path.join(made.dir, SETTINGS_FILE), 'utf8')).toBe(`{\n  "sandbox": {\n    "excludedCommands": [\n      "${entry}"\n    ]\n  },\n  "model": "opus",\n  "permissions": {\n    "allow": [\n      "${allowRule(entry)}"\n    ]\n  }\n}\n`)
     expect(json(made.dir, PROJECT_SETTINGS).sandbox.excludedCommands).toBeUndefined()
+  })
+
+  it('a rewrite that only drops the dead entry is reported as written', async () => {
+    const made = await consumer()
+    const entry = browserLabExcludedCommand(made.home)
+    const before = `{\n  "sandbox": {\n    "excludedCommands": [\n      "${RECORDED_BY_AN_EARLIER_ATTACH}",\n      "${entry}"\n    ]\n  },\n  "permissions": {\n    "allow": [\n      "${allowRule(entry)}"\n    ]\n  }\n}\n`
+    writeFileSync(path.join(made.dir, SETTINGS_FILE), before)
+    const project = json(made.dir, PROJECT_SETTINGS)
+    writeJson(made.dir, PROJECT_SETTINGS, { ...project, sandbox: { ...project.sandbox, excludedCommands: [RECORDED_BY_AN_EARLIER_ATTACH] } })
+
+    const report = applySync(made.dir, VERSION, made.home)!
+
+    expect(readFileSync(path.join(made.dir, SETTINGS_FILE), 'utf8')).toBe(before.replace(`      "${RECORDED_BY_AN_EARLIER_ATTACH}",\n`, ''))
+    expect(report.browserLabExclusion).toEqual({ command: entry, state: 'added' })
+    const unchanged = excludedBrowserLabInTheConstruct(made.dir, made.home)!
+    expect(wroteLocally(unchanged)).toBe(false)
+    expect(wroteLocally({ ...unchanged, added: [], allow: { ...unchanged.allow, added: [] }, afterSha256: 'rewritten' })).toBe(true)
   })
 
   it('doctor names the role whose environment does not let browser-lab start', async () => {
