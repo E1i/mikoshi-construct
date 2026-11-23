@@ -606,7 +606,7 @@ function signalsReader(bus: string): (now: number) => WatchSignal[] {
   return (now) => {
     if (read === undefined || Math.abs(now - read.at) >= DOWNS_READ_MS)
       read = { at: now, ...readBus(bus, db => ({ beat: lastWorkerBeat(lastProcessBeats(db)), board: lastBoardBeat(db) })) }
-    return [...downsOf(read.beat, now), ...boardStaleOf(read.board, now)]
+    return [...downsOf(read.beat, now), ...boardStaleOf(read.board, read.at)]
   }
 }
 

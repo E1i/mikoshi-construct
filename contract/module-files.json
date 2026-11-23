@@ -874,6 +874,7 @@
     "scripts/tests/miko/sandbox-law.test.ts",
     "scripts/tests/miko/stop-hook.test.ts",
     "scripts/tests/miko/turn-watch.test.ts",
+    "scripts/tests/miko/watch-board-stale-fresh-beat.test.ts",
     "scripts/tests/miko/watch-held-card.test.ts",
     "scripts/tests/miko/watch-held-no-closed-pr.test.ts",
     "scripts/tests/miko/watch-orphan.test.ts",
