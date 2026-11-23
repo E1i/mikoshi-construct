@@ -5375,7 +5375,9 @@
       },
       "scripts/ports/card-grants.ts": {
         "constants": [
-          "CARD_GRANTS: readonly CardGrant[]"
+          "CARD_GRANTS: readonly CardGrant[]",
+          "GRANT_SCRATCH_DIRECTORY",
+          "GRANT_SCRATCH_SPELLINGS"
         ],
         "functions": {
           "cardOfTree": "(tree: string): number | null",
