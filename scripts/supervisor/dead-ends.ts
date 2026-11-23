@@ -2,10 +2,10 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Shape } from './expected-time.js'
 import { CLOSED_CARD, DEFERRED_CARD, DROPPED_CARD, MERGED_CARD, QUEUED_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { holderOf, holdLayersOf } from '../core/card-hold.js'
-import { lastReducedOwnerWaits } from '../core/card-readings.js'
-import { appendEvent, inTransaction, openOwnerWait } from '../core/db.js'
-import { ofCard } from '../core/events-query.js'
-import { BOARD_ALARM, OWNER_WAIT_OPENED, REJECTED } from '../core/events.js'
+import { lastReducedOwnerWaits, openOwnerWaits } from '../core/card-readings.js'
+import { appendEvent, closeOwnerWait, inTransaction, openOwnerWait } from '../core/db.js'
+import { latest as latestEvent, ofCard } from '../core/events-query.js'
+import { BOARD_ALARM, OWNER_WAIT_OPENED, PR_CLOSED, PR_OBSERVED, REJECTED, REVIEW_RECORDED } from '../core/events.js'
 import { expectedMinutes, RoundMeasures } from './expected-time.js'
 
 export const DEAD_END = 'dead_end'
@@ -13,6 +13,7 @@ export const DEAD_END_ACTOR = 'worker:supervisor:dead-ends'
 export const UNMEASURED_ROUND_MINUTES = 60
 const MINUTE_MS = 60_000
 const RAISED_TYPES = [BOARD_ALARM, OWNER_WAIT_OPENED] as const
+const PASS_VERDICT = 'pass'
 
 export const HELD_ELSEWHERE_STATES: readonly string[] = [MERGED_CARD, CLOSED_CARD, DROPPED_CARD, QUEUED_CARD, DEFERRED_CARD]
 
@@ -103,7 +104,8 @@ export class DeadEnds {
 
   step(): string[] {
     const ts = this.clock().toISOString()
-    return this.found().flatMap(end => inTransaction(this.db, () => {
+    const lifted = this.liftStaleWaits(ts)
+    return [...lifted, ...this.found().flatMap(end => inTransaction(this.db, () => {
       const taskKey = this.parts.events.latestTaskKey(end.card)
       const payload = taskKey === null ? { reason: end.reason, detail: DEAD_END } : { reason: end.reason, detail: DEAD_END, task_key: taskKey }
       const raised = appendEvent(this.db, { ts, type: BOARD_ALARM, actor: DEAD_END_ACTOR, cardId: end.card, pr: end.pr, head: null, dedupeKey: `${BOARD_ALARM}:${DEAD_END}:${end.card}:${end.lastEvent.id}`, payload, legacy: false })
@@ -111,7 +113,25 @@ export class DeadEnds {
         return []
       const wait = openOwnerWait(this.db, ts, DEAD_END_ACTOR, { need: 'decision', text: deadEndWaitText(end), card: end.card, ...(end.pr === null ? {} : { pr: end.pr }) })
       return [`${BOARD_ALARM} #${end.card} ${end.reason}; owner wait ${wait}`]
-    }))
+    }))]
+  }
+
+  private liftStaleWaits(ts: string): string[] {
+    return openOwnerWaits(this.db).flatMap((wait) => {
+      if (wait.card === null || wait.pr === null)
+        return []
+      const opened = ofCard(this.db, wait.card, { types: [OWNER_WAIT_OPENED] }).find(event => event.actor === DEAD_END_ACTOR && event.data?.id === wait.id)
+      const pull = latestEvent(this.db, { pr: wait.pr, types: [PR_OBSERVED, PR_CLOSED] })
+      const head = pull?.type === PR_OBSERVED ? pull.head ?? pull.data?.head ?? null : null
+      if (opened === undefined || typeof head !== 'string' || pull?.data?.verdict_on_head !== PASS_VERDICT)
+        return []
+      const review = ofCard(this.db, wait.card, { types: [REVIEW_RECORDED], since: opened.id })
+        .find(event => (event.head ?? event.data?.head) === head && event.data?.verdict === PASS_VERDICT)
+      if (review === undefined)
+        return []
+      const answer = `lifted: a review pass on ${head} of pull request #${wait.pr} after the dead end`
+      return inTransaction(this.db, () => closeOwnerWait(this.db, ts, DEAD_END_ACTOR, wait.id, answer, review.id)) ? [`${wait.id} #${wait.card} ${answer}`] : []
+    })
   }
 
   private stoppedUnderAHold(card: UnheldCard): boolean {
