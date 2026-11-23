@@ -5,7 +5,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import { runAttach, SETTINGS_FILE } from '../src/commands/attach/index.js'
-import { engramRules, WINDOW_ENTRIES } from '../src/commands/attach/settings.js'
+import { daemonAllowRules, engramRules, WINDOW_ENTRIES } from '../src/commands/attach/settings.js'
 import { askDetach } from '../src/commands/detach/index.js'
 import { ATTACH_WINDOW_HOOKS } from '../src/presets/index.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
@@ -77,7 +77,7 @@ describe('the engram permissions hold no Write rule', () => {
     expect((await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })).status).toBe('done')
     const settings = JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')) as { permissions: { allow: string[] } }
     expect(settings.permissions.allow.some(rule => rule.startsWith('Write('))).toBe(false)
-    expect(settings.permissions.allow).toEqual(engramRules(dir, home()))
+    expect(settings.permissions.allow).toEqual([...engramRules(dir, home()), ...daemonAllowRules(home())])
 
     expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
   })

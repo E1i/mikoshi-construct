@@ -19,9 +19,10 @@ import { AI_TARGET_LABELS, DEFAULT_REVIEW_MODEL, defaultProjectName, getPreset, 
 import { ownedSha } from '../sync/ownership.js'
 import { isValidProjectName, parseLaneCount } from '../ui/prompts.js'
 import { VERSION } from '../version.js'
+import { shippedDaemonCommands } from './attach/daemon-commands.js'
 import { writeOwnerDecisionsBeside } from './attach/index.js'
 import { ATTACH_RECORD_FILE } from './attach/record.js'
-import { browserLabExcludedCommand, excludedBrowserLabLocally, PROJECT_SETTINGS_FILE } from './attach/settings.js'
+import { excludedBrowserLabLocally, PROJECT_SETTINGS_FILE } from './attach/settings.js'
 import { printDetectReport } from './soulkill.js'
 
 function ownedShasOfBlocks(written: FileOp[]): Record<string, string> {
@@ -404,7 +405,7 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
   const written = applyPlan(root, plan.ops)
   if (plan.ops.some(op => op.target === PROJECT_SETTINGS_FILE)) {
     const home = options.home ?? homedir()
-    const command = browserLabExcludedCommand(home)
+    const command = shippedDaemonCommands(home).join(', ')
     if (excludedBrowserLabLocally(root, home) != null)
       ui.line(ui.theme.dim(`  ${ui.lore.initBrowserLabExcluded(command)}`))
     else

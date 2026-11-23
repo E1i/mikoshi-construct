@@ -2,7 +2,7 @@ import type { ShiftGate } from '../../src/manifest.js'
 import { existsSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { browserLabExcludedCommand, browserLabInstalledScript, SETTINGS_FILE } from '../../src/commands/attach/settings.js'
+import { allowRule, daemonProgram, SETTINGS_FILE, shippedDaemonCommands } from '../../src/commands/attach/daemon-commands.js'
 import { isJsonObject } from '../../src/materialize/strategies.js'
 import { cardOfTree, grantOf } from './card-grants.js'
 import { WIDE_VITEST_HOOKS } from './wide-vitest-guard.js'
@@ -17,7 +17,7 @@ const SESSION_BASH_CAP_MS = String(30 * 60 * 1000)
 
 export const SESSION_BASH_CAP = { BASH_MAX_TIMEOUT_MS: SESSION_BASH_CAP_MS, BASH_DEFAULT_TIMEOUT_MS: SESSION_BASH_CAP_MS, CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1' } as const
 
-const BROWSER_LAB_SCRIPT = 'scripts/construct/browser-lab.mjs'
+const DAEMON_SOURCE_DIRECTORY = 'scripts/construct'
 
 const REPOSITORY_SETTINGS_FILES = ['.claude/settings.json', SETTINGS_FILE]
 
@@ -68,6 +68,25 @@ function mainCheckoutExcludes(tree: string, entry: string): boolean {
   return main !== null && excludes(path.join(main, SETTINGS_FILE), entry)
 }
 
+interface InstalledDaemon {
+  command: string
+  program: string
+}
+
+function installedDaemonCommands(tree: string, home: string = os.homedir()): InstalledDaemon[] {
+  return shippedDaemonCommands(home).flatMap((command) => {
+    const program = daemonProgram(command)
+    if (program === null || !existsSync(program))
+      return []
+    const excluded = REPOSITORY_SETTINGS_FILES.some(file => excludes(path.join(tree, file), command)) || mainCheckoutExcludes(tree, command)
+    return excluded ? [{ command, program }] : []
+  })
+}
+
+function protectedPaths(tree: string, daemon: InstalledDaemon): { copy: string, installed: string } {
+  return { copy: path.join(tree, DAEMON_SOURCE_DIRECTORY, path.basename(daemon.program)), installed: path.dirname(path.dirname(daemon.program)) }
+}
+
 function grantedSandbox(card: number | null, home: string): ShiftSettings['sandbox'] {
   const grant = grantOf(card)
   if (grant === null)
@@ -78,22 +97,21 @@ function grantedSandbox(card: number | null, home: string): ShiftSettings['sandb
 }
 
 export function shiftSettings(tree: string, gate: ShiftGate, writable: string[] = [], home: string = os.homedir(), card: number | null = cardOfTree(tree)): ShiftSettings {
+  const installed = installedDaemonCommands(tree, home)
   const allow = [
     ...gate.prepush.map(command => `Bash(${command})`),
     `Edit(/${tree}/**)`,
+    ...installed.map(daemon => allowRule(daemon.command)),
     ...writable.map(file => `Edit(/${file})`),
     ...grantOf(card)?.allow ?? [],
   ]
   const sandbox = grantedSandbox(card, home)
-  const entry = browserLabExcludedCommand(home)
-  const excluded = existsSync(browserLabInstalledScript(home)) && (REPOSITORY_SETTINGS_FILES.some(file => excludes(path.join(tree, file), entry)) || mainCheckoutExcludes(tree, entry))
-  if (!excluded)
+  if (installed.length === 0)
     return { sandbox, permissions: { allow }, env: SESSION_BASH_CAP, hooks: WIDE_VITEST_HOOKS }
-  const lab = path.join(tree, BROWSER_LAB_SCRIPT)
-  const labHome = path.join(home, '.construct', 'browser-lab')
+  const guarded = installed.map(daemon => protectedPaths(tree, daemon))
   return {
-    sandbox: { ...sandbox, excludedCommands: [entry], filesystem: { ...sandbox.filesystem, denyWrite: [lab, labHome] } },
-    permissions: { allow, deny: [`Edit(/${lab})`, `Edit(/${labHome}/**)`] },
+    sandbox: { ...sandbox, excludedCommands: installed.map(daemon => daemon.command), filesystem: { ...sandbox.filesystem, denyWrite: guarded.flatMap(paths => [paths.copy, paths.installed]) } },
+    permissions: { allow, deny: guarded.flatMap(paths => [`Edit(/${paths.copy})`, `Edit(/${paths.installed}/**)`]) },
     env: SESSION_BASH_CAP,
     hooks: WIDE_VITEST_HOOKS,
   }

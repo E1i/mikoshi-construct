@@ -336,6 +336,16 @@ describe('the installed lab exclusion under sync', () => {
     expect(syncApplyExit(result)).toBe(SYNC_APPLY_EXIT.written)
   })
 
+  it('sync apply over a held exclusion that lacks the allow rule writes the rule and reports it added', async () => {
+    const dir = await initialised()
+    mkdirSync(path.join(dir, '.claude'), { recursive: true })
+    writeFileSync(path.join(dir, LOCAL_SETTINGS), `${JSON.stringify({ sandbox: { excludedCommands: [ENTRY] } }, null, 2)}\n`)
+
+    expect(applySync(dir, VERSION, HOME)!.browserLabExclusion).toEqual({ command: ENTRY, state: 'added' })
+    expect(read(dir, LOCAL_SETTINGS)).toContain(`Bash(${ENTRY})`)
+    expect(applySync(dir, VERSION, HOME)!.browserLabExclusion).toEqual({ command: ENTRY, state: 'held' })
+  })
+
   it('sync apply leaves a tracked settings.local.json alone and says so', async () => {
     const dir = await initialised()
     const held = `${JSON.stringify({ model: 'opus' })}\n`
