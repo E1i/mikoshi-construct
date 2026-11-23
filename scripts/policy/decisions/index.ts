@@ -5,12 +5,13 @@ import type { Fold, StoredEvent } from '../../core/stored.js'
 import type { DecisionRow, DecisionsPort, OwnerWords } from './decisions.js'
 import { DECISIONS_FILE } from '../../core/bus-path.js'
 import { DECISIONS, readCurrent } from '../../core/bus-readings.js'
-import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../../core/card-automaton.js'
+import { cardEnded, cardStatesAmong, waitIdsAmong } from '../../core/card-readings.js'
 import { appendEvent, DECISION_ARCHIVED, DECISION_IN_FORCE } from '../../core/db.js'
+import { byId, EITHER_JOURNAL, events } from '../../core/events-query.js'
 import { DECISION_EXPIRED, DECISION_RECORDED, DECISIONS_IMPORTED, DECISIONS_PROJECTED } from '../../core/events.js'
 import { OWNER } from '../../core/inbox.js'
 import { NETWATCH } from '../../core/observations.js'
-import { payloadOf, reject, Rejection, STORED_COLUMNS } from '../../core/stored.js'
+import { payloadOf, reject, Rejection } from '../../core/stored.js'
 import { termOf, withoutSource } from './decisions.js'
 
 export interface InForceDecision {
@@ -61,14 +62,13 @@ export function recordDecision(db: DatabaseSync, decision: OwnerDecision): void 
 }
 
 function actorOf(db: DatabaseSync, event: StoredEvent): string | null {
-  return (db.prepare('SELECT actor FROM events WHERE id = ?').get(event.id) as { actor: string | null }).actor
+  return byId(db, event.id)?.actor ?? null
 }
 
 const WAIT_ID_IN_TEXT = /\b[QW]\d+\b/g
 
 export function waitsTheDecisionNames(db: DatabaseSync, text: string): string[] {
-  const mentioned = JSON.stringify(text.match(WAIT_ID_IN_TEXT) ?? [])
-  return (db.prepare('SELECT id FROM owner_waits WHERE id IN (SELECT value FROM json_each(?))').all(mentioned) as { id: string }[]).map(wait => wait.id)
+  return waitIdsAmong(db, text.match(WAIT_ID_IN_TEXT) ?? [])
 }
 
 function numbersOf(payload: Record<string, unknown>, field: string): number[] {
@@ -84,29 +84,27 @@ function archive(db: DatabaseSync, decisionId: number): void {
   db.prepare(`UPDATE decisions SET state = '${DECISION_ARCHIVED}' WHERE decision_id = ?`).run(decisionId)
 }
 
-const ENDED_CARD_STATES = `'${MERGED_CARD}', '${CLOSED_CARD}', '${DROPPED_CARD}'`
 const CARD_NUMBER_IN_TEXT = /#(\d+)\b/g
 
 function aCardTheTextNamesHasNotEnded(db: DatabaseSync, text: string): boolean {
   const named = [...text.matchAll(CARD_NUMBER_IN_TEXT)].map(match => Number(match[1]))
-  return db.prepare(`
-    SELECT 1 FROM cards
-    WHERE card_id IN (SELECT value FROM json_each(?)) AND coalesce(state, '') NOT IN (${ENDED_CARD_STATES})
-    LIMIT 1
-  `).get(JSON.stringify(named)) !== undefined
+  return [...cardStatesAmong(db, named).values()].some(state => !cardEnded(state))
 }
 
+function everyCardEnded(db: DatabaseSync, cardIds: readonly number[]): boolean {
+  const states = cardStatesAmong(db, cardIds)
+  return cardIds.every(cardId => states.has(cardId) && cardEnded(states.get(cardId) ?? null))
+}
+
+const SCOPED_IN_FORCE = `
+  SELECT decision_id, text, scope FROM decisions
+  WHERE state = '${DECISION_IN_FORCE}' AND json_array_length(coalesce(scope, '[]')) > 0
+`
+
 export function archiveSpentDecisions(db: DatabaseSync): void {
-  const scopeEnded = db.prepare(`
-    SELECT decision_id, text FROM decisions
-    WHERE state = '${DECISION_IN_FORCE}' AND json_array_length(coalesce(scope, '[]')) > 0
-      AND NOT EXISTS (
-        SELECT 1 FROM json_each(decisions.scope) AS named
-        WHERE named.value NOT IN (SELECT card_id FROM cards WHERE state IN (${ENDED_CARD_STATES}))
-      )
-  `).all() as { decision_id: number, text: string }[]
-  for (const decision of scopeEnded) {
-    if (!aCardTheTextNamesHasNotEnded(db, decision.text))
+  const scoped = db.prepare(SCOPED_IN_FORCE).all() as { decision_id: number, text: string, scope: string }[]
+  for (const decision of scoped) {
+    if (everyCardEnded(db, JSON.parse(decision.scope) as number[]) && !aCardTheTextNamesHasNotEnded(db, decision.text))
       archive(db, Number(decision.decision_id))
   }
 }
@@ -152,15 +150,15 @@ function sameDecision(held: InForceDecision | undefined, imported: InForceDecisi
 }
 
 function theBusProjectsTheFileSince(db: DatabaseSync, eventId: number): boolean {
-  return db.prepare(`SELECT 1 FROM events WHERE type = '${DECISIONS_PROJECTED}' AND id < ? LIMIT 1`).get(eventId) !== undefined
+  return events(db, { types: [DECISIONS_PROJECTED], before: eventId, legacy: EITHER_JOURNAL, limit: 1 }).length > 0
 }
 
+const SUPERSEDED = `SELECT named.value AS decision_id FROM decisions, json_each(coalesce(decisions.supersedes, '[]')) AS named`
+
 function retiredByTheBus(db: DatabaseSync): Set<number> {
-  const rows = db.prepare(`
-    SELECT named.value AS decision_id FROM decisions, json_each(coalesce(decisions.supersedes, '[]')) AS named
-    UNION SELECT json_extract(payload, '$.decision_id') FROM events WHERE type = '${DECISION_EXPIRED}'
-  `).all() as { decision_id: number }[]
-  return new Set(rows.map(row => Number(row.decision_id)))
+  const superseded = (db.prepare(SUPERSEDED).all() as { decision_id: number }[]).map(row => row.decision_id)
+  const expired = events(db, { types: [DECISION_EXPIRED], legacy: EITHER_JOURNAL }).map(event => event.data?.decision_id)
+  return new Set([...superseded, ...expired].map(Number))
 }
 
 function foldDecisionsImported(db: DatabaseSync, event: StoredEvent): void {
@@ -219,7 +217,7 @@ export function expireDecisions(db: DatabaseSync, now: Date): void {
 }
 
 export function busProjectsDecisions(db: DatabaseSync): boolean {
-  return db.prepare(`SELECT 1 FROM events WHERE type = '${DECISIONS_PROJECTED}' LIMIT 1`).get() !== undefined
+  return events(db, { types: [DECISIONS_PROJECTED], legacy: EITHER_JOURNAL, limit: 1 }).length > 0
 }
 
 export function startProjectingDecisions(db: DatabaseSync, now: Date): void {
@@ -248,8 +246,8 @@ function firstEventOfEachDecision(decisions: RecordedDecision[]): RecordedDecisi
 }
 
 export function decisionHistory(db: DatabaseSync): RecordedDecision[] {
-  const events = db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE type = '${DECISION_RECORDED}' AND legacy = 0 AND actor = '${OWNER}' ORDER BY id`).all() as unknown as StoredEvent[]
-  return firstEventOfEachDecision(events.flatMap(recordedDecisionOf))
+  const recorded = events(db, { types: [DECISION_RECORDED] }).filter(event => event.actor === OWNER)
+  return firstEventOfEachDecision(recorded.flatMap(recordedDecisionOf))
 }
 
 export function recordedNumbers(db: DatabaseSync): number[] {
@@ -257,12 +255,32 @@ export function recordedNumbers(db: DatabaseSync): number[] {
   return [...new Set([...inTheTable, ...decisionHistory(db).map(decision => decision.decisionId)])]
 }
 
+const DECISION_ROWS = 'SELECT decision_id, text, scope, until, state, source, supersedes, event_id FROM decisions ORDER BY decision_id'
+
+interface DecisionTableRow {
+  decision_id: number
+  text: string
+  scope: string | null
+  until: string | null
+  state: string
+  source: string
+  supersedes: string | null
+  event_id: number
+  ts: string
+}
+
+export function decisionRecordedAfter(db: DatabaseSync, decisionId: number, eventId: number): boolean {
+  return db.prepare('SELECT 1 FROM decisions WHERE decision_id = ? AND event_id > ?').get(decisionId, eventId) !== undefined
+}
+
 export function decisionRows(db: DatabaseSync): DecisionRow[] {
   const ownDate = new Map(decisionHistory(db).map(decision => [decision.decisionId, decision.recordedAt]))
-  const rows = db.prepare(`
-    SELECT decisions.decision_id, decisions.text, decisions.scope, decisions.until, decisions.state, decisions.source, decisions.supersedes, events.ts
-    FROM decisions JOIN events ON events.id = decisions.event_id ORDER BY decisions.decision_id
-  `).all() as { decision_id: number, text: string, scope: string | null, until: string | null, state: string, source: string, supersedes: string | null, ts: string }[]
+  const stored = db.prepare(DECISION_ROWS).all() as Omit<DecisionTableRow, 'ts'>[]
+  const tsOf = new Map(events(db, { ids: stored.map(row => Number(row.event_id)), legacy: EITHER_JOURNAL }).map(event => [event.id, event.ts]))
+  const rows = stored.flatMap((row) => {
+    const ts = tsOf.get(Number(row.event_id))
+    return ts === undefined ? [] : [{ ...row, ts }]
+  })
   const successor = new Map<number, number>()
   for (const row of rows) {
     for (const target of JSON.parse(row.supersedes ?? '[]') as number[])

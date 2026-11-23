@@ -1,5 +1,6 @@
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite'
 import type { StoredEvent } from './stored.js'
+import { SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, SHARD_USED } from './events.js'
 import { payloadOf, Rejection } from './stored.js'
 
 export const EITHER_JOURNAL = 'either'
@@ -8,6 +9,7 @@ export interface EventsQuery {
   types?: readonly string[]
   card?: number
   pr?: number | null
+  head?: string
   task?: string
   since?: number
   before?: number
@@ -73,6 +75,8 @@ function whereOf(query: EventsQuery): { clauses: string[], values: SQLInputValue
     add('pr IS NULL')
   else if (query.pr !== undefined)
     add('pr = ?', query.pr)
+  if (query.head !== undefined)
+    add('head = ?', query.head)
   if (query.task !== undefined)
     add(`json_valid(payload) AND json_extract(payload, '$.task_key') = ?`, query.task)
   if (query.since !== undefined)
@@ -136,6 +140,52 @@ export function byId(db: DatabaseSync, id: number): EventRow | null {
 
 export function latest(db: DatabaseSync, query: EventsQuery): EventRow | null {
   return events(db, { ...query, newestFirst: true, limit: 1 })[0] ?? null
+}
+
+const UNENDED_WINDOW_SHARDS = `
+  SELECT issued.id AS event_id, json_extract(issued.payload, '$.id') AS id, json_extract(issued.payload, '$.by') AS by,
+    json_extract(issued.payload, '$.scope') AS scope, json_extract(issued.payload, '$.until') AS until
+  FROM events issued
+  WHERE issued.type = '${SHARD_ISSUED}' AND json_extract(issued.payload, '$.window') = 1
+    AND NOT EXISTS (SELECT 1 FROM events ended WHERE ended.type IN ('${SHARD_REVOKED}', '${SHARD_EXPIRED}') AND json_extract(ended.payload, '$.id') = json_extract(issued.payload, '$.id'))
+`
+
+const WINDOW_SHARDS = `${UNENDED_WINDOW_SHARDS} ORDER BY issued.id DESC`
+
+export const WINDOW_SHARDS_LIVE_AT = `${UNENDED_WINDOW_SHARDS} AND json_extract(issued.payload, '$.until') > ?`
+
+export function unspentShardsOf(card: string, pr: string): string {
+  return `
+  SELECT issued.id AS event_id, json_extract(issued.payload, '$.id') AS id, json_extract(issued.payload, '$.under') AS under FROM events issued
+  WHERE issued.type = '${SHARD_ISSUED}' AND (issued.card_id = ${card} OR issued.pr = ${pr})
+    AND NOT EXISTS (SELECT 1 FROM events used WHERE used.type = '${SHARD_USED}' AND json_extract(used.payload, '$.id') = json_extract(issued.payload, '$.id'))
+`
+}
+
+const SHARD_USED_BY_RUN = `SELECT 1 FROM events WHERE type = '${SHARD_USED}' AND json_extract(payload, '$.run') = ? LIMIT 1`
+
+export interface ShardRow {
+  id: unknown
+  by: unknown
+  scope: unknown
+  until: unknown
+}
+
+export interface UnspentShardRow {
+  id: unknown
+  under: unknown
+}
+
+export function unendedWindowShardRows(db: DatabaseSync): ShardRow[] {
+  return db.prepare(WINDOW_SHARDS).all() as unknown as ShardRow[]
+}
+
+export function unspentShardRows(db: DatabaseSync, cardId: number, pr: number | null): UnspentShardRow[] {
+  return db.prepare(`${unspentShardsOf('?', '?')} ORDER BY issued.id`).all(cardId, pr) as unknown as UnspentShardRow[]
+}
+
+export function shardUsedByRun(db: DatabaseSync, run: string): boolean {
+  return db.prepare(SHARD_USED_BY_RUN).get(run) !== undefined
 }
 
 export function perCard(db: DatabaseSync, query: Omit<EventsQuery, 'card'> = {}): Map<number, EventRow[]> {

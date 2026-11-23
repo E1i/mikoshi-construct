@@ -1,13 +1,18 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { EventRow, EventsQuery } from '../../core/events-query.js'
 import type { CarriedTree, Lease } from '../../core/lease.js'
+import type { PrRow } from '../../core/pr-readings.js'
 import type { InForceDecision } from '../../policy/decisions/index.js'
 import { BUS_CONTRACT } from '../../core/bus-adapter.js'
-import { CARD_BODIES, cardSessionsIn } from '../../core/card-bodies.js'
+import { cardSessionsIn } from '../../core/card-bodies.js'
 import { cardHoldOf } from '../../core/card-hold.js'
-import { CARD_STARTED, CARD_STOPPED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, TASK_COMPLETED, TASK_FAILED, TASK_RELEASED, TASK_SUPERSEDED } from '../../core/events.js'
+import { admittedBodyOf, standingStopOf } from '../../core/card-readings.js'
+import { EITHER_JOURNAL, events as eventsOf, latest } from '../../core/events-query.js'
+import { CARD_STARTED, PR_OBSERVED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, TASK_COMPLETED, TASK_FAILED, TASK_RELEASED, TASK_SUPERSEDED } from '../../core/events.js'
 import { decisionOfKey } from '../../core/identifiers.js'
 import { TREE_CARRIER_QUEUE } from '../../core/lease.js'
-import { latestTurnOf } from '../../core/queue.js'
+import * as prs from '../../core/pr-readings.js'
+import { decisionRecordedAfter } from '../../policy/decisions/index.js'
 import { cardDecisionLines, decisionsInForceAt } from '../../policy/shards.js'
 
 export { cardDecisionLines as boundDecisionLines } from '../../policy/shards.js'
@@ -37,21 +42,8 @@ export interface CardSession {
   branch: string
 }
 
-interface Row {
-  id: number
-  ts: string
-  type: string
-  payload: string
-}
-
-function parsed(text: string): Record<string, unknown> {
-  try {
-    const value = JSON.parse(text) as unknown
-    return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
-  }
-  catch {
-    return {}
-  }
+function dataOf(event: EventRow): Record<string, unknown> {
+  return event.data ?? {}
 }
 
 function strings(value: unknown): string[] {
@@ -62,18 +54,13 @@ function text(value: unknown): string | null {
   return typeof value === 'string' && value !== '' ? value : null
 }
 
-function latestEvents(db: DatabaseSync, cardId: number, narrowedTo = '', limit = LATEST_EVENTS): CardEvent[] {
-  const rows = db.prepare(`SELECT id, ts, type, payload FROM events WHERE card_id = ? AND legacy = 0${narrowedTo} ORDER BY id DESC LIMIT ${limit}`).all(cardId) as unknown as Row[]
-  return rows.reverse().map(row => ({ id: Number(row.id), ts: row.ts, type: row.type, payload: parsed(row.payload) }))
-}
-
-function standingStop(db: DatabaseSync, cardId: number): { id: number, payload: Record<string, unknown> } | null {
-  const row = db.prepare(`SELECT id, payload FROM events WHERE id = ${latestTurnOf('?')} AND type = '${CARD_STOPPED}'`).get(cardId) as { id: number, payload: string } | undefined
-  return row === undefined ? null : { id: Number(row.id), payload: parsed(row.payload) }
+function latestEvents(db: DatabaseSync, cardId: number): CardEvent[] {
+  const rows = eventsOf(db, { card: cardId, newestFirst: true, limit: LATEST_EVENTS })
+  return rows.reverse().map(row => ({ id: row.id, ts: row.ts, type: row.type, payload: dataOf(row) }))
 }
 
 function openQuestion(db: DatabaseSync, cardId: number): Record<string, unknown> | null {
-  const payload = standingStop(db, cardId)?.payload ?? null
+  const payload = standingStopOf(db, cardId)?.payload ?? null
   return payload?.reason === QUESTION_AGENT ? payload : null
 }
 
@@ -84,11 +71,11 @@ function decisionsBoundTo(db: DatabaseSync, cardId: number, now: Date): InForceD
 const QUESTION_REASONS: readonly unknown[] = [QUESTION_AGENT, QUESTION_OWNER]
 
 function recordedAfter(db: DatabaseSync, decision: InForceDecision, eventId: number): boolean {
-  return db.prepare('SELECT 1 FROM decisions WHERE decision_id = ? AND event_id > ?').get(decision.decisionId, eventId) !== undefined
+  return decisionRecordedAfter(db, decision.decisionId, eventId)
 }
 
 export function decisionAnsweringRepeat(db: DatabaseSync, cardId: number, question: string, now: Date): number | null {
-  const stop = standingStop(db, cardId)
+  const stop = standingStopOf(db, cardId)
   if (stop === null || !QUESTION_REASONS.includes(stop.payload.reason) || text(stop.payload.detail)?.trim() !== question.trim())
     return null
   return decisionsBoundTo(db, cardId, now).find(decision => recordedAfter(db, decision, stop.id))?.decisionId ?? null
@@ -99,24 +86,35 @@ function widenOf(payload: Record<string, unknown>): WideningRequest | null {
   return paths.length === 0 ? null : { paths }
 }
 
+const CHANGES = 'changes'
+const RED = 'red'
+
+function prAtHead(db: DatabaseSync, pr: number, head: string): PrRow | null {
+  const row = prs.ofPr(db, pr)
+  return row?.head === head ? row : null
+}
+
+function newestWith(db: DatabaseSync, query: EventsQuery, field: string, value: string): Record<string, unknown> | null {
+  const found = eventsOf(db, { ...query, legacy: EITHER_JOURNAL, newestFirst: true }).find(event => dataOf(event)[field] === value)
+  return found === undefined ? null : dataOf(found)
+}
+
 function changesOn(db: DatabaseSync, lease: Lease): string[] | null {
   if (lease.pr === null || lease.head === null)
     return null
-  const verdict = db.prepare('SELECT verdict_on_head FROM prs WHERE pr = ? AND head = ?').get(lease.pr, lease.head) as { verdict_on_head: string | null } | undefined
-  if (verdict?.verdict_on_head !== 'changes')
+  if (prAtHead(db, lease.pr, lease.head)?.verdict_on_head !== CHANGES)
     return null
-  const review = db.prepare(`SELECT payload FROM events WHERE type = '${REVIEW_RECORDED}' AND card_id = ? AND head = ? AND json_extract(payload, '$.verdict') = 'changes' ORDER BY id DESC LIMIT 1`).get(lease.cardId, lease.head) as { payload: string } | undefined
-  return review === undefined ? [] : strings(parsed(review.payload).findings)
+  const review = newestWith(db, { types: [REVIEW_RECORDED], card: lease.cardId, head: lease.head }, 'verdict', CHANGES)
+  return review === null ? [] : strings(review.findings)
 }
 
 export function failedChecksOn(db: DatabaseSync, lease: Lease): string[] | null {
   if (lease.pr === null || lease.head === null)
     return null
-  const red = db.prepare(`SELECT 1 FROM prs WHERE pr = ? AND head = ? AND ci = 'red'`).get(lease.pr, lease.head)
-  if (red === undefined)
+  if (prAtHead(db, lease.pr, lease.head)?.ci !== RED)
     return null
-  const observed = db.prepare(`SELECT payload FROM events WHERE type = 'pr.observed' AND pr = ? AND head = ? AND json_extract(payload, '$.ci') = 'red' ORDER BY id DESC LIMIT 1`).get(lease.pr, lease.head) as { payload: string } | undefined
-  return observed === undefined ? [] : strings(parsed(observed.payload).failed_checks)
+  const observed = newestWith(db, { types: [PR_OBSERVED], pr: lease.pr, head: lease.head }, 'ci', RED)
+  return observed === null ? [] : strings(observed.failed_checks)
 }
 
 export function answerSourceOf(db: DatabaseSync, lease: Lease, now: Date = new Date()): AnswerSource | null {
@@ -142,23 +140,19 @@ export interface AdmittedScope {
   creates: string[]
 }
 
-function listOf(column: string | null): string[] {
-  return column === null ? [] : strings(JSON.parse(column))
-}
-
 export function admittedScopeOf(db: DatabaseSync, cardId: number): AdmittedScope | null {
-  const row = db.prepare(`SELECT admission_event_id, touches, creates FROM ${CARD_BODIES} WHERE card_id = ?`).get(cardId) as { admission_event_id: number, touches: string | null, creates: string | null } | undefined
-  return row === undefined ? null : { admission: Number(row.admission_event_id), touches: listOf(row.touches), creates: listOf(row.creates) }
+  const body = admittedBodyOf(db, cardId)
+  return body === null ? null : { admission: body.admission_event_id, touches: strings(body.touches), creates: strings(body.creates) }
 }
 
 export const NO_RECORDED_SESSION = ''
 export const START_LINE = 'path'
 
 function startedOf(db: DatabaseSync, cardId: number): CardSession | null {
-  const row = db.prepare(`SELECT payload FROM events WHERE card_id = ? AND type = '${CARD_STARTED}' AND legacy = 0 ORDER BY id DESC LIMIT 1`).get(cardId) as { payload: string } | undefined
-  if (row === undefined)
+  const row = latest(db, { card: cardId, types: [CARD_STARTED] })
+  if (row === null)
     return null
-  const payload = parsed(row.payload)
+  const payload = dataOf(row)
   const started = text(payload.session)
   const worktree = text(payload.worktree)
   const branch = text(payload.branch)
@@ -172,11 +166,15 @@ function chainSessionOf(payload: Record<string, unknown>): string {
   return windowSession ? NO_RECORDED_SESSION : text(payload.session) ?? NO_RECORDED_SESSION
 }
 
+function namesATree(payload: Record<string, unknown>): boolean {
+  return typeof payload.worktree === 'string' && typeof payload.branch === 'string'
+}
+
 function startLineOf(db: DatabaseSync, cardId: number): CardSession | null {
-  const row = db.prepare(`SELECT payload FROM events WHERE card_id = ? AND type = '${START_LINE}' AND legacy = 1 AND json_type(payload, '$.worktree') = 'text' AND json_type(payload, '$.branch') = 'text' ORDER BY id DESC LIMIT 1`).get(cardId) as { payload: string } | undefined
+  const row = eventsOf(db, { card: cardId, types: [START_LINE], legacy: true, newestFirst: true }).find(line => namesATree(dataOf(line)))
   if (row === undefined)
     return null
-  const payload = parsed(row.payload)
+  const payload = dataOf(row)
   const worktree = text(payload.worktree)
   const branch = text(payload.branch)
   return worktree === null || branch === null ? null : { session: chainSessionOf(payload), worktree, branch }
@@ -186,14 +184,19 @@ export function cardSessionOf(db: DatabaseSync, cardId: number): CardSession | n
   return startedOf(db, cardId) ?? startLineOf(db, cardId)
 }
 
-const DRAFT_PR = `SELECT pr FROM prs WHERE card_id = ? AND state = 'open' AND draft = 1 ORDER BY pr DESC LIMIT 1`
+const OPEN_PR = 'open'
+const DRAFT = 1
+
+function openPrsOf(db: DatabaseSync, cardId: number): PrRow[] {
+  return prs.ofCard(db, cardId).filter(row => row.state === OPEN_PR)
+}
 
 export function ownerHoldOf(db: DatabaseSync, cardId: number): string | null {
   const hold = cardHoldOf(db, cardId)
   if (hold !== null)
     return hold
-  const draft = db.prepare(DRAFT_PR).get(cardId) as { pr: number } | undefined
-  return draft === undefined ? null : `card #${cardId} has the draft pull request #${Number(draft.pr)}, which is the owner's until it is marked ready`
+  const draft = openPrsOf(db, cardId).filter(row => row.draft === DRAFT).at(-1)
+  return draft === undefined ? null : `card #${cardId} has the draft pull request #${draft.pr}, which is the owner's until it is marked ready`
 }
 
 function treeOf(value: unknown): CarriedTree | null {
@@ -203,15 +206,22 @@ function treeOf(value: unknown): CarriedTree | null {
   return typeof path === 'string' && typeof head === 'string' && typeof dirty === 'boolean' ? { path, head, localCommits: strings(localCommits), dirty } : null
 }
 
-const CARRIERS_AND_OWNERS_OF_THE_TREE = ` AND json_extract(payload, '$.queue') = '${TREE_CARRIER_QUEUE}'
-  AND (type IN ('${TASK_COMPLETED}', '${TASK_FAILED}', '${TASK_SUPERSEDED}') OR (type = '${TASK_RELEASED}' AND json_type(payload, '$.tree') = 'object'))`
+const ENDS_OF_A_CARRIER = [TASK_COMPLETED, TASK_FAILED, TASK_SUPERSEDED, TASK_RELEASED]
+
+function isObject(value: unknown): boolean {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function carriesOrOwnsTheTree(event: EventRow): boolean {
+  const payload = dataOf(event)
+  return payload.queue === TREE_CARRIER_QUEUE && (event.type !== TASK_RELEASED || isObject(payload.tree))
+}
 
 export function carriedTreeOf(db: DatabaseSync, cardId: number): CarriedTree | null {
-  const [last] = latestEvents(db, cardId, CARRIERS_AND_OWNERS_OF_THE_TREE, 1)
-  return last === undefined ? null : treeOf((last.payload as Record<string, unknown>).tree)
+  const last = eventsOf(db, { card: cardId, types: ENDS_OF_A_CARRIER, newestFirst: true }).find(carriesOrOwnsTheTree)
+  return last === undefined ? null : treeOf(dataOf(last).tree)
 }
 
 export function openPrOfCard(db: DatabaseSync, cardId: number): number | null {
-  const row = db.prepare(`SELECT pr FROM prs WHERE card_id = ? AND state = 'open' ORDER BY pr DESC LIMIT 1`).get(cardId) as { pr: number } | undefined
-  return row === undefined ? null : Number(row.pr)
+  return openPrsOf(db, cardId).at(-1)?.pr ?? null
 }
