@@ -1,4 +1,5 @@
 import type { PathClass, PathClassification } from '../../sync/classify.js'
+import type { PlannedWrite } from '../../sync/write.js'
 import { rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
@@ -6,9 +7,10 @@ import { factsTheRepositoryEstablishes } from '../../detect/facts.js'
 import { blocksWrittenWith, readManifest, recordSync, writeManifest } from '../../manifest.js'
 import { applyPlan } from '../../materialize/apply.js'
 import { PATH_CLASSES } from '../../sync/classify.js'
+import { ownedSha } from '../../sync/ownership.js'
 import { replay } from '../../sync/replay.js'
 import { planWrites } from '../../sync/write.js'
-import { browserLabExcludedCommand, excludedBrowserLabLocally, PROJECT_SETTINGS_FILE } from '../attach/settings.js'
+import { browserLabExcludedCommand, excludedBrowserLabLocally, PROJECT_SETTINGS_FILE, settledProjectSettings } from '../attach/settings.js'
 
 export interface SyncReport {
   fromVersion: string
@@ -54,13 +56,22 @@ function excludeInstalledLab(root: string, home: string): BrowserLabExclusion {
   return { command, state: exclusion.added.length === 0 ? 'held' : 'added' }
 }
 
+function withTheRoleEnvironment(root: string, write: PlannedWrite): PlannedWrite {
+  if (write.target !== PROJECT_SETTINGS_FILE)
+    return write
+  const content = settledProjectSettings(root, write.content)
+  return content === null || content === write.content ? write : { ...write, content, ownedSha: ownedSha(write.target, content) }
+}
+
 export function applySync(root: string, version: string, home: string = homedir()): SyncApplyReport | null {
   const manifest = readManifest(root)
   if (manifest == null)
     return null
   const { fromVersion, toVersion, present, produced, classifications } = replay({ root, manifest, version, facts: factsTheRepositoryEstablishes(root) })
   const report = { fromVersion, toVersion, counts: countByClass(classifications), classifications }
-  const { writes, removals, refused } = planWrites({ classifications, present, produced })
+  const planned = planWrites({ classifications, present, produced })
+  const { removals, refused } = planned
+  const writes = planned.writes.map(write => withTheRoleEnvironment(root, write))
 
   for (const target of removals)
     rmSync(path.join(root, target))

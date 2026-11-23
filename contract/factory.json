@@ -4687,7 +4687,8 @@
         ],
         "functions": {
           "browserLabExcludedCommand": "(home: string = homedir()): string",
-          "browserLabInstalledScript": "(home: string = homedir()): string"
+          "browserLabInstalledScript": "(home: string = homedir()): string",
+          "cardTreeGitWrites": "(gitDir: string, commonDir: string): string[]"
         },
         "reexports": [],
         "types": {}
@@ -6024,11 +6025,14 @@
         ],
         "functions": {
           "settingsFlag": "(settings: ShiftSettings): string[]",
-          "shiftSettings": "(tree: string, gate: ShiftGate, writable: string[] = [], home: string = os.homedir(), card: number | null = cardOfTree(tree)): ShiftSettings"
+          "shiftSettings": "(tree: string, gate: ShiftGate, writable: string[] = [], home: string = os.homedir(), card: number | null = cardOfTree(tree)): ShiftSettings",
+          "treeGitWrites": "(tree: string): string[]"
         },
-        "language": "factory",
+        "language": "technology",
         "reexports": [],
-        "technologyWords": [],
+        "technologyWords": [
+          "git"
+        ],
         "types": {
           "ShiftSettings": "interface ShiftSettings { sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[]; filesystem?: { allowWrite?: string[]; denyWrite?: string[]; }; network: { allowedDomains?: string[]; }; }; permissions: { allow: string[]; deny?: string[]; }; env: typeof SESSION_BASH_CAP; hooks: typeof WIDE_VITEST_HOOKS; }"
         }

@@ -974,6 +974,7 @@
           "items[].command",
           "items[].goes",
           "items[].item",
+          "items[].refused",
           "items[].slice",
           "schemaVersion"
         ],

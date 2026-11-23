@@ -7,6 +7,7 @@ import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import { openBus } from '../scripts/core/db.js'
 import { WINDOW_HEARTBEAT } from '../scripts/core/events.js'
+import { roleEnvironment } from '../src/commands/attach/settings.js'
 import { printDoctor, runDoctor } from '../src/commands/doctor/index.js'
 import { runInit } from '../src/commands/init.js'
 import { factoryLiveness } from '../src/commands/liveness.js'
@@ -184,7 +185,7 @@ describe('init carries the settings layer the factory runs on', () => {
 
       applySync(dir, VERSION)
 
-      expect(settingsOf(dir).permissions).toEqual({ allow: ['Bash(make test)', ...scanRules] })
+      expect(settingsOf(dir).permissions).toEqual({ allow: ['Bash(make test)', ...scanRules, ...roleEnvironment(dir).allow] })
       expect(runSync(dir, VERSION)!.classifications.find(entry => entry.target === SETTINGS)?.class).toBe('keep')
       expect(printedBy(ui => printDoctor(ui, runDoctor(dir, VERSION))).some(line => line.includes(movedOn))).toBe(false)
     })

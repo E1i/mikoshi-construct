@@ -2320,6 +2320,7 @@
     "tests/repository-listing.test.ts",
     "tests/repository-listing.ts",
     "tests/reproducibility.test.ts",
+    "tests/role-environment.test.ts",
     "tests/role-guard.test.ts",
     "tests/rules.test.ts",
     "tests/run-record.test.ts",

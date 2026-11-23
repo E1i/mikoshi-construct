@@ -2,7 +2,7 @@ import type { ShiftGate } from '../../src/manifest.js'
 import { existsSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { browserLabExcludedCommand, browserLabInstalledScript, SETTINGS_FILE } from '../../src/commands/attach/settings.js'
+import { browserLabExcludedCommand, browserLabInstalledScript, cardTreeGitWrites, SETTINGS_FILE } from '../../src/commands/attach/settings.js'
 import { isJsonObject } from '../../src/materialize/strategies.js'
 import { cardOfTree, grantOf } from './card-grants.js'
 import { WIDE_VITEST_HOOKS } from './wide-vitest-guard.js'
@@ -50,17 +50,25 @@ function gitDirOfLinkedTree(tree: string): string | null {
   }
 }
 
-function mainCheckoutOf(tree: string): string | null {
-  const gitDir = gitDirOfLinkedTree(tree)
-  if (gitDir === null)
-    return null
+function commonDirOf(gitDir: string): string | null {
   try {
-    const common = path.resolve(gitDir, readFileSync(path.join(gitDir, 'commondir'), 'utf8').trim())
-    return path.basename(common) === '.git' ? path.dirname(common) : null
+    return path.resolve(gitDir, readFileSync(path.join(gitDir, 'commondir'), 'utf8').trim())
   }
   catch {
     return null
   }
+}
+
+function mainCheckoutOf(tree: string): string | null {
+  const gitDir = gitDirOfLinkedTree(tree)
+  const common = gitDir === null ? null : commonDirOf(gitDir)
+  return common !== null && path.basename(common) === '.git' ? path.dirname(common) : null
+}
+
+export function treeGitWrites(tree: string): string[] {
+  const gitDir = gitDirOfLinkedTree(tree)
+  const common = gitDir === null ? null : commonDirOf(gitDir)
+  return gitDir === null || common === null ? [] : cardTreeGitWrites(gitDir, common)
 }
 
 function mainCheckoutExcludes(tree: string, entry: string): boolean {
@@ -68,13 +76,11 @@ function mainCheckoutExcludes(tree: string, entry: string): boolean {
   return main !== null && excludes(path.join(main, SETTINGS_FILE), entry)
 }
 
-function grantedSandbox(card: number | null, home: string): ShiftSettings['sandbox'] {
+function grantedSandbox(card: number | null, home: string, tree: string): ShiftSettings['sandbox'] {
   const grant = grantOf(card)
-  if (grant === null)
-    return CARD_SESSION_SANDBOX
-  const network = { ...CARD_SESSION_SANDBOX.network, allowedDomains: [...grant.domains] }
-  const allowWrite = grant.homeWrites.map(entry => path.join(home, entry))
-  return allowWrite.length === 0 ? { ...CARD_SESSION_SANDBOX, network } : { ...CARD_SESSION_SANDBOX, network, filesystem: { allowWrite } }
+  const allowWrite = [...(grant?.homeWrites ?? []).map(entry => path.join(home, entry)), ...treeGitWrites(tree)]
+  const sandbox = grant === null ? CARD_SESSION_SANDBOX : { ...CARD_SESSION_SANDBOX, network: { ...CARD_SESSION_SANDBOX.network, allowedDomains: [...grant.domains] } }
+  return allowWrite.length === 0 ? sandbox : { ...sandbox, filesystem: { allowWrite } }
 }
 
 export function shiftSettings(tree: string, gate: ShiftGate, writable: string[] = [], home: string = os.homedir(), card: number | null = cardOfTree(tree)): ShiftSettings {
@@ -84,7 +90,7 @@ export function shiftSettings(tree: string, gate: ShiftGate, writable: string[] 
     ...writable.map(file => `Edit(/${file})`),
     ...grantOf(card)?.allow ?? [],
   ]
-  const sandbox = grantedSandbox(card, home)
+  const sandbox = grantedSandbox(card, home, tree)
   const entry = browserLabExcludedCommand(home)
   const excluded = existsSync(browserLabInstalledScript(home)) && (REPOSITORY_SETTINGS_FILES.some(file => excludes(path.join(tree, file), entry)) || mainCheckoutExcludes(tree, entry))
   if (!excluded)

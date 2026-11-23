@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runAttach, SETTINGS_FILE } from '../src/commands/attach/index.js'
@@ -89,8 +89,8 @@ function capturedUi(): { lines: string[], ui: ReturnType<typeof createUi> } {
   return { lines, ui: createUi(resolveTheme({ plain: true }), line => lines.push(line)) }
 }
 
-function settingsOf(dir: string, file: string): { sandbox?: unknown } {
-  return JSON.parse(readFileSync(path.join(dir, file), 'utf8')) as { sandbox?: unknown }
+function settingsOf(dir: string, file: string): { sandbox?: { excludedCommands?: unknown } } {
+  return JSON.parse(readFileSync(path.join(dir, file), 'utf8')) as { sandbox?: { excludedCommands?: unknown } }
 }
 
 describe('init writes the exclusion where a home path stays on this machine', () => {
@@ -99,7 +99,8 @@ describe('init writes the exclusion where a home path stays on this machine', ()
     const captured = capturedUi()
     await runInit(captured.ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
     expect(excludedOf(dir)).toEqual([browserLabExcludedCommand()])
-    expect(settingsOf(dir, '.claude/settings.json').sandbox).toBeUndefined()
+    expect(settingsOf(dir, '.claude/settings.json').sandbox?.excludedCommands).toBeUndefined()
+    expect(readFileSync(path.join(dir, '.claude/settings.json'), 'utf8')).not.toContain(homedir())
     expect(captured.lines.join('\n')).not.toContain('without its exclusion')
   })
 

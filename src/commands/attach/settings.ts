@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { isDeepStrictEqual } from 'node:util'
+import { CONSTRUCT_HOME_DIR, isOwnerCheckout, repoIdOf } from '../../../scripts/core/bus-path.js'
 import { appendHookEntry, isJsonObject } from '../../materialize/strategies.js'
 import { engramFile } from '../../model/discovery.js'
 import { ATTACH_GUARD, ATTACH_WINDOW_HOOKS } from '../../presets/index.js'
@@ -69,7 +70,7 @@ export interface SandboxExclusion {
   createdExcluded: boolean
 }
 
-const RECORDED_BY_AN_EARLIER_ATTACH = 'node scripts/construct/browser-lab.mjs *'
+export const RECORDED_BY_AN_EARLIER_ATTACH = 'node scripts/construct/browser-lab.mjs *'
 
 export function browserLabInstalledScript(home: string = homedir()): string {
   return path.join(home, '.construct', 'browser-lab', 'bin', 'browser-lab.mjs')
@@ -77,6 +78,147 @@ export function browserLabInstalledScript(home: string = homedir()): string {
 
 export function browserLabExcludedCommand(home: string = homedir()): string {
   return `node ${browserLabInstalledScript(home)} *`
+}
+
+const CONSTRUCT_PROJECT_HOOK = 'scripts/construct/eddies.mjs'
+export const HOME_PREFIX = '~/'
+export const OWNER_CHANNEL_ENTRY = `${HOME_PREFIX}.construct-owner`
+const GIT_DIRECTORY = '.git'
+const GIT_DATA_RUNNING_CODE = ['hooks', 'config'] as const
+export const CARD_TREE_SHARED_GIT_DATA = ['objects', 'refs', 'logs'] as const
+export const ROLE_DOMAINS = ['github.com', 'api.github.com', 'registry.npmjs.org'] as const
+export const PACKAGE_MANAGER_STORES = ['Library/pnpm/store', '.local/share/pnpm/store', '.npm'] as const
+
+export interface RoleSandbox {
+  enabled: boolean
+  autoAllowBashIfSandboxed: boolean
+  allowUnsandboxedCommands: boolean
+  filesystem: { allowWrite: string[], denyWrite: string[] }
+  network: { allowedDomains: string[] }
+}
+
+export interface RoleEnvironment {
+  allow: string[]
+  sandbox: RoleSandbox
+}
+
+export function factoryHomeEntry(root: string): string {
+  return `${HOME_PREFIX}${CONSTRUCT_HOME_DIR}/${repoIdOf(root)}`
+}
+
+export function roleEnvironment(root: string): RoleEnvironment {
+  const factory = factoryHomeEntry(root)
+  return {
+    allow: [`Read(${factory}/**)`],
+    sandbox: {
+      enabled: true,
+      autoAllowBashIfSandboxed: true,
+      allowUnsandboxedCommands: false,
+      filesystem: {
+        allowWrite: [factory, `./${GIT_DIRECTORY}`, ...PACKAGE_MANAGER_STORES.map(store => `${HOME_PREFIX}${store}`)],
+        denyWrite: [OWNER_CHANNEL_ENTRY, ...GIT_DATA_RUNNING_CODE.map(entry => `./${GIT_DIRECTORY}/${entry}`)],
+      },
+      network: { allowedDomains: [...ROLE_DOMAINS] },
+    },
+  }
+}
+
+export function cardTreeGitWrites(gitDir: string, commonDir: string): string[] {
+  return [gitDir, ...CARD_TREE_SHARED_GIT_DATA.map(entry => path.join(commonDir, entry))]
+}
+
+function objectAt(parent: JsonObject, key: string): JsonObject {
+  const value = parent[key]
+  return isJsonObject(value) ? value : {}
+}
+
+function union(present: unknown, wanted: readonly string[]): unknown[] {
+  const held = Array.isArray(present) ? present : []
+  return [...held, ...wanted.filter(entry => !held.includes(entry))]
+}
+
+function holdsAListAt(parent: JsonObject, key: string): boolean {
+  return !(key in parent) || Array.isArray(parent[key])
+}
+
+function holdsAnObjectAt(parent: JsonObject, key: string): boolean {
+  return !(key in parent) || isJsonObject(parent[key])
+}
+
+function carriesTheConstructHook(settings: JsonObject): boolean {
+  const entries = objectAt(settings, 'hooks').PreToolUse
+  return Array.isArray(entries) && entries.some(entry => names(entry, CONSTRUCT_PROJECT_HOOK))
+}
+
+function environmentFits(settings: JsonObject): boolean {
+  if (!carriesTheConstructHook(settings) || !holdsAnObjectAt(settings, 'permissions') || !holdsAnObjectAt(settings, 'sandbox'))
+    return false
+  const sandbox = objectAt(settings, 'sandbox')
+  if (!holdsAnObjectAt(sandbox, 'filesystem') || !holdsAnObjectAt(sandbox, 'network') || !holdsAListAt(sandbox, 'excludedCommands'))
+    return false
+  const filesystem = objectAt(sandbox, 'filesystem')
+  return holdsAListAt(objectAt(settings, 'permissions'), 'allow') && holdsAListAt(filesystem, 'allowWrite') && holdsAListAt(filesystem, 'denyWrite') && holdsAListAt(objectAt(sandbox, 'network'), 'allowedDomains')
+}
+
+function withoutTheDeadLabEntry(sandbox: JsonObject): JsonObject {
+  if (!Array.isArray(sandbox.excludedCommands) || !sandbox.excludedCommands.includes(RECORDED_BY_AN_EARLIER_ATTACH))
+    return sandbox
+  const { excludedCommands, ...rest } = sandbox
+  const remaining = (excludedCommands as unknown[]).filter(command => command !== RECORDED_BY_AN_EARLIER_ATTACH)
+  return remaining.length === 0 ? rest : { ...rest, excludedCommands: remaining }
+}
+
+export function withRoleEnvironment(settings: JsonObject, environment: RoleEnvironment): JsonObject {
+  const permissions = objectAt(settings, 'permissions')
+  const sandbox = withoutTheDeadLabEntry(objectAt(settings, 'sandbox'))
+  const filesystem = objectAt(sandbox, 'filesystem')
+  const network = objectAt(sandbox, 'network')
+  const { filesystem: wantedFilesystem, network: wantedNetwork, ...flags } = environment.sandbox
+  return {
+    ...settings,
+    permissions: { ...permissions, allow: union(permissions.allow, environment.allow) },
+    sandbox: {
+      ...flags,
+      ...sandbox,
+      filesystem: { ...filesystem, allowWrite: union(filesystem.allowWrite, wantedFilesystem.allowWrite), denyWrite: union(filesystem.denyWrite, wantedFilesystem.denyWrite) },
+      network: { ...network, allowedDomains: union(network.allowedDomains, wantedNetwork.allowedDomains) },
+    },
+  }
+}
+
+export type EnvironmentWrite = 'written' | 'held' | 'refused' | 'owner-checkout'
+
+export function settledProjectSettings(root: string, text: string): string | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  }
+  catch {
+    return null
+  }
+  if (isOwnerCheckout(root) || !isJsonObject(parsed) || !environmentFits(parsed))
+    return null
+  const settled = withRoleEnvironment(parsed, roleEnvironment(root))
+  return isDeepStrictEqual(settled, parsed) ? text : `${JSON.stringify(settled, null, 2)}\n`
+}
+
+export function writeRoleEnvironment(root: string): EnvironmentWrite {
+  if (isOwnerCheckout(root))
+    return 'owner-checkout'
+  const file = path.join(root, PROJECT_SETTINGS_FILE)
+  try {
+    const text = readFileSync(file, 'utf8')
+    const settled = settledProjectSettings(root, text)
+    if (settled === null)
+      return 'refused'
+    if (settled === text)
+      return 'held'
+    writeFileSync(file, settled)
+    return 'written'
+  }
+  catch {
+    return 'refused'
+  }
 }
 
 const ENGRAM_TOOLS = ['Read', 'Edit'] as const
@@ -360,13 +502,35 @@ function withExcludedCommand(text: string, entry: string): string {
   return appendInContainer(text, readContainer(text, excludedSlot.valueStart), () => JSON.stringify(entry))
 }
 
+function excludedListIn(text: string): JsonContainer | null {
+  const root = readContainer(text, skipWhitespace(text, 0))
+  const sandboxSlot = slotNamed(root, 'sandbox')
+  if (sandboxSlot == null || text[sandboxSlot.valueStart] !== '{')
+    return null
+  const excludedSlot = slotNamed(readContainer(text, sandboxSlot.valueStart), 'excludedCommands')
+  return excludedSlot == null || text[excludedSlot.valueStart] !== '[' ? null : readContainer(text, excludedSlot.valueStart)
+}
+
+function withoutExcludedCommand(text: string, entry: string): string {
+  const list = excludedListIn(text)
+  const at = list == null ? -1 : list.slots.findIndex(slot => text.slice(slot.valueStart, slot.valueEnd) === JSON.stringify(entry))
+  if (list == null || at === -1)
+    return text
+  const slot = list.slots[at]!
+  if (list.slots.length === 1)
+    return `${text.slice(0, list.open + 1)}${text.slice(list.close)}`
+  if (at === 0)
+    return `${text.slice(0, slot.start)}${text.slice(list.slots[1]!.start)}`
+  return `${text.slice(0, list.slots[at - 1]!.valueEnd)}${text.slice(slot.valueEnd)}`
+}
+
 export interface LocalExclusion extends SandboxExclusion {
   createdFile: boolean
   beforeSha256: string | null
   afterSha256: string | null
 }
 
-export function excludeBrowserLabInLocalSettings(root: string, home: string = homedir()): LocalExclusion | null {
+export function excludeBrowserLabInLocalSettings(root: string, home: string = homedir(), dropTheDeadEntry: boolean = false): LocalExclusion | null {
   const reading = readSettings(root)
   if (reading.kind === 'unreadable')
     return null
@@ -374,9 +538,11 @@ export function excludeBrowserLabInLocalSettings(root: string, home: string = ho
   const exclusion = excludeBrowserLab(reading.kind === 'read' ? structuredClone(reading.settings) : {}, entry)
   const beforeSha256 = reading.kind === 'read' ? sha256OfBytes(reading.bytes) : null
   const createdFile = reading.kind === 'absent'
-  if (exclusion.added.length === 0)
+  const held = reading.kind === 'read' ? reading.bytes.toString('utf8') : null
+  const withEntry = held == null ? `${JSON.stringify({ sandbox: { excludedCommands: [entry] } }, null, 2)}\n` : exclusion.added.length === 0 ? held : withExcludedCommand(held, entry)
+  const text = dropTheDeadEntry ? withoutExcludedCommand(withEntry, RECORDED_BY_AN_EARLIER_ATTACH) : withEntry
+  if (text === held)
     return { ...exclusion, createdFile, beforeSha256, afterSha256: beforeSha256 }
-  const text = reading.kind === 'read' ? withExcludedCommand(reading.bytes.toString('utf8'), entry) : `${JSON.stringify({ sandbox: { excludedCommands: [entry] } }, null, 2)}\n`
   const bytes = Buffer.from(text)
   writeSettingsBytes(root, bytes)
   return { ...exclusion, createdFile, beforeSha256, afterSha256: sha256OfBytes(bytes) }
@@ -387,13 +553,14 @@ function isLinkedWorktree(root: string): boolean {
 }
 
 export function excludedBrowserLabLocally(root: string, home: string = homedir()): LocalExclusion | null {
+  const constructOwnsProjectSettings = ['written', 'held'].includes(writeRoleEnvironment(root))
   try {
     if (isLinkedWorktree(root))
       return null
     const index = readTrackedPaths(root)
     if (!('tracked' in index) || index.tracked.has(SETTINGS_FILE))
       return null
-    return excludeBrowserLabInLocalSettings(root, home)
+    return excludeBrowserLabInLocalSettings(root, home, constructOwnsProjectSettings)
   }
   catch {
     return null
