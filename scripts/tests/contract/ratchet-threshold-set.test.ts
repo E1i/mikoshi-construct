@@ -8,6 +8,7 @@ import { renderRatchet } from '../../contract/ratchet.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, RATCHET_THRESHOLD_SET, UPDATE_DONE } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { cardContract } from '../../intake/card-contract.js'
 import { raisedRatchet, RATCHET_RECORD_PATH, UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { mergePolicy } from '../../policy/policy.js'
@@ -73,7 +74,7 @@ function updateBench(sets: (bench: MergeBench) => void, answers: ContentsAnswers
     return answers.write
   }
   const executor = new UpdateExecutor({ cards: cardTransitions(), source: updateParts(), silentMs: SILENT_MS, db: bench.db, gitHub, put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {}, thresholds: ratchetThresholdSets(bench.db) })
-  const outcome = executor.update(leaseNext(bench.db, bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')!)
+  const outcome = executor.update(leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')!)
   return { bench, outcome, reads, written }
 }
 

@@ -9,6 +9,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STOPPED, OWNER_WAIT_OPENED, UPDATE_DONE } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
 import { updateCandidates } from '../../nodes/update/update-candidates.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
@@ -89,7 +90,7 @@ function conflictBench(file: string, pr: number) {
   bench.tick()
   detectUpdate(bench)
   const executor = new UpdateExecutor({ cards: cardTransitions(), source: updateParts(), silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {}, mergeMain: mainMergeInCardTree(git, () => conflict.tree) })
-  const lease = (): Lease | null => leaseNext(bench.db, bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')
+  const lease = (): Lease | null => leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')
   return { bench, conflict, cardId, lease, executor }
 }
 

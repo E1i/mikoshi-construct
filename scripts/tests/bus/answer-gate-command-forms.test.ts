@@ -10,6 +10,7 @@ import { PREPUSH_COMMAND } from '../../ci/prepush.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor, noGateDecisionLine } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer, gateInShellLine, IN_THE_BACKGROUND, RoundTimer } from '../../nodes/answer/answerer.js'
@@ -80,7 +81,7 @@ async function roundWith(runs: readonly GateRun[]): Promise<{ outcome: AnswerOut
   appendEvent(made.db, { ts, type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${CARD}`, payload: { reason: 'question.agent', detail: 'a question' }, legacy: false })
   const stop = Number((made.db.prepare('SELECT max(id) AS id FROM events WHERE type = ?').get(CARD_STOPPED) as { id: number }).id)
   queueTask(made.db, ts, { queue: 'answer', cardId: CARD, stop })
-  const lease = (): Lease => leaseNext(made.db, ts, 'answer', 'worker:answer:worker-1')!
+  const lease = (): Lease => leaseNext(made.db, pullRequests(made.db), ts, 'answer', 'worker:answer:worker-1')!
   let published = 0
   const answerer = claudeAnswerer(path.join(trees, 'answers'), {
     cardText: () => null,

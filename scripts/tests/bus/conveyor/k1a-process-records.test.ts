@@ -18,6 +18,7 @@ import { appendEvent, openBus } from '../../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CHILD_ENDED, CHILD_STARTED, WORKER_STARTED } from '../../../core/events.js'
 import { judgeHolders, leaseNext, leaseQueued } from '../../../core/lease.js'
 import { ChildLog, GENERATION_VARIABLE, INSTANCE_VARIABLE, instanceOf, Node, recordWorkerIdentity, UNHANDED } from '../../../core/node.js'
+import { all as pullRequests } from '../../../core/pr-readings.js'
 import { keyOf, queueTask } from '../../../core/queue.js'
 import { reduce } from '../../../core/reducer.js'
 import { realAnswererTools } from '../../../nodes/answer/answerer.js'
@@ -214,7 +215,7 @@ function launchBench(identity?: (pid: number) => RowIdentity | null) {
   const executor = new LaunchExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, disk: () => ({ bavail: 1e9, bsize: 4096 }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), ...(identity === undefined ? {} : { identity }) })
   appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId: LAUNCH_CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${LAUNCH_CARD}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${LAUNCH_CARD}` }, legacy: false })
   bench.tick()
-  const lease = leaseNext(bench.db, bench.clock.now().toISOString(), 'launch', 'worker:launch:k1a')!
+  const lease = leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'launch', 'worker:launch:k1a')!
   return { bench, starter, executor, lease }
 }
 
@@ -256,7 +257,7 @@ describe('k1a: worker.started keeps its fields', () => {
       appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId: LAUNCH_CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${LAUNCH_CARD}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${LAUNCH_CARD}` }, legacy: false })
       bench.tick()
       const now = bench.clock.now().toISOString()
-      const lease: Lease = leaseNext(bench.db, now, 'launch', 'worker:launch:k1a-reader')!
+      const lease: Lease = leaseNext(bench.db, pullRequests(bench.db), now, 'launch', 'worker:launch:k1a-reader')!
       const start = '2026-11-14T09:00:00.000Z'
       recordWorkerIdentity(bench.db, now, { worker: lease.actor, pid: 4242, started: start, instance: 'i-1', generation: GENERATION, pgid: 4242, lstart: '2026-11-14T09:00:01.000Z' })
       expect(started(bench.db)[0]).toMatchObject({ worker: lease.actor, pid: 4242, started: start, instance: 'i-1', generation: GENERATION, pgid: 4242 })

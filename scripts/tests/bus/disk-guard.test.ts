@@ -12,6 +12,7 @@ import { BOARD_ALARM, CARD_ADMITTED, CARD_STOPPED, POLICY_DENIED } from '../../c
 import { taskKey } from '../../core/identifiers.js'
 import { ownerInbox } from '../../core/inbox.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { FAILURES_TO_STOP } from '../../core/queue.js'
 import { PreflightRefusal, runPreflight } from '../../ladder/preflight.js'
 import { LaunchExecutor } from '../../nodes/launch/launch-executor.js'
@@ -49,7 +50,7 @@ function launchOnce(disk: DiskReader, rounds = 1) {
     const executor = new LaunchExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, disk, isolation: sandboxed })
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARD}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${CARD}` }, legacy: false })
     bench.tick()
-    const outcomes = Array.from({ length: rounds }, () => executor.launch(leaseNext(bench.db, bench.clock.now().toISOString(), 'launch', 'worker:launch:w')!))
+    const outcomes = Array.from({ length: rounds }, () => executor.launch(leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'launch', 'worker:launch:w')!))
     return {
       outcomes,
       starts: starter.starts,

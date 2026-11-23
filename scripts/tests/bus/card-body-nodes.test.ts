@@ -12,6 +12,7 @@ import { appendEvent, openOwnerWait } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_OPENED, QUESTION_OWNER, SCOPE_WIDENED } from '../../core/events.js'
 import { OPEN_OWNER_STOP_OF_CARD } from '../../core/inbox.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { openDecisionWaitsOf } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { cardContract } from '../../intake/card-contract.js'
@@ -78,7 +79,7 @@ async function refusedOutsideTouches(admitted = 'src/a.ts') {
   }
   const trees: CardTreeTools = { home: root, exists: existsSync, branchOf: () => 'feat/bodynodes', recreate: () => {}, bringTo: () => {} }
   const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees, liveSession: () => null })
-  const lease = (): Lease | null => leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')
+  const lease = (): Lease | null => leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')
   const outcome = await executor.answer(lease()!)
   made.tick()
   return { made, executor, lease, outcome, rounds }

@@ -16,6 +16,7 @@ import { appendEvent, openOwnerWait } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_OPENED, QUESTION_AGENT } from '../../core/events.js'
 import { GENERATED_FILES, RATCHET_FILE } from '../../core/generated-files.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
@@ -260,7 +261,7 @@ async function answer(name: ScenarioName, decide: (made: MergeBench) => void = (
   made.tick()
   const stop = Number((made.db.prepare('SELECT max(id) AS id FROM events WHERE type = ?').get(CARD_STOPPED) as { id: number }).id)
   queueTask(made.db, made.clock.now().toISOString(), { queue: 'answer', cardId, stop })
-  const lease = leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') as Lease
+  const lease = leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') as Lease
   const heads = [sha('a'), sha('e')]
   let published = 0
   const answerer = claudeAnswerer(path.join(home, 'answers'), {
@@ -314,7 +315,7 @@ function update(name: ScenarioName, decide: (made: MergeBench) => void = () => {
   decide(made)
   made.tick()
   detectUpdate(made)
-  const lease = leaseNext(made.db, made.clock.now().toISOString(), 'update', 'worker:update:worker-1') as Lease
+  const lease = leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'update', 'worker:update:worker-1') as Lease
   const executor = new UpdateExecutor({ cards: cardTransitions(), source: updateParts(), silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, mergeMain: () => ({ kind: 'merged', to: sha('m'), tookMain: [], rebuilt: [] }), derived: derivedHolds(made.db, () => treeReading(gitIn, tree, 'origin/main', fakeRerun)) })
   return { made, outcome: executor.update(lease) }
 }

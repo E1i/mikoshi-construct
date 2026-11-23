@@ -9,6 +9,7 @@ import { boardWarnings, MainUpToDate, stalePassCountOf, stalePassText } from '..
 import { appendEvent } from '../../core/db.js'
 import { REVIEW_RECORDED, UPDATE_DONE } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { REVIEW_RULES_FILE, REVIEW_RULES_SHA, REVIEW_RULES_VERSION, ReviewExecutor, reviewRulesSha, SPAWNS_NO_SESSION } from '../../nodes/review/review-executor.js'
 import { recordedVerdictOn, UpdateExecutor } from '../../nodes/update/update-executor.js'
@@ -34,7 +35,7 @@ function updated(bench: MergeBench): Record<string, unknown>[] {
   const executor = new UpdateExecutor({ cards: cardTransitions(), source: updateParts(), silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
   mainMovesPastEveryPr(bench)
   detectUpdate(bench)
-  executor.update(leaseNext(bench.db, bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')!)
+  executor.update(leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')!)
   return eventsOf(bench.db, UPDATE_DONE)
 }
 
@@ -57,7 +58,7 @@ describe('the version of the review rules on a verdict', () => {
     bench.tick()
     const executor = new ReviewExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, publish: () => {}, reviewer: async () => ({ verdict: 'pass', findings: [], session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: bench.clock.now, isolation: SPAWNS_NO_SESSION, requiredCheck: () => requiredCheckAt() })
 
-    expect(await executor.review(leaseNext(bench.db, bench.clock.now().toISOString(), 'review', 'worker:review:worker-1')!)).toMatchObject({ kind: 'recorded', verdict: 'pass' })
+    expect(await executor.review(leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'review', 'worker:review:worker-1')!)).toMatchObject({ kind: 'recorded', verdict: 'pass' })
     expect(eventsOf(bench.db, REVIEW_RECORDED)).toMatchObject([{ verdict: 'pass', rules_version: REVIEW_RULES_VERSION }])
     expect(recordedVerdictOn(bench.db, 1701, sha('a'))).toEqual({ verdict: 'pass', rulesVersion: REVIEW_RULES_VERSION })
     bench.close()

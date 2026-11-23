@@ -1,5 +1,4 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { EventType } from '../core/events.js'
 import type { HolderProcess, ProcessStartOf } from '../core/lease.js'
 import type { InForceDecision } from '../policy/decisions/index.js'
 import type { ProcessTable } from '../ports/process-table.js'
@@ -24,18 +23,15 @@ import { importClosure } from '../core/import-closure.js'
 import { RESTART_MISSED } from '../core/inbox.js'
 import { closeDrain, judgeHolders, leasesHeldBy, openDrain, retireHolders, retiringPids } from '../core/lease.js'
 import { LIVE_FLAG } from '../core/node.js'
-import { orderEventsFrom, prOrderTickAt } from '../core/order/turn.js'
-import { cardContract } from '../intake/card-contract.js'
 import { inForceDecisions } from '../policy/decisions/index.js'
 import { allowLiveCommand, liveDecisionOf } from '../policy/live-decision.js'
-import { BusRead } from '../ports/bus-read.js'
 import { processGit } from '../ports/git.js'
 import { OsProcessTable, rowOf, rowsOf } from '../ports/process-table.js'
 import { WindowSessionEnds } from '../window/window-session-end.js'
 import { BUILD_DIR, BUILT_MODULE, flagsInArgs, instancesOf, launchName, PREFIX, printBg, provenOnBus, runBusBg, runningInstance, stampedOtherwise, startDetached, thisBus, withBuses } from './bg.js'
 import { BusHealer, CorruptionWatch, RecordedNodes } from './bus-heal.js'
 import { BusSnapshot } from './bus-snapshot.js'
-import { busProjections, cardTransitions, recordOwnStart, reviewLaunch } from './composition.js'
+import { busOrderTick, busProjections, cardTransitions, recordOwnStart, reviewLaunch } from './composition.js'
 import { freeLeasesOf, judgedLeaseLines, workerKindsOf } from './executor-lease.js'
 import { DRAIN_LIMIT_MS, DRAIN_WHY, GenerationHandover, recordRestarted, RETIRING_WORKERS } from './generation-handover.js'
 import { CARD_PROCESS, lastProcessBeats, ownStart, recordProcessHeartbeat, retiredRowsLines, retirePreviousGeneration } from './heartbeat.js'
@@ -896,10 +892,6 @@ function replacedBy(head: string, started: BgResult): { lines: string[], replace
   if (started.exitCode === 0)
     return { replaced: true, lines: [...started.stdout, ...started.stderr, `${PREFIX}the supervisor ran the code it started with; a fresh supervisor runs on ${head} and this one exits`] }
   return { replaced: false, lines: [...started.stdout, ...started.stderr, `${PREFIX}the supervisor could not start a fresh supervisor on ${head}; it keeps running the code it started with and retries on the next tick`] }
-}
-
-export function busOrderTick(db: DatabaseSync, root: string): ReturnType<typeof prOrderTickAt> {
-  return prOrderTickAt(db, root, PREFIX, orderEventsFrom((type, fields, after) => new BusRead(db, { from: after + 1 }).slice(type as EventType, fields as never)), card => cardContract(db, card)?.touches ?? null)
 }
 
 export async function superviseUntilReplaced(parts: SupervisingParts): Promise<void> {

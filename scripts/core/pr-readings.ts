@@ -59,3 +59,7 @@ export function ofCard(db: DatabaseSync, cardId: number): PrRow[] {
 export function all(db: DatabaseSync): PrRow[] {
   return selected(db, '')
 }
+
+export function mergedCards(db: DatabaseSync): number[] {
+  return (db.prepare(`SELECT DISTINCT card_id FROM prs WHERE state = 'merged' AND card_id IS NOT NULL ORDER BY card_id`).all() as { card_id: number }[]).map(row => Number(row.card_id))
+}

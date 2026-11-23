@@ -15,6 +15,7 @@ import { CARD_ADMITTED, CARD_CLOSED, CARD_STOPPED, POLICY_DENIED, UPDATE_DONE } 
 import { GENERATED_FILES } from '../../core/generated-files.js'
 import { taskKey } from '../../core/identifiers.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { currentLane, layLanes, withoutDerived } from '../../nodes/launch/lane-assign.js'
 import { LaunchExecutor } from '../../nodes/launch/launch-executor.js'
 import { sharedAppendFiles } from '../../nodes/launch/shared-files.js'
@@ -73,7 +74,7 @@ function launchBench() {
       layLanes(bench.db, LANES, ts(), 'policy')
     },
     startQueued: (): void => {
-      for (let lease = leaseNext(bench.db, ts(), 'launch', 'worker:launch:worker-1'); lease !== null; lease = leaseNext(bench.db, ts(), 'launch', 'worker:launch:worker-1'))
+      for (let lease = leaseNext(bench.db, pullRequests(bench.db), ts(), 'launch', 'worker:launch:worker-1'); lease !== null; lease = leaseNext(bench.db, pullRequests(bench.db), ts(), 'launch', 'worker:launch:worker-1'))
         executor.launch(lease)
     },
     closeCard: (cardId: number): void => {
@@ -177,7 +178,7 @@ describe('a generated file the update rebuilds is no overlap at launch', () => {
       return { status: 0, stderr: '' }
     }
     const executor = new UpdateExecutor({ cards: cardTransitions(), source: updateParts(), silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {}, mergeMain: mainMergeInCardTree(git, () => second.tree, rebuild) })
-    const leased: Lease = leaseNext(bench.db, bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')!
+    const leased: Lease = leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')!
     expect(leased).toMatchObject({ queue: 'update', cardId, pr, head: second.head })
 
     expect(executor.update(leased)).toMatchObject({ kind: 'updated', from: second.head })

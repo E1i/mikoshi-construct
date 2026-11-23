@@ -15,6 +15,7 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_OPENED, QUESTION_OWNER, REVIEW_RECORDED, SCOPE_WIDENED, SHARD_DECIDED, SHARD_ISSUED, WITNESS_RECORDED } from '../../core/events.js'
 import { prBodySha, taskKey } from '../../core/identifiers.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { importJournal } from '../../intake/import.js'
@@ -125,7 +126,7 @@ function questionUnderShard(made: ReturnType<typeof mergeBench>, answerer: Answe
   queueTask(made.db, ts, { queue: 'answer', cardId: 905, stop })
   const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
   const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, isolation: () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }), dirty, shardDecider: () => ({ answer: 'finish inside the touches' }) })
-  return async () => executor.answer(leaseNext(made.db, ts, 'answer', 'worker:answer:worker-1')!)
+  return async () => executor.answer(leaseNext(made.db, pullRequests(made.db), ts, 'answer', 'worker:answer:worker-1')!)
 }
 
 describe('the review loop', () => {
@@ -149,7 +150,7 @@ describe('the review loop', () => {
     const made = mergeBench()
     made.gitHub.open({ number: 1060, review: 'failure' })
     made.tick()
-    const leased = leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
+    const leased = leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
     expect(leased.cardId).toBe(1160)
 
     made.gitHub.open({ number: 1060, head: sha('b'), required: 'failure', failed: ['lint'] })
@@ -165,7 +166,7 @@ describe('the review loop', () => {
     const made = mergeBench()
     made.gitHub.open({ number: 1063, review: 'failure' })
     made.tick()
-    const leased = leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
+    const leased = leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
     made.gitHub.close(1063, false)
     made.tick()
     made.tick()
@@ -289,7 +290,7 @@ describe('the review loop', () => {
     const answer = async (): Promise<AnswerOutcome> => {
       made.tick()
       made.tick()
-      const lease = leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
+      const lease = leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
       return executor.answer(lease)
     }
     return { made, prompts, logsRead, answer }

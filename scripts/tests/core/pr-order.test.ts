@@ -6,6 +6,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { closedWaitIds, openOwnerWaits } from '../../core/card-readings.js'
 import { appendEvent, closeOwnerWait, openBus, openBusWait } from '../../core/db.js'
 import { CARD_HELD, CARD_RELEASED, MAIN_ADVANCED, PR_CLOSED, PR_GROUPS, PR_OBSERVED, PR_OPENED, PR_ORDERED, TASK_COMPLETED, TASK_ENQUEUED, TASK_LEASED } from '../../core/events.js'
 import { groupOf } from '../../core/order/group.js'
@@ -336,7 +337,7 @@ describe('the bus writes pr.ordered once per life, when a PR first reaches pass 
       appendEvent(db, { ts: '2026-11-14T00:00:00Z', type, actor: 'netwatch', cardId: null, pr: 950, head: null, dedupeKey: `test:${at}`, payload, legacy: false })
     }
     const observed = (ci: string, verdict: string | null): void => write(PR_OBSERVED, { head: 'a'.repeat(40), base: 'main', paths: ['docs/x.md'], ci, verdict_on_head: verdict, mergeable: 'clean' })
-    const tick = new PrOrderTick(db, busEvents(db), () => '2026-11-14T00:00:01Z', () => NO_DECLARATIONS, '[test] ')
+    const tick = new PrOrderTick(db, busEvents(db), () => '2026-11-14T00:00:01Z', () => NO_DECLARATIONS, '[test] ', () => openOwnerWaits(db))
     const ordered = (): number => db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(PR_ORDERED)!.n as number
 
     observed('pending', null)
@@ -482,9 +483,9 @@ describe('an owner merge wait on a card yields its PR\'s turn, read from the bus
       foldOrder(order, { id: ++id, type: PR_OBSERVED, pr, card: null, payload: { head: String(pr).padStart(40, '0'), paths: ['shared'], ci: 'green', verdict_on_head: 'pass', mergeable: 'clean', card_id: card } }, NO_DECLARATIONS)
       foldOrder(order, { id: ++id, type: PR_ORDERED, pr, card: null, payload: { by: 'bus' } }, NO_DECLARATIONS)
     }
-    const turn = (): number | null => groupsWithTurn(order, NO_DECLARATIONS, { waitingCards: waitingCardsOf(db), touchesOf: () => null, yieldingCards: yieldingCardsOf(db) })[0]!.turn
+    const turn = (): number | null => groupsWithTurn(order, NO_DECLARATIONS, { waitingCards: waitingCardsOf(openOwnerWaits(db)), touchesOf: () => null, yieldingCards: yieldingCardsOf(openOwnerWaits(db)) })[0]!.turn
     expect(turn()).toBe(1)
-    const wait = openBusWait(db, '2026-11-16T03:05:59Z', 'worker:merge:1', { need: 'merge', text: 'no_shard_merge', card: 11, pr: 1 })
+    const wait = openBusWait(db, closedWaitIds(db), '2026-11-16T03:05:59Z', 'worker:merge:1', { need: 'merge', text: 'no_shard_merge', card: 11, pr: 1 })
     reduce(db, 'pending', busProjections())
     expect(turn()).toBe(2)
     closeOwnerWait(db, '2026-11-16T07:59:48Z', 'owner', wait, 'merged', 1)
@@ -499,7 +500,7 @@ describe('an owner merge wait on a card yields its PR\'s turn, read from the bus
     const db = openBus(path.join(root, 'bus.db'))
     for (const [pr, card] of [[1, 11], [2, 12]] as const)
       appendEvent(db, { ts: '2026-11-16T03:00:00Z', type: PR_OBSERVED, actor: 'netwatch', cardId: card, pr, head: null, dedupeKey: `test:observed:${pr}`, payload: { head: String(pr).padStart(40, '0'), base: 'main', paths: ['shared'], ci: 'green', verdict_on_head: 'pass', mergeable: 'clean', card_id: card }, legacy: false })
-    const tick = new PrOrderTick(db, busEvents(db), () => '2026-11-16T03:00:01Z', () => NO_DECLARATIONS, '[test] ')
+    const tick = new PrOrderTick(db, busEvents(db), () => '2026-11-16T03:00:01Z', () => NO_DECLARATIONS, '[test] ', () => openOwnerWaits(db))
     const recordedTurn = (): unknown => {
       const rows = new BusRead(db).slice(PR_GROUPS, ['groups'])
       return (rows.at(-1)!.fields.groups as { turn: number | null }[])[0]!.turn
@@ -507,7 +508,7 @@ describe('an owner merge wait on a card yields its PR\'s turn, read from the bus
     tick.step()
     tick.step()
     expect(recordedTurn()).toBe(1)
-    openBusWait(db, '2026-11-16T03:05:59Z', 'worker:merge:1', { need: 'merge', text: 'no_shard_merge', card: 11, pr: 1 })
+    openBusWait(db, closedWaitIds(db), '2026-11-16T03:05:59Z', 'worker:merge:1', { need: 'merge', text: 'no_shard_merge', card: 11, pr: 1 })
     reduce(db, 'pending', busProjections())
     tick.step()
     expect(recordedTurn()).toBe(2)
@@ -521,9 +522,9 @@ describe('an owner merge wait on a card yields its PR\'s turn, read from the bus
     const order = emptyOrder()
     foldOrder(order, { id: 1, type: PR_OBSERVED, pr: 1, card: null, payload: { head: '1'.padStart(40, '0'), paths: ['shared'], ci: 'green', verdict_on_head: 'pass', mergeable: 'clean', card_id: 11 } }, NO_DECLARATIONS)
     foldOrder(order, { id: 2, type: PR_ORDERED, pr: 1, card: null, payload: { by: 'bus' } }, NO_DECLARATIONS)
-    openBusWait(db, '2026-11-16T03:05:59Z', 'worker:merge:1', { need: 'merge', text: 'no_shard_merge', card: 11, pr: 1 })
+    openBusWait(db, closedWaitIds(db), '2026-11-16T03:05:59Z', 'worker:merge:1', { need: 'merge', text: 'no_shard_merge', card: 11, pr: 1 })
     reduce(db, 'pending', busProjections())
-    expect(groupsWithTurn(order, NO_DECLARATIONS, { waitingCards: waitingCardsOf(db), touchesOf: () => null, yieldingCards: yieldingCardsOf(db) })[0]!.turn).toBe(1)
+    expect(groupsWithTurn(order, NO_DECLARATIONS, { waitingCards: waitingCardsOf(openOwnerWaits(db)), touchesOf: () => null, yieldingCards: yieldingCardsOf(openOwnerWaits(db)) })[0]!.turn).toBe(1)
     db.close()
   })
 })

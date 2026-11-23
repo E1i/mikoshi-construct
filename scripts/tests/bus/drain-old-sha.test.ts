@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../../core/db.js'
 import { LEASES_DRAINING } from '../../core/events.js'
 import { completeTask, drainOpen, leaseNext, leaseWhileFree } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTaskWithin } from '../../core/queue.js'
 import { launchName, PREFIX } from '../../supervisor/bg.js'
 import { cardTransitions, reviewLaunch } from '../../supervisor/composition.js'
@@ -79,7 +80,7 @@ describe('a drain refuses new leases only to the processes on the old sha', () =
     expect(lines).toContain(`${launchName(launch)} hold no lease in flight; restarted on ${NEW_MAIN} at once`)
     expect(started).toEqual([launchName(launch)])
     expect(drainOpen(db, ts(), 'launch', NEW_MAIN)).toBe(false)
-    expect(leaseNext(db, ts(), 'launch', 'worker:launch:new')).toEqual(expect.objectContaining({ queue: 'launch', cardId: 1462 }))
+    expect(leaseNext(db, pullRequests(db), ts(), 'launch', 'worker:launch:new')).toEqual(expect.objectContaining({ queue: 'launch', cardId: 1462 }))
     expect(db.prepare('SELECT state FROM tasks WHERE task_key = ?').get(inFlight.taskKey)).toEqual({ state: 'leased' })
     db.close()
   })

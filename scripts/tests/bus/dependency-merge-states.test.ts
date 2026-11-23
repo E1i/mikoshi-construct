@@ -6,6 +6,7 @@ import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED } from '../../core/events.js'
 import { taskKey } from '../../core/identifiers.js'
 import { completeTask, failTask, leaseNext, leaseQueued } from '../../core/lease.js'
+import { mergedCards, all as pullRequests } from '../../core/pr-readings.js'
 import { dependencyUpdateDueOn, FAILURES_TO_STOP, queueTask, STOPPED, unmergedDependenciesOf, WITHDRAWN } from '../../core/queue.js'
 import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
 import { updateCandidates } from '../../nodes/update/update-candidates.js'
@@ -109,7 +110,7 @@ describe('the settled update that stands in for a dependency-due update', () => 
     closeTheDependency(bench, true)
     completeTask(bench.db, cardTransitions(), now(bench), leasedUpdate(bench, OTHER_HEAD)!, [])
 
-    expect(dependencyUpdateDueOn(bench.db, { card: CARD, pr: PR, head: OLD_HEAD })).toBe(true)
+    expect(dependencyUpdateDueOn(bench.db, mergedCards(bench.db), { card: CARD, pr: PR, head: OLD_HEAD })).toBe(true)
     detectUpdate(bench)
     expect(updatesOfThePr(bench)).toEqual([OLD_HEAD])
   })
@@ -117,11 +118,11 @@ describe('the settled update that stands in for a dependency-due update', () => 
   it.each([WITHDRAWN, STOPPED] as const)('an update %s on the head after the dependency merge settles the due update', (state) => {
     const bench = openDependent([DEPENDENCY])
     closeTheDependency(bench, true)
-    expect(dependencyUpdateDueOn(bench.db, { card: CARD, pr: PR, head: OLD_HEAD })).toBe(true)
+    expect(dependencyUpdateDueOn(bench.db, mergedCards(bench.db), { card: CARD, pr: PR, head: OLD_HEAD })).toBe(true)
 
     failedUntil(bench, OLD_HEAD, state)
 
-    expect(dependencyUpdateDueOn(bench.db, { card: CARD, pr: PR, head: OLD_HEAD })).toBe(false)
+    expect(dependencyUpdateDueOn(bench.db, mergedCards(bench.db), { card: CARD, pr: PR, head: OLD_HEAD })).toBe(false)
   })
 })
 
@@ -131,8 +132,22 @@ describe('the admission whose depends stand', () => {
     admitted(bench, [], 'admission-backfill', { source: BACKFILL_SOURCE })
     settle(bench)
 
-    expect(unmergedDependenciesOf(bench.db, CARD)).toEqual([DEPENDENCY])
+    expect(unmergedDependenciesOf(bench.db, mergedCards(bench.db), CARD)).toEqual([DEPENDENCY])
     expect(answersOfTheCard(bench)).toEqual([OLD_HEAD])
+  })
+})
+
+describe('the merged cards the composition passes', () => {
+  it('hold a pull request on its dependency by the list the rules carry, not by a read of the prs table', () => {
+    const bench = openDependent([DEPENDENCY], { review: 'failure' })
+    const parts = answerParts()
+    const mergedByTheComposition = { ...parts, rules: { ...parts.rules, mergedCards: () => [DEPENDENCY] } }
+
+    expect(mergedCards(bench.db)).toEqual([])
+    expect(answersOfTheCard(bench)).toEqual([])
+    expect(answerCandidates(bench.db, now(bench), mergedByTheComposition).filter(task => task.cardId === CARD).map(task => task.head)).toEqual([OLD_HEAD])
+    expect(unmergedDependenciesOf(bench.db, [DEPENDENCY], CARD)).toEqual([])
+    expect(unmergedDependenciesOf(bench.db, [], CARD)).toEqual([DEPENDENCY])
   })
 })
 
@@ -140,7 +155,7 @@ describe('a head no dependency merge made due', () => {
   it('a blocked PR of a card with no dependency gets no update', () => {
     const bench = openDependent([])
 
-    expect(dependencyUpdateDueOn(bench.db, { card: CARD, pr: PR, head: OLD_HEAD })).toBe(false)
+    expect(dependencyUpdateDueOn(bench.db, mergedCards(bench.db), { card: CARD, pr: PR, head: OLD_HEAD })).toBe(false)
     detectUpdate(bench)
     expect(updatesOfThePr(bench)).toEqual([])
     expect(bench.gitHub.pulls.get(PR)!.head).toBe(OLD_HEAD)
@@ -155,8 +170,8 @@ describe('a head no dependency merge made due', () => {
     admitted(bench, [DEPENDENCY], 'admission-1')
     settle(bench)
 
-    expect(unmergedDependenciesOf(bench.db, CARD)).toEqual([])
-    expect(dependencyUpdateDueOn(bench.db, { card: CARD, pr: PR, head: OLD_HEAD })).toBe(false)
+    expect(unmergedDependenciesOf(bench.db, mergedCards(bench.db), CARD)).toEqual([])
+    expect(dependencyUpdateDueOn(bench.db, mergedCards(bench.db), { card: CARD, pr: PR, head: OLD_HEAD })).toBe(false)
     detectUpdate(bench)
     expect(updatesOfThePr(bench)).toEqual([])
     expect(bench.gitHub.pulls.get(PR)!.head).toBe(OLD_HEAD)
@@ -212,7 +227,7 @@ describe('a dependent PR state × its dependency state', () => {
 
     expect(updatesOfThePr(bench)).toEqual(expected === NO_UPDATE ? [] : [OLD_HEAD])
     expect(answersOfTheCard(bench)).toEqual([])
-    const lease = leaseNext(bench.db, now(bench), 'update', UPDATE_ACTOR)
+    const lease = leaseNext(bench.db, pullRequests(bench.db), now(bench), 'update', UPDATE_ACTOR)
     expect(lease === null ? NO_UPDATE : outcomeOf(updateExecutor(bench).update(lease))).toBe(expected)
   })
 })

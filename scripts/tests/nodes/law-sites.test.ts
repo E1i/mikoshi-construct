@@ -21,6 +21,7 @@ import { CARD_STARTED, CARD_WAITING, CARD_WAITS, SESSION_HEARTBEAT, WINDOW_HEART
 import { FACTORY_WORKERS } from '../../core/factory-paths.js'
 import { leaseQueued } from '../../core/lease.js'
 import { rerunDueOn } from '../../core/observations.js'
+import { ofPr } from '../../core/pr-readings.js'
 import { keyOf, queueTask } from '../../core/queue.js'
 import { ABANDONED_READ_AS_RERUN, gapRows, INTAKE_WAIT_RECORD, INTAKE_WITNESS_TRANSFER, LAW_CELLS, LAW_CELLS_WITNESSES, LAW_NODES, LAW_SITES, lawIds, PULSE_BESIDE_CARD_SILENCE, REVIEW_LIVE_ON_ONE_STALE_SIGNAL, SITES_BEYOND_NODES, sourceOf, WINDOW_BESIDE_SESSIONS } from '../../nodes/laws.js'
 import { InMemoryDecisions } from '../../policy/decisions/decisions.js'
@@ -131,9 +132,9 @@ function abandonedReadAsRerun(): void {
     gitHub.open({ number: 1493, head: abandonedHead, required: 'failure', failed: [] })
     gitHub.open({ number: 1494, head: sha('b'), required: 'failure', failed: [] })
     tick.run()
-    if (!rerunDueOn(db, 1493, abandonedHead))
+    if (!rerunDueOn(db, ofPr(db, 1493), abandonedHead))
       throw new Error('netwatch read a required red only from abandoned jobs as a defect, not a rerun due')
-    if (rerunDueOn(db, 1494, sha('b')))
+    if (rerunDueOn(db, ofPr(db, 1494), sha('b')))
       throw new Error('netwatch read a required red with no abandoned annotation as a rerun due')
   }
   finally {

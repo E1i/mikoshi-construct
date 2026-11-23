@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_OPENED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { AnswerExecutor, questionAskedTwiceLine } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer, ownerQuestionPath } from '../../nodes/answer/answerer.js'
 import { recordDecision } from '../../policy/decisions/index.js'
@@ -53,7 +54,7 @@ function startedCard(): Card {
     made.tick()
   }
   const asks = async (question: string): Promise<unknown> => {
-    const lease = leaseNext(made.db, ts(), 'answer', 'worker:answer:worker-1')!
+    const lease = leaseNext(made.db, pullRequests(made.db), ts(), 'answer', 'worker:answer:worker-1')!
     const answerer = claudeAnswerer(answers, {
       cardText: () => null,
       available: () => true,
@@ -81,7 +82,7 @@ describe('a question the answer session repeats', () => {
     expect(await card.asks(`  ${QUESTION}  `)).toMatchObject({ kind: 'stopped', reason: QUESTION_OWNER, detail: QUESTION })
     expect(eventsOf(card.made.db, OWNER_WAIT_OPENED)).toEqual([expect.objectContaining({ text: questionAskedTwiceLine(CARD, QUESTION) })])
     expect(eventsOf(card.made.db, CARD_STOPPED).map(stop => stop.reason)).toEqual([QUESTION_AGENT, QUESTION_OWNER])
-    expect(leaseNext(card.made.db, card.made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')).toBeNull()
+    expect(leaseNext(card.made.db, pullRequests(card.made.db), card.made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')).toBeNull()
   })
 
   it('a different question stays with the agent', async () => {

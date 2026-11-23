@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { RISK_LEVELS } from '../../../src/card/risk.js'
+import { closedWaitIds } from '../../core/card-readings.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
 import { CARD_STOPPED, QUESTION_OWNER, SHARD_ISSUED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
@@ -43,7 +44,7 @@ function windowClosesTheStopOn(question: string): { kind: string, detail: string
   rooms.push({ made, root })
   const ts = made.clock.now().toISOString()
   appendEvent(made.db, { ts, type: SHARD_ISSUED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:ws-1`, payload: { id: 'ws-1', by: 'owner', scope: DECISIONS_SCOPE, until: new Date(made.clock.now().getTime() + 3_600_000).toISOString(), window: 1 }, legacy: false })
-  const wait = openBusWait(made.db, ts, 'worker:answer:s1', { need: 'decision', text: `card #${CARD} asks: ${question}`, command: cardDecisionCommand(CARD), card: CARD })
+  const wait = openBusWait(made.db, closedWaitIds(made.db), ts, 'worker:answer:s1', { need: 'decision', text: `card #${CARD} asks: ${question}`, command: cardDecisionCommand(CARD), card: CARD })
   appendEvent(made.db, { ts, type: CARD_STOPPED, actor: 'worker:answer:s1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${CARD}:first`, payload: { reason: QUESTION_OWNER, detail: question }, legacy: false })
   reduce(made.db, 'pending', busProjections())
   const refuse = (): never => {

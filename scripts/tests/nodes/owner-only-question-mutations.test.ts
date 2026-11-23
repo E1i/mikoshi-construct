@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_OPENED, QUESTION_AGENT, QUESTION_OWNER } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { AnswerExecutor, ratchetGrowthLine, ratchetRowsAskedToGrow } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer, ownerQuestionPath } from '../../nodes/answer/answerer.js'
 import { recordDecision } from '../../policy/decisions/index.js'
@@ -61,7 +62,7 @@ function startedCard(): Card {
     made.tick()
   }
   const asks = async (question: string): Promise<unknown> => {
-    const lease = leaseNext(made.db, ts(), 'answer', 'worker:answer:worker-1')!
+    const lease = leaseNext(made.db, pullRequests(made.db), ts(), 'answer', 'worker:answer:worker-1')!
     const answerer = claudeAnswerer(answers, {
       cardText: () => null,
       available: () => true,

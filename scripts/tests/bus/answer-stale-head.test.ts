@@ -10,6 +10,7 @@ import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, POLICY_DENIED, REVIEW_RECORDED } from '../../core/events.js'
 import { taskKey } from '../../core/identifiers.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { AnswerNode, STALE_ANSWER_HEAD } from '../../nodes/answer/answer-worker.js'
 import { changesRoundsOf } from '../../policy/round-limit-decision.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
@@ -52,7 +53,7 @@ function reviewedCard() {
     answerer,
     node: new AnswerNodeOnALease(parts),
     key: taskKey({ queue: 'answer', cardId: CARD, pr: PR, head: REVIEWED }),
-    lease: () => leaseNext(made.db, ts(), 'answer', ACTOR),
+    lease: () => leaseNext(made.db, pullRequests(made.db), ts(), 'answer', ACTOR),
     close: () => {
       made.close()
       rmSync(trees, { recursive: true, force: true })

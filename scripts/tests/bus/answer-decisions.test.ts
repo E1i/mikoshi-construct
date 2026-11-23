@@ -11,6 +11,7 @@ import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, DECISIONS_IMPORTED, OWNER_WAIT_OPENED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { NETWATCH } from '../../core/observations.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { reduce } from '../../core/reducer.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { answerSourceOf } from '../../nodes/answer/answer-source.js'
@@ -65,7 +66,7 @@ function startedCard(): Bench {
   appendEvent(made.db, { ts: ts(), type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${CARD}`, payload: { session: CARD_SESSION, worktree, branch: `feat/card-${CARD}`, base: sha('1') }, legacy: false })
   const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr + 100}`, recreate: () => {}, bringTo: () => {} }
   const asks: Bench['asks'] = async (question) => {
-    const lease = leaseNext(made.db, ts(), 'answer', 'worker:answer:worker-1')!
+    const lease = leaseNext(made.db, pullRequests(made.db), ts(), 'answer', 'worker:answer:worker-1')!
     let prompt = ''
     const answerer = claudeAnswerer(answers, {
       cardText: () => null,

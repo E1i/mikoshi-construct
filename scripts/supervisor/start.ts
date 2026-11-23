@@ -5,7 +5,7 @@ import type { BgResult, ProcessList, RunningProcess } from './bg.js'
 import type { BusWorker, FactoryMode } from './workers.js'
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -37,6 +37,7 @@ export const MIKO_FLAG = '--miko'
 export const MIKO_START = 'miko start'
 export const STARTED_MARK = 'factory.started'
 export const HOLD_CHECK_MS = RAISED_WITHIN_S * 1000
+export const BOOT_READ_SLACK_MS = 5_000
 export const KEEP_ALIVE_PROGRAM = ['/usr/bin/env', START_BIN, HOLD_FLAG]
 export const MODE_FLAG = '--mode'
 export const HOURS_FLAG = '--hours'
@@ -45,7 +46,7 @@ export const SHADOW_SWITCH = '--shadow'
 export const SAY_COMMAND = constructCommand('say')
 export const MODE_SHARD_SCOPE = DECISIONS_SCOPE
 export const SHARD_DECIDES_LIVE: readonly BusWorker[] = ['merge', 'update']
-export const USAGE = `usage: ${MIKO_START} — the one way the factory starts: Miko runs ${START_BIN} ${MIKO_FLAG}, which marks the factory started, starts it for the git repository in the current directory and installs its keep-alive; ${START_BIN} ${HOLD_FLAG} — what the keep-alive runs: once ${MIKO_START} has marked the factory started, it restarts the factory and stays up while the supervisor of its bus runs, exiting once it is gone; ${START_BIN} ${MODE_FLAG} ${FACTORY_MODES[0]} | ${MODE_FLAG} ${FACTORY_MODES[1]} [${HOURS_FLAG} <n>] | ${LIVE_SWITCH} <worker> | ${SHADOW_SWITCH} <worker> — switches its mode or a worker's queue and writes bus/workers.json`
+export const USAGE = `usage: ${MIKO_START} — the one way the factory starts: Miko runs ${START_BIN} ${MIKO_FLAG}, which marks the factory started, starts it for the git repository in the current directory and installs its keep-alive; ${START_BIN} ${HOLD_FLAG} — what the keep-alive runs: once ${MIKO_START} has marked the factory started in this boot of the machine, it restarts the factory and stays up while the supervisor of its bus runs, exiting once it is gone; ${START_BIN} ${MODE_FLAG} ${FACTORY_MODES[0]} | ${MODE_FLAG} ${FACTORY_MODES[1]} [${HOURS_FLAG} <n>] | ${LIVE_SWITCH} <worker> | ${SHADOW_SWITCH} <worker> — switches its mode or a worker's queue and writes bus/workers.json`
 
 const HOUR_MS = 3_600_000
 const DECISION_TERM_LENGTH = 19
@@ -218,17 +219,43 @@ export function recordAccount(repository: string, parts: KeepAliveParts): string
     : `${START_PREFIX}the factory keeps the GitHub account ${account} its keep-alive records: ${found.because}`]
 }
 
+export type BootTime = () => Date | null
+
+export function bootTime(): Date | null {
+  try {
+    return new Date(Date.now() - os.uptime() * 1000)
+  }
+  catch {
+    return null
+  }
+}
+
 export async function startThroughMiko(busDir: string, now: Date, start: () => Promise<BgResult>): Promise<BgResult> {
   mkdirSync(busDir, { recursive: true })
   writeFileSync(startedMarkOf(busDir), `${now.toISOString()}\n`)
   const started = await start()
-  return { ...started, stdout: [`${START_PREFIX}${MIKO_START} marked the factory started (${startedMarkOf(busDir)}); its keep-alive restarts it from now on`, ...started.stdout] }
+  return { ...started, stdout: [`${START_PREFIX}${MIKO_START} marked the factory started (${startedMarkOf(busDir)}); its keep-alive restarts it until the machine restarts, after which ${MIKO_START} starts it again`, ...started.stdout] }
 }
 
-export function restartRefusal(busDir: string): BgResult | null {
-  if (existsSync(startedMarkOf(busDir)))
+function markWrittenMs(text: string): number {
+  return Date.parse(text.split('\n')[0]!.trim())
+}
+
+export function markOfThisBoot(text: string, booted: Date): boolean {
+  const written = markWrittenMs(text)
+  return !Number.isNaN(written) && written >= booted.getTime() - BOOT_READ_SLACK_MS
+}
+
+export function restartRefusal(busDir: string, booted: BootTime = bootTime): BgResult | null {
+  const mark = startedMarkOf(busDir)
+  const text = readOrNull(mark)
+  if (text === null)
+    return { stdout: [`${START_PREFIX}the factory of ${busDir} was not started through ${MIKO_START}, so the keep-alive starts nothing; ${MIKO_START} starts it`], stderr: [], exitCode: 0 }
+  const boot = booted()
+  if (boot === null || markOfThisBoot(text, boot))
     return null
-  return { stdout: [`${START_PREFIX}the factory of ${busDir} was not started through ${MIKO_START}, so the keep-alive starts nothing; ${MIKO_START} starts it`], stderr: [], exitCode: 0 }
+  rmSync(mark, { force: true })
+  return { stdout: [`${START_PREFIX}the start mark ${mark} (${text.split('\n')[0]!.trim() || 'no time'}) was written before this boot of the machine (${boot.toISOString()}), so the keep-alive starts nothing and the mark is cleared; ${MIKO_START} starts the factory`], stderr: [], exitCode: 0 }
 }
 
 export async function runStart(repository: string, installed: string | null, parts: KeepAliveParts, start: () => Promise<BgResult> = () => startBus(parts.busDir)): Promise<BgResult> {
@@ -271,6 +298,15 @@ export async function startAndHold(start: () => Promise<BgResult>, hold: HoldPar
   print(started)
   if (started.exitCode === 0)
     print(await holdWhileSupervised(hold))
+}
+
+export async function raiseByKeepAlive(busDir: string, start: () => Promise<BgResult>, hold: HoldParts, booted: BootTime = bootTime, print: (result: BgResult) => void = printBg): Promise<void> {
+  const refusal = restartRefusal(busDir, booted)
+  if (refusal !== null) {
+    print(refusal)
+    return
+  }
+  await startAndHold(start, hold, print)
 }
 
 export type StartCommand
@@ -526,12 +562,7 @@ async function main(): Promise<void> {
     printBg(await startThroughMiko(busDir, new Date(), start))
     return
   }
-  const refusal = restartRefusal(busDir)
-  if (refusal !== null) {
-    printBg(refusal)
-    return
-  }
-  await startAndHold(start, { busDb, processes: psList(), wait: async (ms) => {
+  await raiseByKeepAlive(busDir, start, { busDb, processes: psList(), wait: async (ms) => {
     await sleep(ms)
   }, say: line => console.log(line) })
 }
