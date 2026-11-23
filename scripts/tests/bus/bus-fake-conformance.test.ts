@@ -71,7 +71,7 @@ function seedMixedLog(bus: Subject): void {
   bus.append(event({ dedupeKey: 'a', cardId: 7, payload: { task_key: 'launch:7' } }))
   bus.append(event({ dedupeKey: 'b', type: CARD_PULSE, cardId: 7, pr: 40, head: HEAD, actor: 'netwatch' }))
   bus.append(event({ dedupeKey: 'c', type: GATE_RUN, cardId: 3, pr: 41, ts: '2026-11-22T11:00:00.000Z', payload: { task_key: 5 } }))
-  bus.append(event({ dedupeKey: 'd', cardId: 3, payload: 'not json' }))
+  bus.append(event({ dedupeKey: 'd', cardId: 3, ts: '2026-11-21T09:30:00.000Z', payload: 'not json' }))
   bus.append(event({ dedupeKey: 'e', type: CARD_PULSE, legacy: true, actor: null, ts: null, cardId: 7 }))
   bus.append(event({ dedupeKey: 'f', type: GATE_RUN, actor: 'worker:review:s2', payload: [1, 2] }))
   bus.append(event({ dedupeKey: 'g', cardId: 12, pr: 40, actor: 'owner', payload: { task_key: 'launch:7', note: 'again' } }))
@@ -129,11 +129,17 @@ const SCENARIOS: Readonly<Record<string, Scenario>> = {
       event({ dedupeKey: 'no-type', type: '' }),
       event({ dedupeKey: '' }),
       event({ dedupeKey: 'bad-actor', actor: 'someone' }),
+      event({ dedupeKey: 'worker-without-kind', actor: 'worker::s1' }),
+      event({ dedupeKey: 'worker-with-a-space', actor: 'worker:launch:a b' }),
+      event({ dedupeKey: 'worker-in-capitals', actor: 'worker:Launch:s1' }),
+      event({ dedupeKey: 'no-payload', payload: undefined }),
       event({ dedupeKey: 'no-actor', actor: null }),
       event({ dedupeKey: 'no-ts', ts: null }),
       event({ dedupeKey: 'zero-pr', pr: 0 }),
       event({ dedupeKey: 'fractional-pr', pr: 1.5 }),
       event({ dedupeKey: 'short-head', head: 'abc123' }),
+      event({ dedupeKey: 'long-head', head: `${HEAD}0` }),
+      event({ dedupeKey: 'prefixed-head', head: `x${HEAD}` }),
       event({ dedupeKey: 'legacy', legacy: true, actor: null, ts: null }),
       event({ dedupeKey: 'after', pr: 3, head: HEAD }),
     ].map(each => attempt(() => bus.append(each)))
