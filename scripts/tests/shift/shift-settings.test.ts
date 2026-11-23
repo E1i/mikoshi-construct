@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync
 import { tmpdir, userInfo } from 'node:os'
 import path from 'node:path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { allowRule, shippedDaemonCommands } from '../../../src/commands/attach/daemon-commands.js'
 import { browserLabExcludedCommand, browserLabInstalledScript } from '../../../src/commands/attach/settings.js'
 import { runInit } from '../../../src/commands/init.js'
 import { readManifest, readShiftGate } from '../../../src/manifest.js'
@@ -163,6 +164,19 @@ describe('the browser lab exclusion a card session takes from the settings of it
     holdSettings('settings.json', entry)
     const malformed = settings()
     expect([missing, unparsable, malformed]).toStrictEqual([plain, plain, plain])
+  })
+
+  it('the card settings layer allows the command of every installed daemon and of no other', () => {
+    const plain = ['Bash(pnpm run quality)', `Edit(/${tree}/**)`]
+    const without = settings()
+    holdSettings('settings.local.json', [OTHER_ENTRY, entry])
+    const installed = settings()
+    rmSync(browserLabInstalledScript(home))
+    const missingProgram = settings()
+    expect(shippedDaemonCommands(home)).toEqual([entry])
+    expect({ without: without.permissions.allow, installed: installed.permissions.allow, missingProgram: missingProgram.permissions.allow }).toEqual({ without: plain, installed: [...plain, allowRule(entry)], missingProgram: plain })
+    expect(installed.permissions.allow).not.toContain(allowRule(OTHER_ENTRY))
+    expect(installed.sandbox.excludedCommands).toEqual([entry])
   })
 
   it('leaves the network and the unsandboxed-command refusal of the card session unchanged with the entry present', () => {

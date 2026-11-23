@@ -26,7 +26,7 @@ import { dropOriginal, keepOriginal } from './original.js'
 import { ATTACH_LEDGER_DIR, ATTACH_RECORD_FILE, ATTACH_RECORD_VERSION, attachedVersionOf, carriersReading, DEFAULT_PUSH_POLICY, NO_HARNESS, readAttachRecord, serveFromFlags, writeAttachRecord } from './record.js'
 import { harnessRefusal, refusalFor, unresolvableCheckRefusal } from './refusals.js'
 import { rollbackAttach } from './rollback.js'
-import { browserLabExcludedCommand, excludedBrowserLabLocally, installHookEntries, isSettingsHook, readSettings, SETTINGS_FILE, withExclusionRecorded } from './settings.js'
+import { browserLabExcludedCommand, excludedBrowserLabLocally, installHookEntries, isSettingsHook, readSettings, SETTINGS_FILE, withExclusionRecorded, wroteLocally } from './settings.js'
 import { shellWord } from './shell-word.js'
 import { planCarrierUpgrade, planWindowHooks, rewriteCarrier, writeCarriersExclusively } from './write.js'
 
@@ -322,7 +322,7 @@ function upgradedSettingsHook(ui: Ui, root: string, hook: SettingsHook | undefin
     ui.glitch(ui.lore.initSettingsSkippedNoExclusion(browserLabExcludedCommand()))
     return hook
   }
-  if (exclusion.added.length === 0)
+  if (!wroteLocally(exclusion))
     return hook
   ui.line(ui.theme.dim(`  ${ui.lore.initBrowserLabExcluded(browserLabExcludedCommand())}`))
   return withExclusionRecorded(recordable, exclusion)

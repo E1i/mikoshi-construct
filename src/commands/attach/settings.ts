@@ -8,13 +8,12 @@ import { appendHookEntry, isJsonObject } from '../../materialize/strategies.js'
 import { engramFile } from '../../model/discovery.js'
 import { ATTACH_GUARD, ATTACH_WINDOW_HOOKS } from '../../presets/index.js'
 import { readTrackedPaths } from '../detach/index-reader.js'
+import { allowRule, SETTINGS_FILE, shippedDaemonCommands } from './daemon-commands.js'
 import { sha256OfBytes } from './original.js'
 
+export { PROJECT_SETTINGS_FILE, SETTINGS_FILE } from './daemon-commands.js'
+
 type JsonObject = Record<string, unknown>
-
-export const SETTINGS_FILE = '.claude/settings.local.json'
-
-export const PROJECT_SETTINGS_FILE = '.claude/settings.json'
 
 const GUARD_TIMEOUT_SECONDS = 30
 
@@ -77,6 +76,10 @@ export function browserLabInstalledScript(home: string = homedir()): string {
 
 export function browserLabExcludedCommand(home: string = homedir()): string {
   return `node ${browserLabInstalledScript(home)} *`
+}
+
+export function daemonAllowRules(home: string = homedir()): string[] {
+  return shippedDaemonCommands(home).map(allowRule)
 }
 
 const ENGRAM_TOOLS = ['Read', 'Edit'] as const
@@ -230,12 +233,12 @@ function revokeEngram(settings: JsonObject, engram: EngramPermissions): void {
     delete settings.permissions
 }
 
-function excludeBrowserLab(settings: JsonObject, entry: string): SandboxExclusion {
+function excludeCommands(settings: JsonObject, entries: string[]): SandboxExclusion {
   const createdSandbox = !('sandbox' in settings)
   const sandbox: JsonObject = isJsonObject(settings.sandbox) ? settings.sandbox : {}
   const createdExcluded = !('excludedCommands' in sandbox)
   const excluded: unknown[] = Array.isArray(sandbox.excludedCommands) ? sandbox.excludedCommands : []
-  const added = excluded.includes(entry) ? [] : [entry]
+  const added = entries.filter(entry => !excluded.includes(entry))
   excluded.push(...added)
   sandbox.excludedCommands = excluded
   settings.sandbox = sandbox
@@ -348,38 +351,47 @@ function slotNamed(container: JsonContainer, key: string): JsonSlot | undefined 
   return container.slots.filter(slot => slot.key === key).at(-1)
 }
 
-function withExcludedCommand(text: string, entry: string): string {
+function withArrayEntry(text: string, outer: string, inner: string, entry: string): string {
   const root = readContainer(text, skipWhitespace(text, 0))
-  const sandboxSlot = slotNamed(root, 'sandbox')
-  if (sandboxSlot == null)
-    return appendInContainer(text, root, indent => `"sandbox": ${renderedAt({ excludedCommands: [entry] }, indent)}`)
-  const sandbox = readContainer(text, sandboxSlot.valueStart)
-  const excludedSlot = slotNamed(sandbox, 'excludedCommands')
-  if (excludedSlot == null)
-    return appendInContainer(text, sandbox, indent => `"excludedCommands": ${renderedAt([entry], indent)}`)
-  return appendInContainer(text, readContainer(text, excludedSlot.valueStart), () => JSON.stringify(entry))
+  const outerSlot = slotNamed(root, outer)
+  if (outerSlot == null)
+    return appendInContainer(text, root, indent => `${JSON.stringify(outer)}: ${renderedAt({ [inner]: [entry] }, indent)}`)
+  const container = readContainer(text, outerSlot.valueStart)
+  const innerSlot = slotNamed(container, inner)
+  if (innerSlot == null)
+    return appendInContainer(text, container, indent => `${JSON.stringify(inner)}: ${renderedAt([entry], indent)}`)
+  return appendInContainer(text, readContainer(text, innerSlot.valueStart), () => JSON.stringify(entry))
 }
 
 export interface LocalExclusion extends SandboxExclusion {
+  allow: EngramPermissions
   createdFile: boolean
   beforeSha256: string | null
   afterSha256: string | null
+}
+
+export function wroteLocally(exclusion: LocalExclusion): boolean {
+  return exclusion.added.length > 0 || exclusion.allow.added.length > 0
 }
 
 export function excludeBrowserLabInLocalSettings(root: string, home: string = homedir()): LocalExclusion | null {
   const reading = readSettings(root)
   if (reading.kind === 'unreadable')
     return null
-  const entry = browserLabExcludedCommand(home)
-  const exclusion = excludeBrowserLab(reading.kind === 'read' ? structuredClone(reading.settings) : {}, entry)
+  const commands = shippedDaemonCommands(home)
+  const settings = reading.kind === 'read' ? structuredClone(reading.settings) : {}
+  const allow = allowEngram(settings, commands.map(allowRule))
+  const exclusion = excludeCommands(settings, commands)
   const beforeSha256 = reading.kind === 'read' ? sha256OfBytes(reading.bytes) : null
   const createdFile = reading.kind === 'absent'
-  if (exclusion.added.length === 0)
-    return { ...exclusion, createdFile, beforeSha256, afterSha256: beforeSha256 }
-  const text = reading.kind === 'read' ? withExcludedCommand(reading.bytes.toString('utf8'), entry) : `${JSON.stringify({ sandbox: { excludedCommands: [entry] } }, null, 2)}\n`
+  if (exclusion.added.length === 0 && allow.added.length === 0)
+    return { ...exclusion, allow, createdFile, beforeSha256, afterSha256: beforeSha256 }
+  const initial = reading.kind === 'read' ? reading.bytes.toString('utf8') : '{}\n'
+  const excluded = exclusion.added.reduce((text, command) => withArrayEntry(text, 'sandbox', 'excludedCommands', command), initial)
+  const text = allow.added.reduce((written, rule) => withArrayEntry(written, 'permissions', 'allow', rule), excluded)
   const bytes = Buffer.from(text)
   writeSettingsBytes(root, bytes)
-  return { ...exclusion, createdFile, beforeSha256, afterSha256: sha256OfBytes(bytes) }
+  return { ...exclusion, allow, createdFile, beforeSha256, afterSha256: sha256OfBytes(bytes) }
 }
 
 function isLinkedWorktree(root: string): boolean {
@@ -407,18 +419,24 @@ export function withExclusionRecorded(hook: SettingsHook, exclusion: LocalExclus
     createdSandbox: held?.createdSandbox === true || exclusion.createdSandbox,
     createdExcluded: held?.createdExcluded === true || exclusion.createdExcluded,
   }
+  const engram: EngramPermissions = {
+    added: [...new Set([...(hook.engram?.added ?? []), ...exclusion.allow.added])],
+    createdPermissions: hook.engram?.createdPermissions === true || exclusion.allow.createdPermissions,
+    createdAllow: hook.engram?.createdAllow === true || exclusion.allow.createdAllow,
+  }
   const original = hook.original
   const untouchedSinceAttach = original != null && original.afterSha256 === exclusion.beforeSha256 && exclusion.afterSha256 != null
   return {
     ...hook,
     created: { ...hook.created, file: hook.created.file || (exclusion.createdFile && original == null) },
     sandbox,
+    ...(hook.engram == null && exclusion.allow.added.length === 0 ? {} : { engram }),
     ...(untouchedSinceAttach ? { original: { ...original, afterSha256: exclusion.afterSha256! } } : {}),
   }
 }
 
 function isSandboxRecord(value: unknown): boolean {
-  return value === undefined || (isJsonObject(value) && Array.isArray(value.added) && value.added.every(command => command === RECORDED_BY_AN_EARLIER_ATTACH || command === browserLabExcludedCommand()) && typeof value.createdSandbox === 'boolean' && typeof value.createdExcluded === 'boolean')
+  return value === undefined || (isJsonObject(value) && Array.isArray(value.added) && value.added.every(command => command === RECORDED_BY_AN_EARLIER_ATTACH || command === browserLabExcludedCommand() || shippedDaemonCommands().includes(command as string)) && typeof value.createdSandbox === 'boolean' && typeof value.createdExcluded === 'boolean')
 }
 
 function isEngramRecord(value: unknown): boolean {
@@ -430,7 +448,7 @@ export type SettingsInstall
     | { kind: 'unreadable' }
     | { kind: 'guarded' }
 
-export function installHookEntries(root: string, reading: SettingsReading): SettingsInstall {
+export function installHookEntries(root: string, reading: SettingsReading, home: string = homedir()): SettingsInstall {
   if (reading.kind === 'unreadable')
     return { kind: 'unreadable' }
   const settings: JsonObject = reading.kind === 'read' ? reading.settings : {}
@@ -445,8 +463,8 @@ export function installHookEntries(root: string, reading: SettingsReading): Sett
     return { event, entry: windowEntry, created: appendHookEntry(hooks, event, windowEntry) }
   })
   settings.hooks = hooks
-  const engram = allowEngram(settings, engramRules(root))
-  const sandbox = excludeBrowserLab(settings, browserLabExcludedCommand())
+  const engram = allowEngram(settings, [...engramRules(root, home), ...daemonAllowRules(home)])
+  const sandbox = excludeCommands(settings, shippedDaemonCommands(home))
   const afterSha256 = sha256OfBytes(writeSettings(root, settings))
   return { kind: 'installed', hook: { file: SETTINGS_FILE, created, entry, window, engram, sandbox }, afterSha256 }
 }
