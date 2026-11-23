@@ -25,7 +25,7 @@ import { filterRule } from '../../cli/board-page/live-cards.js'
 import { boardBeatRecorder, boardBeatUnrecordedLine } from '../../cli/board-page/timer.js'
 import { BUS_VERSION } from '../../core/bus-version.js'
 import { TICK_MS } from '../../core/cadence.js'
-import { BOARD_STALE_TICKS, defaultBusPath, HEARTBEATS, lastBoardBeat, openBoardBeatWriter } from '../../core/db.js'
+import { BOARD_STALE_TICKS, defaultBusPath, HEARTBEATS, lastBoardBeat, openBoardBeatWriter, recordBoardBeat } from '../../core/db.js'
 import { BOARD_ALARM, BOARD_ALARM_CLEARED, PROCESS_HEARTBEAT, REVIEW_RECORDED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT, WITNESS_FIELDS_BACKFILLED, WITNESS_RECORDED } from '../../core/events.js'
 import { nodeProcess } from '../../core/node.js'
 import { witnessFieldsBackfillOf } from '../../intake/witness-fields-backfill.js'
@@ -1272,9 +1272,10 @@ describe('board.html', () => {
     const db = openBoardBeatWriter(busPath)
     try {
       expect(lastBoardBeat(db)).toBeUndefined()
-      boardBeatRecorder(db, () => new Date(minutesAgo(2)))()
+      const writer = { record: (ts: string) => recordBoardBeat(db, ts), staleTicks: BOARD_STALE_TICKS }
+      boardBeatRecorder(() => new Date(minutesAgo(2)))(writer)()
       expect(lastBoardBeat(db)).toBe(minutesAgo(2))
-      boardBeatRecorder(db, () => new Date(minutesAgo(1)))()
+      boardBeatRecorder(() => new Date(minutesAgo(1)))(writer)()
       expect(lastBoardBeat(db)).toBe(minutesAgo(1))
       const rows = db.prepare(`SELECT ts, payload FROM ${HEARTBEATS} WHERE process = ? AND type = ?`).all(BOARD_THREAD, PROCESS_HEARTBEAT)
       expect(rows).toEqual([{ ts: minutesAgo(1), payload: JSON.stringify({ process: BOARD_THREAD }) }])
@@ -1286,8 +1287,8 @@ describe('board.html', () => {
 
   it('the board timer worker records the time of its page write on its own connection to the bus', () => {
     const busPath = seededBus()
-    const beats = openBoardBeatWriter(busPath)
-    const board = readOnlyBoardProjection(busPath, TICK_MS, boardBeatRecorder(beats))
+    const board = readOnlyBoardProjection(busPath, TICK_MS, boardBeatRecorder())
+    const beats = new DatabaseSync(busPath, { readOnly: true })
     try {
       const before = Date.now()
       board.projection.project(NOW)
@@ -1319,13 +1320,13 @@ describe('board.html', () => {
   })
 
   it('a board beat the bus cannot record is reported by the worker, not dropped', () => {
-    expect(boardBeatUnrecordedLine(new Error('disk I/O error\nat step 2'))).toBe(`[bus:board-timer] recording the board timer's beat failed: disk I/O error; miko watch reads the board as stale once ${BOARD_STALE_TICKS} beats are missing`)
-    expect(boardBeatUnrecordedLine('locked')).toContain('failed: locked;')
+    expect(boardBeatUnrecordedLine(new Error('disk I/O error\nat step 2'), BOARD_STALE_TICKS)).toBe(`[bus:board-timer] recording the board timer's beat failed: disk I/O error; miko watch reads the board as stale once ${BOARD_STALE_TICKS} beats are missing`)
+    expect(boardBeatUnrecordedLine('locked', BOARD_STALE_TICKS)).toContain('failed: locked;')
     const busPath = seededBus()
     const reader = new DatabaseSync(busPath, { readOnly: true })
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
-      boardBeatRecorder(reader)()
+      boardBeatRecorder()({ record: ts => recordBoardBeat(reader, ts), staleTicks: BOARD_STALE_TICKS })()
     }
     finally {
       reader.close()

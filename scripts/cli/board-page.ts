@@ -32,7 +32,7 @@ import { currentVersion, interfaceVersion } from '../../src/version.js'
 import { cardRunsOf, catalogLayersByTest, catalogModuleLayers } from '../ci/card-runs.js'
 import { builtEntry } from '../core/built-entry.js'
 import { staleLine } from '../core/bus-readings.js'
-import { BOARD_TIMER_PERIOD_MS, BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
+import { BOARD_STALE_TICKS, BOARD_TIMER_PERIOD_MS, BUSY_TIMEOUT_MS, defaultBusPath, openBoardBeatWriter, recordBoardBeat } from '../core/db.js'
 import { ANSWER_STEP, CARD_HELD, CARD_RELEASED, TASK_LEASED } from '../core/events.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { statusLineOf } from '../core/handoff-status.js'
@@ -1186,10 +1186,11 @@ export const BOARD_TIMER_PERIOD = 'boardTimerPeriodMs'
 const BOARD_TIMER_ENTRY = builtEntry(new URL('./board-page/timer.ts', import.meta.url), import.meta.url).url
 
 export interface ReadOnlyBoard { projection: BoardProjection, close: () => void }
+export interface BoardBeatWriter { record: (ts: string) => boolean, staleTicks: number }
 
-export function readOnlyBoardProjection(busPath: string, periodMs: number, written: () => void = () => {}): ReadOnlyBoard {
-  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
-  return { projection: boardProjection(db, busPath, periodMs, DISK_FILES, HANDOFF_FILE, mainUpToDateOfThisRepository(), written), close: () => db.close() }
+export function readOnlyBoardProjection(busPath: string, periodMs: number, beat: (writer: BoardBeatWriter) => () => void = () => () => {}): ReadOnlyBoard {
+  const [db, beats] = [openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS }), openBoardBeatWriter(busPath)]
+  return { projection: boardProjection(db, busPath, periodMs, DISK_FILES, HANDOFF_FILE, mainUpToDateOfThisRepository(), beat({ record: ts => recordBoardBeat(beats, ts), staleTicks: BOARD_STALE_TICKS })), close: () => [db, beats].forEach(open => open.close()) }
 }
 
 export interface StartedBoardTimer { file: string, dataFile: string, stop: () => Promise<void> }
