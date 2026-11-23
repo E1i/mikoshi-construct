@@ -12,7 +12,9 @@ const SANDBOX_UID = os.userInfo().uid
 
 export const TSX_PIPE_DIRECTORY = `/tmp/claude-${SANDBOX_UID}/tsx-${SANDBOX_UID}`
 
-export const CARD_SESSION_SANDBOX = { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY] } } as const
+const TRUSTD_MACH_LOOKUP = 'com.apple.trustd*'
+
+export const CARD_SESSION_SANDBOX = { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY], allowMachLookup: [TRUSTD_MACH_LOOKUP] } } as const
 
 const SESSION_BASH_CAP_MS = String(30 * 60 * 1000)
 

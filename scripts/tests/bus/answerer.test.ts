@@ -59,7 +59,7 @@ function settingsOf(run: AnswerRun): unknown {
 
 function treeSettings(worktree: string, ownerQuestion: string): unknown {
   return {
-    sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY] } },
+    sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY], allowMachLookup: ['com.apple.trustd*'] } },
     permissions: { allow: [`Bash(${TREE_GATE})`, `Edit(/${worktree}/**)`, `Edit(/${ownerQuestion})`] },
     env: SESSION_BASH_CAP,
     hooks: WIDE_VITEST_HOOKS,
