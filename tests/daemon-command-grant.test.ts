@@ -115,6 +115,7 @@ describe('the law: installing a daemon grants its command', () => {
   it('reads the declared commands from the frontmatter of a daemon skill only, with the home written out', () => {
     expect(declaredCommands('---\ndaemon: LAB\ndaemon-command: node <home>/a.mjs *\ndaemon-command: node <home>/b.mjs *\n---\n', '/h')).toEqual(['node /h/a.mjs *', 'node /h/b.mjs *'])
     expect(declaredCommands('---\nname: plain\ndaemon-command: node <home>/a.mjs *\n---\n', '/h')).toEqual([])
+    expect(declaredCommands('---\ndaemon:\ndaemon-command: node <home>/a.mjs *\n---\n', '/h')).toEqual([])
     expect(declaredCommands('---\ndaemon: LAB\ndaemon-command:\n---\n', '/h')).toEqual([])
     expect(declaredCommands('daemon: LAB\ndaemon-command: node <home>/a.mjs *\n', '/h')).toEqual([])
     expect([daemonProgram('node /h/a.mjs *'), daemonProgram('node a.mjs *')]).toEqual(['/h/a.mjs', null])

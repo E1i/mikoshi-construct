@@ -370,6 +370,10 @@ export interface LocalExclusion extends SandboxExclusion {
   afterSha256: string | null
 }
 
+export function wroteLocally(exclusion: LocalExclusion): boolean {
+  return exclusion.added.length > 0 || exclusion.allow.added.length > 0
+}
+
 export function excludeBrowserLabInLocalSettings(root: string, home: string = homedir()): LocalExclusion | null {
   const reading = readSettings(root)
   if (reading.kind === 'unreadable')

@@ -1,7 +1,9 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
-import { allowRule, declaredCommands, PROJECT_SETTINGS_FILE, SETTINGS_FILE } from '../../../src/commands/attach/daemon-commands.js'
+import { allowRule, DAEMON_KEY, declaredCommands, frontmatterFields, PROJECT_SETTINGS_FILE, SETTINGS_FILE } from '../../../src/commands/attach/daemon-commands.js'
+
+export { DAEMON_KEY }
 
 export const SKILLS_DIR = '.claude/skills'
 export const SKILL_MANIFEST = 'SKILL.md'
@@ -10,12 +12,9 @@ export const ADAPTER_MANIFEST = 'adapter.json'
 export const ADAPTER_DAEMON = 'BROWSER_LAB'
 export const DAEMON_READER = 'scripts/cli/board-page/daemon-catalog.ts'
 export const LOADED_SOURCE = 'the skills of window.heartbeat'
-export const DAEMON_KEY = 'daemon'
 export const SKETCH_KEY = 'daemon-sketch'
 const MUTATION_PREFIX = 'ver_'
 const NAME_KEY = 'name'
-const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---/
-const FIELD = /^([\w-]+):(.*)$/
 
 export const WINDOW_SETTINGS_FILES = [PROJECT_SETTINGS_FILE, SETTINGS_FILE] as const
 
@@ -62,11 +61,7 @@ export const DISK_CATALOG: CatalogFiles = {
 }
 
 export function manifestFields(text: string): Map<string, string> {
-  const block = FRONTMATTER.exec(text)?.[1] ?? ''
-  return new Map(block.split(/\r?\n/).flatMap((line) => {
-    const field = FIELD.exec(line)
-    return field === null ? [] : [[field[1]!, field[2]!.trim()] as const]
-  }))
+  return new Map(frontmatterFields(text))
 }
 
 export function daemonOf(directory: string, text: string, home: string = homedir()): DaemonEntry | null {

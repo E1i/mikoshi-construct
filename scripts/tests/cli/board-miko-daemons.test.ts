@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import vm from 'node:vm'
 import { afterEach, describe, expect, it } from 'vitest'
-import { allowRule } from '../../../src/commands/attach/daemon-commands.js'
+import { allowRule, declaredCommands, frontmatterFields } from '../../../src/commands/attach/daemon-commands.js'
 import { PROJECT_SETTINGS_FILE, SETTINGS_FILE } from '../../../src/commands/attach/settings.js'
 import { LORE, PLAIN_LORE } from '../../../src/ui/lore.js'
 import { ADAPTER_MANIFEST, adapterMutations, ADAPTERS_DIR, DAEMON_READER, daemonCatalog, daemonOf, installedDaemons, LOADED_SOURCE, manifestFields, windowGrants } from '../../cli/board-page/daemon-catalog.js'
@@ -352,6 +352,13 @@ describe('the daemon catalog reader', () => {
     expect(STYLE).toContain('box-shadow: var(--_glow); }')
     expect(STYLE).toContain('.daemon-status { display: grid; min-inline-size: 8rem; padding-inline-start: 14px; border-inline-start: 1px solid var(--line); }')
     expect(STYLE).toContain('.pane-mutations li::before { content: \'↳ \'; }')
+  })
+
+  it('the board reads a daemon manifest through the same frontmatter parser the install grants from', () => {
+    const text = '---\r\nname: lab\r\ndaemon: LAB\r\ndaemon-command: node <home>/a.mjs *\r\ndaemon-command: node <home>/b.mjs *\r\n---\r\n'
+    expect(manifestFields(text)).toEqual(new Map(frontmatterFields(text)))
+    expect(daemonOf('lab', text, '/h')?.commands).toEqual(declaredCommands(text, '/h'))
+    expect(declaredCommands(text, '/h')).toEqual(['node /h/a.mjs *', 'node /h/b.mjs *'])
   })
 
   it('lists daemons by skill directory and marks LOADED only the skills of the current session', () => {

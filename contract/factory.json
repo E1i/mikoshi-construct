@@ -4658,6 +4658,7 @@
       },
       "src/commands/attach/daemon-commands.ts": {
         "constants": [
+          "DAEMON_KEY",
           "PROJECT_SETTINGS_FILE",
           "SETTINGS_FILE"
         ],
@@ -4665,6 +4666,7 @@
           "allowRule": "(command: string): string",
           "daemonProgram": "(command: string): string | null",
           "declaredCommands": "(text: string, home: string = homedir()): string[]",
+          "frontmatterFields": "(text: string): Array<readonly [ string, string ]>",
           "shippedDaemonCommands": "(home: string = homedir()): string[]"
         },
         "reexports": [],
