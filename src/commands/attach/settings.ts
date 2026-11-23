@@ -510,7 +510,7 @@ export interface LocalExclusion extends SandboxExclusion {
 }
 
 export function wroteLocally(exclusion: LocalExclusion): boolean {
-  return exclusion.added.length > 0 || exclusion.allow.added.length > 0
+  return exclusion.afterSha256 !== exclusion.beforeSha256
 }
 
 export function excludeBrowserLabInLocalSettings(root: string, home: string = homedir(), dropTheDeadEntry: boolean = false): LocalExclusion | null {
