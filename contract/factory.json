@@ -4704,9 +4704,7 @@
       },
       "src/commands/attach/settings.ts": {
         "constants": [
-          "PROCESS_TABLE_ARGUMENTS: readonly string[]",
-          "PROCESS_TABLE_COMMAND",
-          "PROCESS_TABLE_PROGRAM"
+          "PROCESS_TABLE_COMMAND"
         ],
         "functions": {
           "browserLabInstalledScript": "(home: string = homedir()): string",

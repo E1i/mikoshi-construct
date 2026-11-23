@@ -70,8 +70,8 @@ export interface SandboxExclusion {
 
 export const RECORDED_BY_AN_EARLIER_ATTACH = 'node scripts/construct/browser-lab.mjs *'
 
-export const PROCESS_TABLE_PROGRAM = 'ps'
-export const PROCESS_TABLE_ARGUMENTS: readonly string[] = ['-Ao', 'pid=,ppid=,pgid=,lstart=,args=']
+const PROCESS_TABLE_PROGRAM = 'ps'
+const PROCESS_TABLE_ARGUMENTS: readonly string[] = ['-Ao', 'pid=,ppid=,pgid=,lstart=,args=']
 export const PROCESS_TABLE_COMMAND = [PROCESS_TABLE_PROGRAM, ...PROCESS_TABLE_ARGUMENTS].join(' ')
 
 export function excludedCommandsWritten(home: string = homedir()): string[] {

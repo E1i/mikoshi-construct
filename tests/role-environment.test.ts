@@ -278,15 +278,15 @@ describe('browser-lab is called only at its installed path, and starts where a r
     const made = await consumer()
     const shipped = shippedDaemonCommands(made.home)
     const cardExclusions = (daemons?: string[]): unknown => sandboxEntry(roleSituations(new FileReadings(made.dir), made.dir, made.home, daemons).card.layers[1]!.settings, 'excludedCommands')
-    expect(json(made.dir, SETTINGS_FILE).sandbox.excludedCommands).toEqual(shipped)
-    expect(cardExclusions()).toBeUndefined()
+    expect(json(made.dir, SETTINGS_FILE).sandbox.excludedCommands).toEqual([...shipped, PROCESS_TABLE_COMMAND])
+    expect(cardExclusions()).toEqual([PROCESS_TABLE_COMMAND])
 
     installTheLab(made.home)
     const missing = path.join(made.home, '.construct', 'missing-daemon', 'bin', 'missing.mjs')
     const daemons = [...shipped, `node ${missing} *`]
     const local = json(made.dir, SETTINGS_FILE)
     writeJson(made.dir, SETTINGS_FILE, { ...local, sandbox: { ...local.sandbox, excludedCommands: daemons } })
-    expect(cardExclusions(daemons)).toEqual(shipped)
+    expect(cardExclusions(daemons)).toEqual([...shipped, PROCESS_TABLE_COMMAND])
   })
 
   it('the doctor models a daemon exclusion that only the project settings carry', async () => {
@@ -299,7 +299,7 @@ describe('browser-lab is called only at its installed path, and starts where a r
     writeJson(made.dir, PROJECT_SETTINGS, { ...project, sandbox: { ...project.sandbox, excludedCommands: shipped } })
 
     const card = roleSituations(new FileReadings(made.dir), made.dir, made.home).card
-    expect(sandboxEntry(card.layers[1]!.settings, 'excludedCommands')).toEqual(shipped)
+    expect(sandboxEntry(card.layers[1]!.settings, 'excludedCommands')).toEqual([...shipped, PROCESS_TABLE_COMMAND])
   })
 
   it('a call of the tree copy of browser-lab stays inside the card sandbox', async () => {
