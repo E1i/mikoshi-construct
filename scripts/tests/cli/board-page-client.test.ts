@@ -434,6 +434,20 @@ describe('the board page script', () => {
         expect(activeChips(after), `reload with hash '${hash}' after ${id} left the board`).toEqual([`#${all}`])
       }
     }
+
+    const [all, live, review] = TAB_IDS
+    const rendered = boardPage()
+    redrawChips(rendered, [all!, live!])
+    const target = rendered.byId.get(NAMES.backlog)!.add(new StubNode('SPAN'))
+    target.className = 'filter-target'
+    target.id = live!
+    run(rendered, WRITTEN, `#${live}`)
+    expect(activeChips(rendered), `rendered page loaded with #${live} before any data`).toEqual([`#${live}`])
+
+    const staleRendered = boardPage()
+    redrawChips(staleRendered, [all!, live!])
+    run(staleRendered, WRITTEN, `#${review}`)
+    expect(activeChips(staleRendered), `rendered page loaded with #${review}, which it does not carry, before any data`).toEqual([`#${all}`])
   })
 
   it('favicon: the page script swaps the icon to the alarm one while an alarm is open and back when it closes', () => {
