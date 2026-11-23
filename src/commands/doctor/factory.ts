@@ -9,8 +9,8 @@ import { namesQueueLive } from '../../../scripts/policy/live-decision.js'
 import { FACTORY_MANIFEST } from '../../../scripts/policy/touch-scope.js'
 import { readManifest, recordedShas } from '../../manifest.js'
 import { MIKOSHI_PNPM, pinnedPnpm } from '../../presets/index.js'
-import { allowRule, shippedDaemonCommands } from '../attach/daemon-commands.js'
-import { browserLabExcludedCommand, browserLabInstalledScript, cardTreeGitWrites, GITHUB_API_DOMAIN, HOME_PREFIX } from '../attach/settings.js'
+import { allowRule, daemonProgram, shippedDaemonCommands } from '../attach/daemon-commands.js'
+import { browserLabInstalledScript, cardTreeGitWrites, GITHUB_API_DOMAIN, HOME_PREFIX } from '../attach/settings.js'
 import { factoryLiveness } from '../liveness.js'
 import { FileReadings } from './readings.js'
 
@@ -217,20 +217,28 @@ export interface RoleSituations {
   labInstalled: boolean
 }
 
-function excludesTheLab(settings: Record<string, unknown> | null, entry: string): boolean {
+function excludes(settings: Record<string, unknown> | null, entry: string): boolean {
   return strings(at(at(settings, 'sandbox'), 'excludedCommands')).includes(entry)
 }
 
-export function roleSituations(readings: FileReadings, root: string, home: string): RoleSituations {
+function installed(program: string): boolean {
+  return new FileReadings(path.dirname(program)).entries('.')?.includes(path.basename(program)) === true
+}
+
+function installedDaemonProgram(command: string): boolean {
+  const program = daemonProgram(command)
+  return program !== null && installed(program)
+}
+
+export function roleSituations(readings: FileReadings, root: string, home: string, daemonCommands: readonly string[] = shippedDaemonCommands(home)): RoleSituations {
   const project = readings.readJson(SETTINGS)
   const local = readings.readJson(LOCAL_SETTINGS)
   const tree = path.join(repoHome(home, repoIdOf(root)), BUS_DIR, 'worktrees', CARD_TREE_NAME)
   const commonDir = path.join(root, '.git')
   const gitDir = path.join(commonDir, 'worktrees', CARD_TREE_NAME)
-  const entry = browserLabExcludedCommand(home)
-  const labInstalled = new FileReadings(home).entries(path.dirname(path.relative(home, browserLabInstalledScript(home))))?.includes(path.basename(browserLabInstalledScript(home))) === true
-  const labLeftOut = labInstalled && (excludesTheLab(project, entry) || excludesTheLab(local, entry))
-  const flag = { sandbox: { enabled: true, filesystem: { allowWrite: cardTreeGitWrites(gitDir, commonDir) }, ...(labLeftOut ? { excludedCommands: [entry] } : {}) } }
+  const labInstalled = installed(browserLabInstalledScript(home))
+  const leftOut = daemonCommands.filter(command => installedDaemonProgram(command) && (excludes(project, command) || excludes(local, command)))
+  const flag = { sandbox: { enabled: true, filesystem: { allowWrite: cardTreeGitWrites(gitDir, commonDir) }, ...(leftOut.length > 0 ? { excludedCommands: leftOut } : {}) } }
   return {
     window: { cwd: root, home, layers: [{ settings: project, base: root }, { settings: local, base: root }] },
     card: { cwd: tree, home, layers: [{ settings: project, base: tree }, { settings: flag, base: tree }] },
