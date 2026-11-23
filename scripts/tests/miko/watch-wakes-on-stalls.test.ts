@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
-import { SESSION_STALLED, TASK_COMPLETED, TASK_RELEASED } from '../../core/events.js'
+import { SESSION_HEARTBEAT, SESSION_STALLED, TASK_COMPLETED, TASK_RELEASED, WINDOW_HEARTBEAT } from '../../core/events.js'
 import { recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
 import { RELEASES_IN_A_ROW } from '../../window/release-loop.js'
 import { ONCE_STORE, OnceStore } from '../../window/watch-store.js'
@@ -138,6 +138,41 @@ describe('miko:watch wakes the window on a factory that stopped', () => {
     const later = NOW + 30 * MINUTE_MS
     beat(bus, WORKER, later - FACTORY_DOWN_MS - MINUTE_MS)
     expect(downLines(tick(state, deps, later), FACTORY_DOWN)).toHaveLength(1)
+  })
+
+  it('a live window session heartbeat does not mask a factory whose workers stopped', () => {
+    const bus = aBus()
+    beat(bus, WORKER, NOW - FACTORY_DOWN_MS - MINUTE_MS)
+    write(bus, WINDOW_HEARTBEAT, { session: 'w-1' }, new Date(NOW).toISOString())
+    const deps = depsOf(bus)
+    expect(downLines(tick(watchState(deps), deps, NOW), FACTORY_DOWN)).toHaveLength(1)
+  })
+
+  it('a card session heartbeat does not count as a bus worker heartbeat', () => {
+    const bus = aBus()
+    beat(bus, WORKER, NOW - FACTORY_DOWN_MS - MINUTE_MS)
+    write(bus, SESSION_HEARTBEAT, { session: 's1' }, new Date(NOW).toISOString())
+    const deps = depsOf(bus)
+    expect(downLines(tick(watchState(deps), deps, NOW), FACTORY_DOWN)).toHaveLength(1)
+  })
+
+  it('one long-dead worker beside a live worker does not wake the window', () => {
+    const bus = aBus()
+    beat(bus, 'worker:review:4243', NOW - FACTORY_DOWN_MS - 30 * MINUTE_MS)
+    beat(bus, WORKER, NOW - MINUTE_MS)
+    const deps = depsOf(bus)
+    expect(downLines(tick(watchState(deps), deps, NOW), FACTORY_DOWN)).toEqual([])
+  })
+
+  it('a worker beat exactly N minutes old is still alive, and one a millisecond older is down', () => {
+    const edge = aBus()
+    beat(edge, WORKER, NOW - FACTORY_DOWN_MS)
+    const edgeDeps = depsOf(edge)
+    expect(downLines(tick(watchState(edgeDeps), edgeDeps, NOW), FACTORY_DOWN)).toEqual([])
+    const past = aBus()
+    beat(past, WORKER, NOW - FACTORY_DOWN_MS - 1)
+    const pastDeps = depsOf(past)
+    expect(downLines(tick(watchState(pastDeps), pastDeps, NOW), FACTORY_DOWN)).toHaveLength(1)
   })
 })
 
