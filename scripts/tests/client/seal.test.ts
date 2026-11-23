@@ -129,9 +129,20 @@ function isScanned(file: string): boolean {
   return SCANNED.some(root => file.startsWith(root)) && !file.startsWith(ADAPTERS)
 }
 
+function withoutLiteral(text: string, literal: RegExp): string {
+  return text.replace(new RegExp(literal.source, literal.flags.includes('g') ? literal.flags : `${literal.flags}g`), '')
+}
+
+function holdsUncarriedLiteral(file: string, text: string, carriers: readonly Carrier[]): boolean {
+  const rows = carriers.filter(carrier => covers(carrier.path, file))
+  if (rows.some(carrier => carrier.literal === undefined))
+    return false
+  return holdsLiteral(rows.reduce((rest, carrier) => withoutLiteral(rest, carrier.literal!), text))
+}
+
 function sealOf(tree: ReadonlyMap<string, string>, carriers: readonly Carrier[]): { outside: string[], stale: string[] } {
   const files = [...tree]
-  const outside = files.filter(([file, text]) => isScanned(file) && holdsLiteral(text) && !carriers.some(carrier => covers(carrier.path, file))).map(([file]) => file)
+  const outside = files.filter(([file, text]) => isScanned(file) && holdsUncarriedLiteral(file, text, carriers)).map(([file]) => file)
   const stale = carriers.filter(carrier => !files.some(([file, text]) => covers(carrier.path, file) && (carrier.literal?.test(text) ?? holdsLiteral(text)))).map(carrier => carrier.path)
   return { outside, stale }
 }
@@ -151,6 +162,16 @@ describe('the client seal', () => {
       expect(sealOf(new Map([['scripts/tests/bus/planted.test.ts', line]]), CARRIERS).outside, line).toEqual(['scripts/tests/bus/planted.test.ts'])
     }
     expect(sealOf(realTree(), CARRIERS).outside).toEqual([])
+  })
+
+  it('a carrier that names its literal exempts that literal only, so any other client literal in card-grants.ts fails', () => {
+    const grants = 'scripts/ports/card-grants.ts'
+    const table = 'allow: [\'Bash(codex *)\'],\n    homeWrites: [\'.codex\'],\n    excludedCommands: [\'codex exec *\'],\n'
+    const grown = ['homeWrites: [\'.codex\', \'.claude\'],', 'env: \'CLAUDE_CONFIG_DIR\',', 'allow: [\'Bash(claude --resume *)\'],', 'spawn: \'codex\',']
+    expect(sealOf(new Map([[grants, table]]), CARRIERS).outside).toEqual([])
+    for (const line of grown)
+      expect(sealOf(new Map([[grants, `${table}${line}\n`]]), CARRIERS).outside, line).toEqual([grants])
+    expect(sealOf(new Map([[grants, `${table}spawn: 'codex',\n`]]), [...CARRIERS, { path: grants, reason: 'a whole-file sample' }]).outside).toEqual([])
   })
 
   it('a table row with no literal left fails', () => {
