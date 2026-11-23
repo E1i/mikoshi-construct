@@ -3680,6 +3680,7 @@
         "contract": [],
         "may_use": [],
         "owns": [
+          "scripts/core/built-entry.ts",
           "scripts/core/factory-paths.ts",
           "scripts/core/generated-files.ts",
           "scripts/core/declarations.ts",
@@ -4461,7 +4462,7 @@
       "scripts/window/eddies-measure.ts": 1,
       "scripts/window/handoff-write.ts": 1,
       "scripts/window/operator-work.ts": 2,
-      "scripts/window/plan-folds.ts": 6,
+      "scripts/window/plan-folds.ts": 5,
       "scripts/window/requests/amend.ts": 2,
       "scripts/window/requests/context.ts": 6,
       "scripts/window/requests/drop.ts": 1,

@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Projections, ReduceCount } from '../core/reducer.js'
 import path from 'node:path'
 import { Worker } from 'node:worker_threads'
+import { builtEntry } from '../core/built-entry.js'
 import { appendEvent } from '../core/db.js'
 import { REDUCED } from '../core/events.js'
 import { DATABASE_LOCKED, isDatabaseLocked } from '../core/node.js'
@@ -16,7 +17,7 @@ export const REDUCER_PASS_DONE = 'reducer.pass.done'
 export const REDUCER_THREAD = 'scripts/supervisor/reducer-thread.ts'
 
 export function reducerThreadBeside(module: string): URL {
-  return new URL(`./${path.posix.basename(REDUCER_THREAD, '.ts')}${path.posix.extname(new URL(module).pathname)}`, module)
+  return builtEntry(new URL(`./${path.posix.basename(REDUCER_THREAD)}`, module), module).url
 }
 
 function lastEventId(db: DatabaseSync): number {

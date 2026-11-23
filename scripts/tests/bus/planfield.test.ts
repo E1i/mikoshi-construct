@@ -5,7 +5,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_PLANNED, CARD_UNPLANNED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_OPENED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_PLANNED, CARD_UNPLANNED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_OPENED, REJECTED } from '../../core/events.js'
 import { OWNER } from '../../core/inbox.js'
 import { reduce } from '../../core/reducer.js'
 import { runBusIntake } from '../../intake/intake.js'
@@ -243,6 +243,19 @@ describe('the release is a field of the card', () => {
     reduce(db, 'pending', busProjections())
     expect(count(db, CARD_PLANNED)).toBe(0)
     expect(releases(db)).toEqual([])
+    db.close()
+  })
+
+  it('a plan event another actor wrote is refused by the composition root with the actor the event carries, and folds nothing', () => {
+    const root = scratch()
+    const db = openBus(path.join(root, 'bus.db'))
+    const stranger = 'policy'
+    appendEvent(db, { ts: NOW.toISOString(), type: PLAN_OPENED, actor: stranger, cardId: null, pr: null, head: null, dedupeKey: `${PLAN_OPENED}:stranger`, payload: { id: RELEASE, title: 'Factory 0.45.2', goal: 'not the owner', plan_file: '/plans/0.45.2.md' }, legacy: false })
+
+    expect(reduce(db, 'pending', busProjections())).toMatchObject({ rejected: 1 })
+    expect((db.prepare('SELECT payload FROM events WHERE type = ?').all(REJECTED) as { payload: string }[]).map(row => (JSON.parse(row.payload) as { reason: string }).reason))
+      .toEqual([`${PLAN_OPENED} is the owner's, not ${stranger}'s`])
+    expect(db.prepare('SELECT plan_id FROM plans').all()).toEqual([])
     db.close()
   })
 

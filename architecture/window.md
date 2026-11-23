@@ -280,7 +280,7 @@ Under an active shard the window itself decides and merges everything except the
 with those. A pull request of a kind whose «merges under a shard» is `no` — `release`, `release-workflow`, `workflows`,
 `security-invariants`, `accepted-model` — stays the owner's; one of `own-instructions`, `agent-permissions` or `new-write-path` merges under
 the shard. A handoff stops with `STATUS: OWNER` only at a named boundary — `version-pr`, `npm-stage`,
-`security-invariants`, `claude-config`, `owner-merges`, `workflows`, `dropped-witness`, `round-limit`, `owner-merged-kind`,
+`security-invariants`, `ratchet-growth`, `claude-config`, `owner-merges`, `workflows`, `dropped-witness`, `round-limit`, `owner-merged-kind`,
 `missing-right`, `owner-question` — and under a decisions shard only at those the bus keeps: the names of
 `OWNERS_OF_A_STOP` from the window's close of a stop and `round-limit`, all but the last three. R1 in intake is a risk class, not an
 owner boundary: R1 does not widen these boundaries.

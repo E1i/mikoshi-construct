@@ -9,7 +9,7 @@ import { appendEvent, openBusWait } from '../../core/db.js'
 import { CARD_STOPPED, QUESTION_OWNER, SHARD_ISSUED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { OWNER_EVEN_UNDER_THE_DECISION } from '../../policy/policy.js'
-import { AGENT_QUESTION, cardDecisionCommand, deciderUnderAShard, DECISIONS_SCOPE, DROPPED_WITNESS, OWNER_DECIDES, OWNERS_OF_A_STOP, OWNERS_UNDER_ANY_SHARD, STOP_DECIDERS_UNDER_A_SHARD, STOP_KINDS, stopKindOf, WINDOW_DECIDES, WITNESS_MOVED, witnessMoved } from '../../policy/shards.js'
+import { AGENT_QUESTION, cardDecisionCommand, deciderUnderAShard, DECISIONS_SCOPE, DROPPED_WITNESS, OWNER_DECIDES, OWNERS_OF_A_STOP, OWNERS_UNDER_ANY_SHARD, ownersUnderAnyShard, RATCHET_GROWTH, STOP_DECIDERS_UNDER_A_SHARD, STOP_KINDS, stopKindOf, WINDOW_DECIDES, WITNESS_MOVED, witnessMoved } from '../../policy/shards.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { runRequest, WindowRequests } from '../../window/window-requests.js'
 import { mergeBench } from './merge-bench.js'
@@ -20,6 +20,7 @@ const ASKED_BY_KIND: Readonly<Record<string, string>> = {
   'version-pr': 'may the version pull request go out now?',
   'npm-stage': 'may the npm stage run?',
   'security-invariants': 'may I edit architecture/security-invariants.md?',
+  [RATCHET_GROWTH]: 'may the row boundary:node-merge->decisions grow in contract/ratchet.json?',
   'claude-config': 'may I edit .claude/rules/tests.md?',
   'owner-merges': 'may I edit owner-merges?',
   'workflows': 'may I edit .github/workflows/ci.yml?',
@@ -105,6 +106,28 @@ describe('autonomy stops under a shard', () => {
     expect(stopKindOf(lost)).toBe(DROPPED_WITNESS)
     expect(windowClosesTheStopOn(lost)).toMatchObject({ kind: 'refused', detail: expect.stringContaining(`on ${DROPPED_WITNESS}, which stays the owner's under any shard`) as unknown })
     expect(windowClosesTheStopOn(ASKED_BY_KIND[WITNESS_MOVED]!).kind).toBe('done')
+  })
+
+  it('a ratchet growth question stays with the owner under any shard', () => {
+    expect(OWNERS_UNDER_ANY_SHARD).toHaveProperty(RATCHET_GROWTH)
+    for (const growth of [
+      ASKED_BY_KIND[RATCHET_GROWTH]!,
+      'may contract/ratchet.json take the new row?',
+      'the boundary row grows by one import; may it merge?',
+      'may this card grow the ratchet by 3 lines?',
+      'is this a ratchet growth the owner allows?',
+      'the boundary row node-merge->decisions grows by one import',
+      'the boundary budget grows by one import',
+      'may this card that grew the ratchet go in?',
+      'may this card grow a ratchet by one line?',
+      'may this card grow the boundary of node-merge?',
+    ]) {
+      expect(stopKindOf(growth)).toBe(RATCHET_GROWTH)
+      expect(ownersUnderAnyShard(growth)).toBe(RATCHET_GROWTH)
+      expect(deciderUnderAShard(growth)).toBe(OWNER_DECIDES)
+    }
+    expect(windowClosesTheStopOn(ASKED_BY_KIND[RATCHET_GROWTH]!)).toMatchObject({ kind: 'refused', detail: expect.stringContaining(`on ${RATCHET_GROWTH}, which stays the owner's under any shard`) as unknown })
+    expect(stopKindOf('may the retry back off at the boundary?')).toBe(AGENT_QUESTION)
   })
 
   it('only an R1 stop waits for the owner under a shard', () => {
