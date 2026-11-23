@@ -16,7 +16,7 @@ import { BOARD_PERIOD_MS, startBoardTimer } from '../cli/board-page.js'
 import { busDirOf } from '../core/bus-path.js'
 import { CHECK_MS, TICK_MS } from '../core/cadence.js'
 import { closedWaitIds } from '../core/card-readings.js'
-import { appendEvent, BOARD_STALE_TICKS, BOARD_TIMER_PROCESS, defaultBusPath, inTransaction, openBus, openBusWait, recordBoardBeat } from '../core/db.js'
+import { appendEvent, BOARD_TIMER_PROCESS, defaultBusPath, inTransaction, openBus, openBusWait } from '../core/db.js'
 import { WINDOW_REQUEST, WORKER_DOWN } from '../core/events.js'
 import { DATABASE_LOCKED, isDatabaseLocked } from '../core/node.js'
 import { setStepStatuses, STATUS_CONTEXT, STATUS_OFF_FILE, statusesSwitchedOff, statusFailureLine, statusLine } from '../core/pr-status.js'
@@ -340,11 +340,11 @@ class KeptBoardThread {
   private restart: ReturnType<typeof setTimeout> | null = null
   private stopped = false
 
-  constructor(private readonly busPath: string, private readonly periodMs: number, private readonly spawn: BoardTimerSpawn | undefined, private readonly down: (down: BoardThreadDown) => void, private readonly now: () => number, private readonly beat: (writtenAt: string) => void) {}
+  constructor(private readonly busPath: string, private readonly periodMs: number, private readonly spawn: BoardTimerSpawn | undefined, private readonly down: (down: BoardThreadDown) => void, private readonly now: () => number) {}
 
   start(): StartedBoardTimer {
     this.startedMs = this.now()
-    const thread: StartedBoardTimer = startBoardTimer(this.busPath, this.periodMs, this.spawn, cause => this.ended(thread, cause), this.beat)
+    const thread: StartedBoardTimer = startBoardTimer(this.busPath, this.periodMs, this.spawn, cause => this.ended(thread, cause))
     this.thread = thread
     return thread
   }
@@ -381,8 +381,8 @@ class KeptBoardThread {
   }
 }
 
-export function keepBoardThread(busPath: string, periodMs: number = BOARD_PERIOD_MS, spawn?: BoardTimerSpawn, down: (down: BoardThreadDown) => void = () => {}, now: () => number = Date.now, beat: (writtenAt: string) => void = () => {}): StartedBoardTimer {
-  const kept = new KeptBoardThread(busPath, periodMs, spawn, down, now, beat)
+export function keepBoardThread(busPath: string, periodMs: number = BOARD_PERIOD_MS, spawn?: BoardTimerSpawn, down: (down: BoardThreadDown) => void = () => {}, now: () => number = Date.now): StartedBoardTimer {
+  const kept = new KeptBoardThread(busPath, periodMs, spawn, down, now)
   const first = kept.start()
   return { file: first.file, dataFile: first.dataFile, stop: async () => kept.stop() }
 }
@@ -394,23 +394,8 @@ export function boardThreadDownRecorder(db: DatabaseSync): (down: BoardThreadDow
   }
 }
 
-export function boardBeatUnrecordedLine(error: unknown): string {
-  return `${PREFIX}recording the board timer's beat failed: ${(error instanceof Error ? error.message : String(error)).split('\n')[0]}; miko watch reads the board as stale once ${BOARD_STALE_TICKS} beats are missing`
-}
-
-export function boardBeatRecorder(db: DatabaseSync): (writtenAt: string) => void {
-  return (writtenAt) => {
-    try {
-      recordBoardBeat(db, writtenAt)
-    }
-    catch (error) {
-      console.error(boardBeatUnrecordedLine(error))
-    }
-  }
-}
-
 export function startBoardThread(db: DatabaseSync, busPath: string, periodMs: number = BOARD_PERIOD_MS, spawn?: BoardTimerSpawn): StartedBoardTimer {
-  return keepBoardThread(busPath, periodMs, spawn, boardThreadDownRecorder(db), Date.now, boardBeatRecorder(db))
+  return keepBoardThread(busPath, periodMs, spawn, boardThreadDownRecorder(db))
 }
 
 export function tickWhileReducing(busTick: BusTick, reducer: Pick<StartedReducerLoop, 'failure'>): string[] {

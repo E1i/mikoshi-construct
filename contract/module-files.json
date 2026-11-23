@@ -381,6 +381,7 @@
     "scripts/tests/bus/autonomy-rounds.test.ts",
     "scripts/tests/bus/autonomy-stops.test.ts",
     "scripts/tests/bus/bg.test.ts",
+    "scripts/tests/bus/board-beat-survives-blocked-main.test.ts",
     "scripts/tests/bus/board-bevel.test.ts",
     "scripts/tests/bus/board-bus-panel.test.ts",
     "scripts/tests/bus/board-default-output.test.ts",

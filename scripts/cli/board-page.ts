@@ -19,7 +19,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { parentPort, Worker } from 'node:worker_threads'
+import { Worker } from 'node:worker_threads'
 import { RUNS_PREFIX } from '../../src/card/covering-tests.js'
 import { fieldCommand } from '../../src/card/witness-fields.js'
 import { CARD_STAGES, latestCardEvents, openTasks } from '../../src/commands/board/bus.js'
@@ -1187,16 +1187,16 @@ const BOARD_TIMER_ENTRY = builtEntry(new URL('./board-page/timer.ts', import.met
 
 export interface ReadOnlyBoard { projection: BoardProjection, close: () => void }
 
-export function readOnlyBoardProjection(busPath: string, periodMs: number): ReadOnlyBoard {
+export function readOnlyBoardProjection(busPath: string, periodMs: number, written: () => void = () => {}): ReadOnlyBoard {
   const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
-  return { projection: boardProjection(db, busPath, periodMs, DISK_FILES, HANDOFF_FILE, mainUpToDateOfThisRepository(), () => parentPort?.postMessage(new Date().toISOString())), close: () => db.close() }
+  return { projection: boardProjection(db, busPath, periodMs, DISK_FILES, HANDOFF_FILE, mainUpToDateOfThisRepository(), written), close: () => db.close() }
 }
 
 export interface StartedBoardTimer { file: string, dataFile: string, stop: () => Promise<void> }
 
-export type BoardTimerSpawn = (entry: URL, workerData: Record<string, unknown>) => { on: ((event: 'error', listener: (error: Error) => void) => unknown) & ((event: 'exit', listener: (code: number) => void) => unknown) & ((event: 'message', listener: (writtenAt: unknown) => void) => unknown), terminate: () => Promise<unknown> }
+export type BoardTimerSpawn = (entry: URL, workerData: Record<string, unknown>) => { on: ((event: 'error', listener: (error: Error) => void) => unknown) & ((event: 'exit', listener: (code: number) => void) => unknown), terminate: () => Promise<unknown> }
 
-export function startBoardTimer(busPath: string, periodMs: number = BOARD_PERIOD_MS, spawn: BoardTimerSpawn = (entry, workerData) => new Worker(entry, { workerData }), ended: (cause: string) => void = () => {}, beat: (writtenAt: string) => void = () => {}): StartedBoardTimer {
+export function startBoardTimer(busPath: string, periodMs: number = BOARD_PERIOD_MS, spawn: BoardTimerSpawn = (entry, workerData) => new Worker(entry, { workerData }), ended: (cause: string) => void = () => {}): StartedBoardTimer {
   let cause: string | null = null
   const worker = spawn(BOARD_TIMER_ENTRY, { [BOARD_TIMER_BUS_PATH]: busPath, [BOARD_TIMER_PERIOD]: periodMs })
   worker.on('error', (error) => {
@@ -1204,7 +1204,6 @@ export function startBoardTimer(busPath: string, periodMs: number = BOARD_PERIOD
     console.error(`${BOARD_TIMER_PREFIX}${cause}`)
   })
   worker.on('exit', code => ended(cause ?? `exit code ${code}`))
-  worker.on('message', writtenAt => typeof writtenAt === 'string' && beat(writtenAt))
   return {
     file: path.join(path.dirname(busPath), BOARD_FILE),
     dataFile: path.join(path.dirname(busPath), BOARD_DATA_FILE),
