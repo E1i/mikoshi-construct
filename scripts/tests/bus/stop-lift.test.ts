@@ -9,10 +9,12 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { amendedText } from '../../../src/commands/intake/amend.js'
+import { closedWaitIds } from '../../core/card-readings.js'
 import { appendEvent, openBusWait, openOwnerWait } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, QUESTION_OWNER, SHARD_ISSUED } from '../../core/events.js'
 import { ANSWER_SOURCE, OPEN_OWNER_STOP_OF_CARD } from '../../core/inbox.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { reduce } from '../../core/reducer.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { AnswerOutsideTouches } from '../../nodes/answer/answerer.js'
@@ -71,7 +73,7 @@ function stoppedRoom(question: string = RESERVED_QUESTION, underAShard = true, a
 
 function stopWithItsWait(made: MergeBench, question: string, generation: string): { stop: number, wait: string } {
   const ts = made.clock.now().toISOString()
-  const wait = openBusWait(made.db, ts, 'worker:answer:s1', { need: 'decision', text: `card #${CARD} asks: ${question}`, command: cardDecisionCommand(CARD), card: CARD })
+  const wait = openBusWait(made.db, closedWaitIds(made.db), ts, 'worker:answer:s1', { need: 'decision', text: `card #${CARD} asks: ${question}`, command: cardDecisionCommand(CARD), card: CARD })
   appendEvent(made.db, { ts, type: CARD_STOPPED, actor: 'worker:answer:s1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${CARD}:${generation}`, payload: { reason: QUESTION_OWNER, detail: question }, legacy: false })
   const stop = lastEventId(made)
   reduce(made.db, 'pending', busProjections())
@@ -328,7 +330,7 @@ async function answerRefusedOutsideTouches(refused: readonly string[]) {
   }
   const cardTrees: CardTreeTools = { home: root, exists: existsSync, branchOf: () => 'feat/stoplift', recreate: () => {}, bringTo: () => {} }
   const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => `- ${OWNER_PATH}\n`, clock: made.clock.now, trees: cardTrees, liveSession: () => null })
-  const lease = (): Lease | null => leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')
+  const lease = (): Lease | null => leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')
   const outcome = await executor.answer(lease()!)
   made.tick()
   return { made, root, executor, lease, outcome, answered, stop: lastEventOf(made, CARD_STOPPED) }

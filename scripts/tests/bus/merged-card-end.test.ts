@@ -16,7 +16,7 @@ import { busMerges } from '../../nodes/close/task-merged.js'
 import { GREEN } from '../../policy/policy.js'
 import { prClosed, prObserved } from '../../ports/netwatch.js'
 import { greenWitnesses, runEvidence } from '../../release/evidence.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, pullRequests } from '../../supervisor/composition.js'
 import { NO_PROGRESS_MS, readBoard } from '../../window/board.js'
 import { sha } from './github-fake.js'
 
@@ -93,7 +93,7 @@ function eventId(bench: Bench, type: string): number {
 }
 
 function stalled(bench: Bench): boolean {
-  return readBoard({ db: bench.db, now: BOARD_READ_AT, watched: [], leaseOrders: {}, projections: busProjections() }).progress.stalled
+  return readBoard({ db: bench.db, now: BOARD_READ_AT, watched: [], leaseOrders: {}, projections: busProjections(), pulls: pullRequests(bench.db) }).progress.stalled
 }
 
 function verificationLine(bench: Bench): string {

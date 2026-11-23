@@ -20,6 +20,7 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, GHOST_ROW } from '../../core/events.js'
 import { taskKey } from '../../core/identifiers.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { FAILURES_TO_STOP } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { parkingLane } from '../../intake/admissions.js'
@@ -42,7 +43,7 @@ import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { sessionEnv } from '../../ports/session.js'
 import { SESSION_BASH_CAP, TSX_PIPE_DIRECTORY } from '../../ports/shift-settings.js'
 import { WIDE_VITEST_HOOKS } from '../../ports/wide-vitest-guard.js'
-import { busProjections, cardTransitions, nodeSupply } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions, nodeSupply, reviewLaunch } from '../../supervisor/composition.js'
 import { recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { busLaunches } from '../../supervisor/workers.js'
@@ -113,7 +114,7 @@ function launchBench(starter: CardStarter = new FakeStarter(), intake?: Paramete
       bench.gitHub.close(pr, true)
       bench.tick()
     },
-    leaseLaunch: (actor = 'worker:launch:worker-1'): Lease | null => leaseNext(bench.db, ts(), 'launch', actor),
+    leaseLaunch: (actor = 'worker:launch:worker-1'): Lease | null => leaseNext(bench.db, pullRequests(bench.db), ts(), 'launch', actor),
     launch: (lease: Lease): LaunchOutcome => executor.launch(lease),
   }
 }
@@ -935,7 +936,7 @@ describe('the launch queue', () => {
     const [args, card] = (await written(stub.argsFile)).trim().split('\n')
     const settings = /^--permission-mode dontAsk --setting-sources project,local --settings (\{.*\}) --tools Read,Edit,Write,Bash,Grep,Glob --disable-slash-commands --strict-mcp-config -p --session-id session-934$/.exec(args!)?.[1]
     expect(JSON.parse(settings ?? 'null')).toEqual({
-      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY] } },
+      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY], allowMachLookup: ['com.apple.trustd*'] } },
       permissions: { allow: [`Bash(${TREE_GATE})`, `Edit(/${tree}/**)`] },
       env: SESSION_BASH_CAP,
       hooks: WIDE_VITEST_HOOKS,
@@ -1126,7 +1127,7 @@ describe('the launch queue', () => {
     await once()
     expect(starter.starts.map(card => card.cardId)).toEqual([960])
     expect(taskState(bench.db, launch(960))).toMatchObject({ state: 'completed' })
-    expect(busLaunches(() => []).map(each => [each.script, ...each.args].join(' '))).toContain('bus:launch --on')
+    expect(busLaunches(reviewLaunch(() => [])).map(each => [each.script, ...each.args].join(' '))).toContain('bus:launch --on')
     bench.close()
   })
 })

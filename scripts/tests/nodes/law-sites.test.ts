@@ -21,15 +21,16 @@ import { CARD_STARTED, CARD_WAITING, CARD_WAITS, SESSION_HEARTBEAT, WINDOW_HEART
 import { FACTORY_WORKERS } from '../../core/factory-paths.js'
 import { leaseQueued } from '../../core/lease.js'
 import { rerunDueOn } from '../../core/observations.js'
+import { ofPr } from '../../core/pr-readings.js'
 import { keyOf, queueTask } from '../../core/queue.js'
 import { ABANDONED_READ_AS_RERUN, gapRows, INTAKE_WAIT_RECORD, INTAKE_WITNESS_TRANSFER, LAW_CELLS, LAW_CELLS_WITNESSES, LAW_NODES, LAW_SITES, lawIds, PULSE_BESIDE_CARD_SILENCE, REVIEW_LIVE_ON_ONE_STALE_SIGNAL, SITES_BEYOND_NODES, sourceOf, WINDOW_BESIDE_SESSIONS } from '../../nodes/laws.js'
 import { InMemoryDecisions } from '../../policy/decisions/decisions.js'
-import { NetWatch } from '../../ports/netwatch.js'
 import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { BusTick } from '../../supervisor/run.js'
 import { NO_PROGRESS_LINES, StalledSessions } from '../../supervisor/stalled-sessions.js'
 import { BUS_ALIVE_MS, STALL_MS, stalledOf } from '../../window/watch.js'
 import { Clock, FakeGitHub, sha } from '../bus/github-fake.js'
+import { benchNetWatch } from '../bus/net-watch-bench.js'
 import { reachesSite } from './law-reach.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
@@ -125,15 +126,15 @@ function abandonedReadAsRerun(): void {
       const body = response.body as { check_runs: { name: string, conclusion: string | null }[] }
       return { ...response, body: { check_runs: body.check_runs.map(check => check.name === 'required' && check.conclusion === 'failure' ? { ...check, id, output: { annotations_count: 1, annotations_url: `https://api.github.com/repos/{owner}/{repo}/check-runs/${id}/annotations` } } : check) } }
     }
-    const tick = new BusTick(db, busProjections(), new NetWatch(db, client, clock.now), clock.now)
+    const tick = new BusTick(db, busProjections(), benchNetWatch(db, client, clock.now), clock.now)
     tick.run()
     clock.advance(TICK_MS)
     gitHub.open({ number: 1493, head: abandonedHead, required: 'failure', failed: [] })
     gitHub.open({ number: 1494, head: sha('b'), required: 'failure', failed: [] })
     tick.run()
-    if (!rerunDueOn(db, 1493, abandonedHead))
+    if (!rerunDueOn(db, ofPr(db, 1493), abandonedHead))
       throw new Error('netwatch read a required red only from abandoned jobs as a defect, not a rerun due')
-    if (rerunDueOn(db, 1494, sha('b')))
+    if (rerunDueOn(db, ofPr(db, 1494), sha('b')))
       throw new Error('netwatch read a required red with no abandoned annotation as a rerun due')
   }
   finally {

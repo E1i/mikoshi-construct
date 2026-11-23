@@ -2,7 +2,7 @@ import type { Prompter } from '../../../src/ui/prompts.js'
 import type { Lease } from '../../core/lease.js'
 import type { GhResponse } from '../../ports/github.js'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -17,10 +17,14 @@ import { freshDenial } from '../../nodes/review/record-verdict.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { Meter } from '../../ports/meter.js'
 import { NetWatch, NETWATCH_SCRIPT } from '../../ports/netwatch.js'
-import { ciOf, requiredCheckOf } from '../../ports/snapshot.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { ciOf } from '../../ports/snapshot.js'
+import { busProjections, requiredCheckAt } from '../../supervisor/composition.js'
+import { standaloneRequiredCheck } from '../../supervisor/netwatch-root.js'
 import { Clock, FakeGitHub, sha } from '../bus/github-fake.js'
 import { liveBench } from '../bus/merge-bench.js'
+
+const REPOSITORY_ROOT = path.resolve(import.meta.dirname, '../../..')
+const NETWATCH_ROOT = 'scripts/supervisor/netwatch-root.ts'
 
 const ui = createUi(resolveTheme({ plain: true }), silentWriter)
 useIsolatedHome()
@@ -71,7 +75,7 @@ describe('attach records the job of the gate candidate and the bus reads it as t
     expect((await runAttach(ui, { dir, yes: false }, choosingFirst())).status).toBe('done')
 
     expect(readAttachRecord(dir)?.harness).toEqual({ command: 'pnpm test', job: 'Build and test' })
-    expect(requiredCheckOf(dir)).toBe('Build and test')
+    expect(requiredCheckAt(dir)).toBe('Build and test')
   })
 
   it('reads green under attach.json when the check run of that job is success', async () => {
@@ -79,7 +83,7 @@ describe('attach records the job of the gate candidate and the bus reads it as t
     await runAttach(ui, { dir, yes: false }, choosingFirst())
     const meter = meterOf([{ name: 'Build and test', status: 'completed', conclusion: 'success' }])
 
-    expect(ciOf(meter, 'a'.repeat(40), requiredCheckOf(dir))).toBe('green')
+    expect(ciOf(meter, 'a'.repeat(40), requiredCheckAt(dir))).toBe('green')
     expect(ciOf(meter, 'a'.repeat(40))).toBe('pending')
   })
 
@@ -89,7 +93,7 @@ describe('attach records the job of the gate candidate and the bus reads it as t
     expect((await runAttach(ui, { dir, yes: false }, choosingFirst())).status).toBe('done')
 
     expect(readAttachRecord(dir)?.harness).not.toHaveProperty('job')
-    expect(requiredCheckOf(dir)).toBe('required')
+    expect(requiredCheckAt(dir)).toBe('required')
   })
 
   it('netwatch observes ci from the recorded job, not from the check named required', async () => {
@@ -101,7 +105,7 @@ describe('attach records the job of the gate candidate and the bus reads it as t
       const db = openBus(path.join(dir, 'bus.db'))
       const gitHub = new FakeGitHub()
       gitHub.open({ number: 900, review: 'success' })
-      new NetWatch(db, gitHub.client, new Clock().now, NETWATCH_SCRIPT, root).poll()
+      new NetWatch(db, gitHub.client, new Clock().now, NETWATCH_SCRIPT, () => requiredCheckAt(root)).poll()
       const row = db.prepare('SELECT payload FROM events WHERE type = ?').get('pr.observed')
       db.close()
       return (JSON.parse(String(row?.payload)) as { ci: unknown }).ci
@@ -127,7 +131,7 @@ describe('the bus reads the recorded job from the root of the repository it watc
     const dir = await attachedRepository()
     watching(dir)
 
-    expect(requiredCheckOf()).toBe('Build and test')
+    expect(requiredCheckAt()).toBe('Build and test')
   })
 
   it('requiredCheckOf without a root finds the repository root from a subdirectory', async () => {
@@ -135,13 +139,24 @@ describe('the bus reads the recorded job from the root of the repository it watc
     mkdirSync(path.join(dir, 'packages/app'), { recursive: true })
     watching(path.join(dir, 'packages/app'))
 
-    expect(requiredCheckOf()).toBe('Build and test')
+    expect(requiredCheckAt()).toBe('Build and test')
   })
 
   it('requiredCheckOf without a root keeps the check named required in a repository attach.json does not name a job for', () => {
     watching(repository())
 
-    expect(requiredCheckOf()).toBe('required')
+    expect(requiredCheckAt()).toBe('required')
+  })
+
+  it('the standalone bus:netwatch entry runs from a composition root and reads the recorded job of the working directory', async () => {
+    const scripts = (JSON.parse(readFileSync(path.join(REPOSITORY_ROOT, 'package.json'), 'utf8')) as { scripts: Record<string, string> }).scripts
+    expect(scripts['bus:netwatch']).toBe(`node --import tsx ${NETWATCH_ROOT}`)
+
+    watching(await attachedRepository())
+    expect(standaloneRequiredCheck()).toBe('Build and test')
+
+    watching(repository())
+    expect(standaloneRequiredCheck()).toBe('required')
   })
 
   it('the review verdict freshness check passes on the recorded job and holds on the check named required', async () => {
@@ -151,10 +166,10 @@ describe('the bus reads the recorded job from the root of the repository it watc
     const lease = { pr: 951, head: sha('a') } as Lease
 
     watching(await attachedRepository())
-    expect(freshDenial(gitHub.client, lease, () => 0)).toBeNull()
+    expect(freshDenial(gitHub.client, lease, () => 0, requiredCheckAt())).toBeNull()
 
     watching(repository())
-    expect(freshDenial(gitHub.client, lease, () => 0)).toMatchObject({ kind: 'technical', reason: 'ci_not_ready' })
+    expect(freshDenial(gitHub.client, lease, () => 0, requiredCheckAt())).toMatchObject({ kind: 'technical', reason: 'ci_not_ready' })
   })
 
   it('the merge executor merges on the recorded job and waits on the check named required', async () => {

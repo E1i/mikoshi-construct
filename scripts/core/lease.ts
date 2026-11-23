@@ -46,6 +46,13 @@ export interface Failure {
   reason: string
   withdraw: boolean
   tree?: CarriedTree
+  behind?: boolean
+}
+
+export interface PullHead {
+  pr: number
+  state: string | null
+  head: string | null
 }
 
 function carrying(tree: CarriedTree | undefined): { tree?: CarriedTree } {
@@ -81,8 +88,8 @@ interface LeaseRow {
 }
 
 const LEASABLE_FROM = `
-  FROM tasks LEFT JOIN prs ON prs.pr = tasks.pr
-  WHERE tasks.queue = ? AND tasks.state = '${QUEUED}' AND (tasks.pr IS NULL OR (prs.state = ? AND prs.head = tasks.head))
+  FROM tasks
+  WHERE tasks.queue = ? AND tasks.state = '${QUEUED}' AND (tasks.pr IS NULL OR (tasks.pr || ':' || tasks.head) IN (SELECT value FROM json_each(?)))
 `
 
 const GRANT_ORDER = `ORDER BY tasks.card_id IN (SELECT value FROM json_each(?)) DESC, CASE WHEN tasks.queue = '${REQUEUED_TO_THE_BACK}' THEN tasks.event_id ELSE tasks.id END`
@@ -125,9 +132,14 @@ const IN_ARRIVAL_ORDER: LeaseOrder = { onePerCard: false, firstCards: [] }
 
 const PR_STATE_OF_QUEUE: Partial<Record<Queue, string>> = { close: 'merged' }
 
-const UPDATE_DERIVED_FOR_BEHIND = `
-  SELECT 1 FROM prs JOIN tasks ON tasks.pr = prs.pr AND tasks.head = prs.head
-  WHERE prs.pr = ? AND prs.head = ? AND prs.mergeable = 'behind' AND tasks.queue = 'update' AND tasks.state IN ('${QUEUED}', '${LEASED}')
+function leasableHeads(pulls: readonly PullHead[], queue: Queue): string {
+  const state = PR_STATE_OF_QUEUE[queue] ?? 'open'
+  return JSON.stringify(pulls.flatMap(pull => pull.state === state && pull.head !== null ? [`${pull.pr}:${pull.head}`] : []))
+}
+
+const UPDATE_DERIVED_FOR_THE_HEAD = `
+  SELECT 1 FROM tasks
+  WHERE tasks.pr = ? AND tasks.head = ? AND tasks.queue = 'update' AND tasks.state IN ('${QUEUED}', '${LEASED}')
 `
 
 const LAPSED = `SELECT * FROM tasks WHERE state = '${LEASED}' AND lease_until < ? ORDER BY id`
@@ -181,11 +193,11 @@ export function queuedCards(db: DatabaseSync, queue: Queue): number[] {
   return (db.prepare(QUEUED_CARDS).all(queue) as { card_id: number }[]).map(row => Number(row.card_id))
 }
 
-export function leaseNext(db: DatabaseSync, ts: string, queue: Queue, actor: string, order: LeaseOrder = IN_ARRIVAL_ORDER, held: Handover = NOTHING_HELD): Lease | null {
+export function leaseNext(db: DatabaseSync, pulls: readonly PullHead[], ts: string, queue: Queue, actor: string, order: LeaseOrder = IN_ARRIVAL_ORDER, held: Handover = NOTHING_HELD): Lease | null {
   return inTransaction(db, () => {
     if (workerRetiring(db, actor))
       return null
-    const row = db.prepare(NEXT_LEASABLE).get(queue, PR_STATE_OF_QUEUE[queue] ?? 'open', order.onePerCard ? 1 : 0, ts, ...heldBindings(held), JSON.stringify(order.firstCards)) as LeaseRow | undefined
+    const row = db.prepare(NEXT_LEASABLE).get(queue, leasableHeads(pulls, queue), order.onePerCard ? 1 : 0, ts, ...heldBindings(held), JSON.stringify(order.firstCards)) as LeaseRow | undefined
     return row === undefined ? null : leased(db, ts, row, actor)
   })
 }
@@ -206,8 +218,8 @@ export interface Waiting {
   cardId: number
 }
 
-export function grantOrder(db: DatabaseSync, queue: Queue, order: LeaseOrder = IN_ARRIVAL_ORDER): Waiting[] {
-  const rows = db.prepare(LEASABLE_IN_GRANT_ORDER).all(queue, PR_STATE_OF_QUEUE[queue] ?? 'open', JSON.stringify(order.firstCards)) as { task_key: string, card_id: number, held: number }[]
+export function grantOrder(db: DatabaseSync, pulls: readonly PullHead[], queue: Queue, order: LeaseOrder = IN_ARRIVAL_ORDER): Waiting[] {
+  const rows = db.prepare(LEASABLE_IN_GRANT_ORDER).all(queue, leasableHeads(pulls, queue), JSON.stringify(order.firstCards)) as { task_key: string, card_id: number, held: number }[]
   const granted = new Set<number>()
   const now: Waiting[] = []
   const later: Waiting[] = []
@@ -264,7 +276,7 @@ export function completeTask(db: DatabaseSync, cards: CardTransitions, ts: strin
 }
 
 function waitsForTheHead(db: DatabaseSync, row: LeaseRow, failure: Failure): boolean {
-  return failure.reason === 'not_mergeable' && row.pr !== null && db.prepare(UPDATE_DERIVED_FOR_BEHIND).get(row.pr, row.head) !== undefined
+  return failure.reason === 'not_mergeable' && failure.behind === true && row.pr !== null && db.prepare(UPDATE_DERIVED_FOR_THE_HEAD).get(row.pr, row.head) !== undefined
 }
 
 function afterFailure(row: LeaseRow, failure: Failure, uncounted: boolean): AfterFailure {

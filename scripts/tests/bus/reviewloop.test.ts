@@ -15,6 +15,7 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_OPENED, QUESTION_OWNER, REVIEW_RECORDED, SCOPE_WIDENED, SHARD_DECIDED, SHARD_ISSUED, WITNESS_RECORDED } from '../../core/events.js'
 import { prBodySha, taskKey } from '../../core/identifiers.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { importJournal } from '../../intake/import.js'
@@ -30,12 +31,12 @@ import { reviewPrompt } from '../../nodes/review/reviewer.js'
 import { witnessCandidates } from '../../nodes/witness/witness-candidates.js'
 import { changesRoundsOf } from '../../policy/round-limit-decision.js'
 import { DECISIONS_SCOPE } from '../../policy/shards.js'
-import { NetWatch } from '../../ports/netwatch.js'
 import { answerParts, busProjections, candidateRules, cardTransitions, witnessParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
+import { benchNetWatch } from './net-watch-bench.js'
 import { detectReview } from './review-detection.js'
 
 const OWNER_MERGES = readFileSync('architecture/owner-merges.md', 'utf8')
@@ -65,7 +66,7 @@ function reviewBus(): { db: DatabaseSync, gitHub: FakeGitHub, clock: Clock, tick
   const db = openBus(path.join(scratch('bus-reviewloop-'), 'bus.db'))
   const gitHub = new FakeGitHub()
   const clock = new Clock()
-  const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now)
+  const busTick = new BusTick(db, busProjections(), benchNetWatch(db, gitHub.client, clock.now), clock.now)
   let first = true
   const tick = (): void => {
     if (!first)
@@ -125,7 +126,7 @@ function questionUnderShard(made: ReturnType<typeof mergeBench>, answerer: Answe
   queueTask(made.db, ts, { queue: 'answer', cardId: 905, stop })
   const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
   const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, isolation: () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }), dirty, shardDecider: () => ({ answer: 'finish inside the touches' }) })
-  return async () => executor.answer(leaseNext(made.db, ts, 'answer', 'worker:answer:worker-1')!)
+  return async () => executor.answer(leaseNext(made.db, pullRequests(made.db), ts, 'answer', 'worker:answer:worker-1')!)
 }
 
 describe('the review loop', () => {
@@ -149,7 +150,7 @@ describe('the review loop', () => {
     const made = mergeBench()
     made.gitHub.open({ number: 1060, review: 'failure' })
     made.tick()
-    const leased = leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
+    const leased = leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
     expect(leased.cardId).toBe(1160)
 
     made.gitHub.open({ number: 1060, head: sha('b'), required: 'failure', failed: ['lint'] })
@@ -165,7 +166,7 @@ describe('the review loop', () => {
     const made = mergeBench()
     made.gitHub.open({ number: 1063, review: 'failure' })
     made.tick()
-    const leased = leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
+    const leased = leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
     made.gitHub.close(1063, false)
     made.tick()
     made.tick()
@@ -289,7 +290,7 @@ describe('the review loop', () => {
     const answer = async (): Promise<AnswerOutcome> => {
       made.tick()
       made.tick()
-      const lease = leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
+      const lease = leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
       return executor.answer(lease)
     }
     return { made, prompts, logsRead, answer }

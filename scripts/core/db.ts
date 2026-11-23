@@ -3,7 +3,6 @@ import type { OwnerWaitNeed } from './bus-readings.js'
 import { appendFileSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
-import { parseCard } from '../../src/card/grammar.js'
 import { CLOSED_WAIT, OPEN_WAIT, OWNER_WAIT_NEEDS, OWNER_WAITS } from './bus-readings.js'
 import { OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PROCESS_HEARTBEAT } from './events.js'
 import { isActor, isFullSha, prOf } from './identifiers.js'
@@ -11,7 +10,6 @@ import { openDatabase } from './sqlite.js'
 
 export { BUS_DB_VARIABLE, defaultBusPath } from './bus-path.js'
 export const BUSY_TIMEOUT_MS = 30_000
-export const CARD_BLOCKS = 'card_blocks'
 export const DECISION_IN_FORCE = 'in-force'
 export const DECISION_ARCHIVED = 'archived'
 
@@ -195,6 +193,18 @@ export function recordBeat(db: DatabaseSync, beat: Beat): boolean {
   return Number(result.changes) === 1
 }
 
+export const BOARD_TIMER_PROCESS = 'bus:board-timer'
+export const BOARD_TIMER_PERIOD_MS = 10_000
+export const BOARD_STALE_TICKS = 3
+
+export function recordBoardBeat(db: DatabaseSync, ts: string): boolean {
+  return recordBeat(db, { process: BOARD_TIMER_PROCESS, type: PROCESS_HEARTBEAT, ts, payload: { process: BOARD_TIMER_PROCESS } })
+}
+
+export function lastBoardBeat(db: DatabaseSync): string | undefined {
+  return (db.prepare(`SELECT ts FROM ${HEARTBEATS} WHERE process = ? AND type = ?`).get(BOARD_TIMER_PROCESS, PROCESS_HEARTBEAT) as { ts: string } | undefined)?.ts
+}
+
 export const RETIRED_FIELD = 'retired'
 
 const PREVIOUS_GENERATION_BEATS = `
@@ -236,20 +246,12 @@ export interface BusEvent {
   legacy: boolean
 }
 
-function blocksOfCardLine(line: unknown): string | null {
-  if (typeof line !== 'string')
-    return null
-  const parsed = parseCard(line)
-  return parsed.kind === 'card' ? JSON.stringify(parsed.card.blocks) : null
-}
-
 export function openBus(file: string): DatabaseSync {
   mkdirSync(path.dirname(file), { recursive: true })
   const db = openDatabase(file, { timeout: BUSY_TIMEOUT_MS })
   db.exec(`PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA cache_size = -${CACHE_KIB};`)
   db.exec(SCHEMA)
   addMissingColumns(db)
-  db.function(CARD_BLOCKS, { deterministic: true }, blocksOfCardLine)
   if (file !== IN_MEMORY)
     watchLocks(db, { now: () => performance.now(), observe: lockLogger(locksLogOf(file)) })
   return db
@@ -313,9 +315,8 @@ const UNCLOSED_WAIT_OF = `
   SELECT json_extract(opened.payload, '$.id') AS id FROM events AS opened
   WHERE opened.type = '${OWNER_WAIT_OPENED}' AND opened.legacy = 0
     AND json_extract(opened.payload, '$.need') = ? AND json_extract(opened.payload, '$.command') IS ? AND json_extract(opened.payload, '$.pr') IS ?
-    AND NOT EXISTS (SELECT 1 FROM ${OWNER_WAITS} AS wait WHERE wait.id = json_extract(opened.payload, '$.id') AND wait.state = '${CLOSED_WAIT}')
     AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${OWNER_WAIT_CLOSED}' AND json_extract(closed.payload, '$.id') = json_extract(opened.payload, '$.id'))
-  ORDER BY opened.id LIMIT 1
+  ORDER BY opened.id
 `
 
 function nextWaitId(db: DatabaseSync): string {
@@ -331,9 +332,9 @@ export function openOwnerWait(db: DatabaseSync, ts: string, actor: string, ask: 
   return id
 }
 
-export function openBusWait(db: DatabaseSync, ts: string, actor: string, ask: OwnerWaitAsk): string {
-  const open = db.prepare(UNCLOSED_WAIT_OF).get(ask.need, ask.command ?? null, ask.pr ?? null) as { id: string } | undefined
-  return open?.id ?? openOwnerWait(db, ts, actor, ask)
+export function openBusWait(db: DatabaseSync, closedWaits: readonly string[], ts: string, actor: string, ask: OwnerWaitAsk): string {
+  const unclosed = db.prepare(UNCLOSED_WAIT_OF).all(ask.need, ask.command ?? null, ask.pr ?? null) as { id: string }[]
+  return unclosed.find(wait => !closedWaits.includes(wait.id))?.id ?? openOwnerWait(db, ts, actor, ask)
 }
 
 const UNREDUCED_CLOSE_OF = `

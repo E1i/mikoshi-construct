@@ -11,21 +11,21 @@ import { detectionMode } from '../../core/node.js'
 import { keyOf } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { CloseNode } from '../../nodes/close/close-worker.js'
-import { NetWatch } from '../../ports/netwatch.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, reviewLaunch } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { bgCommand, detectionCommand } from '../../supervisor/supervisor.js'
 import { liveWorkers, switchDetection, switchWorker, wantedLaunches, WORKERS, WORKERS_FILE } from '../../supervisor/workers.js'
 import { detectClose } from './close-detection.js'
 import { sha } from './github-fake.js'
 import { cardVerified, eventsOf, mergeBench } from './merge-bench.js'
+import { benchNetWatch } from './net-watch-bench.js'
 
 interface Bench extends MergeBench {
   root: string
 }
 
 const benches: Bench[] = []
-const NO_PREFLIGHT = (): string[] => []
+const NO_PREFLIGHT = reviewLaunch(() => [])
 
 beforeEach(() => {
   vi.spyOn(console, 'log').mockImplementation(() => {})
@@ -128,7 +128,7 @@ describe('close live', () => {
       mergedAndVerified(made, 990)
       const node = liveNode(made)
       if (order === 'node first') {
-        new NetWatch(made.db, made.gitHub.client, made.clock.now).poll()
+        benchNetWatch(made.db, made.gitHub.client, made.clock.now).poll()
         reduce(made.db, 'pending', busProjections())
         made.clock.advance(TICK_MS)
         await once(node)

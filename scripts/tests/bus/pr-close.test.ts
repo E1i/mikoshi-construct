@@ -5,6 +5,7 @@ import { appendEvent } from '../../core/db.js'
 import { CARD_DROPPED, COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, PR_CLOSED, REQUEST_DONE, REQUEST_REFUSED, WINDOW_REQUEST } from '../../core/events.js'
 import { prBodySha } from '../../core/identifiers.js'
 import { leaseNext, releaseTask } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask } from '../../core/queue.js'
 import { latestGitHubNumber, PrCloser } from '../../nodes/review/pr-close.js'
 import { cardTransitions } from '../../supervisor/composition.js'
@@ -128,7 +129,7 @@ describe('the bus closes a card pull request without merge, only through the clo
   it('closing a PR under a live merge lease is refused with policy.denied', () => {
     const bench = benchWithOpenPr()
     queueTask(bench.db, bench.clock.now().toISOString(), { queue: 'merge', cardId: CARD, pr: PR, head: HEAD })
-    expect(leaseNext(bench.db, bench.clock.now().toISOString(), 'merge', 'worker:merge:worker-1')).not.toBeNull()
+    expect(leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'merge', 'worker:merge:worker-1')).not.toBeNull()
     const request = askClose(bench)
     expect(requests(bench).run()).toMatchObject([{ kind: 'refused', request }])
     expect(deniedRules(bench)).toEqual([['close', 'merge_leased']])
@@ -148,7 +149,7 @@ describe('the bus closes a card pull request without merge, only through the clo
   it('a dropped card refused under a merge lease is closed on a later tick once the lease ends', () => {
     const bench = benchWithOpenPr()
     queueTask(bench.db, bench.clock.now().toISOString(), { queue: 'merge', cardId: CARD, pr: PR, head: HEAD, prBody: prBodySha(cardBody(PR)) })
-    const lease = leaseNext(bench.db, bench.clock.now().toISOString(), 'merge', 'worker:merge:worker-1')!
+    const lease = leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'merge', 'worker:merge:worker-1')!
     dropCard(bench)
     const closer = new PrCloser(bench.db, bench.gitHub.client, bench.gitHub.patch, bench.clock.now)
     expect(closer.closeDropped()).toMatchObject([{ kind: 'denied', pr: PR }])

@@ -8,11 +8,14 @@ import path from 'node:path'
 import { Worker } from 'node:worker_threads'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { factoryGraph } from '../../../tsup.config.js'
+import { closedWaitIds } from '../../core/card-readings.js'
 import { appendEvent, openBus, openBusWait } from '../../core/db.js'
 import { CARD_FELL, REDUCED, REQUEST_DONE, REQUEST_REFUSED } from '../../core/events.js'
 import { OWNER_WAITS } from '../../core/projection-types.js'
 import { reducedThrough } from '../../core/reducer.js'
+import { REQUIRED_CHECK } from '../../ports/gh.js'
 import { NetWatch } from '../../ports/netwatch.js'
+import { RUN_SCRIPT } from '../../supervisor/bg.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { lockedLine, REDUCER_LOOP_BUS_PATH, REDUCER_LOOP_HOME, REDUCER_LOOP_PERIOD, REDUCER_PASS_DONE, REDUCER_PERIOD_MS, REDUCER_PREFIX, REDUCER_THREAD, ReducerLoop, ReducerPass, reducerThreadBeside, startReducerLoop } from '../../supervisor/reducer-loop.js'
 import { BusTick, TICK_STEPS, tickWhileReducing } from '../../supervisor/run.js'
@@ -79,7 +82,7 @@ function slowTick(db: DatabaseSync, done: () => boolean): { tick: BusTick, heldM
       holdTheThread(HOLD_STEP_MS)
     }
   }
-  return { tick: new BusTick(db, null, new NetWatchThatTicks(db, new FakeGitHub().client, clock.now), clock.now, () => {}, () => {}, stalled), heldMs: () => heldMs }
+  return { tick: new BusTick(db, null, new NetWatchThatTicks(db, new FakeGitHub().client, clock.now, RUN_SCRIPT, () => REQUIRED_CHECK), clock.now, () => {}, () => {}, stalled), heldMs: () => heldMs }
 }
 
 function lagOf(db: DatabaseSync): number {
@@ -104,7 +107,7 @@ describe('the reducer runs in its own thread, off the slow bus tick', () => {
   it('an appended event is reduced within 5 s while the tick takes 60 s', async () => {
     const { busPath, home, db } = scratchBus()
     await startedLoop(busPath, home, db)
-    const wait = openBusWait(db, new Date().toISOString(), 'worker:test:reducer', { need: 'command', text: 'a wait the reducer folds', command: 'true' })
+    const wait = openBusWait(db, closedWaitIds(db), new Date().toISOString(), 'worker:test:reducer', { need: 'command', text: 'a wait the reducer folds', command: 'true' })
     const appended = Number((db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }).id)
     expect(lagOf(db)).toBeGreaterThan(0)
 
@@ -141,7 +144,7 @@ describe('the reducer pass and its loop', () => {
     clock.advance(QUIET_MS / 2)
     pass.run()
     expect(reducedCount()).toBe(1)
-    openBusWait(db, clock.now().toISOString(), 'worker:test:reducer', { need: 'command', text: 'folded', command: 'true' })
+    openBusWait(db, closedWaitIds(db), clock.now().toISOString(), 'worker:test:reducer', { need: 'command', text: 'folded', command: 'true' })
     expect(pass.run().applied).toBeGreaterThan(0)
     expect(reducedCount()).toBe(2)
     clock.advance(QUIET_MS)

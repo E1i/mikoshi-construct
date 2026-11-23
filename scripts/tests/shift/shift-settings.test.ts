@@ -1,18 +1,28 @@
 import type { ShiftGate } from '../../../src/manifest.js'
+import type { CardGrant } from '../../ports/card-grants.js'
 import type { ShiftSettings } from '../../ports/shift-settings.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir, userInfo } from 'node:os'
 import path from 'node:path'
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { allowRule, shippedDaemonCommands } from '../../../src/commands/attach/daemon-commands.js'
 import { browserLabExcludedCommand, browserLabInstalledScript } from '../../../src/commands/attach/settings.js'
 import { runInit } from '../../../src/commands/init.js'
 import { readManifest, readShiftGate } from '../../../src/manifest.js'
 import { createUi, silentWriter } from '../../../src/ui/console.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
 import { treeReportPath } from '../../core/places.js'
+import { CARD_GRANTS, cardOfTree, GRANT_SCRATCH_DIRECTORY, GRANT_SCRATCH_SPELLINGS, grantOf } from '../../ports/card-grants.js'
 import { CARD_SESSION_SANDBOX, SESSION_BASH_CAP, settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
 import { WIDE_VITEST_HOOKS } from '../../ports/wide-vitest-guard.js'
+
+const plantedGrants = vi.hoisted(() => ({ rows: [] as CardGrant[] }))
+
+vi.mock('../../ports/card-grants.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../ports/card-grants.js')>()
+  return { ...original, grantOf: (card: number | null) => original.grantOf(card, [...original.CARD_GRANTS, ...plantedGrants.rows]) }
+})
 
 function editCovers(rule: string, file: string): boolean {
   const pattern = /^Edit\(\/(.+)\)$/.exec(rule)?.[1]
@@ -37,7 +47,15 @@ describe('the settings a card session is started with in a repository after cons
 
   it('bus sessions may listen on the tsx pipe and no other socket', () => {
     const uid = userInfo().uid
-    expect(shiftSettings(tree, readShiftGate(tree), [], tree).sandbox.network).toEqual({ allowLocalBinding: true, allowUnixSockets: [`/tmp/claude-${uid}/tsx-${uid}`] })
+    expect(shiftSettings(tree, readShiftGate(tree), [], tree).sandbox.network).toEqual({ allowLocalBinding: true, allowUnixSockets: [`/tmp/claude-${uid}/tsx-${uid}`], allowMachLookup: ['com.apple.trustd*'] })
+  })
+
+  it('card sessions may look up trustd so gh verifies TLS, and no host is added', () => {
+    const cardWithNoGrantsRow = 2177
+    expect(grantOf(cardWithNoGrantsRow)).toBeNull()
+    const { network } = shiftSettings(tree, readShiftGate(tree), [], tree, cardWithNoGrantsRow).sandbox
+    expect(network.allowMachLookup).toEqual(['com.apple.trustd*'])
+    expect(network).not.toHaveProperty('allowedDomains')
   })
 
   it('allow exactly the gate commands of the tree\'s construct config and edits inside the card tree, and no other rule', () => {
@@ -164,6 +182,19 @@ describe('the browser lab exclusion a card session takes from the settings of it
     expect([missing, unparsable, malformed]).toStrictEqual([plain, plain, plain])
   })
 
+  it('the card settings layer allows the command of every installed daemon and of no other', () => {
+    const plain = ['Bash(pnpm run quality)', `Edit(/${tree}/**)`]
+    const without = settings()
+    holdSettings('settings.local.json', [OTHER_ENTRY, entry])
+    const installed = settings()
+    rmSync(browserLabInstalledScript(home))
+    const missingProgram = settings()
+    expect(shippedDaemonCommands(home)).toEqual([entry])
+    expect({ without: without.permissions.allow, installed: installed.permissions.allow, missingProgram: missingProgram.permissions.allow }).toEqual({ without: plain, installed: [...plain, allowRule(entry)], missingProgram: plain })
+    expect(installed.permissions.allow).not.toContain(allowRule(OTHER_ENTRY))
+    expect(installed.sandbox.excludedCommands).toEqual([entry])
+  })
+
   it('leaves the network and the unsandboxed-command refusal of the card session unchanged with the entry present', () => {
     holdSettings('settings.json', [entry])
     expect(settings().sandbox).toMatchObject(CARD_SESSION_SANDBOX)
@@ -195,6 +226,146 @@ describe('the browser lab exclusion a card session takes from the settings of it
     holdSettings('settings.local.json', [entry])
     const built = settings()
     expect(JSON.parse(settingsFlag(built).at(-1)!)).toEqual(built)
+  })
+
+  it('a granted card excluded for the lab keeps both its grant and the lab protection', () => {
+    holdSettings('settings.json', [entry])
+    const [grant] = CARD_GRANTS
+    const built = shiftSettings(tree, GATE, [], home, grant!.card)
+    expect({ excluded: built.sandbox.excludedCommands, domains: built.sandbox.network.allowedDomains, allow: built.permissions.allow.slice(-grant!.allow.length), deny: built.permissions.deny?.length, filesystem: built.sandbox.filesystem }).toEqual({ excluded: [entry, ...grant!.excludedCommands], domains: [...grant!.domains], allow: [...grant!.allow], deny: 2, filesystem: { allowWrite: [path.join(home, '.codex')], denyWrite: [path.join(tree, 'scripts', 'construct', 'browser-lab.mjs'), path.join(home, '.construct', 'browser-lab')] } })
+  })
+})
+
+describe('a card granted by an owner decision gets exactly its grant and no other card gets any', () => {
+  const GATE: ShiftGate = { prepush: ['pnpm run quality'], handoffWrite: null, codeMatrix: null }
+  const GRANTED = 2156
+  const CODEX_HOSTS = ['api.openai.com', 'chatgpt.com', 'auth.openai.com']
+  let scratch = ''
+  let home = ''
+
+  beforeEach(() => {
+    scratch = mkdtempSync(path.join(tmpdir(), 'construct-shift-grant-'))
+    home = path.join(scratch, 'home')
+  })
+
+  afterEach(() => {
+    plantedGrants.rows = []
+    rmSync(scratch, { recursive: true, force: true })
+  })
+
+  const PLANTED = 9901
+
+  function plantedRow(excludedCommands: string[]): CardGrant {
+    return { card: PLANTED, decision: 'D-0', allow: [], domains: [], homeWrites: [], excludedCommands }
+  }
+
+  function plainOf(tree: string): ShiftSettings {
+    return { sandbox: CARD_SESSION_SANDBOX, permissions: { allow: ['Bash(pnpm run quality)', `Edit(/${tree}/**)`] }, env: SESSION_BASH_CAP, hooks: WIDE_VITEST_HOOKS }
+  }
+
+  it('card #2156 gets codex, mkdir and git init of its fixed scratch directory, Write and Edit inside it, the Codex API and sign-in hosts and ~/.codex by D-705, and nothing else', () => {
+    const tree = path.join(scratch, 'worktrees', String(GRANTED))
+    const uid = userInfo().uid
+    const probe = `/tmp/claude-${uid}/codex-live-hooks`
+    const resolved = `/private/tmp/claude-${uid}/codex-live-hooks`
+    expect(GRANT_SCRATCH_DIRECTORY).toBe(probe)
+    expect(shiftSettings(tree, GATE, [], home)).toStrictEqual({
+      sandbox: { ...CARD_SESSION_SANDBOX, network: { ...CARD_SESSION_SANDBOX.network, allowedDomains: CODEX_HOSTS }, excludedCommands: ['codex exec *'], filesystem: { allowWrite: [path.join(home, '.codex')] } },
+      permissions: { allow: ['Bash(pnpm run quality)', `Edit(/${tree}/**)`, 'Bash(codex *)', `Bash(mkdir -p ${probe})`, `Bash(mkdir ${probe})`, `Bash(git init ${probe})`, `Write(/${probe}/**)`, `Edit(/${probe}/**)`, `Write(/${resolved}/**)`, `Edit(/${resolved}/**)`] },
+      env: SESSION_BASH_CAP,
+      hooks: WIDE_VITEST_HOOKS,
+    })
+    expect(grantOf(GRANTED)?.decision).toBe('D-705')
+  })
+
+  it('every other card, a tree that names no card and an explicit null get the layer with no network and no extra rule', () => {
+    const others = [String(GRANTED - 1), String(GRANTED + 1), `x${GRANTED}`, `${GRANTED}-copy`, 'construct-shift-tree']
+    const built = others.map(name => path.join(scratch, name)).map(tree => ({ got: shiftSettings(tree, GATE, [], home), plain: plainOf(tree) }))
+    const forced = path.join(scratch, String(GRANTED))
+    expect(built.map(({ got }) => got)).toStrictEqual(built.map(({ plain }) => plain))
+    expect(shiftSettings(forced, GATE, [], home, null)).toStrictEqual(plainOf(forced))
+  })
+
+  it('card #2156 runs codex exec outside the sandbox by D-765 and no other card excludes anything', () => {
+    const granted = shiftSettings(path.join(scratch, String(GRANTED)), GATE, [], home)
+    const others = [GRANTED - 1, GRANTED + 1, null].map(card => shiftSettings(path.join(scratch, String(GRANTED)), GATE, [], home, card))
+    expect(granted.sandbox.excludedCommands).toEqual(['codex exec *'])
+    expect(JSON.parse(settingsFlag(granted).at(-1)!).sandbox.excludedCommands).toEqual(['codex exec *'])
+    expect(granted.sandbox).toMatchObject({ allowUnsandboxedCommands: false })
+    expect(others.map(built => built.sandbox.excludedCommands)).toEqual([undefined, undefined, undefined])
+    expect(CARD_GRANTS.filter(grant => grant.excludedCommands.length > 0).map(grant => ({ card: grant.card, excluded: grant.excludedCommands }))).toEqual([{ card: GRANTED, excluded: ['codex exec *'] }])
+  })
+
+  it('a granted exclusion and an installed daemon both reach excludedCommands', () => {
+    const tree = path.join(scratch, 'worktrees', String(GRANTED))
+    const entry = browserLabExcludedCommand(home)
+    mkdirSync(path.join(tree, '.claude'), { recursive: true })
+    writeFileSync(path.join(tree, '.claude', 'settings.local.json'), JSON.stringify({ sandbox: { excludedCommands: [entry, 'codex exec *'] } }))
+    mkdirSync(path.dirname(browserLabInstalledScript(home)), { recursive: true })
+    writeFileSync(browserLabInstalledScript(home), '')
+    const built = shiftSettings(tree, GATE, [], home)
+    const other = shiftSettings(tree, GATE, [], home, GRANTED + 1)
+    expect({ granted: built.sandbox.excludedCommands, other: other.sandbox.excludedCommands }).toEqual({ granted: [entry, 'codex exec *'], other: [entry] })
+    expect(built.permissions.allow).toContain(allowRule(entry))
+  })
+
+  it('a granted exclusion equal to an installed daemon command reaches excludedCommands once', () => {
+    const tree = path.join(scratch, 'worktrees', String(PLANTED))
+    const entry = browserLabExcludedCommand(home)
+    mkdirSync(path.join(tree, '.claude'), { recursive: true })
+    writeFileSync(path.join(tree, '.claude', 'settings.local.json'), JSON.stringify({ sandbox: { excludedCommands: [entry] } }))
+    mkdirSync(path.dirname(browserLabInstalledScript(home)), { recursive: true })
+    writeFileSync(browserLabInstalledScript(home), '')
+    plantedGrants.rows = [plantedRow([entry])]
+    const built = shiftSettings(tree, GATE, [], home)
+    expect(built.sandbox.excludedCommands).toEqual([entry])
+    expect(JSON.parse(settingsFlag(built).at(-1)!).sandbox.excludedCommands).toEqual([entry])
+  })
+
+  it('a granted row with no excluded command leaves the sandbox with no excludedCommands key', () => {
+    const tree = path.join(scratch, 'worktrees', String(PLANTED))
+    plantedGrants.rows = [plantedRow([])]
+    const { sandbox } = shiftSettings(tree, GATE, [], home)
+    expect(Object.hasOwn(sandbox, 'excludedCommands')).toBe(false)
+    expect(sandbox).toStrictEqual({ ...CARD_SESSION_SANDBOX, network: { ...CARD_SESSION_SANDBOX.network, allowedDomains: [] } })
+  })
+
+  it('the card is read from the tree name the bus gives it, in either home', () => {
+    expect([`/bus/worktrees/${GRANTED}`, `/home/mc-${GRANTED}`, `/bus/worktrees/${GRANTED}/`, '/bus/worktrees/mc-x', `/bus/worktrees/${GRANTED}.bak`].map(cardOfTree)).toEqual([GRANTED, GRANTED, GRANTED, null, null])
+  })
+
+  it('the grant reaches the session through the --settings flag', () => {
+    const built = shiftSettings(path.join(scratch, String(GRANTED)), GATE, [], home)
+    expect(JSON.parse(settingsFlag(built).at(-1)!).sandbox.network.allowedDomains).toEqual(CODEX_HOSTS)
+  })
+
+  it('card 2156 grant carries the ChatGPT login hosts and no other card gets them', () => {
+    const LOGIN_HOSTS = ['chatgpt.com', 'auth.openai.com']
+    const granted = shiftSettings(path.join(scratch, String(GRANTED)), GATE, [], home)
+    const others = [GRANTED - 1, GRANTED + 1, null].map(card => shiftSettings(path.join(scratch, String(GRANTED)), GATE, [], home, card))
+    const hostsOf = (built: ShiftSettings): string[] => built.sandbox.network.allowedDomains ?? []
+    expect(LOGIN_HOSTS.every(host => hostsOf(granted).includes(host))).toBe(true)
+    expect(hostsOf(granted)).toContain('api.openai.com')
+    expect(others.map(built => ({ hosts: hostsOf(built), filesystem: built.sandbox.filesystem }))).toEqual([{ hosts: [], filesystem: undefined }, { hosts: [], filesystem: undefined }, { hosts: [], filesystem: undefined }])
+  })
+
+  it('every row of the table names one card once, an owner decision, Bash rules and file rules confined to its scratch directory only, and bare host names', () => {
+    const confined = (rule: string): boolean => {
+      const file = /^(?:Write|Edit)\(\/(\/.+)\)$/.exec(rule)?.[1]
+      if (file === undefined || file.split('/').includes('..'))
+        return false
+      return GRANT_SCRATCH_SPELLINGS.some(scratch => file.startsWith(`${scratch}/`))
+    }
+    const cards = CARD_GRANTS.map(grant => grant.card)
+    const rows = CARD_GRANTS.map(grant => ({
+      decision: /^D-\d+$/.test(grant.decision),
+      rules: grant.allow.every(rule => /^Bash\(.+\)$/.test(rule) || confined(rule)),
+      hosts: grant.domains.every(host => /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(host)),
+      homeWrites: grant.homeWrites.every(entry => entry !== '' && !path.isAbsolute(entry) && !entry.split('/').includes('..')),
+      excluded: grant.excludedCommands.every(command => command.trim() === command && command !== ''),
+    }))
+    expect(new Set(cards).size).toBe(cards.length)
+    expect(rows.every(row => row.decision && row.rules && row.hosts && row.homeWrites && row.excluded)).toBe(true)
   })
 })
 

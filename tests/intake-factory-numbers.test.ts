@@ -5,7 +5,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { BUS_CONTRACT } from '../scripts/core/bus-adapter.js'
 import { appendCardEvent } from '../scripts/core/card-bodies.js'
+import { closedWaitIds } from '../scripts/core/card-readings.js'
 import { openBus } from '../scripts/core/db.js'
 import { reduce } from '../scripts/core/reducer.js'
 import { busHeldCards, busIntakePorts } from '../scripts/intake/intake.js'
@@ -48,7 +50,7 @@ function admitInto(db: DatabaseSync, cardId: number): void {
   const parsed = parseParkingFile(`${cardId}.md`, text)
   if (parsed.kind === 'refused')
     throw new Error(parsed.reason)
-  appendCardEvent(db, 'worker:intake:test', admittedRecord({ id: cardId, file: `${cardId}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', NOW))
+  appendCardEvent(BUS_CONTRACT, db, 'worker:intake:test', admittedRecord({ id: cardId, file: `${cardId}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', NOW))
   reduce(db, 'pending', busProjections())
 }
 
@@ -140,7 +142,7 @@ describe('a recorded foreign id does not move the row of the factory', () => {
     recordForeign(db, FOREIGN_ROW)
     const pull = { state: 'open', head: { ref: `feat/card-${B_MAX}` }, base: { ref: 'main' }, body: `#${B_MAX} a-card [implement/netwatch/M/cheap/auto] · depends — · blocks —` }
     const gitHub: GitHub = endpoint => answered(endpoint.includes('/issues?') ? [{ number: OWN_MAX_OUTSIDE }] : pull)
-    const recutter = new RoundLimitRecutter({ db, gitHub, post: () => answered({ number: OWN_NEXT + 1 }, 201), patch: () => answered({}), clock: () => NOW, cardStates: () => busHeldCards(db) })
+    const recutter = new RoundLimitRecutter({ db, gitHub, post: () => answered({ number: OWN_NEXT + 1 }, 201), patch: () => answered({}), clock: () => NOW, cardStates: () => busHeldCards(db), closedWaits: () => closedWaitIds(db) })
 
     const outcome = recutter.recut({ cardId: B_MAX, pr: B_PR, head: 'b'.repeat(40), findings: [`${GOAL_FILE}:planLine prints the wrong count`] })
 
@@ -215,7 +217,7 @@ describe('a card number comes from the factory it is admitted into', () => {
     const gitHub: GitHub = endpoint => answered(endpoint.includes('/issues?') ? [{ number: B_PR }] : pull)
     const post: GitHubPut = () => answered({ number: B_PR + 1 }, 201)
     const patch: GitHubPut = () => answered({})
-    const recutter = new RoundLimitRecutter({ db: b, gitHub, post, patch, clock: () => NOW, cardStates: () => busHeldCards(b) })
+    const recutter = new RoundLimitRecutter({ db: b, gitHub, post, patch, clock: () => NOW, cardStates: () => busHeldCards(b), closedWaits: () => closedWaitIds(b) })
 
     const outcome = recutter.recut({ cardId: B_MAX, pr: B_PR, head: 'b'.repeat(40), findings: [`${GOAL_FILE}:planLine prints the wrong count`] })
 

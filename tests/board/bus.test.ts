@@ -1,24 +1,24 @@
-import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../scripts/core/lease.js'
 import type { NodeStep } from '../../scripts/core/node.js'
-import type { BusFacts, BusReading } from '../../src/commands/board/bus.js'
+import type { BoardBus, BusFacts, BusReading } from '../../src/commands/board/bus.js'
 import type { BusSeed, SeedBeat, SeedCard, SeedEvent } from './bus-fixture.js'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
-import { openBus } from '../../scripts/core/db.js'
 import { PROCESS_HEARTBEAT } from '../../scripts/core/events.js'
 import { ANSWER_SOURCE } from '../../scripts/core/inbox.js'
 import { Node } from '../../scripts/core/node.js'
 import { reduce } from '../../scripts/core/reducer.js'
 import { busCardEvents } from '../../scripts/intake/intake.js'
 import { sayToOwnerChannel } from '../../scripts/owner/channel.js'
-import { busProjections, nodeSupply } from '../../scripts/supervisor/composition.js'
+import { busProjections, nodeSupply, openComposedBus } from '../../scripts/supervisor/composition.js'
 import { SILENT_MS } from '../../scripts/supervisor/liveness-sites.js'
 import { slotsVariable } from '../../scripts/supervisor/scheduler.js'
 import { requestFromWindow, WindowRequests } from '../../scripts/window/window-requests.js'
 import { busReaderAt, latestCardEvents, openTasks, SESSION_SHOWN_MINUTES, SUBAGENT_SHOWN_HOURS } from '../../src/commands/board/bus.js'
+import { BOARD_BUS } from '../../src/commands/board/index.js'
 import { flowLines } from '../../src/commands/board/screens.js'
 import { withReadOnlyBus } from '../../src/commands/cost/bus.js'
 import { runAdmit } from '../../src/commands/intake/admit.js'
@@ -53,7 +53,7 @@ function scratch(): string {
 }
 
 function read(seed: BusSeed): BusReading {
-  return busReaderAt(writeBus(path.join(scratch(), 'bus.db'), seed), () => NOW)()
+  return busReaderAt(writeBus(path.join(scratch(), 'bus.db'), seed), () => NOW)(BOARD_BUS)
 }
 
 function facts(seed: BusSeed): BusFacts {
@@ -119,7 +119,7 @@ describe('the board bus reader', () => {
 
   it('a wait the window opened shows on the board until it is closed', () => {
     const file = path.join(scratch(), 'bus.db')
-    const db = openBus(file)
+    const db = openComposedBus(file)
     const clock = (): Date => NOW
     const refusing = (): never => {
       throw new Error('not used by an owner wait')
@@ -128,7 +128,7 @@ describe('the board bus reader', () => {
     const requests = new WindowRequests(db, clock, { treeOf: refusing, exists: refusing, cutTree: refusing, dryRunOf: refusing, addDecision: refusing, causeHolds: refusing, closePr: refusing, closeDropped: () => [] }, channel)
     const board = busReaderAt(file, clock)
     const waitsOnTheBoard = (): BusFacts['waits'] => {
-      const reading = board()
+      const reading = board(BOARD_BUS)
       return reading.status === 'read' ? reading.facts.waits : []
     }
     try {
@@ -329,7 +329,7 @@ describe('the board bus reader', () => {
 
   it('the slot total of a queue is what the last real node tick beat into the heartbeat table', async () => {
     const busFile = path.join(scratch(), 'bus.db')
-    const db = openBus(busFile)
+    const db = openComposedBus(busFile)
     try {
       for (const [beatAt, slots] of [[ago(2 * 60_000), '2'], [ago(60_000), '3']] as const) {
         const controller = new AbortController()
@@ -340,7 +340,7 @@ describe('the board bus reader', () => {
     finally {
       db.close()
     }
-    const reading = busReaderAt(busFile, () => NOW)()
+    const reading = busReaderAt(busFile, () => NOW)(BOARD_BUS)
     if (reading.status !== 'read')
       throw new Error(`the bus was ${reading.status}`)
     expect(reading.facts.slots).toEqual([{ queue: 'merge', used: 0, total: 3 }])
@@ -355,7 +355,7 @@ describe('the board bus reader', () => {
     mkdirSync(path.join(root, 'repo', 'src'), { recursive: true })
     writeFileSync(path.join(root, 'repo', 'src', 'a.ts'), '')
     const busFile = path.join(root, 'bus.db')
-    const db = openBus(busFile)
+    const db = openComposedBus(busFile)
     try {
       const events = busCardEvents(db, 'by-hand')
       expect(runAdmit({ file, dir: path.join(root, 'repo'), dryRun: false, autoConfirm: true, parkingRoot: parking, events }, () => NOW).status).toBe('admitted')
@@ -365,7 +365,7 @@ describe('the board bus reader', () => {
     finally {
       db.close()
     }
-    const reading = busReaderAt(busFile, () => NOW)()
+    const reading = busReaderAt(busFile, () => NOW)(BOARD_BUS)
     if (reading.status !== 'read')
       throw new Error(`the bus was ${reading.status}`)
     expect(reading.facts.cards).toMatchObject([{ id: 1425, state: 'dropped', stage: 'dropped', lane: null }])
@@ -374,15 +374,44 @@ describe('the board bus reader', () => {
   it('reports a missing file as absent and a file it cannot query as unreadable, with the reason', () => {
     const dir = scratch()
     const missing = path.join(dir, 'missing.db')
-    expect(busReaderAt(missing)()).toEqual({ status: 'absent', file: missing })
+    expect(busReaderAt(missing)(BOARD_BUS)).toEqual({ status: 'absent', file: missing })
     const garbage = path.join(dir, 'garbage.db')
     writeFileSync(garbage, 'this is not a database')
-    const reading = busReaderAt(garbage)()
+    const reading = busReaderAt(garbage)(BOARD_BUS)
     expect(reading).toMatchObject({ status: 'unreadable', file: garbage })
     expect(reading.status === 'unreadable' && reading.reason).toMatch(/\S/)
     const empty = writeBus(path.join(dir, 'empty.db'), {})
     writeFileSync(empty, '')
-    expect(busReaderAt(empty)()).toMatchObject({ status: 'unreadable', file: empty })
+    expect(busReaderAt(empty)(BOARD_BUS)).toMatchObject({ status: 'unreadable', file: empty })
+  })
+
+  it('the in-order mark the root hands the reader finds the bus watermark, so a bus reduced through its last event shows no reducer lag', () => {
+    const reduced = facts({ events: [{ ts: ago(HOUR), type: 'card.fell', card: 7, payload: '{}' }] })
+    expect(reduced.panel?.lastEvent).not.toBeNull()
+    expect(reduced.panel?.reducerLag).toBe(0)
+  })
+
+  it('reaches the bus only through the contract it is handed: an absent bus is never opened, a present one is read once through the contract', () => {
+    const nowhere = path.join(scratch(), 'nowhere', 'bus.db')
+    const opened: string[] = []
+    const handed = (exists: boolean): BoardBus => ({
+      ...BOARD_BUS,
+      exists: () => exists,
+      readOnly: (file, read) => {
+        opened.push(file)
+        const db = new DatabaseSync(':memory:')
+        try {
+          return read(db)
+        }
+        finally {
+          db.close()
+        }
+      },
+    })
+    expect(busReaderAt(nowhere)(handed(false))).toEqual({ status: 'absent', file: nowhere })
+    expect(opened).toEqual([])
+    expect(busReaderAt(nowhere)(handed(true))).toMatchObject({ status: 'unreadable', file: nowhere })
+    expect(opened).toEqual([nowhere])
   })
 
   it('lists the queued and leased tasks only, and the latest events of each card up to the limit, oldest first', () => {

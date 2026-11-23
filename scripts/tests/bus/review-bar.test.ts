@@ -7,6 +7,7 @@ import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
 import { RISK_LEVELS } from '../../../src/card/risk.js'
 import { cardRiskOf } from '../../../src/commands/intake/check.js'
 import { admittedRecord } from '../../../src/commands/intake/index.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { appendCardEvent } from '../../core/card-bodies.js'
 import { REVIEW_RECORDED } from '../../core/events.js'
 import { RATCHET_FILE } from '../../core/generated-files.js'
@@ -77,7 +78,7 @@ async function recordedThroughTheWorker(touches: readonly string[] | null, findi
     const parsed = parseParkingFile(`${REVIEWED_CARD}.md`, text)
     if (parsed.kind === 'refused')
       throw new Error(parsed.reason)
-    appendCardEvent(bench.db, 'worker:intake:test', admittedRecord({ id: REVIEWED_CARD, file: `${REVIEWED_CARD}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now()))
+    appendCardEvent(BUS_CONTRACT, bench.db, 'worker:intake:test', admittedRecord({ id: REVIEWED_CARD, file: `${REVIEWED_CARD}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now()))
     bench.tick()
   }
   const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, reviewer: async () => ({ verdict: 'changes', findings, survivingMutations, session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: bench.clock.now, session: 'worker-1', ...(tails === null ? {} : { tail: { file: (tail: Tail) => tails.push(tail) } }) })

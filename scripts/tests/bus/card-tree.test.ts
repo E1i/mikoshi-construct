@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, POLICY_DENIED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { importJournal } from '../../intake/import.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
@@ -112,7 +113,7 @@ async function roundInRecreatedTree(treeOf: (root: string) => string, start: (be
   }
   const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, answerer, ownerMerges: () => '', clock: bench.clock.now, trees })
 
-  const outcome = await executor.answer(leaseNext(bench.db, bench.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!)
+  const outcome = await executor.answer(leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!)
 
   expect(outcome).toMatchObject({ kind: 'answered', ...session })
   expect(recreated).toEqual([tree])
@@ -157,7 +158,7 @@ async function roundInAnExistingTree(prepare: (tree: string) => void) {
   })
   const trees = { ...gitCardTrees(repo, path.join(root, 'worktrees'), () => {}), branchOf: () => BRANCH }
   const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, answerer, ownerMerges: () => '', clock: bench.clock.now, trees })
-  const outcome = await executor.answer(leaseNext(bench.db, bench.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!)
+  const outcome = await executor.answer(leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!)
   return {
     tree,
     behind,
@@ -274,7 +275,7 @@ describe('the card tree', () => {
       },
     }
     const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, answerer, ownerMerges: () => '', clock: bench.clock.now, trees })
-    const outcome = await executor.answer(leaseNext(bench.db, bench.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!)
+    const outcome = await executor.answer(leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!)
     expect(outcome).toMatchObject({ kind: 'answered' })
     expect(recreated).toEqual([])
     expect(runs.map(run => run.cwd)).toEqual([tree])

@@ -13,6 +13,7 @@ import { BOARD_ALARM, CHILD_ENDED, SIGNAL_SENT, TASK_COMPLETED, TASK_EXPIRED, TA
 import { aliveBy, leaseHandedOver } from '../../../core/handover.js'
 import { completeTask, expireLeases, HOLDER_DEAD, HOLDER_UNPROVEN, judgeHolders, LEASE_MS, leaseNext, recordWorkerStarted, renewedByTheSupervisorFor, RESTART_CUT } from '../../../core/lease.js'
 import { ChildLog, eventsIn, INSTANCE_VARIABLE, recordChildStarted } from '../../../core/node.js'
+import { all as pullRequests } from '../../../core/pr-readings.js'
 import { queueTask } from '../../../core/queue.js'
 import { BusRead } from '../../../ports/bus-read.js'
 import { OsProcessTable } from '../../../ports/process-table.js'
@@ -153,8 +154,8 @@ class World {
     const ts = this.clock.ts()
     expect(expireLeases(this.db, cardTransitions(), ts, SILENT_MS), 'no timer frees the lease of a live executor').toEqual([])
     const alive = aliveBy(tableIdentity(table))
-    expect(leaseHandedOver(this.db, eventsIn(this.db), ts, 'answer', NEXT, undefined, alive), 'no new lease on the task').toBeNull()
-    expect(leaseHandedOver(this.db, eventsIn(this.db), ts, 'launch', LAUNCH, undefined, alive), 'no new lease on the card tree').toBeNull()
+    expect(leaseHandedOver(this.db, pullRequests(this.db), eventsIn(this.db), ts, 'answer', NEXT, undefined, alive), 'no new lease on the task').toBeNull()
+    expect(leaseHandedOver(this.db, pullRequests(this.db), eventsIn(this.db), ts, 'launch', LAUNCH, undefined, alive), 'no new lease on the card tree').toBeNull()
   }
 }
 
@@ -171,7 +172,7 @@ describe('k7: the lease follows the executor over a recorded process table', () 
     const at = (ms: number): string => new Date(T0 + ms).toISOString()
     queueTask(db, at(0), { queue: 'answer', cardId: CARD })
     recordWorkerStarted(db, at(0), PARENT, { pid: HOLDER.pid, started: HOLDER.lstart })
-    const { taskKey } = leaseNext(db, at(0), 'answer', PARENT)!
+    const { taskKey } = leaseNext(db, pullRequests(db), at(0), 'answer', PARENT)!
     expect(recordChildStarted(db, at(1_000), PARENT, { mode: 'child', instance: 'k7', generation: 'g', pid: EXECUTOR.pid, pgid: EXECUTOR.pid, lstart: EXECUTOR.lstart, kind: 'answer', taskKey, tree: '/trees/1912' })).toBe(true)
     return { db, at, key: taskKey }
   }
@@ -211,7 +212,7 @@ describe('k7: the lease follows the executor over a recorded process table', () 
     expect(read.slice(CHILD_ENDED, ['pid', 'exit', 'signal', 'task_key']).map(each => each.fields)).toEqual([{ pid: EXECUTOR.pid, exit: null, signal: 'SIGTERM', task_key: key }])
     expect(read.slice(TASK_RELEASED, ['reason']).map(each => each.fields.reason)).toEqual([RESTART_CUT])
     expect(read.slice(TASK_EXPIRED, ['task_key'])).toEqual([])
-    expect(leaseNext(db, at(4_000), 'answer', NEXT)).toMatchObject({ taskKey: key, actor: NEXT })
+    expect(leaseNext(db, pullRequests(db), at(4_000), 'answer', NEXT)).toMatchObject({ taskKey: key, actor: NEXT })
   })
 })
 
@@ -221,7 +222,7 @@ describe('k7 [needs ps]: scenario 12, the lease follows the executor', () => {
     const task = { queue: 'answer' as const, cardId: CARD }
     queueTask(world.db, world.clock.ts(), task)
     const parent = await world.parentWorker()
-    const lease = leaseNext(world.db, world.clock.ts(), 'answer', PARENT)!
+    const lease = leaseNext(world.db, pullRequests(world.db), world.clock.ts(), 'answer', PARENT)!
     expect(lease).toMatchObject({ cardId: CARD, actor: PARENT })
     const session = await world.session(lease.taskKey)
     const sessionPid = session.child.pid!
@@ -256,7 +257,7 @@ describe('k7 [needs ps]: scenario 12, the lease follows the executor', () => {
     expect(world.count(TASK_EXPIRED)).toBe(0)
 
     await world.judged()
-    const next = leaseNext(world.db, world.clock.ts(), 'answer', NEXT)
+    const next = leaseNext(world.db, pullRequests(world.db), world.clock.ts(), 'answer', NEXT)
     expect(next, 'the task is leased again only once its executor is proven ended').toMatchObject({ taskKey: lease.taskKey, actor: NEXT })
     completeTask(world.db, cardTransitions(), world.clock.ts(), next!, [])
 

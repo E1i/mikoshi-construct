@@ -7,6 +7,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { bodySha } from '../../../src/commands/intake/confirm.js'
 import { runMove } from '../../../src/commands/intake/move.js'
 import { plannedStallLines } from '../../cli/board-warnings.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { latestAssignment } from '../../core/bus-readings.js'
 import { DEFERRED_CARD, unsatisfiedDependencies } from '../../core/card-automaton.js'
 import { appendEvent, openBus } from '../../core/db.js'
@@ -16,7 +17,7 @@ import { queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardEvents } from '../../intake/intake.js'
 import { assignMovedLane, laneOverlapRecorder, LAUNCH_LOG_PREFIX, layLanes, liveLanes, SkipLog } from '../../nodes/launch/lane-assign.js'
-import { launchCandidates } from '../../nodes/launch/launch-candidates.js'
+import { dependencyReadings, launchCandidates } from '../../nodes/launch/launch-candidates.js'
 import { busProjections } from '../../supervisor/composition.js'
 
 const TS = '2026-11-05T10:00:00.000Z'
@@ -144,7 +145,7 @@ describe('a move to later defers the card', () => {
     const bench = new Bench().admit(1).admit(2, 'src/card-2.ts', [1])
     bench.move(1, DEFERRED_TARGET)
     expect(bench.state(1)).toBe(DEFERRED_CARD)
-    expect(unsatisfiedDependencies(bench.db)([1])).toEqual([1])
+    expect(unsatisfiedDependencies(BUS_CONTRACT, bench.db, dependencyReadings(bench.db))([1])).toEqual([1])
     expect(bench.candidates()).toEqual([])
     expect(latestAssignment(bench.db, 2)?.reason).toBe('chain')
     layLanes(bench.db, LANES, TS, 'policy', null, [])

@@ -11,6 +11,7 @@ import process from 'node:process'
 import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { BUS_DB_VARIABLE, busDirOf } from '../../core/bus-path.js'
 import { factoryMode } from '../../core/card-bodies.js'
 import { appendEvent, openBus } from '../../core/db.js'
@@ -18,6 +19,7 @@ import { BOARD_ALARM, BUS_PULSE, CARD_ADMITTED, CARD_DROPPED, CARD_STOPPED, OWNE
 import { prBodySha, taskKey } from '../../core/identifiers.js'
 import { ownerInbox } from '../../core/inbox.js'
 import { failTask, leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { FAILURES_TO_STOP, queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { launchableCard } from '../../nodes/launch/launch-candidates.js'
@@ -31,7 +33,6 @@ import { decisionsAdder } from '../../policy/decisions/projection.js'
 import { roundLimitDecisionOf } from '../../policy/round-limit-decision.js'
 import { decisionsInForceAt } from '../../policy/shards.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
-import { NetWatch } from '../../ports/netwatch.js'
 import { WORKTREE_HOME_VARIABLE } from '../../ports/worktree-home.js'
 import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
@@ -41,6 +42,7 @@ import { countLineAppender, realRequestTools, worktreesHolding } from '../../win
 import { ALLOW_MERGE_RECORD, ANSWER_SOURCE, pendingRequests, PREFIX, REQUEST_KINDS, REQUEST_RULE, requestFromWindow, runRequest, USAGE, WindowRequests } from '../../window/window-requests.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
+import { benchNetWatch } from './net-watch-bench.js'
 
 const PR = 970
 const CARD = PR + 100
@@ -201,7 +203,7 @@ function alarmedAnswer(made: Room): string {
 function failThrice(made: Room): void {
   const { bench } = made
   for (let failure = 0; failure < FAILURES_TO_STOP; failure += 1) {
-    const lease = leaseNext(bench.db, bench.clock.now().toISOString(), 'answer', 'worker:answer:answer-1')!
+    const lease = leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'answer', 'worker:answer:answer-1')!
     failTask(bench.db, cardTransitions(), bench.clock.now().toISOString(), lease, { reason: 'answer_failed', withdraw: false }, SILENT_MS)
   }
 }
@@ -235,7 +237,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:${CARD}`, payload: { card: `#${CARD}`, lane: 'lane-1', text, textSha: textSha(text) }, legacy: false })
     const request = ask(made, { kind: 'tree.cut', card: CARD })
     const outcomes: unknown[] = []
-    const busTick = new BusTick(bench.db, busProjections(), new NetWatch(bench.db, bench.gitHub.client, bench.clock.now), bench.clock.now, () => outcomes.push(...made.requests().run()))
+    const busTick = new BusTick(bench.db, busProjections(), benchNetWatch(bench.db, bench.gitHub.client, bench.clock.now), bench.clock.now, () => outcomes.push(...made.requests().run()))
 
     expect(busTick.run()?.poll.kind).toBe('ticked')
     expect(outcomes).toEqual([{ kind: 'done', request, detail: `cut ${path.join(made.root, 'worktrees', `mc-${CARD}`)} on feat/card-${CARD}` }])
@@ -354,7 +356,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
       stop: () => {},
     }
     const executor = new LaunchExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
-    const launchNext = (): LaunchOutcome => executor.launch(leaseNext(bench.db, bench.clock.now().toISOString(), 'launch', 'worker:launch:worker-1')!)
+    const launchNext = (): LaunchOutcome => executor.launch(leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'launch', 'worker:launch:worker-1')!)
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}` }, legacy: false })
     bench.tick()
     const key = taskKey({ queue: 'launch', cardId, generation: `admission-${cardId}` })
@@ -403,7 +405,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     bench.tick()
     const key = taskKey({ queue: 'launch', cardId, generation: `admission-${cardId}` })
     for (let failure = 0; failure < FAILURES_TO_STOP; failure += 1)
-      executor.launch(leaseNext(bench.db, bench.clock.now().toISOString(), 'launch', 'worker:launch:worker-1')!)
+      executor.launch(leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'launch', 'worker:launch:worker-1')!)
     bench.tick()
     expect(taskState(bench.db, key).state).toBe('stopped')
     const { causeHolds } = realRequestTools(bench.db, bench.busPath, repo, { [WORKTREE_HOME_VARIABLE]: home }, busProjections())
@@ -711,11 +713,11 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
   it('a mode request switches the factory mode once the bus answers it, and window is the mode before any', () => {
     const made = room()
     const lines: string[] = []
-    expect(factoryMode(made.bench.db)).toBe('window')
+    expect(factoryMode(BUS_CONTRACT, made.bench.db)).toBe('window')
     expect(runRequest(['mode', '--set', 'parallel'], made.bench.db, made.bench.clock.now(), SESSION, line => lines.push(line))).toBe(0)
-    expect(factoryMode(made.bench.db)).toBe('window')
+    expect(factoryMode(BUS_CONTRACT, made.bench.db)).toBe('window')
     expect(made.requests().run()).toMatchObject([{ kind: 'done', detail: 'the factory mode is parallel' }])
-    expect(factoryMode(made.bench.db)).toBe('parallel')
+    expect(factoryMode(BUS_CONTRACT, made.bench.db)).toBe('parallel')
     expect(runRequest(['mode', '--set', 'fast'], made.bench.db, made.bench.clock.now(), SESSION, line => lines.push(line))).toBe(2)
   })
 

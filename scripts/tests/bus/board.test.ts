@@ -8,7 +8,7 @@ import { DatabaseSync } from 'node:sqlite'
 import vm from 'node:vm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
-import { busFacts } from '../../../src/commands/board/bus.js'
+import { busFacts } from '../../../src/commands/board/index.js'
 import { backlogCards } from '../../../src/commands/board/screens.js'
 import { BOARD_DATA_FILE, boardProjection, DISK_FILES, FLOW_META, printBoard, runBoardCli } from '../../cli/board-page.js'
 import { liveCardsOf } from '../../cli/board-page/live-cards.js'
@@ -16,6 +16,7 @@ import { TICK_MS } from '../../core/cadence.js'
 import { DROPPED_LANE, MERGED_CARD } from '../../core/card-automaton.js'
 import { observeChain } from '../../core/chain.js'
 import { appendEvent, defaultBusPath, openBus } from '../../core/db.js'
+import { byId } from '../../core/events-query.js'
 import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_PLANNED, CARD_STARTED, CARD_STOPPED, MERGE_DONE, PLAN_CLOSED, PLAN_OPENED, RESTARTED, SHARD_ISSUED, SHARD_REVOKED } from '../../core/events.js'
 import { OWNER, RESTART_MISSED } from '../../core/inbox.js'
 import { completeTask, leaseNext, leaseWhileFree } from '../../core/lease.js'
@@ -28,8 +29,7 @@ import { answerLeaseOrder } from '../../nodes/answer/answer-worker.js'
 import { busReviewPulse } from '../../nodes/review/review-worker.js'
 import { RECUT_ACTOR } from '../../policy/round-limit-decision.js'
 import { windowShardEnded } from '../../policy/shards.js'
-import { NetWatch } from '../../ports/netwatch.js'
-import { busProjections, cardTransitions } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions, pullRequests } from '../../supervisor/composition.js'
 import { busSessionPulse, recordHeartbeat, recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
 import { BusTick } from '../../supervisor/run.js'
 import { recordJudged } from '../../supervisor/supervisor.js'
@@ -38,6 +38,7 @@ import { stateLines } from '../../window/handoff-write.js'
 import { foldPlanEvent } from '../../window/plan-folds.js'
 import { recordWindowHeartbeat } from '../../window/window-heartbeat.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
+import { benchNetWatch } from './net-watch-bench.js'
 import { detectReview } from './review-detection.js'
 
 const REVIEW_PID = 4242
@@ -82,11 +83,11 @@ function boardBench(): BoardBench {
   const gitHub = new FakeGitHub()
   const clock = new Clock()
   const bench: BoardBench = { db, gitHub, clock, watched: [reviewWorker(REVIEW_PID)], leaseOrders: {}, boards: [], tick: () => bench.boards.at(-1)!, ts: () => clock.now().toISOString() }
-  const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now)
+  const busTick = new BusTick(db, busProjections(), benchNetWatch(db, gitHub.client, clock.now), clock.now)
   bench.tick = () => {
     const before = bench.boards.length
     busTick.run()
-    bench.boards.push(readBoard({ db, now: clock.now(), watched: bench.watched, leaseOrders: bench.leaseOrders, projections: busProjections() }))
+    bench.boards.push(readBoard({ db, now: clock.now(), watched: bench.watched, leaseOrders: bench.leaseOrders, projections: busProjections(), pulls: pullRequests(db) }))
     detectReview({ db, gitHub, clock })
     clock.advance(TICK_MS)
     expect(bench.boards.length).toBe(before + 1)
@@ -132,7 +133,7 @@ function stopCard(bench: BoardBench, cardId: number): void {
 function planEvent(bench: BoardBench, type: string, payload: Record<string, unknown>, cardId: number | null = null): void {
   const dedupeKey = `${type}:${cardId}:${JSON.stringify(payload)}`
   appendEvent(bench.db, { ts: bench.ts(), type, actor: OWNER, cardId, pr: null, head: null, dedupeKey, payload, legacy: false })
-  foldPlanEvent(bench.db, storedByKey(bench.db, dedupeKey), { owner: OWNER, recut: RECUT_ACTOR, payloadOf })
+  foldPlanEvent(bench.db, storedByKey(bench.db, dedupeKey), { owner: OWNER, recut: RECUT_ACTOR, payloadOf, actorOf: (db, event) => byId(db, event.id)?.actor ?? null })
 }
 
 function openPlan(bench: BoardBench, cards: number[]): void {
@@ -166,7 +167,7 @@ describe('the factory board', () => {
     const bench = boardBench()
     conflictingSources()
     seedProjections(bench)
-    const board = readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {}, projections: busProjections() })
+    const board = readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {}, projections: busProjections(), pulls: pullRequests(bench.db) })
     const shown = (cards: Board['ready']): string[] => cards.map(card => `${card.card} ${card.lane} ${card.wait.kind} ${card.wait.lifter} ${card.reason}`)
     expect(shown(board.ready)).toEqual([expect.stringMatching(/^861 lane-1 launch bus launch startable, the bus lifts it by /), expect.stringMatching(/^860 lane-1 launch bus /)])
     expect(shown(board.waiting)).toEqual([expect.stringMatching(/^862 lane-2 depends bus depends #860 not merged, the bus lifts it by /)])
@@ -185,7 +186,7 @@ describe('the factory board', () => {
     expect(printed.join('')).not.toContain('#999')
 
     bench.db.prepare('UPDATE cards SET state = ? WHERE card_id = ?').run('merged', 860)
-    expect(readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {}, projections: busProjections() }).waiting).toEqual([])
+    expect(readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {}, projections: busProjections(), pulls: pullRequests(bench.db) }).waiting).toEqual([])
   })
 
   function liveBusCopy(): string {
@@ -308,7 +309,7 @@ describe('the factory board', () => {
     ]
     const bench = boardBench()
     cases.forEach((each, index) => bodyRow(bench, 900 + index, each.columns))
-    const board = readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {}, projections: busProjections() })
+    const board = readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {}, projections: busProjections(), pulls: pullRequests(bench.db) })
     const found = (queue: 'ready' | 'waiting' | 'blocked'): string[] => board[queue].map(card => cases[Number(card.card) - 900]!.name)
     expect(found('ready')).toEqual(cases.filter(each => each.queue === 'ready').map(each => each.name))
     expect(found('blocked')).toEqual(['stopped without a stop event'])
@@ -322,7 +323,7 @@ describe('the factory board', () => {
     bodyRow(bench, 911, { lane: 'lane-1' })
     bodyRow(bench, 912, { lane: 'lane-2', priority: 'p0' })
     bodyRow(bench, 913, { lane: 'lane-1' })
-    expect(readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {}, projections: busProjections() }).ready.map(card => card.card)).toEqual(['912', '910', '911', '913'])
+    expect(readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {}, projections: busProjections(), pulls: pullRequests(bench.db) }).ready.map(card => card.card)).toEqual(['912', '910', '911', '913'])
   })
 
   it('the answer queue lists its leased task with holder, lease_gen and since, and its waiting tasks #849, #837, #847 in grant order', () => {
@@ -330,13 +331,13 @@ describe('the factory board', () => {
     bench.tick()
     queueTask(bench.db, bench.ts(), { queue: 'answer', cardId: 835 })
     const leasedAt = bench.ts()
-    expect(leaseNext(bench.db, leasedAt, 'answer', 'worker:answer:s1')?.cardId).toBe(835)
+    expect(leaseNext(bench.db, pullRequests(bench.db), leasedAt, 'answer', 'worker:answer:s1')?.cardId).toBe(835)
     for (const cardId of [849, 837, 847])
       queueTask(bench.db, bench.ts(), { queue: 'answer', cardId })
     const answer = bench.tick().queues.find(queue => queue.queue === 'answer')
     expect(answer?.leased).toEqual([{ taskKey: 'answer:835:-:-', card: 835, holder: 'worker:answer:s1', leaseGen: 1, since: leasedAt }])
     expect(answer?.waiting.map(task => task.card)).toEqual([849, 837, 847])
-    const granted = leaseNext(bench.db, bench.ts(), 'answer', 'worker:answer:s2')
+    const granted = leaseNext(bench.db, pullRequests(bench.db), bench.ts(), 'answer', 'worker:answer:s2')
     expect(granted?.cardId).toBe(849)
   })
 
@@ -346,7 +347,7 @@ describe('the factory board', () => {
     bench.tick()
     const cardText = (cardId: number): string => `card: #${cardId} task-${cardId} [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/${cardId}\ntouches: scripts/${cardId}/**\nwho: shift\n${cardId === 847 ? 'priority: p0\n' : ''}\ndo ${cardId}\n`
     queueTask(bench.db, bench.ts(), { queue: 'answer', cardId: 835 })
-    leaseNext(bench.db, bench.ts(), 'answer', 'worker:answer:s1', answerLeaseOrder(bench.db, cardText))
+    leaseNext(bench.db, pullRequests(bench.db), bench.ts(), 'answer', 'worker:answer:s1', answerLeaseOrder(bench.db, cardText))
     queueTask(bench.db, bench.ts(), { queue: 'answer', cardId: 835, pr: 735, head: sha('a') })
     for (const cardId of [849, 837, 847])
       queueTask(bench.db, bench.ts(), { queue: 'answer', cardId })
@@ -354,7 +355,7 @@ describe('the factory board', () => {
     const answer = bench.tick().queues.find(queue => queue.queue === 'answer')
     expect(answer?.waiting.map(task => task.card)).toEqual([847, 849, 837, 835])
     const granted: number[] = []
-    for (let lease = leaseNext(bench.db, bench.ts(), 'answer', 'worker:answer:s2', answerLeaseOrder(bench.db, cardText)); lease !== null; lease = leaseNext(bench.db, bench.ts(), 'answer', 'worker:answer:s2', answerLeaseOrder(bench.db, cardText)))
+    for (let lease = leaseNext(bench.db, pullRequests(bench.db), bench.ts(), 'answer', 'worker:answer:s2', answerLeaseOrder(bench.db, cardText)); lease !== null; lease = leaseNext(bench.db, pullRequests(bench.db), bench.ts(), 'answer', 'worker:answer:s2', answerLeaseOrder(bench.db, cardText)))
       granted.push(lease.cardId)
     expect(granted).toEqual([847, 849, 837])
   })
@@ -363,7 +364,7 @@ describe('the factory board', () => {
     const bench = boardBench()
     bench.gitHub.open({ number: 10 })
     bench.tick()
-    expect(leaseNext(bench.db, bench.ts(), 'review', 'worker:review:s1')?.cardId).toBe(110)
+    expect(leaseNext(bench.db, pullRequests(bench.db), bench.ts(), 'review', 'worker:review:s1')?.cardId).toBe(110)
     const living = bench.tick()
     expect(healthOf(living, 'review')).toBe('alive')
     expect(living.execution.find(row => row.card === 110)).toMatchObject({ pr: 10, stage: 'review', markers: [] })
@@ -393,7 +394,7 @@ describe('the factory board', () => {
     expect(idle.health.find(component => component.name === 'review')?.why).toContain(`pid ${REVIEW_PID}`)
     bench.gitHub.open({ number: 10 })
     bench.tick()
-    leaseNext(bench.db, bench.ts(), 'review', 'worker:review:s1')
+    leaseNext(bench.db, pullRequests(bench.db), bench.ts(), 'review', 'worker:review:s1')
     expect(healthOf(bench.tick(), 'review')).toBe('alive')
     bench.clock.advance(2 * 60 * 60_000)
     bench.db.prepare('UPDATE tasks SET lease_until = ? WHERE queue = ?').run(bench.ts(), 'review')
@@ -418,7 +419,7 @@ describe('the factory board', () => {
 
   it('the board shows the active shard, its scope and the time left', () => {
     const bench = boardBench()
-    const read = (at: string): Board => readBoard({ db: bench.db, now: new Date(at), watched: [], leaseOrders: {}, projections: busProjections() })
+    const read = (at: string): Board => readBoard({ db: bench.db, now: new Date(at), watched: [], leaseOrders: {}, projections: busProjections(), pulls: pullRequests(bench.db) })
     expect(read('2026-10-18T09:00:00.000Z').shard).toBeNull()
     appendEvent(bench.db, { ts: '2026-10-18T09:00:00.000Z', type: SHARD_ISSUED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:w1`, payload: { id: 'w1', by: 'Eli', run: null, window: true, scope: 'merge+decisions', until: '2026-10-18T15:00:00.000Z' }, legacy: false })
     const board = read('2026-10-18T10:30:00.000Z')
@@ -556,7 +557,7 @@ describe('the factory board', () => {
     importJournal(bench.db, `${JSON.stringify({ event: 'path', task: '850', ts: bench.ts() })}\n`)
     appendEvent(bench.db, { ts: bench.ts(), type: MERGE_DONE, actor: 'worker:merge:s1', cardId: 110, pr: 10, head: sha('a'), dedupeKey: `${MERGE_DONE}:10`, payload: { commit: sha('2'), rule: 'auto' }, legacy: false })
     queueTask(bench.db, bench.ts(), { queue: 'answer', cardId: 849 })
-    completeTask(bench.db, cardTransitions(), bench.ts(), leaseNext(bench.db, bench.ts(), 'answer', 'worker:answer:s1')!, [])
+    completeTask(bench.db, cardTransitions(), bench.ts(), leaseNext(bench.db, pullRequests(bench.db), bench.ts(), 'answer', 'worker:answer:s1')!, [])
     const contract = new Map(bench.tick().contract.map(link => [link.link, link]))
     expect([...contract.values()].filter(link => !link.green).map(link => link.link)).toEqual(['launch', 'Shard', 'automaton', 'one writer'])
     expect(contract.get('one writer')?.fact).toBe('no bus.cutover recorded')
@@ -656,7 +657,7 @@ describe('the factory board', () => {
 
   it('the header goal comes from the cards of the open release, never from a decision or a Path line', () => {
     const bench = boardBench()
-    const read = (): Board => readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {}, projections: busProjections() })
+    const read = (): Board => readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {}, projections: busProjections(), pulls: pullRequests(bench.db) })
     bodyRow(bench, 920, { lane: 'lane-1', state: MERGED_CARD, text: 'do it\n\nPath (D-76): cheap — 0.44, slice S\n' })
     bodyRow(bench, 921, { lane: 'lane-1', state: 'queued' })
     bodyRow(bench, 922, { lane: 'lane-1', state: 'queued' })

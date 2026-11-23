@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Review } from './reviewer.js'
 import { createHash } from 'node:crypto'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { appendCardEvent, cardBodyText, laid } from '../../core/card-bodies.js'
 import { inTransaction } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_DROPPED } from '../../core/events.js'
@@ -140,7 +141,7 @@ export function supersededReason(pass: TailPass, by: number | null): string {
 export function dropUnstartedTails(db: DatabaseSync, unstarted: UnstartedTails, ts: string, pass: TailPass, kept: number | null): number[] {
   return unstarted(pass.parent).filter(({ card }) => card !== kept).flatMap(({ card, bodySha }) => {
     const payload = { from: null, to: SUPERSEDED_TARGET, bodySha, reason: supersededReason(pass, kept) }
-    return appendCardEvent(db, TAIL_ACTOR, { type: CARD_DROPPED, cardId: card, ts, dedupeKey: `${CARD_DROPPED}:${card}:${SUPERSEDED_TARGET}:${pass.taskKey}`, payload }) ? [card] : []
+    return appendCardEvent(BUS_CONTRACT, db, TAIL_ACTOR, { type: CARD_DROPPED, cardId: card, ts, dedupeKey: `${CARD_DROPPED}:${card}:${SUPERSEDED_TARGET}:${pass.taskKey}`, payload }) ? [card] : []
   })
 }
 
@@ -167,7 +168,7 @@ export class BusTailIntake implements TailIntake {
       const text = tailCardText(id, parent, tail)
       const line = text.split('\n')[0]!.slice(CARD_HEADER.length)
       const ts = this.parts.clock().toISOString()
-      if (!appendCardEvent(db, TAIL_ACTOR, laid(db, { type: CARD_ADMITTED, cardId: id, ts, dedupeKey: tailKey(tail.taskKey), payload: { card: line, lane: null, depends: [tail.parent], decision: 'auto', contour: 'cheap', confirmation: 'auto', corrections: [], bodySha: tailBodySha(text), text, textSha: tailTextSha(text), source: TAIL_SOURCE } })))
+      if (!appendCardEvent(BUS_CONTRACT, db, TAIL_ACTOR, laid(db, { type: CARD_ADMITTED, cardId: id, ts, dedupeKey: tailKey(tail.taskKey), payload: { card: line, lane: null, depends: [tail.parent], decision: 'auto', contour: 'cheap', confirmation: 'auto', corrections: [], bodySha: tailBodySha(text), text, textSha: tailTextSha(text), source: TAIL_SOURCE } })))
         return null
       dropUnstartedTails(db, this.parts.unstartedTails, ts, tail, id)
       return id

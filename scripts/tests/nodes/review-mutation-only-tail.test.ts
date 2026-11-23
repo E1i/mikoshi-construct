@@ -6,6 +6,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { cardRiskOf } from '../../../src/commands/intake/check.js'
 import { bodySha } from '../../../src/commands/intake/confirm.js'
 import { admittedRecord } from '../../../src/commands/intake/index.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { appendCardEvent } from '../../core/card-bodies.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_DROPPED, CARD_STARTED, REVIEW_RECORDED } from '../../core/events.js'
@@ -64,7 +65,7 @@ async function reviewed(touches: readonly string[], findings: string[], survivin
   const parsed = parseParkingFile(`${CARD}.md`, text)
   if (parsed.kind === 'refused')
     throw new Error(parsed.reason)
-  appendCardEvent(bench.db, 'worker:intake:test', admittedRecord({ id: CARD, file: `${CARD}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now()))
+  appendCardEvent(BUS_CONTRACT, bench.db, 'worker:intake:test', admittedRecord({ id: CARD, file: `${CARD}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now()))
   bench.tick()
   const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: withIssues(bench.gitHub.client), publish: bench.gitHub.publish, reviewer: async () => ({ verdict: returned, findings, survivingMutations, session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: bench.clock.now, session: 'worker-1', tail: busTail(bench) })
   bench.gitHub.open({ number: PR, head: sha('b'), ref: `feat/card-${CARD}`, body: cardBody(PR) })
@@ -148,7 +149,7 @@ function admitParent(bench: MergeBench): void {
   const parsed = parseParkingFile(`${CARD}.md`, text)
   if (parsed.kind === 'refused')
     throw new Error(parsed.reason)
-  appendCardEvent(bench.db, 'worker:intake:test', admittedRecord({ id: CARD, file: `${CARD}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now()))
+  appendCardEvent(BUS_CONTRACT, bench.db, 'worker:intake:test', admittedRecord({ id: CARD, file: `${CARD}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now()))
   bench.tick()
 }
 
@@ -202,7 +203,7 @@ describe('a later pass on the same parent card', () => {
     const OTHER_TAIL = 4242
     const { tails, dropped } = await rounds([MUTATION_ONLY, CLEAN], (bench) => {
       appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_STARTED, actor: 'worker:launch:test', cardId: tailsOf(bench)[0]!, pr: null, head: null, dedupeKey: `${CARD_STARTED}:test`, payload: { session: 'shift-1' }, legacy: false })
-      appendCardEvent(bench.db, TAIL_ACTOR, { type: CARD_ADMITTED, cardId: OTHER_TAIL, ts: bench.clock.now().toISOString(), dedupeKey: `${CARD_ADMITTED}:other-tail`, payload: { depends: [OTHER_PARENT], source: TAIL_SOURCE } })
+      appendCardEvent(BUS_CONTRACT, bench.db, TAIL_ACTOR, { type: CARD_ADMITTED, cardId: OTHER_TAIL, ts: bench.clock.now().toISOString(), dedupeKey: `${CARD_ADMITTED}:other-tail`, payload: { depends: [OTHER_PARENT], source: TAIL_SOURCE } })
     })
     expect(tails).toHaveLength(2)
     expect(tails).toContain(OTHER_TAIL)
@@ -246,7 +247,7 @@ describe('the tail card', () => {
     const parsed = parseParkingFile(`${CARD}.md`, text)
     if (parsed.kind === 'refused')
       throw new Error(parsed.reason)
-    appendCardEvent(bench.db, 'worker:intake:test', admittedRecord({ id: CARD, file: `${CARD}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now()))
+    appendCardEvent(BUS_CONTRACT, bench.db, 'worker:intake:test', admittedRecord({ id: CARD, file: `${CARD}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now()))
     bench.tick()
     const intake = busTail(bench)
     expect(intake.file(tail)).toBe(LATEST_ON_GITHUB + 1)
@@ -261,7 +262,7 @@ describe('the tail card', () => {
     const parsed = parseParkingFile(`${CARD}.md`, text)
     if (parsed.kind === 'refused')
       throw new Error(parsed.reason)
-    appendCardEvent(bench.db, 'worker:intake:test', admittedRecord({ id: CARD, file: `${CARD}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now()))
+    appendCardEvent(BUS_CONTRACT, bench.db, 'worker:intake:test', admittedRecord({ id: CARD, file: `${CARD}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now()))
     bench.tick()
     const id = busTail(bench).file(tail)
     const row = bench.db.prepare('SELECT payload FROM events WHERE actor = ?').get(TAIL_ACTOR) as { payload: string }

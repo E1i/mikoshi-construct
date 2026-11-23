@@ -9,12 +9,13 @@ import { PR_OBSERVED, SIGNAL_SENT, TASK_EXPIRED, TASK_LEASED, WORKER_RETIRING } 
 import { recordChildStarted, recordWorkerIdentity } from '../../core/handover.js'
 import { taskKey } from '../../core/identifiers.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { QUEUE_ACTOR, queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { BusRead } from '../../ports/bus-read.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
 import { launchName, PREFIX } from '../../supervisor/bg.js'
-import { busProjections, cardTransitions } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions, reviewLaunch } from '../../supervisor/composition.js'
 import { DRAIN_LIMIT_MS, DRAIN_WHY, GenerationHandover, INLINE_WORKERS, overdueInlineWorkers } from '../../supervisor/generation-handover.js'
 import { signalLog } from '../../supervisor/signal-sent.js'
 import { busDrain, BusSupervisor, freeLeasesOf, livesIn, withoutRetiring } from '../../supervisor/supervisor.js'
@@ -146,10 +147,10 @@ describe('generation handover: the drain-limit stop of an inline worker', () => 
     queueTask(db, ts(), task)
     const key = taskKey(task)
     startedWorker(db, 'update', OLD_PID)
-    expect(leaseNext(db, ts(), 'update', actorOf('update'))?.taskKey).toBe(key)
+    expect(leaseNext(db, pullRequests(db), ts(), 'update', actorOf('update'))?.taskKey).toBe(key)
     inlineChild(db, 'update', OLD_PID, key)
 
-    const { update } = workerLaunches(() => [])
+    const { update } = workerLaunches(reviewLaunch(() => []))
     let alive: RunningProcess[] = [{ pid: OLD_PID, args: `node pnpm.cjs --silent ${launchName(update)}` }]
     const stopped: number[] = []
     let codeHead = OLD_GENERATION

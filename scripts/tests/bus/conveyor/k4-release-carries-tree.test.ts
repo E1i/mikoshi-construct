@@ -14,6 +14,7 @@ import { appendEvent } from '../../../core/db.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CHILD_ENDED, REVIEW_RECORDED, SIGNAL_SENT, TASK_FAILED, TASK_RELEASED } from '../../../core/events.js'
 import { leaseNext, RESTART_CUT } from '../../../core/lease.js'
 import { ChildLog, INSTANCE_VARIABLE } from '../../../core/node.js'
+import { all as pullRequests } from '../../../core/pr-readings.js'
 import { QUEUED, queueTask } from '../../../core/queue.js'
 import { AnswerExecutor, CARRIED_TREE } from '../../../nodes/answer/answer-executor.js'
 import { carriedTreeOf } from '../../../nodes/answer/answer-source.js'
@@ -138,11 +139,11 @@ function executorOn(made: MergeBench, repo: Repository, answerer: Answerer, push
 }
 
 function answerLease(made: MergeBench): Lease {
-  return leaseNext(made.db, made.clock.now().toISOString(), 'answer', ANSWER_WORKER)!
+  return leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', ANSWER_WORKER)!
 }
 
 function updateLease(made: MergeBench): Lease | null {
-  return leaseNext(made.db, made.clock.now().toISOString(), 'update', UPDATE_WORKER)
+  return leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'update', UPDATE_WORKER)
 }
 
 describe('k4 [needs ps]: scenario 04, the release carries the tree and the returned answer owns it', () => {

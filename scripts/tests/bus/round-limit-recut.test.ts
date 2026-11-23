@@ -6,7 +6,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
 import { AMEND_SOURCE } from '../../../src/commands/intake/admit.js'
 import { admittedRecord } from '../../../src/commands/intake/index.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { appendCardEvent } from '../../core/card-bodies.js'
+import { closedWaitIds } from '../../core/card-readings.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_DROPPED, CARD_PLANNED, MERGE_DONE, OWNER_WAIT_OPENED, PLAN_OPENED, PR_CLOSED, PR_OPENED, REVIEW_RECORDED, WITNESS_RECORDED } from '../../core/events.js'
 import { busHeldCards } from '../../intake/intake.js'
@@ -59,7 +61,7 @@ function admitCard(bench: MergeBench, text: string, source?: string): void {
   if (parsed.kind === 'refused')
     throw new Error(parsed.reason)
   const event = admittedRecord({ id: CARD, file: `${CARD}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now(), source)
-  appendCardEvent(bench.db, 'worker:intake:test', event)
+  appendCardEvent(BUS_CONTRACT, bench.db, 'worker:intake:test', event)
   bench.tick()
 }
 
@@ -98,7 +100,7 @@ function fixture(text: string, options: FixtureOptions = {}): Fixture {
     return { status: 201, headers: {}, body: { number } }
   }
   const gitHub: GitHub = endpoint => endpoint.startsWith(ISSUES) ? options.latestOnGitHub ?? { status: 200, headers: {}, body: [{ number: Math.max(...bench.gitHub.pulls.keys()) }] } : bench.gitHub.client(endpoint)
-  const recutter = new RoundLimitRecutter({ db: bench.db, gitHub, post, patch: options.patch ?? bench.gitHub.patch, clock: bench.clock.now, cardStates: () => busHeldCards(bench.db), admit: options.admit })
+  const recutter = new RoundLimitRecutter({ db: bench.db, gitHub, post, patch: options.patch ?? bench.gitHub.patch, clock: bench.clock.now, cardStates: () => busHeldCards(bench.db), closedWaits: () => closedWaitIds(bench.db), admit: options.admit })
   const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, reviewer: async () => ({ verdict: reviewer.verdict, findings: reviewer.findings, session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: bench.clock.now, session: 'worker-1', recut: { recut: (at) => {
     if (options.recutThrows === true)
       throw new Error('database is locked')
@@ -238,7 +240,7 @@ describe('the re-cut of a pull request at the review round limit', () => {
         admitted += 1
         if (admitted === 2)
           return refuse(event)
-        return appendCardEvent(benches.at(-1)!.db, RECUT_ACTOR, event)
+        return appendCardEvent(BUS_CONTRACT, benches.at(-1)!.db, RECUT_ACTOR, event)
       } })
       fixed.reviewer.findings = [NARROW_FINDING]
       await reviewToTheLimit(fixed)

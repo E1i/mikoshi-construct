@@ -1,13 +1,19 @@
+import type { LastReduced } from '../../../scripts/core/bus-readings.js'
 import type { Ui } from '../../ui/console.js'
+import type { BusDb } from '../cost/bus.js'
 import type { LedgerReading } from '../cost/ledger.js'
-import type { BusReader, BusReading } from './bus.js'
+import type { BoardBus, BusFacts, BusReader, BusReading, LastReducedRows } from './bus.js'
 import type { BoardGateRuns } from './gate-runs.js'
 import type { BoardHeal } from './heal.js'
 import type { PrsReading } from './prs.js'
 import type { BoardView } from './view.js'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
+import { behindLine, CARDS, currentLane, IN_ORDER_MARK, readLastReduced } from '../../../scripts/core/bus-readings.js'
+import { lastReducedOwnerWaits } from '../../../scripts/core/card-readings.js'
+import { withReadOnlyBus } from '../cost/bus.js'
 import { LEDGER_FILE, readLedger } from '../cost/ledger.js'
+import { boardFacts } from './bus.js'
 import { drainLines, drainsAt } from './drain.js'
 import { gateRunsLines, gateRunsOf } from './gate-runs.js'
 import { healAt, healLines } from './heal.js'
@@ -17,6 +23,8 @@ import { screenLines } from './screens.js'
 import { tableLines } from './table.js'
 import { buildView, FINISHED_SHOWN_HOURS, STALE_HOURS } from './view.js'
 
+export type { OwnerWait, OwnerWaitNeed } from '../../../scripts/core/bus-readings.js'
+export type { BusDb } from '../cost/bus.js'
 export { PRS_FROM_STDIN } from './prs.js'
 export { STALE_HOURS }
 
@@ -63,12 +71,29 @@ export function rawSectionsAsked(flags: RawSectionFlags): boolean {
   return flags.geek || flags.staleHours !== STALE_HOURS || flags.prs !== undefined
 }
 
+function behindAsLine<T>(reading: LastReduced<T>): LastReducedRows<T> {
+  return { rows: reading.rows, behind: reading.behind === null ? null : behindLine(reading.behind) }
+}
+
+export const BOARD_BUS: BoardBus = {
+  exists: existsSync,
+  readOnly: withReadOnlyBus,
+  inOrderMark: IN_ORDER_MARK,
+  lastReducedCards: (db, read) => behindAsLine(readLastReduced(db, [CARDS], read)),
+  lastReducedOwnerWaits: db => behindAsLine(lastReducedOwnerWaits(db)),
+  currentLane,
+}
+
+export function busFacts(db: BusDb, now: Date): BusFacts {
+  return boardFacts(BOARD_BUS, db, now)
+}
+
 export function readBoard(dir: string, options: BoardOptions): BoardReading {
   const now = options.now ?? new Date()
   const ledger = readLedger(dir)
   const prs = readPrs(options.prs, options.readStdin)
   const items = [...ladderItems(ledger.entries), ...(prs.status === 'read' ? prItems(prs.prs) : [])]
-  const bus = options.bus?.()
+  const bus = options.bus?.(BOARD_BUS)
   return {
     header: options.version === undefined ? undefined : { version: options.version, mode: options.mode },
     geek: options.geek ?? false,

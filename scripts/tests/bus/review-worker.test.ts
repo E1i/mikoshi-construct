@@ -19,6 +19,7 @@ import { CARD_ADMITTED } from '../../core/events.js'
 import { prBodySha, taskKey } from '../../core/identifiers.js'
 import { ownerInbox } from '../../core/inbox.js'
 import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext, RENEW_MS, renewLease, StaleLease } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { keyOf, queueTaskWithin, reviewCandidates } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { importJournal } from '../../intake/import.js'
@@ -30,13 +31,13 @@ import { claudeReviewer, GIT_TREE_TOOLS, reviewPrompt, ReviewTrees } from '../..
 import { classify } from '../../policy/morse/rules.js'
 import { withinTouches } from '../../policy/touch-scope.js'
 import { GhBudgetWindow, GhFailed, ghPort } from '../../ports/gh.js'
-import { NetWatch } from '../../ports/netwatch.js'
 import { headlessInvocation } from '../../ports/session.js'
 import { busProjections, candidateRules, cardTransitions } from '../../supervisor/composition.js'
 import { recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
+import { benchNetWatch } from './net-watch-bench.js'
 import { detectReview } from './review-detection.js'
 
 const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
@@ -70,7 +71,7 @@ function setUp(): Bench {
   const db = openBus(busPath)
   const gitHub = new FakeGitHub()
   const clock = new Clock()
-  const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now)
+  const busTick = new BusTick(db, busProjections(), benchNetWatch(db, gitHub.client, clock.now), clock.now)
   const statuses: ReviewStatus[] = []
   const posted: StatusPublisher = (status) => {
     statuses.push(status)
@@ -194,10 +195,10 @@ describe('review worker', () => {
     const { db, gitHub, clock, tick } = setUp()
     gitHub.open({ number: 941 })
     tick()
-    const old = leaseNext(db, clock.now().toISOString(), 'review', 'worker:review:old')!
+    const old = leaseNext(db, pullRequests(db), clock.now().toISOString(), 'review', 'worker:review:old')!
     clock.advance(LEASE_MS + 1)
     expect(expireLeases(db, cardTransitions(), clock.now().toISOString(), SILENT_MS)).toEqual([review(941)])
-    const current = leaseNext(db, clock.now().toISOString(), 'review', 'worker:review:new')!
+    const current = leaseNext(db, pullRequests(db), clock.now().toISOString(), 'review', 'worker:review:new')!
     expect([old.leaseGen, current.leaseGen]).toEqual([1, 2])
 
     const before = eventCount(db)
@@ -793,7 +794,7 @@ describe('review worker', () => {
     roots.push(dir)
     gitHub.open({ number: 941 })
     tick()
-    const held = leaseNext(db, clock.now().toISOString(), 'review', 'worker:review:holder')!
+    const held = leaseNext(db, pullRequests(db), clock.now().toISOString(), 'review', 'worker:review:holder')!
     recordHeartbeat(db, clock.now().toISOString(), { card: held.cardId, pr: held.pr, head: held.head, step: 'review', session: 'held-session', lease: { taskKey: held.taskKey, leaseGen: held.leaseGen } })
     const heldTree = path.join(dir, 'held-session')
     const leftTree = path.join(dir, 'left-session')

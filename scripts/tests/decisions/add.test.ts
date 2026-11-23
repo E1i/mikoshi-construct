@@ -5,14 +5,13 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
-import { openBus } from '../../core/db.js'
 import { CARD_ADMITTED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardAdmissions, busCardEvents } from '../../intake/intake.js'
 import { ARCHIVE_HEADER, requestDecision, runDecisionsAdd } from '../../policy/decisions/add.js'
 import { runDecisionsRead } from '../../policy/decisions/read.js'
-import { busProjections } from '../../supervisor/composition.js'
-import { pendingRequests, WindowRequests } from '../../window/window-requests.js'
+import { busProjections, openComposedBus } from '../../supervisor/composition.js'
+import { pendingRequests, runRequest, WindowRequests } from '../../window/window-requests.js'
 
 const FILE = '/d/owner-decisions.md'
 const ARCHIVE = '/d/owner-decisions.archive.md'
@@ -201,15 +200,15 @@ describe('pnpm decisions:add appends one owner decision', () => {
 describe('pnpm decisions:add in a window session asks the bus', () => {
   it('queues a window.request, says the decision is not written yet, and refuses --file', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'decisions-request-'))
-    const db = openBus(path.join(root, 'bus.db'))
+    const db = openComposedBus(path.join(root, 'bus.db'))
     try {
       const out: string[] = []
-      expect(requestDecision(['--from', 'answer', '--file', FILE, '[owner] x.'], db, NOW, 'window-1', line => out.push(line))).toBe(2)
+      expect(requestDecision(['--from', 'answer', '--file', FILE, '[owner] x.'], db, NOW, 'window-1', line => out.push(line), runRequest)).toBe(2)
       expect(pendingRequests(db)).toEqual([])
       expect(out.some(line => line.includes('not written yet'))).toBe(false)
 
       const asked: string[] = []
-      expect(requestDecision(['--from', 'answer', '--card', '#5', '[owner] x.'], db, NOW, 'window-1', line => asked.push(line))).toBe(0)
+      expect(requestDecision(['--from', 'answer', '--card', '#5', '[owner] x.'], db, NOW, 'window-1', line => asked.push(line), runRequest)).toBe(0)
       const [request] = pendingRequests(db)
       expect(JSON.parse(request!.payload)).toEqual({ kind: 'decisions:add', text: '[owner] x.', from: 'answer', cards: ['#5'], supersedes: [] })
       expect(asked.at(-1)).toBe(`[decisions] not written yet: window.request ${request!.id} waits for bus:run, which records it in the bus, rebuilds owner-decisions.md from the bus and answers window.request.done or window.request.refused; while bus:run is down nothing is written`)
@@ -225,20 +224,20 @@ describe('pnpm decisions:add in a window session asks the bus', () => {
     const repo = path.join(root, 'repo')
     mkdirSync(path.join(repo, 'src'), { recursive: true })
     writeFileSync(path.join(repo, 'src/a.ts'), '')
-    const db = openBus(path.join(root, 'bus.db'))
+    const db = openComposedBus(path.join(root, 'bus.db'))
     try {
       const text = 'card: #5 card-5 [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-5\ntouches: src/a.ts\ncontinue: stop\nwho: shift\n\nDo the thing.\n'
       busCardEvents(db, 's1')({ type: CARD_ADMITTED, cardId: 5, ts: NOW.toISOString(), dedupeKey: 'admit-5', payload: { card: text.split('\n')[0]!.slice('card: '.length), depends: [], decision: 'auto', contour: 'cheap', bodySha: textSha(text), text, textSha: textSha(text) } })
       reduce(db, 'pending', busProjections())
       const out: string[] = []
-      expect(requestDecision(['--from', 'answer', '--card', '#5', '--creates', 'src/new.ts', '[owner] the card writes src/new.ts.'], db, NOW, 'window-1', line => out.push(line)), out.join('\n')).toBe(0)
+      expect(requestDecision(['--from', 'answer', '--card', '#5', '--creates', 'src/new.ts', '[owner] the card writes src/new.ts.'], db, NOW, 'window-1', line => out.push(line), runRequest), out.join('\n')).toBe(0)
       expect(pendingRequests(db).map(request => (JSON.parse(request.payload) as { kind: string }).kind)).toEqual(['amend', 'decisions:add'])
       expect(JSON.parse(pendingRequests(db)[1]!.payload)).toMatchObject({ kind: 'decisions:add', text: '[owner] the card writes src/new.ts.', cards: ['#5'] })
       new WindowRequests(db, () => NOW, { closeDropped: () => [] } as unknown as RequestTools, path.join(root, 'channel'), () => null, repo, {} as never).run()
       reduce(db, 'pending', busProjections())
       const body = busCardAdmissions(db)(5)!.text!
       expect(body).toMatch(/^touches: src\/a\.ts, src\/new\.ts$/m)
-      expect(requestDecision(['--from', 'answer', '--creates', 'src/other.ts', '[owner] no card.'], db, NOW, 'window-1', () => {})).toBe(2)
+      expect(requestDecision(['--from', 'answer', '--creates', 'src/other.ts', '[owner] no card.'], db, NOW, 'window-1', () => {}, runRequest)).toBe(2)
       expect(pendingRequests(db)).toHaveLength(0)
     }
     finally {

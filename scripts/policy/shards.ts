@@ -13,6 +13,7 @@ export const VERSION_PR_RESERVATION = 'version-pr'
 export const DROPPED_WITNESS = 'dropped-witness'
 export const WITNESS_MOVED = 'witness-moved'
 export const AGENT_QUESTION = 'agent-question'
+export const RATCHET_GROWTH = 'ratchet-growth'
 export const OWNER_DECIDES = 'owner'
 export const WINDOW_DECIDES = 'window'
 
@@ -34,6 +35,7 @@ const THE_WITNESS_IS_MOVED = new RegExp(String.raw`\b${WITNESS_REF}\s+${BEING}(?
 const NEGATES = /\b(?:not|never|no|nor|cannot)\b|n't\b/i
 const WITNESS_ID = /\bW\d+\b/g
 const WITNESS_WORD = /\bwitness(?:es)?\b/gi
+const ASKS_ON_RATCHET_GROWTH = /contract\/ratchet\.json|\bratchet[- ]growth\b|\bgr[eo]w(?:s|n|ing)?\s+(?:the\s+|a\s+)?(?:ratchet|boundary)\b|\b(?:ratchet|boundary)\s+(?:row\s+)?(?:\S+\s+)?gr[eo]w(?:s|n|ing)?\b/i
 
 function namesOneWitness(sentence: string): boolean {
   const ids = new Set(sentence.match(WITNESS_ID) ?? [])
@@ -64,6 +66,7 @@ export const STOP_KINDS: Readonly<Record<string, StopKind>> = {
   [VERSION_PR_RESERVATION]: { risk: 'R1', underAnyShard: true, asks: says(/version pull request|changeset-release|chore: version packages/i) },
   'npm-stage': { risk: 'R1', underAnyShard: true, asks: says(/\bnpm\b/i) },
   'security-invariants': { risk: 'R1', underAnyShard: true, asks: says(/security-invariants/i) },
+  [RATCHET_GROWTH]: { risk: 'R1', underAnyShard: true, asks: says(ASKS_ON_RATCHET_GROWTH) },
   'claude-config': { risk: 'R1', underAnyShard: false, asks: says(/(?:^|[^\w.])\.claude\//) },
   'owner-merges': { risk: 'R1', underAnyShard: false, asks: says(/owner-merges/i) },
   'workflows': { risk: 'R1', underAnyShard: false, asks: says(/\.github\/workflows/i) },

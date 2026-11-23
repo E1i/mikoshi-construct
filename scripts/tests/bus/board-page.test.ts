@@ -1,6 +1,8 @@
+import type * as WorkerThreads from 'node:worker_threads'
 import type { BusFacts } from '../../../src/commands/board/bus.js'
 import type { BusSeed, SeedBeat, SeedEvent } from '../../../tests/board/bus-fixture.js'
 import type { BoardData, BoardFiles } from '../../cli/board-page.js'
+import { EventEmitter } from 'node:events'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os, { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -9,9 +11,9 @@ import { DatabaseSync } from 'node:sqlite'
 import vm from 'node:vm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runsFieldLine, witnessFieldsLine } from '../../../src/card/witness-fields.js'
-import { busFacts, busReaderAt, CARD_STAGES } from '../../../src/commands/board/bus.js'
+import { busReaderAt, CARD_STAGES } from '../../../src/commands/board/bus.js'
 import { planLine, RELEASE_STAGES } from '../../../src/commands/board/goal.js'
-import { printBoard as printConstructBoard, readBoard } from '../../../src/commands/board/index.js'
+import { busFacts, printBoard as printConstructBoard, readBoard } from '../../../src/commands/board/index.js'
 import { backlogCards } from '../../../src/commands/board/screens.js'
 import { WINDOW_SILENT_MS } from '../../../src/commands/liveness.js'
 import { createUi } from '../../../src/ui/console.js'
@@ -19,16 +21,24 @@ import { BANNER, LORE } from '../../../src/ui/lore.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
 import { interfaceVersion } from '../../../src/version.js'
 import { checkMatrix, subagent, writeBus } from '../../../tests/board/bus-fixture.js'
-import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, FLOW_META, printBoard, PROGRESS_ORDER, readEddiesLimits, readModelVersion, RELEASE_PROGRESS_ORDER, VIEW_KEY, writeBoardPage } from '../../cli/board-page.js'
+import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, FLOW_META, printBoard, PROGRESS_ORDER, readEddiesLimits, readModelVersion, readOnlyBoardProjection, RELEASE_PROGRESS_ORDER, renderShell, VIEW_KEY, writeBoardPage } from '../../cli/board-page.js'
 import { filterRule } from '../../cli/board-page/live-cards.js'
 import { BUS_VERSION } from '../../core/bus-version.js'
 import { TICK_MS } from '../../core/cadence.js'
-import { defaultBusPath } from '../../core/db.js'
-import { PROCESS_HEARTBEAT, REVIEW_RECORDED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT, WITNESS_FIELDS_BACKFILLED, WITNESS_RECORDED } from '../../core/events.js'
+import { BOARD_STALE_TICKS, defaultBusPath, HEARTBEATS, lastBoardBeat } from '../../core/db.js'
+import { BOARD_ALARM, BOARD_ALARM_CLEARED, PROCESS_HEARTBEAT, REVIEW_RECORDED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT, WITNESS_FIELDS_BACKFILLED, WITNESS_RECORDED } from '../../core/events.js'
 import { nodeProcess } from '../../core/node.js'
 import { witnessFieldsBackfillOf } from '../../intake/witness-fields-backfill.js'
+import { BOARD_THREAD, boardBeatRecorder, boardBeatUnrecordedLine, startBoardThread } from '../../supervisor/run.js'
 import { slotsOf as slotsOfKind, slotsVariable } from '../../supervisor/scheduler.js'
 import { BOARD_FILE, FRESH_MS } from '../../window/board.js'
+
+const workerPort = vi.hoisted(() => ({ posted: [] as unknown[] }))
+
+vi.mock('node:worker_threads', async (importOriginal) => {
+  const real = await importOriginal<typeof WorkerThreads>()
+  return { ...real, parentPort: { postMessage: (message: unknown) => workerPort.posted.push(message) } }
+})
 
 const roots: string[] = []
 
@@ -1243,6 +1253,84 @@ describe('board.html', () => {
     return window.BOARD!
   }
 
+  class BoardTimerWorker extends EventEmitter {
+    async terminate(): Promise<number> {
+      return 0
+    }
+  }
+
+  it('the board timer records a beat in the heartbeats table after each page write', async () => {
+    const busPath = seededBus()
+    writeFileSync(handoffBeside(busPath), HANDOFF_TEXT)
+    const written: string[] = []
+    const reader = new DatabaseSync(busPath, { readOnly: true })
+    try {
+      boardProjection(reader, busPath, TICK_MS, DISK_FILES, handoffBeside(busPath), undefined, () => written.push('page')).project(NOW)
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const fullDisk = { write: (): void => {
+        throw new Error('no space left on device')
+      }, rename: (): void => {} }
+      boardProjection(reader, busPath, TICK_MS, fullDisk, handoffBeside(busPath), undefined, () => written.push('unwritten page')).project(NOW)
+    }
+    finally {
+      reader.close()
+    }
+    expect(written).toEqual(['page'])
+    const worker = new BoardTimerWorker()
+    const db = new DatabaseSync(busPath)
+    try {
+      const board = startBoardThread(db, busPath, 1234, () => worker)
+      expect(lastBoardBeat(db)).toBeUndefined()
+      worker.emit('message', minutesAgo(2))
+      expect(lastBoardBeat(db)).toBe(minutesAgo(2))
+      worker.emit('message', minutesAgo(1))
+      worker.emit('message', { not: 'a write time' })
+      expect(lastBoardBeat(db)).toBe(minutesAgo(1))
+      const rows = db.prepare(`SELECT ts, payload FROM ${HEARTBEATS} WHERE process = ? AND type = ?`).all(BOARD_THREAD, PROCESS_HEARTBEAT)
+      expect(rows).toEqual([{ ts: minutesAgo(1), payload: JSON.stringify({ process: BOARD_THREAD }) }])
+      await board.stop()
+    }
+    finally {
+      db.close()
+    }
+  })
+
+  it('the board timer worker posts the time of its page write to the bus thread', () => {
+    const busPath = seededBus()
+    workerPort.posted.length = 0
+    const board = readOnlyBoardProjection(busPath, TICK_MS)
+    try {
+      const before = Date.now()
+      board.projection.project(NOW)
+      const after = Date.now()
+      expect(existsSync(board.projection.dataFile)).toBe(true)
+      expect(workerPort.posted).toHaveLength(1)
+      const writtenAt = workerPort.posted[0] as string
+      expect(new Date(writtenAt).toISOString()).toBe(writtenAt)
+      expect(Date.parse(writtenAt)).toBeGreaterThanOrEqual(before)
+      expect(Date.parse(writtenAt)).toBeLessThanOrEqual(after)
+    }
+    finally {
+      board.close()
+    }
+  })
+
+  it('a board beat the bus cannot record is reported, not dropped', () => {
+    expect(boardBeatUnrecordedLine(new Error('disk I/O error\nat step 2'))).toBe(`[bus:run] recording the board timer's beat failed: disk I/O error; miko watch reads the board as stale once ${BOARD_STALE_TICKS} beats are missing`)
+    expect(boardBeatUnrecordedLine('locked')).toContain('failed: locked;')
+    const busPath = seededBus()
+    const reader = new DatabaseSync(busPath, { readOnly: true })
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      boardBeatRecorder(reader)(minutesAgo(1))
+    }
+    finally {
+      reader.close()
+    }
+    expect(errors).toHaveBeenCalledTimes(1)
+    expect(errors.mock.calls[0]![0]).toMatch(/^\[bus:run\] recording the board timer's beat failed: .*readonly database; miko watch reads the board as stale/)
+  })
+
   function busGoneDown(waits: Parameters<typeof withOwnerWaits>[1], handoff: string): string {
     const busPath = withOwnerWaits(seededBus(), waits)
     writeFileSync(handoffBeside(busPath), handoff)
@@ -1429,5 +1517,35 @@ describe('board.html', () => {
     expect(board.content.innerHTML).toBe(board.templates.get('dialog-card-861'))
     board.key('Escape')
     expect(board.dialog.open).toBe(false)
+  })
+
+  it('favicon: the head carries an inline SVG enso, and the alarm icon swaps its ground and ink', () => {
+    const shell = renderShell('0.0.0', 10_000)
+    const names = JSON.parse(/window\.BOARD_NAMES = (\{.*\});\n/.exec(shell)![1]!) as { icon: { id: string, calm: string, alarm: string } }
+    const link = /<head>.*<link rel="icon" type="image\/svg\+xml" id="([\w-]+)" href="([^"]+)">.*<\/head>/s.exec(shell)
+    expect(link?.slice(1)).toEqual([names.icon.id, names.icon.calm])
+    const svgOf = (uri: string): string => {
+      const prefix = 'data:image/svg+xml,'
+      expect(uri.startsWith(prefix)).toBe(true)
+      return decodeURIComponent(uri.slice(prefix.length))
+    }
+    const calm = svgOf(names.icon.calm)
+    const alarm = svgOf(names.icon.alarm)
+    expect(calm).toMatch(/^<svg [^>]*>.*<\/svg>$/)
+    const ground = (svg: string): string => /<rect [^>]*fill='([^']+)'/.exec(svg)![1]!
+    const ink = (svg: string): string => [...svg.matchAll(/stroke='([^']+)'/g)].at(-1)![1]!
+    expect([ground(alarm), ink(alarm)]).toEqual([ink(calm), ground(calm)])
+  })
+
+  it('favicon: an open board.alarm reaches the page head and the board data as the alarm icon, a cleared one as the calm icon', () => {
+    const names = JSON.parse(/window\.BOARD_NAMES = (\{.*\});\n/.exec(renderShell('0.0.0', 10_000))![1]!) as { icon: { calm: string, alarm: string } }
+    const headIcon = (html: string): string => /<head>.*<link rel="icon" [^>]*href="([^"]+)">.*<\/head>/s.exec(html)![1]!
+    const alarm = { ts: minutesAgo(1), type: BOARD_ALARM, card: null, dedupe: 'alarm-disk', payload: JSON.stringify({ reason: 'disk' }) }
+    const open = seededBus([alarm])
+    expect(headIcon(pageText(open))).toBe(names.icon.alarm)
+    expect(boardOf(projected(open, NOW).data).alarms).toEqual(['disk'])
+    const cleared = seededBus([alarm, { ts: minutesAgo(0), type: BOARD_ALARM_CLEARED, card: null, payload: JSON.stringify({ alarm: 'alarm-disk' }) }])
+    expect(headIcon(pageText(cleared))).toBe(names.icon.calm)
+    expect(boardOf(projected(cleared, NOW).data).alarms).toEqual([])
   })
 })

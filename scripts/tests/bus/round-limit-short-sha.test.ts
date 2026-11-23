@@ -7,7 +7,7 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { PR_OBSERVED, PR_OPENED } from '../../core/events.js'
 import { requestDecision, requestFromOwnerShell, roundLimitHeadRefusal } from '../../policy/decisions/add.js'
 import { continueFixesDecisionOf, roundLimitDecisionOf } from '../../policy/round-limit-decision.js'
-import { pendingRequests } from '../../window/window-requests.js'
+import { pendingRequests, runRequest } from '../../window/window-requests.js'
 
 const NOW = new Date('2026-11-09T10:00:00.000Z')
 const PR = 1475
@@ -35,7 +35,7 @@ function bus(heads: readonly string[]): DatabaseSync {
 
 function request(db: DatabaseSync, text: string): { code: number, out: string[] } {
   const out: string[] = []
-  const code = requestDecision(['--from', 'answer', '--card', '#1737', text], db, NOW, 'window-1', line => out.push(line))
+  const code = requestDecision(['--from', 'answer', '--card', '#1737', text], db, NOW, 'window-1', line => out.push(line), runRequest)
   return { code, out }
 }
 
@@ -91,7 +91,7 @@ describe('decisions:add and the head a round-limit decision names', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'round-limit-channel-'))
     roots.push(root)
     const err: string[] = []
-    expect(requestFromOwnerShell([`[owner] continue-fixes PR #${PR} at d624d0a8`], path.join(root, 'channel'), db, NOW, () => {}, line => err.push(line))).toBe(1)
+    expect(requestFromOwnerShell([`[owner] continue-fixes PR #${PR} at d624d0a8`], path.join(root, 'channel'), db, NOW, () => {}, line => err.push(line), runRequest)).toBe(1)
     expect(err.join('\n')).toContain(`the full head is ${HEAD}`)
     expect(pendingRequests(db)).toEqual([])
   })

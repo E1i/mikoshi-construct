@@ -4,13 +4,15 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { currentLane, openOwnerWaits } from '../../scripts/core/bus-readings.js'
+import { currentLane } from '../../scripts/core/bus-readings.js'
+import { openOwnerWaits } from '../../scripts/core/card-readings.js'
 import { closeOwnerWait, openBus, openOwnerWait } from '../../scripts/core/db.js'
 import { reduce } from '../../scripts/core/reducer.js'
 import { busCardEvents } from '../../scripts/intake/intake.js'
 import { layLanes } from '../../scripts/nodes/launch/lane-assign.js'
 import { busProjections } from '../../scripts/supervisor/composition.js'
 import { busReaderAt } from '../../src/commands/board/bus.js'
+import { BOARD_BUS } from '../../src/commands/board/index.js'
 import { withReadOnlyBus } from '../../src/commands/cost/bus.js'
 import { runAdmit } from '../../src/commands/intake/admit.js'
 import { runMove } from '../../src/commands/intake/move.js'
@@ -32,7 +34,7 @@ function scratch(): string {
 }
 
 function factsOf(file: string): BusFacts {
-  const reading = busReaderAt(file, () => NOW)()
+  const reading = busReaderAt(file, () => NOW)(BOARD_BUS)
   if (reading.status !== 'read')
     throw new Error(`the bus was ${reading.status}`)
   return reading.facts

@@ -1,12 +1,52 @@
-import { readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import process from 'node:process'
+import { pathToFileURL } from 'node:url'
+import { build } from 'tsup'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { builtEntry } from '../scripts/core/built-entry.js'
+import { FACTORY_RUNTIME, FACTORY_WORKERS } from '../scripts/core/factory-paths.js'
+import { readLayerMap } from '../scripts/core/layer-map.js'
+import { PLANNER_ARGUMENTS, REVIEW_PLANNER_SCRIPT } from '../scripts/ports/review-planner.js'
 import { OWNED_ATLAS_PAGE } from '../src/atlas/index.js'
 import { ATTACH_RUNTIME_BROWSER, ATTACH_RUNTIME_FILES, ATTACH_RUNTIME_RUN_DIRECTORY, ATTACH_RUNTIME_SHOT_SUFFIX, ATTACH_WRITES } from '../src/commands/attach/carriers.js'
 import { ATTACH_RECORD_FILE } from '../src/commands/attach/record.js'
 import { LEDGER_FILE, STEP_CACHE_FILE } from '../src/commands/cost/index.js'
+import { copyFactoryAssets, factoryAssets, factoryBuild, factoryGraph, OUT_DIR } from '../tsup.config.js'
 
 const ROOT = path.join(import.meta.dirname, '..')
+const BUILD_TIMEOUT_MS = 300_000
+const SOURCE_MODULE = /\.ts$/
+const BUILT_MODULE = '.js'
+const WORKER_NAMED_BY_URL = /new URL\(\s*'(\.{1,2}\/[^']*\.ts)',\s*import\.meta\.url\s*\)/g
+const BESIDE_THE_BUILD = ['package.json', 'declarations/generated', 'templates']
+const SOURCE_LOADER = 'tsx'
+const REVIEW_PLANNER_PORT = 'scripts/ports/review-planner.ts'
+const LAYER_MAP_READER = 'scripts/core/layer-map.ts'
+const DAEMON_COMMANDS_READER = 'src/commands/attach/daemon-commands.ts'
+const ENTRY_FROM_A_TS_URL = /new URL\(\s*['`](\.{1,2}\/[^'`]*\.ts)['`],\s*[\w.]+\s*\)/g
+const THROUGH_BUILT_ENTRY = 'builtEntry('
+const WORKER_START = 'new Worker('
+const IMPORTS_BUILT_ENTRY = /^import \{[^}]*\bbuiltEntry\b[^}]*\} from '[./]+\/core\/built-entry\.js'$/m
+const BOARD_PAGE = 'scripts/cli/board-page.ts'
+const REDUCER_LOOP = 'scripts/supervisor/reducer-loop.ts'
+const REDUCER_THREAD = 'scripts/supervisor/reducer-thread.ts'
+
+function twinOf(source: string): string {
+  return source.replace(SOURCE_MODULE, BUILT_MODULE)
+}
+
+interface BuiltReadings {
+  script: string
+  args: string[]
+  globals: string[]
+  folders: Record<string, string>
+}
+
+let stage: string
+let dist: string
 
 function read(relative: string): string {
   return readFileSync(path.join(ROOT, relative), 'utf8')
@@ -19,6 +59,88 @@ const WRITERS: Record<string, string> = {
   '.construct/implement-args.json': read('templates/ai/claude/_claude/skills/implement/SKILL.md'),
   [OWNED_ATLAS_PAGE]: read('src/atlas/index.ts'),
 }
+
+function readFromTheBuild(): BuiltReadings {
+  const modules = { port: pathToFileURL(path.join(dist, twinOf(REVIEW_PLANNER_PORT))).href, layers: pathToFileURL(path.join(dist, twinOf(LAYER_MAP_READER))).href }
+  const evaluate = [
+    'const { port, layers } = JSON.parse(process.env.MODULES)',
+    'const { PLANNER_ARGUMENTS, REVIEW_PLANNER_SCRIPT } = await import(port)',
+    'const { globals, folders } = (await import(layers)).readLayerMap()',
+    'console.log(JSON.stringify({ script: REVIEW_PLANNER_SCRIPT, args: PLANNER_ARGUMENTS, globals, folders }))',
+  ].join('\n')
+  const run = spawnSync(process.execPath, ['--input-type=module', '--eval', evaluate], { cwd: stage, env: { PATH: process.env.PATH, HOME: stage, MODULES: JSON.stringify(modules) }, encoding: 'utf8' })
+  expect(run.status, run.stderr).toBe(0)
+  return JSON.parse(run.stdout) as BuiltReadings
+}
+
+function daemonCommandsOf(module: string, loader: string[]): string[] {
+  const evaluate = 'const { shippedDaemonCommands } = await import(process.env.READER); console.log(JSON.stringify(shippedDaemonCommands(process.env.HOME)))'
+  const run = spawnSync(process.execPath, [...loader, '--input-type=module', '--eval', evaluate], { cwd: ROOT, env: { PATH: process.env.PATH, HOME: stage, TMPDIR: tmpdir(), READER: pathToFileURL(module).href }, encoding: 'utf8' })
+  expect(run.status, run.stderr).toBe(0)
+  return JSON.parse(run.stdout) as string[]
+}
+
+describe('every runtime file and worker path resolves the same from the sources and from dist', () => {
+  beforeAll(async () => {
+    stage = realpathSync(mkdtempSync(path.join(tmpdir(), 'runtime-paths-')))
+    for (const file of BESIDE_THE_BUILD)
+      cpSync(path.join(ROOT, file), path.join(stage, file), { recursive: true })
+    symlinkSync(path.join(ROOT, 'node_modules'), path.join(stage, 'node_modules'), 'dir')
+    dist = path.join(stage, OUT_DIR)
+    await build({ ...factoryBuild, outDir: dist, config: false, silent: true, onSuccess: async () => copyFactoryAssets(dist) })
+  }, BUILD_TIMEOUT_MS)
+
+  afterAll(() => {
+    if (stage !== undefined)
+      rmSync(stage, { recursive: true, force: true })
+  })
+
+  it('every runtime file and worker path resolves the same from the sources and from dist', () => {
+    const declared = [...Object.values(FACTORY_RUNTIME), ...Object.values(FACTORY_WORKERS)]
+    expect(declared.filter(file => !existsSync(path.join(dist, twinOf(file))))).toEqual([])
+    expect(factoryAssets().filter(asset => !existsSync(path.join(dist, asset)))).toEqual([])
+
+    const namedByUrl = factoryGraph().flatMap(source => [...readFileSync(path.join(ROOT, source), 'utf8').matchAll(WORKER_NAMED_BY_URL)]
+      .map(([, relative]) => path.posix.join(path.posix.dirname(source), relative!)))
+    expect(namedByUrl.length).toBeGreaterThan(0)
+    expect(namedByUrl.filter(worker => !existsSync(path.join(ROOT, worker)) || !existsSync(path.join(dist, twinOf(worker))))).toEqual([])
+
+    const built = readFromTheBuild()
+    expect(path.relative(dist, built.script)).toBe(twinOf(path.relative(ROOT, REVIEW_PLANNER_SCRIPT)))
+    expect(existsSync(built.script)).toBe(true)
+    expect(built.args).not.toContain(SOURCE_LOADER)
+    expect(PLANNER_ARGUMENTS).toContain(SOURCE_LOADER)
+    expect(existsSync(REVIEW_PLANNER_SCRIPT)).toBe(true)
+
+    const fromTheSources = readLayerMap()
+    expect(built.globals).toEqual(fromTheSources.globals)
+    expect(built.folders).toEqual(fromTheSources.folders)
+  })
+
+  it('every Worker or child entry built from a .ts URL resolves through built-entry and its .js twin ships in dist', () => {
+    const sources = factoryGraph().map(source => ({ source, text: readFileSync(path.join(ROOT, source), 'utf8') }))
+    const sites = sources.flatMap(({ source, text }) => [...text.matchAll(ENTRY_FROM_A_TS_URL)]
+      .map(match => ({ source, relative: match[1]!, resolved: text.slice(0, match.index).endsWith(THROUGH_BUILT_ENTRY) })))
+    expect(sites.filter(site => site.source === BOARD_PAGE).map(site => site.relative)).toEqual(['./board-page/timer.ts'])
+    expect(sites.filter(site => !site.resolved).map(site => `${site.source}: ${site.relative}`)).toEqual([])
+    expect(sources.filter(({ text }) => text.includes(WORKER_START) && !IMPORTS_BUILT_ENTRY.test(text)).map(({ source }) => source)).toEqual([])
+
+    const shipped = sites.map(({ source, relative }) => {
+      const module = pathToFileURL(path.join(dist, twinOf(source))).href
+      return builtEntry(new URL(relative, module), module)
+    })
+    expect(shipped.filter(entry => !entry.file.endsWith(BUILT_MODULE) || entry.loader.length > 0 || !existsSync(entry.file)).map(entry => entry.file)).toEqual([])
+    expect(readFileSync(path.join(ROOT, REDUCER_LOOP), 'utf8')).toMatch(IMPORTS_BUILT_ENTRY)
+    expect(existsSync(path.join(dist, twinOf(REDUCER_THREAD)))).toBe(true)
+  })
+
+  it('the factory build finds the shipped templates and reads the same daemon commands as the sources', () => {
+    const fromTheBuild = daemonCommandsOf(path.join(dist, twinOf(DAEMON_COMMANDS_READER)), [])
+    const fromTheSources = daemonCommandsOf(path.join(ROOT, DAEMON_COMMANDS_READER), ['--import', SOURCE_LOADER])
+    expect(fromTheSources.length).toBeGreaterThan(0)
+    expect(fromTheBuild).toEqual(fromTheSources)
+  })
+})
 
 describe('the closed list of runtime files is what the ladder writes under .construct/', () => {
   it('names a writer for every file on the list, and a list member for every writer', () => {

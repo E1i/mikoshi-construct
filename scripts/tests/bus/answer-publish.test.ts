@@ -14,6 +14,7 @@ import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, POLICY_DENIED, PR_OBSERVED, PR_OPENED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { reportPath, treeReportPath } from '../../core/places.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { treePublishing } from '../../nodes/answer/answer-worker.js'
@@ -51,7 +52,7 @@ interface Bench {
   answer: (publish: () => void, committed?: boolean, dirty?: boolean) => Promise<AnswerOutcome>
 }
 
-function stoppedCardWithoutAPullRequest(): Bench {
+function stoppedCardWithoutAPullRequest(after = sha('a')): Bench {
   const made = mergeBench()
   benches.push(made)
   const trees = tempDir()
@@ -66,8 +67,8 @@ function stoppedCardWithoutAPullRequest(): Bench {
   const stop = Number((made.db.prepare('SELECT max(id) AS id FROM events WHERE type = ?').get(CARD_STOPPED) as { id: number }).id)
   queueTask(made.db, ts, { queue: 'answer', cardId: CARD, stop })
   const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
-  const answerer: Answerer = async () => ({ session: SESSION, resumed: true, before: sha('a'), after: sha('a'), owner: null })
-  const lease = (): Lease => leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
+  const answerer: Answerer = async () => ({ session: SESSION, resumed: true, before: sha('a'), after, owner: null })
+  const lease = (): Lease => leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
   const answer = async (publish: () => void, committed = true, dirty = false): Promise<AnswerOutcome> => {
     const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty: () => dirty, liveSession: () => null, publishing: { committed: () => committed, publish } })
     return executor.answer(lease())
@@ -163,6 +164,32 @@ describe('an answer that leaves a clean tree on a card with no pull request', ()
     expect(outcome).toMatchObject({ kind: 'denied', denial: { reason: 'left_nothing', detail: expect.stringContaining('empty answer 1 of') as unknown }, next: 'queued' })
     expect(eventsOf(bench.made.db, CARD_ANSWERED)).toEqual([])
     expect(bench.made.db.prepare(`SELECT state, failures FROM tasks WHERE queue = 'answer' AND card_id = ?`).get(CARD)).toEqual({ state: 'queued', failures: 1 })
+  })
+})
+
+describe('an answer that leaves a new head', () => {
+  it('an answer with a new head on a card with no PR is published: tree-pr runs once and the card ends in review', async () => {
+    const bench = stoppedCardWithoutAPullRequest(sha('b'))
+    const publish = vi.fn(treePrOpens(bench.made, OPENED_PR))
+
+    const outcome = await bench.answer(publish)
+    bench.made.tick()
+
+    expect(publish).toHaveBeenCalledTimes(1)
+    expect(outcome).toMatchObject({ kind: 'published', pr: OPENED_PR })
+    expect(cardRow(bench.made)).toEqual({ state: 'in_review', pr: OPENED_PR })
+  })
+
+  it('an answer with a new head on a card with an open PR is answered, not published', async () => {
+    const bench = stoppedCardWithoutAPullRequest(sha('b'))
+    appendEvent(bench.made.db, { ts: bench.made.clock.now().toISOString(), type: PR_OBSERVED, actor: 'worker:netwatch:1', cardId: CARD, pr: OPENED_PR, head: sha('a'), dedupeKey: `${PR_OBSERVED}:${OPENED_PR}`, payload: { base: 'main', head: sha('a'), mergeable: 'clean', ci: 'pending', verdict_on_head: null, auto_merge: false, draft: false, branch: `feat/card-${CARD}` }, legacy: false })
+    bench.made.tick()
+    const publish = vi.fn()
+
+    const outcome = await bench.answer(publish)
+
+    expect(publish).not.toHaveBeenCalled()
+    expect(outcome).toMatchObject({ kind: 'answered', head: sha('b') })
   })
 })
 

@@ -9,12 +9,14 @@ import type { TreePreparer } from '../../ports/prepare-tree.js'
 import type { AdmittedScope, AnswerSource, CardSession } from './answer-source.js'
 import type { Answered, Answerer, StepSeconds } from './answerer.js'
 import type { CardConcept } from './concept-scope.js'
-import type { AnswerDenial, Answering, AnswerOutcome, AnswerTechnicalReason, CardPaths, DecidedRound, ShardDecider, TreeMerge, TreePublishing, Widened } from './duties/index.js'
+import type { AnswerDenial, Answering, AnswerOutcome, AnswerTechnicalReason, CardPaths, DecidedRound, ShardDecider, StrandedAnswer, TreeMerge, TreePublishing, Widened } from './duties/index.js'
 import type { TreeOwned, TreePushPolicy } from './duties/tree.js'
 import { existsSync, readFileSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { riskOf } from '../../../src/card/risk.js'
+import { pathsOutsideTheBody } from '../../core/card-bodies.js'
 import { answersWithdrawnByAClosedHold, holdRecheckAt, LIVE_SESSION_IN_THE_TREE, queueAgain, sessionStopOf } from '../../core/card-hold.js'
+import { closedWaitIds } from '../../core/card-readings.js'
 import { appendEvent, inTransaction, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { ANSWER_STEP, CARD_ANSWERED, CARD_RELEASED, OUTSIDE_TOUCHES, OWNER_WAIT_CLOSED, POLICY_DENIED, QUESTION_AGENT, SCOPE_WIDENED } from '../../core/events.js'
@@ -32,7 +34,7 @@ import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { admittedScopeOf, carriedTreeOf, decisionAnsweringRepeat, ownerHoldOf } from './answer-source.js'
 import { AnswerOutsideTouches, CardTreeGone, liveSessionIn, PREFIX, secondsOf, unprovedFindings } from './answerer.js'
 import { CONCEPT_WIDENING_REASON } from './concept-scope.js'
-import { AnswerOutcomes, AnswerPublishing, AnswerSources, leftNoNewHead, localHead, OwnerQuestions, pendingPathsOf, treeDirtyOf, treeMergeOf } from './duties/index.js'
+import { AnswerOutcomes, AnswerPublishing, AnswerSources, leftNoNewHead, localHead, OwnerQuestions, pendingPathsOf, strandedAnswerOf, treeDirtyOf, treeMergeOf } from './duties/index.js'
 import { carriedTreeState, ownCarriedTree } from './duties/tree.js'
 
 export interface AnswerParts {
@@ -161,6 +163,16 @@ export function noGateDecisionLine(cardId: number, answered: Pick<Answered, 'ses
   return `card #${cardId}: the answer session ${answered.session} left work in its tree and recorded no gate decision (no outcome of every gate command, and no gate that could not run), so the bus pushed nothing from it; the answer goes again on ${answered.before ?? 'the same head'} and runs the gate${offFormLine(answered.offFormGateCommands)}`
 }
 
+const REPUBLISHED: Answering = { kind: 'question', detail: 'an answered card with a pushed head and no pull request, published by the bus', widen: null, events: [], decisions: [] }
+
+export function strandedDirtyLine(cardId: number, stranded: StrandedAnswer, card: CardSession): string {
+  return `card #${cardId} was answered at ${stranded.to} with no pull request, and its tree ${card.worktree} holds uncommitted changes; the bus publishes no tree it does not see clean, so the card is left as it is`
+}
+
+export function strandedUnpublishedLine(cardId: number, stranded: StrandedAnswer, card: CardSession): string {
+  return `card #${cardId} was answered at ${stranded.to} with no pull request, and the bus could not publish ${card.branch}: the tree has no committed work ahead, or tree-pr opened no pull request; decide it: publish the branch by hand, amend the card or drop it`
+}
+
 export class AnswerExecutor {
   private readonly outcomes: AnswerOutcomes
   private readonly sources: AnswerSources
@@ -198,6 +210,9 @@ export class AnswerExecutor {
       const owned = this.ownedCarriedTree(lease)
       if (owned !== null)
         return owned
+      const stranded = lease.pr === null && lease.head !== null ? strandedAnswerOf(this.parts.db, lease.cardId, lease.head) : null
+      if (stranded !== null)
+        return this.republished(lease, stranded)
       const source = this.sources.sourceOf(lease)
       if (source === null && !this.sources.dirtyOnHead(lease))
         return this.outcomes.denied(lease, { kind: 'technical', reason: 'nothing_to_answer', detail: `card #${lease.cardId} has no open question.agent stop, no changes verdict, no red CI, no red witness and no conflict with ${MAIN_BRANCH} on ${lease.head ?? 'its head'}` })
@@ -262,6 +277,21 @@ export class AnswerExecutor {
     }
   }
 
+  private republished(lease: Lease, stranded: StrandedAnswer): AnswerOutcome {
+    const card = this.tree(lease)
+    if (card === null)
+      return this.outcomes.denied(lease, { kind: 'technical', reason: 'no_card_tree', detail: `card #${lease.cardId} was answered at ${stranded.to} with no pull request, and has no tree to publish it from` })
+    if ('kind' in card)
+      return this.outcomes.denied(lease, card)
+    const live = (this.parts.liveSession ?? liveSessionIn)(card)
+    if (live !== null)
+      return this.waitingForTheLiveSession(lease, live)
+    if (this.dirty(card))
+      return this.outcomes.denied(lease, { kind: 'technical', reason: 'nothing_to_answer', detail: strandedDirtyLine(lease.cardId, stranded, card) })
+    const answered: Answered = { session: stranded.session, resumed: false, before: stranded.from, after: stranded.to, owner: null }
+    return this.publishing.published(lease, REPUBLISHED, card, answered, 0, []) ?? this.outcomes.ownersStop(lease, strandedUnpublishedLine(lease.cardId, stranded, card))
+  }
+
   private changedIn(card: CardSession | undefined): ReadonlySet<string> {
     if (card === undefined)
       return new Set()
@@ -302,7 +332,7 @@ export class AnswerExecutor {
     if (lease.head === null)
       return
     const mergeMain = (this.parts.mergeMain ?? mainKeptInTheTree)(card.worktree)
-    const merged = mergeMain(conflictingCardOf(this.parts.db, lease.cardId, card.branch, lease.head))
+    const merged = mergeMain(conflictingCardOf((cardId, files) => pathsOutsideTheBody(this.parts.db, cardId, files.join('\n')), lease.cardId, card.branch, lease.head))
     if (merged.kind === 'merged' && merged.to !== lease.head)
       console.log(`${PREFIX}card #${lease.cardId}: ${MAIN_BRANCH} merged into ${card.worktree} at ${merged.to} before the answer session`)
   }
@@ -317,7 +347,7 @@ export class AnswerExecutor {
   private waiting(lease: Lease, card: CardSession, why: string): AnswerOutcome {
     const detail = `pull request #${lease.pr} conflicts with ${MAIN_BRANCH} at ${lease.head}, and the tree ${card.worktree} of card #${lease.cardId} cannot be read to answer it: ${why}`
     completeTask(this.parts.db, this.parts.cards, this.ts(), lease, [])
-    const wait = openBusWait(this.parts.db, this.ts(), lease.actor, { need: 'decision', text: detail, card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) })
+    const wait = openBusWait(this.parts.db, closedWaitIds(this.parts.db), this.ts(), lease.actor, { need: 'decision', text: detail, card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) })
     return { kind: 'waiting', taskKey: lease.taskKey, wait, detail }
   }
 
@@ -476,6 +506,9 @@ export class AnswerExecutor {
         return this.publishing.leftDirty(lease, card, answered.session)
       return this.publishing.published(lease, source, card, answered, minutes, scope) ?? this.publishing.leftNothing(lease, answered, scope)
     }
+    const published = this.dirty(card) ? null : this.publishing.published(lease, source, card, answered, minutes, scope)
+    if (published !== null)
+      return published
     const reentry = REENTRY_SOURCES.has(source.kind) || source.reentry === true
     const payload = this.publishing.answeredPayload(source, card, answered, minutes, reentry ? { reentry: true } : {})
     completeTask(this.parts.db, this.parts.cards, this.ts(), lease, [...scope, this.outcomes.event(lease, CARD_ANSWERED, payload)])

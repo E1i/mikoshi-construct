@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
 import { witnessesOf } from '../../../src/card/witness-fields.js'
 import { admittedRecord } from '../../../src/commands/intake/index.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { appendCardEvent, cardBodyText } from '../../core/card-bodies.js'
+import { closedWaitIds } from '../../core/card-readings.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, OWNER_WAIT_OPENED, ROUND_EXTENDED, ROUND_MUTATIONS_PARKED, SHARD_ISSUED } from '../../core/events.js'
 import { REVIEW_ROUNDS } from '../../core/identifiers.js'
@@ -60,7 +62,7 @@ function admit(bench: MergeBench, id: number, text: string): void {
   const parsed = parseParkingFile(`${id}.md`, text)
   if (parsed.kind === 'refused')
     throw new Error(parsed.reason)
-  appendCardEvent(bench.db, 'worker:intake:test', admittedRecord({ id, file: `${id}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now()))
+  appendCardEvent(BUS_CONTRACT, bench.db, 'worker:intake:test', admittedRecord({ id, file: `${id}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now()))
   bench.tick()
 }
 
@@ -75,7 +77,7 @@ function fixture(shard = true, text = cardText(CARD)): Fixture {
     return { status: 201, headers: {}, body: { number } }
   }
   const gitHub: GitHub = endpoint => endpoint.includes('/issues?') ? { status: 200, headers: {}, body: [{ number: Math.max(...bench.gitHub.pulls.keys()) }] } : bench.gitHub.client(endpoint)
-  const recutter = new RoundLimitRecutter({ db: bench.db, gitHub, post, patch: bench.gitHub.patch, clock: bench.clock.now, cardStates: () => busHeldCards(bench.db) })
+  const recutter = new RoundLimitRecutter({ db: bench.db, gitHub, post, patch: bench.gitHub.patch, clock: bench.clock.now, cardStates: () => busHeldCards(bench.db), closedWaits: () => closedWaitIds(bench.db) })
   const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, reviewer: async () => ({ verdict: 'changes', findings: reviewer.findings, ...(reviewer.survivingMutations === undefined ? {} : { survivingMutations: reviewer.survivingMutations }), session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: bench.clock.now, session: 'worker-1', recut: { recut: (at) => {
     const outcome = recutter.recut(at)
     outcomes.push(outcome)

@@ -10,9 +10,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { openBus } from '../../core/db.js'
 import { BOARD_ALARM, TASK_EXPIRED, WORKER_STARTED } from '../../core/events.js'
 import { completeTask, HOLDER_DEAD, HOLDER_UNPROVEN, judgeHolders, LEASE_MS, leaseNext, leaseQueued, leaseWhileFree, recordWorkerStarted, releaseTask, renewLease, SAME_START_MS, StaleLease, WORKER_HUNG } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
 import { launchName, PREFIX } from '../../supervisor/bg.js'
-import { cardTransitions } from '../../supervisor/composition.js'
+import { cardTransitions, reviewLaunch } from '../../supervisor/composition.js'
 import { ownStart } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { busDrain, BusSupervisor, freeLeasesOf, LivenessJudge, lstartToIso, psStartOf } from '../../supervisor/supervisor.js'
@@ -165,7 +166,7 @@ describe('a lease whose holder process is dead is freed at once', () => {
 
     expect(stateOf(b.db, lease.taskKey)).toEqual({ state: 'leased', lease_gen: lease.leaseGen })
     expect(leaseQueued(b.db, b.ts(), lease.taskKey, NEW_HOLDER)).toBeNull()
-    expect(leaseNext(b.db, b.ts(), 'merge', NEW_HOLDER)).toBeNull()
+    expect(leaseNext(b.db, pullRequests(b.db), b.ts(), 'merge', NEW_HOLDER)).toBeNull()
     expect(payloadsOf(b.db, TASK_EXPIRED)).toEqual([])
   })
 
@@ -263,7 +264,7 @@ describe('the restart drain waits only for the leases of live holders', () => {
     const lease = leaseWhileFree(b.db, b.ts(), mergeTask, holder.worker, 1)!
     if (holder.dies)
       b.processes.delete(holder.pid)
-    const merge = workerLaunches(() => []).merge
+    const merge = workerLaunches(reviewLaunch(() => [])).merge
     let alive: RunningProcess[] = [{ pid: 600, args: `node pnpm.cjs --silent ${launchName(merge)} --on` }]
     let head = OLD_MAIN
     const supervisor = new BusSupervisor({

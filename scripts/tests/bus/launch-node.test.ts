@@ -31,6 +31,7 @@ import { leaseNext } from '../../core/lease.js'
 import { MachineSessions } from '../../core/machine-sessions.js'
 import { NODE_CURSORS } from '../../core/node.js'
 import { treeReportPath } from '../../core/places.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { keyOf, queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { busIntakePorts } from '../../intake/intake.js'
@@ -363,7 +364,7 @@ describe('the launch node', () => {
     queueTask(made.db, ts, { queue: 'launch', cardId: 970, generation: 'admission-970' })
     const executor = new LaunchExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, starter, clock: made.clock.now, disk: roomy, isolation: sandboxed, prompts: path.join(root, 'prompts') })
 
-    expect(executor.launch(leaseNext(made.db, ts, 'launch', 'worker:launch:t')!)).toMatchObject({ kind: 'started' })
+    expect(executor.launch(leaseNext(made.db, pullRequests(made.db), ts, 'launch', 'worker:launch:t')!)).toMatchObject({ kind: 'started' })
     const [started] = eventsOf(made.db, CARD_STARTED) as { prompt_sha: string, prompt_path: string, input?: unknown }[]
     expect(existsSync(path.join(root, 'handoff'))).toBe(false)
     expect(started!.input).toBeUndefined()
@@ -388,7 +389,7 @@ describe('the launch node', () => {
     queueTask(made.db, ts, { queue: 'launch', cardId: 970, generation: 'admission-970' })
     const executor = new LaunchExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, starter, clock: made.clock.now, disk: roomy, isolation: sandboxed, prompts: path.join(blocker, 'prompts') })
 
-    expect(executor.launch(leaseNext(made.db, ts, 'launch', 'worker:launch:t')!)).toMatchObject({ kind: 'started' })
+    expect(executor.launch(leaseNext(made.db, pullRequests(made.db), ts, 'launch', 'worker:launch:t')!)).toMatchObject({ kind: 'started' })
     const [started] = eventsOf(made.db, CARD_STARTED)
     expect(started).toMatchObject({ prompt_sha: createHash('sha256').update('the launch prompt').digest('hex'), prompt_unstored: expect.any(String) as unknown })
     expect(started).not.toHaveProperty('prompt_path')
@@ -1281,7 +1282,7 @@ describe('the launch node', () => {
     admit(made, 1251, 'lane-a')
     made.tick()
     const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter, clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, disk: roomy, isolation: sandboxed })
-    leaseNext(made.db, made.clock.now().toISOString(), 'launch', 'worker:launch:earlier')
+    leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'launch', 'worker:launch:earlier')
     await once(node)
     expect(starter.starts).toEqual([])
 
@@ -1305,7 +1306,7 @@ describe('the launch node', () => {
     admit(made, 1252, 'lane-a')
     made.tick()
     const node = new ProbedLaunchNode({ silentMs: SILENT_MS, db: made.db, starter: new FakeStarter(), clock: made.clock.now, session: 'node-1', mode: 'live', env: {}, disk: roomy, isolation: sandboxed })
-    leaseNext(made.db, made.clock.now().toISOString(), 'launch', 'worker:launch:earlier')
+    leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'launch', 'worker:launch:earlier')
     startedEarlier(made, 1252)
     made.clock.advance((LAUNCH_START_MINUTES + 1) * 60_000)
     expect(node.expireUnstartedLeases()).toEqual([])

@@ -9,6 +9,7 @@ import { parseParkingFile } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
 import { bodySha } from '../../../src/commands/intake/confirm.js'
 import { nextCardNumbers } from '../../../src/commands/intake/numbers.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { DROPPED_CARD, QUEUED_CARD } from '../../core/card-automaton.js'
 import { appendCardEvent, CARD_BODIES, cardBodyText, laid } from '../../core/card-bodies.js'
 import { appendEvent, inTransaction, openBusWait } from '../../core/db.js'
@@ -66,6 +67,7 @@ export interface RecutParts {
   patch: GitHubPut
   clock: () => Date
   cardStates: CardStatesPort
+  closedWaits: () => readonly string[]
   admit?: CardAdmit
   pushPolicy?: () => PushPolicy
 }
@@ -230,7 +232,7 @@ export class RoundLimitRecutter implements RoundLimitRecut {
   private readonly admit: CardAdmit
 
   constructor(private readonly parts: RecutParts) {
-    this.admit = parts.admit ?? (event => appendCardEvent(parts.db, RECUT_ACTOR, laid(parts.db, event)))
+    this.admit = parts.admit ?? (event => appendCardEvent(BUS_CONTRACT, parts.db, RECUT_ACTOR, laid(parts.db, event)))
   }
 
   recut(at: RoundLimitAt): RecutOutcome {
@@ -300,7 +302,7 @@ export class RoundLimitRecutter implements RoundLimitRecut {
         throw new Error(`the card.admitted of #${card.id} was not appended`)
     }
     if (recut.dropsTheCard)
-      appendCardEvent(this.parts.db, RECUT_ACTOR, { type: CARD_DROPPED, cardId: at.cardId, ts: ts.toISOString(), dedupeKey: `${CARD_DROPPED}:${at.cardId}:round-limit-${at.pr}`, payload: { from: null, to: SUPERSEDED_LANE, lane: SUPERSEDED_LANE, bodySha: bodySha(text), recut: at.pr } })
+      appendCardEvent(BUS_CONTRACT, this.parts.db, RECUT_ACTOR, { type: CARD_DROPPED, cardId: at.cardId, ts: ts.toISOString(), dedupeKey: `${CARD_DROPPED}:${at.cardId}:round-limit-${at.pr}`, payload: { from: null, to: SUPERSEDED_LANE, lane: SUPERSEDED_LANE, bodySha: bodySha(text), recut: at.pr } })
     this.planIntoTheRelease(at, recut.added)
     const unconfirmed = recut.admitted.filter(card => this.parts.db.prepare(ADMITTED_TEXT).get(card.id, textSha(card.text)) === undefined)
     if (unconfirmed.length > 0)
@@ -348,7 +350,7 @@ export class RoundLimitRecutter implements RoundLimitRecut {
 
   private waited(at: RoundLimitAt, why: string): RecutOutcome {
     const text = `PR #${at.pr} of card #${at.cardId} reached the review round limit (D-104) and was not re-cut: ${why}`
-    const wait = inTransaction(this.parts.db, () => openBusWait(this.parts.db, this.now(), RECUT_ACTOR, { need: 'decision', text, card: at.cardId, pr: at.pr }))
+    const wait = inTransaction(this.parts.db, () => openBusWait(this.parts.db, this.parts.closedWaits(), this.now(), RECUT_ACTOR, { need: 'decision', text, card: at.cardId, pr: at.pr }))
     return { kind: 'owner_wait', pr: at.pr, wait, why }
   }
 }

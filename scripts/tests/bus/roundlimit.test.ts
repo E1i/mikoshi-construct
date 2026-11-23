@@ -5,6 +5,7 @@ import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STOPPED, REVIEW_RECORDED } from '../../core/events.js'
 import { REVIEW_ROUNDS, taskKey } from '../../core/identifiers.js'
 import { completeTask, leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask } from '../../core/queue.js'
 import { answerSourceOf } from '../../nodes/answer/answer-source.js'
 import { recordDecision } from '../../policy/decisions/index.js'
@@ -131,7 +132,7 @@ describe('continue-fixes past the review round limit', () => {
 
   it('past the round limit a faulted decision task is set again, and a faulted plain answer task is not', () => {
     const faulted = (bench: MergeBench, key: string): string => {
-      const lease = leaseNext(bench.db, bench.clock.now().toISOString(), 'answer', 'worker:answer:test')!
+      const lease = leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'answer', 'worker:answer:test')!
       expect(lease.taskKey).toBe(key)
       completeTask(bench.db, cardTransitions(), bench.clock.now().toISOString(), lease, [{ ts: bench.clock.now().toISOString(), type: CARD_STOPPED, actor: 'worker:answer:test', cardId: CARD, pr: PR, head: HEAD, dedupeKey: `${CARD_STOPPED}:${key}:${lease.leaseGen}`, payload: { reason: 'fault', detail: 'the chain fell' }, legacy: false }])
       bench.tick()
@@ -154,7 +155,7 @@ describe('continue-fixes past the review round limit', () => {
     const bench = roundLimited()
     recordDecision(bench.db, { ts: bench.clock.now().toISOString(), decisionId: DECISION, text: '[owner] keep fixing the second row, one more round', cards: [CARD] })
     bench.tick()
-    const lease = leaseNext(bench.db, bench.clock.now().toISOString(), 'answer', 'worker:answer:test')!
+    const lease = leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'answer', 'worker:answer:test')!
     expect(lease.taskKey).toBe(`${taskKey({ queue: 'answer', cardId: CARD, pr: PR, head: HEAD })}:decision-${DECISION}`)
     completeTask(bench.db, cardTransitions(), bench.clock.now().toISOString(), lease, [])
     bench.gitHub.open({ number: PR, head: PUSHED, review: 'failure' })

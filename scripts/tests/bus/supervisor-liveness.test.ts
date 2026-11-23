@@ -15,15 +15,15 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, PROCESS_JUDGED, RESTARTED, TASK_EXPIRED, WORKER_DOWN } from '../../core/events.js'
 import { RESTART_MISSED } from '../../core/inbox.js'
 import { completeTask, drainOpen, leaseNext, leaseWhileFree, openDrain, StaleLease } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { reduce } from '../../core/reducer.js'
 import { GH_ATTEMPTS, GhBudgetWindow, ghPort } from '../../ports/gh.js'
 import { ghApi } from '../../ports/github.js'
 import { Meter } from '../../ports/meter.js'
 import { BUS_RUN_LAUNCH, launchName, PREFIX, runningInstance, startDetached } from '../../supervisor/bg.js'
-import { busProjections, cardTransitions } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions, reviewLaunch } from '../../supervisor/composition.js'
 import { CARD_PROCESS, lastProcessBeats, recordHeartbeat, recordProcessHeartbeat, WINDOW_PROCESS } from '../../supervisor/heartbeat.js'
 import { LIVENESS_JUDGE, livenessSources, SILENT_MS } from '../../supervisor/liveness-sites.js'
-import { reviewLaunch } from '../../supervisor/review-bg.js'
 import { backoffMs, baselineAdvance, busDrain, BusSupervisor, DRAIN_LIMIT_MS, entryOf, expectedRunning, FAILURES_REPORTED, freeLeasesOf, JUDGE_ACTOR, JUDGED_HORIZON_MS, KEEP_MAX_MS, lastMainAdvance, LivenessJudge, mainAdvancedSince, outsideGroup, processName, recordRestartMissed, recordStarted, recordWorkerDown, RESTART_LIMIT_MS, RESTART_RETRY_MS, restartSilent, restartSilentSupervisor, startingBaseline, stillSilent, superviseUntilReplaced, SUPERVISOR_LAUNCH, SUPERVISOR_PROCESS, SUPERVISOR_SILENT_MS, WorkerKeeper } from '../../supervisor/supervisor.js'
 import { busLaunches, switchWorker, wantedLaunches, workerLaunches } from '../../supervisor/workers.js'
 import { recordWindowHeartbeat } from '../../window/window-heartbeat.js'
@@ -94,7 +94,7 @@ function startedForReal(processes: ProcessList): (launch: DetachedLaunch) => BgR
 
 describe('the supervisor keeps every switched-on worker alive', () => {
   it('a killed worker comes back without the owner', () => {
-    const merge = workerLaunches(() => []).merge
+    const merge = workerLaunches(reviewLaunch(() => [])).merge
     const s = kept([BUS_RUN_LAUNCH, merge], ok)
     s.alive.push({ pid: 1, args: 'node pnpm.cjs --silent bus:run' }, { pid: 2, args: 'node pnpm.cjs --silent bus:merge --on' })
     expect(s.keeper.step()).toEqual([])
@@ -111,7 +111,7 @@ describe('the supervisor keeps every switched-on worker alive', () => {
   })
 
   it('a start that fails is retried after an exponential backoff, and a success resets the count', () => {
-    const update = workerLaunches(() => []).update
+    const update = workerLaunches(reviewLaunch(() => [])).update
     let failing = 2
     const s = kept([update], launch => failing-- > 0 ? { stdout: [], stderr: [`${PREFIX}spawn failed`], exitCode: 1 } : ok(launch))
 
@@ -139,7 +139,7 @@ describe('the supervisor keeps every switched-on worker alive', () => {
   })
 
   it('a worker seen running again resets the count, though the keeper did not start it', () => {
-    const merge = workerLaunches(() => []).merge
+    const merge = workerLaunches(reviewLaunch(() => [])).merge
     const s = kept([merge], () => ({ stdout: [], stderr: [`${PREFIX}spawn failed`], exitCode: 1 }))
 
     s.keeper.step()
@@ -158,7 +158,7 @@ describe('the supervisor keeps every switched-on worker alive', () => {
   })
 
   it('a worker switched off and on again starts at once with a fresh count', () => {
-    const merge = workerLaunches(() => []).merge
+    const merge = workerLaunches(reviewLaunch(() => [])).merge
     const wanted = [merge]
     let failing = false
     const s = kept(wanted, launch => failing ? { stdout: [], stderr: [`${PREFIX}spawn failed`], exitCode: 1 } : ok(launch))
@@ -190,7 +190,7 @@ describe('the supervisor keeps every switched-on worker alive', () => {
   })
 
   it('a start that finds the worker already running counts as a success', () => {
-    const merge = workerLaunches(() => []).merge
+    const merge = workerLaunches(reviewLaunch(() => [])).merge
     const running = { pid: 7, args: 'node pnpm.cjs --silent bus:merge --on' }
     const s = kept([merge], () => ({ stdout: [], stderr: [`${PREFIX}bus:merge is already running as pid 7 (${running.args}); nothing started`], exitCode: 1, alreadyRunning: running }))
 
@@ -220,7 +220,7 @@ describe('the supervisor keeps every switched-on worker alive', () => {
   })
 
   it('a refusal that is not the preflight does not run the reducer', () => {
-    const merge = workerLaunches(() => []).merge
+    const merge = workerLaunches(reviewLaunch(() => [])).merge
     const s = kept([merge], () => ({ stdout: [], stderr: [`${PREFIX}another start (pid 7) is starting bus:merge; nothing started`], exitCode: 1 }))
     s.keeper.step()
     expect(s.reduces).toEqual([])
@@ -237,7 +237,7 @@ describe('the supervisor keeps every switched-on worker alive', () => {
       new Meter(ghApi('.', hanging), () => 0).get('repos/o/r/pulls?state=open')
       return []
     })
-    const merge = workerLaunches(() => []).merge
+    const merge = workerLaunches(reviewLaunch(() => [])).merge
     const s = kept([review, merge], (launch) => {
       launch.preflight?.()
       return ok(launch)
@@ -284,7 +284,7 @@ describe('the supervisor keeps every switched-on worker alive', () => {
   })
 
   it('a worker that dies right after its start backs off and reaches the owner after three starts', () => {
-    const merge = workerLaunches(() => []).merge
+    const merge = workerLaunches(reviewLaunch(() => [])).merge
     const s = kept([merge], ok)
     const startedAt: number[] = []
     const reports: string[] = []
@@ -368,7 +368,7 @@ describe('the supervisor keeps every switched-on worker alive', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'supervisor-down-'))
     roots.push(root)
     const db = openBus(path.join(root, 'bus.db'))
-    const review = workerLaunches(() => []).review
+    const review = workerLaunches(reviewLaunch(() => [])).review
     const starts: number[] = []
     const lines: string[] = []
     const clock = { now: Date.parse('2026-10-20T19:40:00.000Z') }
@@ -405,7 +405,7 @@ describe('the supervisor keeps every switched-on worker alive', () => {
   })
 
   it('a worker.down that cannot be written leaves a line and does not stop the retries', () => {
-    const merge = workerLaunches(() => []).merge
+    const merge = workerLaunches(reviewLaunch(() => [])).merge
     const clock = { now: 0 }
     let starts = 0
     const keeper = new WorkerKeeper({
@@ -441,7 +441,7 @@ describe('the supervisor keeps every switched-on worker alive', () => {
     const file = path.join(root, 'bus.db')
     const supervisorDb = openBus(file)
     const nodeDb = openBus(file)
-    const merge = workerLaunches(() => []).merge
+    const merge = workerLaunches(reviewLaunch(() => [])).merge
     const journal: Record<string, unknown>[] = []
     const keeper = new WorkerKeeper({
       wanted: () => [merge],
@@ -477,7 +477,7 @@ describe('the supervisor starts the launch node in the mode an owner decision al
     const busDir = mkdtempSync(path.join(tmpdir(), 'supervisor-live-'))
     roots.push(busDir)
     switchWorker(busDir, 'launch', true)
-    const argsOf = (decisions: InForceDecision[]): string[] => wantedLaunches(busDir, () => [], decisions).find(launch => launch.script === 'bus:launch')!.args
+    const argsOf = (decisions: InForceDecision[]): string[] => wantedLaunches(busDir, reviewLaunch(() => []), decisions).find(launch => launch.script === 'bus:launch')!.args
 
     expect(argsOf([])).not.toContain('--live')
     expect(argsOf([{ decisionId: 5, text: 'allow-live review', cards: [] }])).not.toContain('--live')
@@ -638,7 +638,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     const killedAt = '2026-10-11T06:44:00.000Z'
     const killed = leaseWhileFree(db, killedAt, { queue: 'launch', cardId: 845, generation: 'g1' }, 'worker:launch:killed', 1)!
     const elsewhere = leaseWhileFree(db, killedAt, { queue: 'answer', cardId: 745 }, 'worker:answer:alive', 1)!
-    const launch = workerLaunches(() => []).launch
+    const launch = workerLaunches(reviewLaunch(() => [])).launch
     let alive: RunningProcess[] = [{ pid: 600, args: `node pnpm.cjs --silent ${launchName(launch)} --on` }]
     let aliveWhenFreed: RunningProcess[] | undefined
     const supervisor = new BusSupervisor({
@@ -670,7 +670,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     expect(state(elsewhere.taskKey)).toEqual({ state: 'leased', lease_gen: 1 })
 
     expect(() => completeTask(db, cardTransitions(), killedAt, killed, [])).toThrow(StaleLease)
-    const fresh = leaseNext(db, killedAt, 'launch', 'worker:launch:fresh')!
+    const fresh = leaseNext(db, pullRequests(db), killedAt, 'launch', 'worker:launch:fresh')!
     expect(fresh.leaseGen).toBe(killed.leaseGen + 1)
     expect(() => completeTask(db, cardTransitions(), killedAt, killed, [])).toThrow(StaleLease)
     completeTask(db, cardTransitions(), killedAt, fresh, [])
@@ -686,7 +686,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     const db = openBus(path.join(root, 'bus.db'))
     const ts = (): string => new Date(MERGED_AT + clock.now).toISOString()
     const lease = leaseWhileFree(db, ts(), { queue: 'close', cardId: 1089, pr: 927, head: OLD_MAIN }, 'worker:close:alive', 1)!
-    const close = workerLaunches(() => []).close
+    const close = workerLaunches(reviewLaunch(() => [])).close
     let alive: RunningProcess[] = [{ pid: 600, args: `node pnpm.cjs --silent ${launchName(close)} --on` }]
     let head = OLD_MAIN
     const supervisor = new BusSupervisor({
@@ -839,7 +839,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     const ts = (): string => new Date(MERGED_AT + clock.now).toISOString()
     const leaseOfA = leaseWhileFree(db, ts(), { queue: 'merge', cardId: 1181, pr: 1001, head: OLD_MAIN }, 'worker:merge:alive', 1)!
     const leaseOfB = leaseWhileFree(db, ts(), { queue: 'close', cardId: 1182, pr: 1002, head: OLD_MAIN }, 'worker:close:alive', 1)!
-    const { merge, close } = workerLaunches(() => [])
+    const { merge, close } = workerLaunches(reviewLaunch(() => []))
     let alive: RunningProcess[] = [{ pid: 604, args: `node pnpm.cjs --silent ${launchName(merge)}` }, { pid: 605, args: `node pnpm.cjs --silent ${launchName(close)}` }]
     const started: string[] = []
     let head = OLD_MAIN
@@ -1147,7 +1147,7 @@ describe('the supervisor judges liveness from heartbeats alone', () => {
     recordProcessHeartbeat(db, at(0), 'bus:merge')
     recordHeartbeat(db, at(0), { card: 1170, pr: null, head: null, step: 'launch', session: 's-1170', lease: null })
     recordWindowHeartbeat(db, at(0), 'w-2')
-    const judge = new LivenessJudge(db, () => BEAT_AT + 2 * SILENT_MS, () => expectedRunning(db, [workerLaunches(() => []).review]))
+    const judge = new LivenessJudge(db, () => BEAT_AT + 2 * SILENT_MS, () => expectedRunning(db, [workerLaunches(reviewLaunch(() => [])).review]))
 
     expect(await judge.step()).toEqual([])
     expect(judgedRows(db)).toEqual([])
@@ -1158,7 +1158,7 @@ describe('the supervisor judges liveness from heartbeats alone', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'supervisor-judge-wanted-'))
     roots.push(root)
     const db = openBus(path.join(root, 'bus.db'))
-    const merge = workerLaunches(() => []).merge
+    const merge = workerLaunches(reviewLaunch(() => [])).merge
     recordProcessHeartbeat(db, at(0), processName(merge))
     const judge = new LivenessJudge(db, () => BEAT_AT + SILENT_MS + 1, () => expectedRunning(db, [merge]))
 
@@ -1404,7 +1404,7 @@ describe('the supervisor judges liveness from heartbeats alone', () => {
   })
 
   it('a silent worker the supervisor wants is restarted by its own stop and start', async () => {
-    const merge = workerLaunches(() => []).merge
+    const merge = workerLaunches(reviewLaunch(() => [])).merge
     let alive: RunningProcess[] = [{ pid: 7, args: `node pnpm.cjs --silent ${launchName(merge)} --on` }]
     const stopped: number[] = []
     const lines = await restartSilent(processName(merge), [merge], {
@@ -1435,10 +1435,10 @@ describe('the switch is a flag, and the supervisor moves each worker to it', () 
       return ok(launch)
     }
     const processes = (): RunningProcess[] => alive
-    const wanted = (): DetachedLaunch[] => wantedLaunches(busDir, () => [])
+    const wanted = (): DetachedLaunch[] => wantedLaunches(busDir, reviewLaunch(() => []))
     const code: BusCode = { head: () => 'a'.repeat(40), holds: () => true, pull: () => {}, changedSince: () => [], runs: () => SHARED_CODE }
     const supervisor = new BusSupervisor({
-      known: busLaunches(() => []),
+      known: busLaunches(reviewLaunch(() => [])),
       wanted,
       start,
       stop: async (running) => {

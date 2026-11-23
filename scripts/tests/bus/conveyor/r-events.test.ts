@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CARD_TYPES_FOLDED_ON_APPEND, CARDS, PROJECTION_TYPES, REDUCED_IN_ORDER } from '../../../core/bus-readings.js'
+import { openOwnerWaits } from '../../../core/card-readings.js'
 import { appendEvent, openBus } from '../../../core/db.js'
 import { INTERNAL_MODULES_FILE, MODULE_FILES, readDeclarations, trackedFrom, validateDeclarations } from '../../../core/declarations.js'
 import { EVENT_CATALOG, READINGS_CATALOG, renderEvents, renderReadings } from '../../../core/declared-events.js'
@@ -18,9 +19,9 @@ import { overlapDeclarationsOf } from '../../../core/order/overlap.js'
 import { BUS_ORDERS, ORDER_ACTOR, orderEventsFrom, orderGroups, PrOrderTick, readOrder } from '../../../core/order/turn.js'
 import { BusRead } from '../../../ports/bus-read.js'
 import { mainMergeInCardTree } from '../../../ports/main-merge.js'
-import { NetWatch } from '../../../ports/netwatch.js'
 import { MAIN_BRANCH } from '../../../ports/snapshot.js'
 import { Clock, FakeGitHub, sha } from '../github-fake.js'
+import { benchNetWatch } from '../net-watch-bench.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../../..')
 const DECLARATIONS = 'declarations'
@@ -109,7 +110,7 @@ function observedBus(cards: readonly Card[]): { db: Bus, declarations: OverlapDe
   const db = openBus(path.join(scratch('r-events-bus-'), 'bus.db'))
   const gitHub = new FakeGitHub()
   cards.forEach((card, at) => gitHub.open({ number: card.pr, files: changedPaths(card), head: sha(String.fromCharCode(97 + at)) }))
-  new NetWatch(db, gitHub.client, new Clock().now).poll()
+  benchNetWatch(db, gitHub.client, new Clock().now).poll()
   for (const card of cards)
     appendEvent(db, { ts: '2026-11-17T00:00:01Z', type: PR_ORDERED, actor: ORDER_ACTOR, cardId: null, pr: card.pr, head: null, dedupeKey: `${PR_ORDERED}:${card.pr}:r-events`, payload: { by: BUS_ORDERS }, legacy: false })
   return { db, declarations: overlapDeclarationsOf(readDeclarations()) }
@@ -117,7 +118,7 @@ function observedBus(cards: readonly Card[]): { db: Bus, declarations: OverlapDe
 
 function groupsOf(cards: readonly Card[]): { prs: number[], owners: number } {
   const { db, declarations } = observedBus(cards)
-  new PrOrderTick(db, busEvents(db), () => '2026-11-17T00:00:30Z', () => declarations, '').step()
+  new PrOrderTick(db, busEvents(db), () => '2026-11-17T00:00:30Z', () => declarations, '', () => openOwnerWaits(db)).step()
   const groups = orderGroups(readOrder(busEvents(db), declarations), declarations)
   const owners = Number((db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(OWNER_WAIT_OPENED) as { n: number }).n)
   db.close()

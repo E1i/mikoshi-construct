@@ -24,7 +24,9 @@ import { appendEvent, openOwnerWait } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, SHARD_DECIDED, SHARD_ISSUED, TASK_ENQUEUED } from '../../core/events.js'
 import { assertHeld, failTask, leaseNext, StaleLease } from '../../core/lease.js'
 import { NODE_CURSORS } from '../../core/node.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { FAILURES_TO_STOP, keyOf, queueTask } from '../../core/queue.js'
+import { reduce } from '../../core/reducer.js'
 import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { AnswerNode, answerNodeOf } from '../../nodes/answer/answer-worker.js'
@@ -32,7 +34,7 @@ import { claudeAnswerer, tokensOf, windowGateRule } from '../../nodes/answer/ans
 import { answerPrompt } from '../../nodes/answer/duties/index.js'
 import { MAX_RESTARTS } from '../../nodes/launch/continuation.js'
 import { cardDecisionCommand, DECISIONS_SCOPE, OWNERS_UNDER_ANY_SHARD, VERSION_PR_RESERVATION } from '../../policy/shards.js'
-import { answerParts, cardTransitions } from '../../supervisor/composition.js'
+import { answerParts, busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { busSessionPulse, lastHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
@@ -176,7 +178,7 @@ function questionUnderShard(made: MergeBench, now: Date, shard: ShardIssue | nul
   appendEvent(made.db, { ts, type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: 905, pr: null, head: null, dedupeKey: `${CARD_STARTED}:905`, payload: { session: 'card-session-1', worktree, branch: 'feat/card-905', base: sha('1') }, legacy: false })
   const stop = stopped(made, 905)
   queueTask(made.db, ts, { queue: 'answer', cardId: 905, stop })
-  return { trees, lease: () => leaseNext(made.db, ts, 'answer', 'worker:answer:worker-1')! }
+  return { trees, lease: () => leaseNext(made.db, pullRequests(made.db), ts, 'answer', 'worker:answer:worker-1')! }
 }
 
 function askingAnswerer(question: string): Answerer {
@@ -203,6 +205,7 @@ const KEPT_BY_THE_OWNER: Record<string, string[]> = {
   [VERSION_PR_RESERVATION]: ['may the version pull request merge?', 'is changeset-release/main ready?', 'merge chore: version packages?'],
   'npm-stage': ['approve the npm stage?'],
   'security-invariants': ['may it edit security-invariants?'],
+  'ratchet-growth': ['may the boundary row grow in contract/ratchet.json?'],
 }
 
 function admitted(made: MergeBench, cardId: number): void {
@@ -242,7 +245,7 @@ describe('an answer on an amended card body', () => {
     const stop = stopped(made, CARD)
     const key = (body: string): string => keyOf({ queue: 'answer', cardId: CARD, stop, cardBody: body })
     queueTask(made.db, ts, { queue: 'answer', cardId: CARD, stop, cardBody: OLD_BODY })
-    const lease = (): Lease => leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
+    const lease = (): Lease => leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
     return { key, lease, trees: { home, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} } }
   }
 
@@ -383,14 +386,16 @@ describe('the answer node', () => {
     await once(node)
     expect(node.found({ cardId: 905 })).toEqual([questionKey(905, asked)])
 
-    answered(made, 905)
-    expect(node.found()).toEqual([questionKey(906, other)])
-    expect(node.found({ cardId: 905 })).toEqual([])
+    const answeredWithNoPullRequest = answered(made, 905)
+    const publishedWithNoPullRequest = keyOf({ queue: 'answer', cardId: 905, head: sha('e') })
+    reduce(made.db, 'pending', busProjections())
+    expect(node.found()).toEqual([questionKey(906, other), publishedWithNoPullRequest])
+    expect(node.found({ cardId: 905 })).toEqual([publishedWithNoPullRequest])
     expect(node.found({ cardId: 906 })).toEqual([questionKey(906, other)])
 
     const later = stopped(made, 907)
     await once(node)
-    expect(detected(made, 'event')).toEqual([{ key: questionKey(907, later), via: 'event', event_id: later }])
+    expect(detected(made, 'event')).toEqual([{ key: publishedWithNoPullRequest, via: 'event', event_id: answeredWithNoPullRequest }, { key: questionKey(907, later), via: 'event', event_id: later }])
   })
 
   it('the node and answerCandidates find one set on one snapshot, and shadow records node.equivalence with nothing on one side only', async () => {
@@ -837,7 +842,7 @@ describe('the answer node', () => {
     made.gitHub.open({ number: 1014, review: 'failure' })
     made.tick()
     for (let failure = 0; failure < FAILURES_TO_STOP; failure++)
-      failTask(made.db, cardTransitions(), made.clock.now().toISOString(), leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:probe')!, { reason: 'no_card_tree', withdraw: false }, SILENT_MS)
+      failTask(made.db, cardTransitions(), made.clock.now().toISOString(), leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:probe')!, { reason: 'no_card_tree', withdraw: false }, SILENT_MS)
     expect(taskState(made.db, prKey(1014)).state).toBe('stopped')
     await once(node)
     made.tick()

@@ -10,6 +10,7 @@ import { BOARD_ALARM, CARD_ADMITTED, CARD_STOPPED, MERGE_DONE, POLICY_DENIED, RE
 import { prBodySha, taskKey } from '../../core/identifiers.js'
 import { ownerInbox } from '../../core/inbox.js'
 import { failTask, leaseNext, leaseQueued } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { FAILURES_TO_STOP, keyOf, queueTask } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { firstLiveVerdict, MergeNode, NoLiveVerdict, runMergeWorker } from '../../nodes/merge/merge-worker.js'
@@ -99,7 +100,7 @@ function decidedAndBehind(): MergeBench & { update: () => UpdateOutcome } {
   mainMovesPastEveryPr(bench)
   detectUpdate(bench)
   const executor = new UpdateExecutor({ cards: cardTransitions(), source: updateParts(), silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, put: bench.gitHub.put, publish: bench.gitHub.publish, clock: bench.clock.now, settle: () => {} })
-  return { ...bench, update: () => executor.update(leaseNext(bench.db, bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')!) }
+  return { ...bench, update: () => executor.update(leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')!) }
 }
 
 describe('an allow-merge across an update-branch', () => {
@@ -449,7 +450,7 @@ describe('a head that moves under the queues', () => {
     const ts = bench.clock.now().toISOString()
     for (const queue of FOUR_QUEUES)
       queueTask(bench.db, ts, { queue, cardId: 1055, pr: 955, head: sha('a') })
-    leaseNext(bench.db, ts, 'merge', 'worker:merge:worker-1')
+    leaseNext(bench.db, pullRequests(bench.db), ts, 'merge', 'worker:merge:worker-1')
     const update = taskKey({ queue: 'update', cardId: 1055, pr: 955, head: sha('a') })
     for (let failure = 1; failure <= FAILURES_TO_STOP; failure += 1)
       failTask(bench.db, cardTransitions(), ts, leaseQueued(bench.db, ts, update, 'worker:update:worker-1')!, { reason: 'github_error', withdraw: false }, SILENT_MS)
@@ -473,7 +474,7 @@ describe('a head that moves under the queues', () => {
       const ts = bench.clock.now().toISOString()
       for (const queue of ['review', 'update', 'answer'] as const)
         queueTask(bench.db, ts, { queue, cardId: 1056, pr: 956, head: sha('a') })
-      leaseNext(bench.db, ts, 'answer', 'worker:answer:worker-1')
+      leaseNext(bench.db, pullRequests(bench.db), ts, 'answer', 'worker:answer:worker-1')
 
       bench.gitHub.close(956, merged)
       bench.tick()

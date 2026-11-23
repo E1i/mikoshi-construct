@@ -1,7 +1,6 @@
 import type { CiObservation } from './ci-reading.js'
 import type { GitHub } from './github.js'
 import process from 'node:process'
-import { readAttachRecord } from '../../src/commands/attach/record.js'
 import { commitCi } from '../../src/commands/ci/state.js'
 import { ABANDONED_TITLE } from '../ci/required.js'
 import { repositoryRoot } from '../core/bus-path.js'
@@ -122,7 +121,13 @@ export function watchedRoot(): string {
   return repositoryRoot(process.cwd()) ?? process.cwd()
 }
 
-export function requiredCheckOf(root: string = watchedRoot()): string {
+export interface AttachedHarness {
+  harness: { job?: string } | string
+}
+
+export type AttachRecordReader = (root: string) => AttachedHarness | null
+
+export function requiredCheckOf(readAttachRecord: AttachRecordReader, root: string = watchedRoot()): string {
   const harness = readAttachRecord(root)?.harness
   return typeof harness === 'object' && harness.job != null ? harness.job : REQUIRED_CHECK
 }

@@ -13,6 +13,7 @@ import { BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_STARTED, CARD_VERIFIED, M
 import { taskKey } from '../../core/identifiers.js'
 import { ownerInbox } from '../../core/inbox.js'
 import { expireLeases, failTask, LEASE_MS, leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { FAILURES_TO_STOP, queueTask } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { legacyEventOf } from '../../intake/import.js'
@@ -67,7 +68,7 @@ function closeBench(reported: Record<number, string> = {}) {
       bench.tick()
       detectClose(bench.db, bench.clock.now)
     },
-    leaseClose: (actor = 'worker:close:worker-1'): Lease | null => leaseNext(bench.db, bench.clock.now().toISOString(), 'close', actor),
+    leaseClose: (actor = 'worker:close:worker-1'): Lease | null => leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'close', actor),
     closeCard: (lease: Lease): CloseOutcome => executor.close(lease),
   }
 }
@@ -394,7 +395,7 @@ describe('the close queue', () => {
       const merge = taskKey({ queue: 'merge', cardId: 1119, pr: 1019, head: sha('a') })
       queueTask(bench.db, ts, { queue: 'merge', cardId: 1119, pr: 1019, head: sha('a') })
       for (let failure = 1; failure <= FAILURES_TO_STOP; failure += 1)
-        failTask(bench.db, cardTransitions(), ts, leaseNext(bench.db, ts, 'merge', 'worker:merge:worker-1')!, { reason: 'no_verification', withdraw: false }, SILENT_MS)
+        failTask(bench.db, cardTransitions(), ts, leaseNext(bench.db, pullRequests(bench.db), ts, 'merge', 'worker:merge:worker-1')!, { reason: 'no_verification', withdraw: false }, SILENT_MS)
       bench.tick()
       expect(taskState(bench.db, merge).state, setting).toBe('stopped')
       before(bench)

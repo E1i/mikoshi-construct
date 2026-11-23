@@ -20,12 +20,14 @@
     "scripts/core/every.ts",
     "scripts/core/watermark.ts",
     "scripts/core/events-query.ts",
+    "scripts/core/tasks-query.ts",
     "scripts/core/entry.ts",
     "scripts/core/observations.ts",
     "scripts/core/task-must-wait.ts",
     "scripts/core/projection-writes.ts",
     "scripts/core/projection-writes.known.json",
-    "scripts/core/rejection.ts"
+    "scripts/core/rejection.ts",
+    "scripts/core/bus-adapter.ts"
   ],
   "exclude": [],
   "shared": []

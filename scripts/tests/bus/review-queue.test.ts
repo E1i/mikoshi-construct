@@ -9,18 +9,19 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_STOPPED, REVIEW_RECORDED, TASK_SUPERSEDED } from '../../core/events.js'
 import { prBodySha, taskKey } from '../../core/identifiers.js'
 import { completeTask, leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { cardBodyShaOfCard, FAILURES_TO_STOP, keyOf as mergeKeyOf, queueTask, supersedeTask } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { importJournal } from '../../intake/import.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { REVIEW_ROUNDS_SPENT, ReviewWorker, roundLimitLine } from '../../nodes/review/review-worker.js'
-import { NetWatch } from '../../ports/netwatch.js'
 import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
 import { benchOrderTick } from './merge-bench.js'
 import { detectMerge } from './merge-detection.js'
+import { benchNetWatch } from './net-watch-bench.js'
 import { detectReview } from './review-detection.js'
 
 vi.mock('node:child_process', async (importOriginal) => {
@@ -52,7 +53,7 @@ function setUp(file?: string): { db: DatabaseSync, gitHub: FakeGitHub, clock: Cl
   const db = openBus(file ?? onDisk())
   const gitHub = new FakeGitHub()
   const clock = new Clock()
-  const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now)
+  const busTick = new BusTick(db, busProjections(), benchNetWatch(db, gitHub.client, clock.now), clock.now)
   const order = benchOrderTick(db, clock)
   let first = true
   const tick = (): void => {
@@ -150,7 +151,7 @@ describe('review queue', () => {
     const { db, gitHub, clock, tick } = setUp()
     gitHub.open({ number: 924 })
     tick()
-    completeTask(db, cardTransitions(), clock.now().toISOString(), leaseNext(db, clock.now().toISOString(), 'review', 'worker:review:s1')!, [])
+    completeTask(db, cardTransitions(), clock.now().toISOString(), leaseNext(db, pullRequests(db), clock.now().toISOString(), 'review', 'worker:review:s1')!, [])
     gitHub.open({ number: 924, review: 'success' })
     tick()
     const merge = mergeKeyOf({ queue: 'merge', cardId: 1024, pr: 924, head: sha('a'), prBody: prBodySha(cardBody(924)) })
@@ -365,7 +366,7 @@ describe('review queue', () => {
         tick()
       }
       expect(live()).toEqual([{ task_key: keyOf(body), state: 'queued' }])
-      expect(leaseNext(db, clock.now().toISOString(), 'review', 'worker:review:s1')?.taskKey).toBe(keyOf(body))
+      expect(leaseNext(db, pullRequests(db), clock.now().toISOString(), 'review', 'worker:review:s1')?.taskKey).toBe(keyOf(body))
 
       gitHub.open(next === 'edit' ? { number: 928, body: edited } : { number: 928, body, head: sha('b') })
       tick()
@@ -395,7 +396,7 @@ describe('review queue', () => {
       expectOneLiveReview('open')
       for (const [index, step] of sequence.entries()) {
         if (step === 'lease')
-          leaseNext(db, clock.now().toISOString(), 'review', 'worker:review:s1')
+          leaseNext(db, pullRequests(db), clock.now().toISOString(), 'review', 'worker:review:s1')
         if (step === 'push')
           head += 1
         if (step === 'A' || step === 'B')

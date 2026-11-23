@@ -14,6 +14,7 @@ import { TICK_MS } from '../../core/cadence.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { gitTreeRemover } from '../../nodes/close/close-executor.js'
 import { LaunchExecutor } from '../../nodes/launch/launch-executor.js'
 import { CutTreeOrigins } from '../../nodes/launch/launch-root.js'
@@ -21,13 +22,13 @@ import { fullReview } from '../../nodes/review/review-depth.js'
 import { ReviewWorker } from '../../nodes/review/review-worker.js'
 import { claudeReviewer, GIT_TREE_TOOLS, ReviewTrees } from '../../nodes/review/reviewer.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
-import { NetWatch } from '../../ports/netwatch.js'
 import { cutTree, FREE_TREE_CAPACITY, treeOriginIn, treeOriginLine } from '../../ports/worktree.js'
 import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { Clock, FakeGitHub } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
+import { benchNetWatch } from './net-watch-bench.js'
 import { detectReview } from './review-detection.js'
 
 const FIRST = 1701
@@ -78,7 +79,7 @@ function cardStartedPayload(worktree: string, origin: TreeOrigin): Record<string
   const ts = bench.clock.now().toISOString()
   appendEvent(bench.db, { ts, type: CARD_ADMITTED, actor: 'policy', cardId: FIRST, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${FIRST}`, payload: { lane: 'lane-1', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${FIRST}` }, legacy: false })
   bench.tick()
-  const lease = leaseNext(bench.db, bench.clock.now().toISOString(), 'launch', 'worker:launch:worker-1')!
+  const lease = leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'launch', 'worker:launch:worker-1')!
   new LaunchExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, disk: roomy, isolation: sandboxed, treeOrigin: origins.take }).launch(lease)
   const [started] = eventsOf(bench.db, CARD_STARTED)
   bench.close()
@@ -89,7 +90,7 @@ function reviewBench(root: string): { db: DatabaseSync, gitHub: FakeGitHub, tick
   const db = openBus(path.join(root, 'bus.db'))
   const gitHub = new FakeGitHub()
   const clock = new Clock()
-  const busTick = new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now)
+  const busTick = new BusTick(db, busProjections(), benchNetWatch(db, gitHub.client, clock.now), clock.now)
   const publish: StatusPublisher = () => {}
   return {
     db,

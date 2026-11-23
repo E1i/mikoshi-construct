@@ -9,6 +9,7 @@ import { appendEvent, openOwnerWait } from '../../core/db.js'
 import { CARD_HELD, CARD_RELEASED, WINDOW_REQUEST } from '../../core/events.js'
 import { OWNER } from '../../core/inbox.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { answerWord, runOwnerAnswer } from '../../owner/answer.js'
@@ -89,7 +90,7 @@ function busRun(room: Room): RequestOutcome[] {
 }
 
 function answer(room: Room, named: string, words: string): RequestOutcome {
-  expect(runOwnerAnswer([named, words], room.bench.db, room.channel, room.bench.clock.now(), line => room.lines.push(line))).toBe(0)
+  expect(runOwnerAnswer([named, words], room.bench.db, room.channel, room.bench.clock.now(), line => room.lines.push(line), requestFromWindow)).toBe(0)
   const [outcome] = busRun(room)
   return outcome!
 }
@@ -153,7 +154,7 @@ describe('owner:answer <Q|#card> "words"', () => {
     const room = roomWithPr(card, pr)
     const ts = room.bench.clock.now().toISOString()
     queueTask(room.bench.db, ts, { queue: 'answer', cardId: card, pr, head: HEAD })
-    expect(leaseNext(room.bench.db, ts, 'answer', 'worker:answer:worker-1')).not.toBeNull()
+    expect(leaseNext(room.bench.db, pullRequests(room.bench.db), ts, 'answer', 'worker:answer:worker-1')).not.toBeNull()
 
     const outcome = answer(room, `#${card}`, 'keep the stop word in the CLI')
 
@@ -195,7 +196,7 @@ describe('owner:answer <Q|#card> "words"', () => {
     const room = roomWithPr(1864, 1586)
     const before = eventCount(room.bench.db)
     for (const args of [[], ['Q1'], ['nonsense', 'words'], ['да', 'мержить'], ['Q1', '  '], ['Q1', '“', '”'], ['#1864', '«»']])
-      expect(runOwnerAnswer(args, room.bench.db, room.channel, room.bench.clock.now(), line => room.lines.push(line))).toBe(2)
+      expect(runOwnerAnswer(args, room.bench.db, room.channel, room.bench.clock.now(), line => room.lines.push(line), requestFromWindow)).toBe(2)
     expect(eventCount(room.bench.db)).toBe(before)
     expect(existsSync(room.channel)).toBe(false)
 
@@ -211,7 +212,7 @@ describe('owner:answer <Q|#card> "words"', () => {
     const room = roomWithPr(1864, 1586)
     const said = [['Q1', 'да', 'мержить'], ['Q1', '“да мержить”'], ['Q1', '«да', 'мержить»'], ['Q1', '‘да мержить’'], ['Q1', 'да мержить']]
     for (const args of said)
-      expect(runOwnerAnswer(args, room.bench.db, room.channel, room.bench.clock.now(), line => room.lines.push(line))).toBe(0)
+      expect(runOwnerAnswer(args, room.bench.db, room.channel, room.bench.clock.now(), line => room.lines.push(line), requestFromWindow)).toBe(0)
 
     expect(eventsOf(room.bench.db, WINDOW_REQUEST)).toEqual(said.map(() => expect.objectContaining({ kind: 'owner.answer', id: 'Q1', text: 'да мержить' })))
     const words = readdirSync(room.channel).filter(file => file.endsWith('.md')).map(file => readFileSync(path.join(room.channel, file), 'utf8'))

@@ -1564,7 +1564,7 @@
     "versionRecord": "PRAGMA application_id"
   },
   "card": {
-    "cardVersion": 2,
+    "cardVersion": 3,
     "contracts": {
       "board": [
         "id",
@@ -1668,6 +1668,7 @@
       "draft.creates": "string[]",
       "draft.decision": "string",
       "draft.depends": "string[]",
+      "draft.imports": "DraftImport[]",
       "draft.item": "string",
       "draft.kind": "string",
       "draft.milestone": "string",
@@ -2269,11 +2270,9 @@
         "namedIn": [
           "scripts/construct/browser-lab.mjs",
           "scripts/ports/prepare-tree.ts",
-          "scripts/ports/shift-settings.ts",
           "src/commands/attach/index.ts",
           "src/commands/attach/settings.ts",
           "src/commands/doctor/factory.ts",
-          "src/commands/init.ts",
           "src/commands/sync/index.ts"
         ],
         "owner": "scripts/ports/prepare-tree.ts",
@@ -2308,7 +2307,6 @@
           "scripts/cli/slot.ts",
           "scripts/conveyor/measures.ts",
           "scripts/core/bus-path.ts",
-          "scripts/core/inbox.ts",
           "scripts/core/journal.ts",
           "scripts/core/machine-sessions.ts",
           "scripts/core/reducer.ts",
@@ -2499,11 +2497,11 @@
         "derived": false,
         "directory": false,
         "namedIn": [
+          "scripts/supervisor/composition.ts",
           "scripts/supervisor/review-bg.ts",
-          "scripts/supervisor/supervisor.ts",
-          "scripts/supervisor/workers.ts"
+          "scripts/supervisor/supervisor.ts"
         ],
-        "owner": "scripts/supervisor/review-bg.ts",
+        "owner": "scripts/supervisor/composition.ts",
         "source": "owner",
         "writers": []
       },
@@ -2583,10 +2581,11 @@
         "derived": false,
         "directory": false,
         "namedIn": [
+          "scripts/supervisor/composition.ts",
           "scripts/supervisor/review-bg.ts",
-          "scripts/supervisor/workers.ts"
+          "scripts/supervisor/supervisor.ts"
         ],
-        "owner": "scripts/supervisor/review-bg.ts",
+        "owner": "scripts/supervisor/composition.ts",
         "source": "owner",
         "writers": []
       },
@@ -3406,6 +3405,7 @@
         "scripts/supervisor/run.ts",
         "scripts/supervisor/supervisor.ts",
         "scripts/supervisor/review-bg.ts",
+        "scripts/supervisor/netwatch-root.ts",
         "scripts/core/report.ts",
         "scripts/core/reducer.ts",
         "scripts/nodes/answer/answer-worker.ts",
@@ -3416,7 +3416,8 @@
         "scripts/nodes/update/update-worker.ts",
         "scripts/nodes/witness/witness-worker.ts",
         "scripts/nodes/launch/launch-root.ts",
-        "scripts/window/handoff-write.ts"
+        "scripts/window/handoff-write.ts",
+        "scripts/owner/inbox.ts"
       ]
     },
     "composition_roots": [
@@ -3425,6 +3426,7 @@
       "scripts/window/miko.ts",
       "scripts/intake/intake.ts",
       "scripts/supervisor/start.ts",
+      "scripts/supervisor/netwatch-root.ts",
       "scripts/supervisor/composition.ts"
     ],
     "exclusions": {
@@ -3485,9 +3487,11 @@
           "scripts/core/every.ts",
           "scripts/core/watermark.ts",
           "scripts/core/events-query.ts",
+          "scripts/core/tasks-query.ts",
           "scripts/core/entry.ts",
           "scripts/core/observations.ts",
-          "scripts/core/task-must-wait.ts"
+          "scripts/core/task-must-wait.ts",
+          "scripts/core/bus-adapter.ts"
         ],
         "may_use": [
           "events"
@@ -3511,12 +3515,14 @@
           "scripts/core/every.ts",
           "scripts/core/watermark.ts",
           "scripts/core/events-query.ts",
+          "scripts/core/tasks-query.ts",
           "scripts/core/entry.ts",
           "scripts/core/observations.ts",
           "scripts/core/task-must-wait.ts",
           "scripts/core/projection-writes.ts",
           "scripts/core/projection-writes.known.json",
-          "scripts/core/rejection.ts"
+          "scripts/core/rejection.ts",
+          "scripts/core/bus-adapter.ts"
         ],
         "status": "decided"
       },
@@ -3552,12 +3558,18 @@
           "scripts/intake/card-archive.ts",
           "scripts/intake/card-contract.ts",
           "scripts/intake/witness-fields-backfill.ts",
-          "scripts/cli/card.ts"
+          "scripts/cli/card.ts",
+          "scripts/core/card-automaton.ts",
+          "scripts/core/card-hold.ts",
+          "scripts/supervisor/card-waits.ts",
+          "scripts/core/card-readings.ts"
         ],
         "may_use": [
           "bus",
           "card-model",
-          "events"
+          "command-registry",
+          "events",
+          "ports"
         ],
         "owns": [
           "scripts/core/card-bodies.ts",
@@ -3568,7 +3580,11 @@
           "scripts/intake/card-archive.ts",
           "scripts/intake/card-contract.ts",
           "scripts/intake/witness-fields-backfill.ts",
-          "scripts/cli/card.ts"
+          "scripts/cli/card.ts",
+          "scripts/core/card-automaton.ts",
+          "scripts/core/card-hold.ts",
+          "scripts/supervisor/card-waits.ts",
+          "scripts/core/card-readings.ts"
         ],
         "status": "decided"
       },
@@ -3667,6 +3683,7 @@
         "contract": [],
         "may_use": [],
         "owns": [
+          "scripts/core/built-entry.ts",
           "scripts/core/factory-paths.ts",
           "scripts/core/generated-files.ts",
           "scripts/core/declarations.ts",
@@ -3916,6 +3933,7 @@
           "scripts/ports/**",
           "scripts/core/gh-callers.ts",
           "scripts/core/gh-callers.known.json",
+          "scripts/core/bus-contract.ts",
           "!scripts/ports/client/codex/adapter.ts",
           "!scripts/ports/client/contract.ts",
           "!scripts/ports/disk.ts",
@@ -3955,6 +3973,7 @@
           "scripts/nodes/review/dry-run-record.ts",
           "scripts/core/merge-event.ts",
           "scripts/core/pr-folds.ts",
+          "scripts/core/pr-readings.ts",
           "scripts/core/pr-status.ts"
         ],
         "may_use": [
@@ -3969,6 +3988,7 @@
           "scripts/nodes/review/dry-run-record.ts",
           "scripts/core/merge-event.ts",
           "scripts/core/pr-folds.ts",
+          "scripts/core/pr-readings.ts",
           "scripts/core/pr-status.ts"
         ],
         "status": "decided"
@@ -4053,6 +4073,7 @@
           "scripts/policy/widening.ts",
           "scripts/policy/touch-scope.ts",
           "scripts/policy/derived-files.ts",
+          "scripts/policy/placement-growth.ts",
           "scripts/morse/**",
           "scripts/core/push-policy.ts"
         ],
@@ -4072,8 +4093,6 @@
           "scripts/core/handoff-dir.ts",
           "scripts/core/handoff-fields.ts",
           "scripts/core/handoff-status.ts",
-          "scripts/core/card-automaton.ts",
-          "scripts/core/card-hold.ts",
           "scripts/core/chain.ts",
           "scripts/core/places.ts",
           "scripts/core/report.ts",
@@ -4108,8 +4127,6 @@
           "scripts/core/handoff-dir.ts",
           "scripts/core/handoff-fields.ts",
           "scripts/core/handoff-status.ts",
-          "scripts/core/card-automaton.ts",
-          "scripts/core/card-hold.ts",
           "scripts/core/chain.ts",
           "scripts/core/places.ts",
           "scripts/core/report.ts",
@@ -4120,7 +4137,9 @@
           "scripts/cli/slot.ts",
           "src/commands/liveness.ts",
           "scripts/supervisor/**",
+          "!scripts/supervisor/card-waits.ts",
           "!scripts/supervisor/composition.ts",
+          "!scripts/supervisor/netwatch-root.ts",
           "!scripts/supervisor/start.ts"
         ],
         "status": "decided"
@@ -4182,7 +4201,8 @@
           ],
           "card": [
             1,
-            2
+            2,
+            3
           ]
         }
       },
@@ -4204,7 +4224,8 @@
           ],
           "card": [
             1,
-            2
+            2,
+            3
           ]
         }
       },
@@ -4240,7 +4261,8 @@
           ],
           "card": [
             1,
-            2
+            2,
+            3
           ]
         }
       },
@@ -4266,7 +4288,8 @@
           ],
           "card": [
             1,
-            2
+            2,
+            3
           ]
         }
       },
@@ -4296,7 +4319,8 @@
           ],
           "card": [
             1,
-            2
+            2,
+            3
           ]
         }
       },
@@ -4320,7 +4344,8 @@
           ],
           "card": [
             1,
-            2
+            2,
+            3
           ]
         }
       },
@@ -4341,12 +4366,13 @@
           ],
           "card": [
             1,
-            2
+            2,
+            3
           ]
         }
       }
     },
-    "nodesVersion": 3
+    "nodesVersion": 4
   },
   "overlaps": {
     "answer-duties": {
@@ -4359,10 +4385,9 @@
       "scripts/cli/card-chain.ts": 3,
       "scripts/cli/card.ts": 1,
       "scripts/cli/check-catalog.ts": 1,
-      "scripts/core/bus-readings.ts": 4,
-      "scripts/core/card-automaton.ts": 6,
+      "scripts/core/bus-readings.ts": 3,
+      "scripts/core/card-automaton.ts": 3,
       "scripts/core/card-decisions.ts": 5,
-      "scripts/core/card-hold.ts": 1,
       "scripts/core/chain.ts": 3,
       "scripts/core/db.ts": 3,
       "scripts/core/dependency-wait.ts": 3,
@@ -4372,13 +4397,15 @@
       "scripts/core/lease.ts": 17,
       "scripts/core/legacy-history.ts": 1,
       "scripts/core/node.ts": 4,
-      "scripts/core/observations.ts": 6,
+      "scripts/core/observations.ts": 4,
       "scripts/core/pr-folds.ts": 3,
+      "scripts/core/pr-readings.ts": 2,
       "scripts/core/pr-status.ts": 6,
       "scripts/core/queue.ts": 23,
       "scripts/core/reducer.ts": 2,
       "scripts/core/report.ts": 5,
       "scripts/core/stored.ts": 1,
+      "scripts/core/tasks-query.ts": 1,
       "scripts/core/tasks.ts": 3,
       "scripts/core/watermark.ts": 2,
       "scripts/intake/card-contract.ts": 1,
@@ -4439,7 +4466,7 @@
       "scripts/window/eddies-measure.ts": 1,
       "scripts/window/handoff-write.ts": 1,
       "scripts/window/operator-work.ts": 2,
-      "scripts/window/plan-folds.ts": 6,
+      "scripts/window/plan-folds.ts": 5,
       "scripts/window/requests/amend.ts": 2,
       "scripts/window/requests/context.ts": 6,
       "scripts/window/requests/drop.ts": 1,
@@ -4560,7 +4587,8 @@
           "cardLine": "(card: Omit<Card, 'line'>): string",
           "cardTerms": "(card: Card): string",
           "parseCard": "(text: string, milestones?: readonly string[]): ParsedCard",
-          "readBodyCard": "(body: string): ParsedCard"
+          "readBodyCard": "(body: string): ParsedCard",
+          "registerCardFunctions": "(db: DatabaseSync, blocks: string): DatabaseSync"
         },
         "reexports": [],
         "types": {
@@ -4636,6 +4664,22 @@
           "WitnessField": "interface WitnessField { id: string; run: string; test: string | null; head: WitnessExpectation; base: WitnessExpectation; proves: string; }"
         }
       },
+      "src/commands/attach/daemon-commands.ts": {
+        "constants": [
+          "DAEMON_KEY",
+          "PROJECT_SETTINGS_FILE",
+          "SETTINGS_FILE"
+        ],
+        "functions": {
+          "allowRule": "(command: string): string",
+          "daemonProgram": "(command: string): string | null",
+          "declaredCommands": "(text: string, home: string = homedir()): string[]",
+          "frontmatterFields": "(text: string): Array<readonly [ string, string ]>",
+          "shippedDaemonCommands": "(home: string = homedir()): string[]"
+        },
+        "reexports": [],
+        "types": {}
+      },
       "src/commands/attach/index.ts": {
         "constants": [
           "ATTACH_EXIT: Record<AttachResult['status'] | 'required-check-unresolvable', number>"
@@ -4659,12 +4703,10 @@
         }
       },
       "src/commands/attach/settings.ts": {
-        "constants": [
-          "SETTINGS_FILE"
-        ],
+        "constants": [],
         "functions": {
-          "browserLabExcludedCommand": "(home: string = homedir()): string",
-          "browserLabInstalledScript": "(home: string = homedir()): string"
+          "browserLabInstalledScript": "(home: string = homedir()): string",
+          "cardTreeGitWrites": "(gitDir: string, commonDir: string): string[]"
         },
         "reexports": [],
         "types": {}
@@ -4674,7 +4716,6 @@
           "CARD_STAGES"
         ],
         "functions": {
-          "busFacts": "(db: BusDb, now: Date, transcripts: TranscriptReader = clientTranscriptReader): BusFacts",
           "latestCardEvents": "(db: BusDb, perCard: number): Map<number, BusCardEvent[]>",
           "openTasks": "(db: BusDb): BusTask[]"
         },
@@ -4716,7 +4757,9 @@
         "constants": [
           "BOARD_EXIT"
         ],
-        "functions": {},
+        "functions": {
+          "busFacts": "(db: BusDb, now: Date): BusFacts"
+        },
         "reexports": [],
         "types": {}
       },
@@ -5037,7 +5080,7 @@
           "CardEvent": "interface CardEvent { type: typeof CARD_ADMITTED | typeof CARD_MOVED | typeof CARD_DROPPED | typeof CARD_WAITING; cardId: number; ts: string; dedupeKey: string; payload: Record<string, unknown>; }",
           "CardEventPort": "type CardEventPort = ((event: CardEvent) => void) & { allOrNothing?: (events: readonly CardEvent[]) => void; }",
           "CardStatesPort": "type CardStatesPort = () => CardsOfTheBus",
-          "RecordedIntake": "interface RecordedIntake { card: string; bodySha: unknown; ts: unknown; confirmation: unknown; source: unknown; text?: string; }"
+          "RecordedIntake": "interface RecordedIntake { card: string; bodySha: unknown; ts: unknown; confirmation: unknown; source: unknown; text?: string; witnessRecords?: readonly RecordedWitnessVerdict[]; }"
         }
       },
       "src/commands/intake/numbers.ts": {
@@ -5336,6 +5379,23 @@
           "SliceFields": "type SliceFields<T extends EventType, K extends PayloadKey<T>> = { readonly [P in K]?: unknown; }",
           "SliceTake": "type SliceTake = typeof SLICE_TAKES[number]",
           "SliceWhere": "interface SliceWhere { card?: number | typeof ANY; pr?: number | typeof ANY; from?: number; actor?: string; present?: readonly string[]; legacy?: boolean; limit?: number; }"
+        }
+      },
+      "scripts/ports/card-grants.ts": {
+        "constants": [
+          "CARD_GRANTS: readonly CardGrant[]",
+          "GRANT_SCRATCH_DIRECTORY",
+          "GRANT_SCRATCH_SPELLINGS"
+        ],
+        "functions": {
+          "cardOfTree": "(tree: string): number | null",
+          "grantOf": "(card: number | null, grants: readonly CardGrant[] = CARD_GRANTS): CardGrant | null"
+        },
+        "language": "factory",
+        "reexports": [],
+        "technologyWords": [],
+        "types": {
+          "CardGrant": "interface CardGrant { card: number; decision: string; allow: readonly string[]; domains: readonly string[]; homeWrites: readonly string[]; excludedCommands: readonly string[]; }"
         }
       },
       "scripts/ports/card-tree.ts": {
@@ -5747,14 +5807,13 @@
       "scripts/ports/main-merge.ts": {
         "constants": [],
         "functions": {
-          "conflictingCardOf": "(db: DatabaseSync, cardId: number, branch: string, head: string): ConflictingCard",
+          "conflictingCardOf": "(outsideTheBody: OutsideTheBody, cardId: number, branch: string, head: string): ConflictingCard",
           "mainKeptInTheTree": "(tree: string): MergeMain",
           "mainMergeInCardTree": "(git: TreeGit, treeOf: (cardId: number) => string, run: RebuildRunner = pnpmRebuild, merged: MergedMain = 'pushed'): MergeMain"
         },
         "language": "technology",
         "reexports": [],
         "technologyWords": [
-          "database",
           "git",
           "pnpm",
           "stderr"
@@ -5764,6 +5823,7 @@
           "MainMerge": "type MainMerge = { kind: 'merged'; to: string; tookMain: string[]; rebuilt: string[]; } | { kind: 'inside'; files: string[]; } | { kind: 'refused'; why: string; }",
           "MergeMain": "type MergeMain = (card: ConflictingCard) => MainMerge",
           "MergedMain": "type MergedMain = 'pushed' | 'kept-in-the-tree'",
+          "OutsideTheBody": "type OutsideTheBody = (cardId: number, files: readonly string[]) => string[]",
           "RebuildRunner": "type RebuildRunner = (cwd: string, args: readonly string[]) => { status: number | null; stderr: string; }",
           "TreeGit": "type TreeGit = (cwd: string, args: string[]) => string"
         }
@@ -5802,7 +5862,8 @@
           "observationsOf": "(ts: string, snapshot: Snapshot, previousOf: PreviousObservationOf, reopening: ReopeningOf = () => null): BusEvent[]",
           "pollLine": "(poll: Poll): string",
           "prClosed": "(ts: string, closed: ClosedPr, reopening: number | null = null): BusEvent",
-          "prObserved": "(ts: string, open: OpenPr, previous: PreviousObservation | null): BusEvent"
+          "prObserved": "(ts: string, open: OpenPr, previous: PreviousObservation | null): BusEvent",
+          "watchTheNetwork": "(requiredCheck: () => string, once: boolean): Promise<number>"
         },
         "language": "technology",
         "reexports": [],
@@ -5811,7 +5872,7 @@
           "git"
         ],
         "types": {
-          "NetWatch": "class NetWatch { constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly clock: () => Date, private readonly process: string = RUN_SCRIPT, private readonly root?: string); dueReason(nowMs: number): PollReason | null; poll(): Poll | null }",
+          "NetWatch": "class NetWatch { constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly clock: () => Date, private readonly process: string, private readonly requiredCheck: () => string); dueReason(nowMs: number): PollReason | null; poll(): Poll | null }",
           "Poll": "type Poll = { kind: 'ticked'; reason: PollReason; calls: number; remaining: number | null; written: number; unsettled: number[]; } | { kind: 'skipped'; reason: PollReason; cause: 'retry-after' | 'rate-limited' | 'failed'; calls: number; until?: string; detail?: string; }",
           "PollReason": "type PollReason = 'start' | 'interval' | 'wake'"
         }
@@ -5985,13 +6046,13 @@
         ],
         "functions": {
           "settingsFlag": "(settings: ShiftSettings): string[]",
-          "shiftSettings": "(tree: string, gate: ShiftGate, writable: string[] = [], home: string = os.homedir()): ShiftSettings"
+          "shiftSettings": "(tree: string, gate: ShiftGate, writable: string[] = [], home: string = os.homedir(), card: number | null = cardOfTree(tree)): ShiftSettings"
         },
         "language": "factory",
         "reexports": [],
         "technologyWords": [],
         "types": {
-          "ShiftSettings": "interface ShiftSettings { sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[]; filesystem?: { denyWrite: string[]; }; }; permissions: { allow: string[]; deny?: string[]; }; env: typeof SESSION_BASH_CAP; hooks: typeof WIDE_VITEST_HOOKS; }"
+          "ShiftSettings": "interface ShiftSettings { sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[]; filesystem?: { allowWrite?: string[]; denyWrite?: string[]; }; network: { allowedDomains?: string[]; }; }; permissions: { allow: string[]; deny?: string[]; }; env: typeof SESSION_BASH_CAP; hooks: typeof WIDE_VITEST_HOOKS; }"
         }
       },
       "scripts/ports/snapshot.ts": {
@@ -6005,7 +6066,7 @@
           "PULL_FILES_PAGES"
         ],
         "functions": {
-          "requiredCheckOf": "(root: string = watchedRoot()): string",
+          "requiredCheckOf": "(readAttachRecord: AttachRecordReader, root: string = watchedRoot()): string",
           "takeSnapshot": "(meter: Meter, known: number[], lastMain: string | null, requiredCheck = REQUIRED_CHECK, recordedPathsOf: RecordedPathsOf = () => null): Snapshot",
           "touchesMechanics": "(files: string[]): boolean",
           "verdictOf": "(meter: Meter, sha: string): VerdictOnHead | null",
@@ -6018,6 +6079,8 @@
         ],
         "technologyWords": [],
         "types": {
+          "AttachRecordReader": "type AttachRecordReader = (root: string) => AttachedHarness | null",
+          "AttachedHarness": "interface AttachedHarness { harness: { job?: string; } | string; }",
           "ChangedPaths": "interface ChangedPaths { paths: string[]; pathsTruncated: boolean; }",
           "ClosedPr": "interface ClosedPr { pr: number; cardId: number | null; branch?: string | null; merged: boolean; commit: string | null; mergedBy: string | null; mergedAt: string | null; }",
           "InMemoryPulls": "class InMemoryPulls { asked: string[]; constructor(private readonly bodies: Readonly<Record<string, unknown>>); meter(): Meter }",
@@ -6202,6 +6265,6 @@
         }
       }
     },
-    "portsVersion": 5
+    "portsVersion": 7
   }
 }

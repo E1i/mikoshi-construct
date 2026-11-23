@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent } from '../../core/db.js'
 import { ANSWER_STEP, CARD_STARTED, CARD_STOPPED, QUESTION_AGENT } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { answerHandoffPath, claudeAnswerer, FreshBaseConflict, ownerQuestionPath, realAnswererTools, RoundTimer, windowGateRule } from '../../nodes/answer/answerer.js'
@@ -58,7 +59,7 @@ function settingsOf(run: AnswerRun): unknown {
 
 function treeSettings(worktree: string, ownerQuestion: string): unknown {
   return {
-    sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY] } },
+    sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY], allowMachLookup: ['com.apple.trustd*'] } },
     permissions: { allow: [`Bash(${TREE_GATE})`, `Edit(/${worktree}/**)`, `Edit(/${ownerQuestion})`] },
     env: SESSION_BASH_CAP,
     hooks: WIDE_VITEST_HOOKS,
@@ -398,7 +399,7 @@ describe('the steps of an answer round on the bus', () => {
     appendEvent(made.db, { ts, type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId: 905, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:905`, payload: { reason: QUESTION_AGENT, detail: 'a question on card #905' }, legacy: false })
     const stop = Number((made.db.prepare(`SELECT max(id) AS id FROM events WHERE type = '${CARD_STOPPED}'`).get() as { id: number }).id)
     queueTask(made.db, ts, { queue: 'answer', cardId: 905, stop })
-    const lease = leaseNext(made.db, ts, 'answer', 'worker:answer:worker-1')!
+    const lease = leaseNext(made.db, pullRequests(made.db), ts, 'answer', 'worker:answer:worker-1')!
     const seconds = (count: number): void => made.clock.advance(count * 1_000)
     const dir = path.join(trees, 'answers')
     const answerer = claudeAnswerer(dir, {

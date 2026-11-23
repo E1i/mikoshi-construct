@@ -3,11 +3,11 @@ import type { Understood } from './bus-version.js'
 import type { BusEvent } from './db.js'
 import type { EventsOf } from './handover.js'
 import type { Queue } from './identifiers.js'
-import type { CardTransitions, HolderStart, Lease, LeaseOrder } from './lease.js'
+import type { CardTransitions, HolderStart, Lease, LeaseOrder, PullHead } from './lease.js'
 import type { QueuedTask } from './queue.js'
 import type { StoredEvent } from './stored.js'
 import { setImmediate as nextTurn } from 'node:timers/promises'
-import { BUS_VERSION, BUS_VERSION_BEFORE_GATE_RUN, BUS_VERSION_BEFORE_LADDER_RUN, BUS_VERSION_BEFORE_THRESHOLD_SET, CARD_VERSION, CARD_VERSION_BEFORE_TOUCH_SCOPE, recordBusVersion, UNRECORDED_VERSION } from './bus-version.js'
+import { BUS_VERSION, BUS_VERSION_BEFORE_GATE_RUN, BUS_VERSION_BEFORE_LADDER_RUN, BUS_VERSION_BEFORE_THRESHOLD_SET, CARD_VERSION, CARD_VERSION_BEFORE_PLACEMENT_IMPORTS, CARD_VERSION_BEFORE_TOUCH_SCOPE, recordBusVersion, UNRECORDED_VERSION } from './bus-version.js'
 import { appendEvent, inTransaction, openBus } from './db.js'
 import { CARD_STOPPED, NODE_DETECTED, NODE_EQUIVALENCE, TASK_LEASED } from './events.js'
 import { INLINE_QUEUES } from './executor-holds.js'
@@ -137,6 +137,7 @@ export interface NodeSupply {
   identityOf?: IdentityReader
   refuses: CardRefusal
   cards: CardTransitions
+  pullRequests: (db: DatabaseSync) => readonly PullHead[]
 }
 
 export interface NodeContext {
@@ -202,7 +203,7 @@ export interface NodeDeclaration {
 
 export type VersionedRecord = keyof Understood
 
-export const UNDERSTOOD_NOW: Understood = { bus: [UNRECORDED_VERSION, BUS_VERSION_BEFORE_LADDER_RUN, BUS_VERSION_BEFORE_GATE_RUN, BUS_VERSION_BEFORE_THRESHOLD_SET, BUS_VERSION], card: [CARD_VERSION_BEFORE_TOUCH_SCOPE, CARD_VERSION] }
+export const UNDERSTOOD_NOW: Understood = { bus: [UNRECORDED_VERSION, BUS_VERSION_BEFORE_LADDER_RUN, BUS_VERSION_BEFORE_GATE_RUN, BUS_VERSION_BEFORE_THRESHOLD_SET, BUS_VERSION], card: [CARD_VERSION_BEFORE_TOUCH_SCOPE, CARD_VERSION_BEFORE_PLACEMENT_IMPORTS, CARD_VERSION] }
 
 export function foreignVersion(understands: Understood, record: VersionedRecord, version: number, whose: string): string | null {
   if (understands[record].includes(version))
@@ -644,7 +645,7 @@ export abstract class Node<S extends NodeStep> {
     expireLeases(this.db, this.supply.cards, ts, this.parts.silentMs)
     if (drainOpen(this.db, ts, this.kind, this.codeSha))
       return null
-    const lease = leaseHandedOver(this.db, eventsIn(this.db), ts, this.kind, this.actor, this.leaseOrder(), aliveBy(this.supply.identityOf))
+    const lease = leaseHandedOver(this.db, this.supply.pullRequests(this.db), eventsIn(this.db), ts, this.kind, this.actor, this.leaseOrder(), aliveBy(this.supply.identityOf))
     return lease !== null && this.refusedForeignCard(ts, lease) ? null : lease
   }
 

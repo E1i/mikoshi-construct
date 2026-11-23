@@ -6,16 +6,16 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../../core/db.js'
-import { NetWatch } from '../../ports/netwatch.js'
 import { PREFIX as BG_PREFIX, processBeatsOn, psList, runBusBg, runningBus, runningInstance, startDetached } from '../../supervisor/bg.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, REVIEW_INSTANCE_FILE, REVIEW_LOG, REVIEW_PREFIX, REVIEW_START_LOCK, REVIEW_WORKER_MARKERS, reviewLaunch } from '../../supervisor/composition.js'
 import { recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
-import { busShadowProblems, PREFIX, REVIEW_INSTANCE_FILE, REVIEW_LOG, REVIEW_START_LOCK, REVIEW_WORKER_MARKERS, reviewLaunch, startReviewWorker } from '../../supervisor/review-bg.js'
+import { busShadowProblems, startReviewWorker } from '../../supervisor/review-bg.js'
 import { BusTick } from '../../supervisor/run.js'
 import { settled } from '../shift/fixtures/settled.js'
 import { waitFor } from '../wait-for.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
+import { benchNetWatch } from './net-watch-bench.js'
 
 const ARRIVAL_GUARD_MS = 25_000
 
@@ -280,7 +280,7 @@ describe('pnpm bus:review:bg', () => {
     const missing = startDetached(launch, w.busDir, w.env, w.processes)
     expect(missing.exitCode).toBe(1)
     expect(missing.stdout).toEqual([])
-    expect(missing.stderr[0]!.startsWith(PREFIX)).toBe(true)
+    expect(missing.stderr[0]!.startsWith(REVIEW_PREFIX)).toBe(true)
     expect(missing.stderr.join('\n')).toContain(busPath)
     expect(existsSync(busPath)).toBe(false)
     expect(existsSync(path.join(w.busDir, REVIEW_INSTANCE_FILE))).toBe(false)
@@ -293,7 +293,7 @@ describe('pnpm bus:review:bg', () => {
     const busPath = path.join(w.busDir, 'bus.db')
     const db = openBus(busPath)
     gitHub.open({ number: 966 })
-    new BusTick(db, busProjections(), new NetWatch(db, gitHub.client, clock.now), clock.now).run()
+    new BusTick(db, busProjections(), benchNetWatch(db, gitHub.client, clock.now), clock.now).run()
     db.close()
     gitHub.open({ number: 966, head: sha('c') })
     gitHub.failing = true

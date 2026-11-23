@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { runAmend } from '../../../src/commands/intake/amend.js'
 import { runExport } from '../../../src/commands/intake/export.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { admittedBodyText, cardBodyText } from '../../core/card-bodies.js'
 import { openBus } from '../../core/db.js'
 import { reduce } from '../../core/reducer.js'
@@ -78,7 +79,7 @@ describe('--amend and --export read the body from the latest card.admitted, not 
     inBus(w, (db) => {
       admitThenWidenUnfolded(w, db)
       expect(runAmend({ ...intakeOf(w, db), card: `#${CARD}`, flags: { note: SECOND } }, () => AMENDED_AT).status).toBe('admitted')
-      const latest = admittedBodyText(db, CARD)
+      const latest = admittedBodyText(BUS_CONTRACT, db, CARD)
       expect(latest).toContain(WIDENED)
       expect(latest).toContain(SECOND)
       reduce(db, 'pending', busProjections())

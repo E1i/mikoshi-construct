@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
+import { closedWaitIds } from '../../core/card-readings.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_SESSION_ENDED, CARD_STOPPED, OWNER_WAIT_OPENED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, SHARD_ISSUED } from '../../core/events.js'
 import { runInbox } from '../../core/inbox.js'
@@ -69,7 +70,7 @@ function issueWindowShard(made: MergeBench): void {
 function ownerStop(made: MergeBench, cardId: number, detail: string): string {
   const ts = made.clock.now().toISOString()
   appendEvent(made.db, { ts, type: CARD_STOPPED, actor: 'worker:answer:s1', cardId, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${cardId}`, payload: { reason: QUESTION_OWNER, detail }, legacy: false })
-  const wait = openBusWait(made.db, ts, 'worker:answer:s1', { need: 'decision', text: `card #${cardId} asks: ${detail}`, command: cardDecisionCommand(cardId), card: cardId })
+  const wait = openBusWait(made.db, closedWaitIds(made.db), ts, 'worker:answer:s1', { need: 'decision', text: `card #${cardId} asks: ${detail}`, command: cardDecisionCommand(cardId), card: cardId })
   reduce(made.db, 'pending', busProjections())
   return wait
 }

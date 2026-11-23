@@ -6,6 +6,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
+import { closedWaitIds } from '../../core/card-readings.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_STARTED, OWNER_WAIT_CLOSED, REVIEW_RECORDED, WINDOW_REQUEST } from '../../core/events.js'
 import { ANSWER_SOURCE } from '../../core/inbox.js'
@@ -89,13 +90,13 @@ function changesOn(at: Room, head: string): void {
 
 function roundLimitWait(at: Room, pr = PR): string {
   const text = `PR #${pr} of card #${CARD} reached the review round limit (D-104) and was not re-cut: the owner decides`
-  const wait = openBusWait(at.bench.db, at.bench.clock.now().toISOString(), RECUT_ACTOR, { need: 'decision', text, card: CARD, pr })
+  const wait = openBusWait(at.bench.db, closedWaitIds(at.bench.db), at.bench.clock.now().toISOString(), RECUT_ACTOR, { need: 'decision', text, card: CARD, pr })
   reduce(at.bench.db, 'pending', busProjections())
   return wait
 }
 
 function mergeWait(at: Room): string {
-  const wait = openBusWait(at.bench.db, at.bench.clock.now().toISOString(), 'worker:merge:s1', { need: 'merge', text: 'policy.denied: a new node:child_process import', card: CARD, pr: PR })
+  const wait = openBusWait(at.bench.db, closedWaitIds(at.bench.db), at.bench.clock.now().toISOString(), 'worker:merge:s1', { need: 'merge', text: 'policy.denied: a new node:child_process import', card: CARD, pr: PR })
   reduce(at.bench.db, 'pending', busProjections())
   return wait
 }

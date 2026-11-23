@@ -15,8 +15,9 @@ import { fileURLToPath } from 'node:url'
 import { BOARD_PERIOD_MS, startBoardTimer } from '../cli/board-page.js'
 import { busDirOf } from '../core/bus-path.js'
 import { CHECK_MS, TICK_MS } from '../core/cadence.js'
-import { defaultBusPath, inTransaction, openBus, openBusWait } from '../core/db.js'
-import { WINDOW_REQUEST } from '../core/events.js'
+import { closedWaitIds } from '../core/card-readings.js'
+import { appendEvent, BOARD_STALE_TICKS, BOARD_TIMER_PROCESS, defaultBusPath, inTransaction, openBus, openBusWait, recordBoardBeat } from '../core/db.js'
+import { WINDOW_REQUEST, WORKER_DOWN } from '../core/events.js'
 import { DATABASE_LOCKED, isDatabaseLocked } from '../core/node.js'
 import { setStepStatuses, STATUS_CONTEXT, STATUS_OFF_FILE, statusesSwitchedOff, statusFailureLine, statusLine } from '../core/pr-status.js'
 import { QUEUE_ACTOR } from '../core/queue.js'
@@ -28,7 +29,7 @@ import { realRequestTools } from '../window/window-request-tools.js'
 import { WindowRequests } from '../window/window-requests.js'
 import { alive, BUS_RUN_MARKERS, instancesOf, processBeatsOn, psList, RUN_SCRIPT } from './bg.js'
 import { closeWaitsOfEndedCards } from './card-waits.js'
-import { busProjections, cardTransitions, deadEndParts, deriveQueuesOfTheBus, gateRunSpoolPlaces, recordOwnStart } from './composition.js'
+import { busProjections, cardTransitions, composeBus, deadEndParts, deriveQueuesOfTheBus, gateRunSpoolPlaces, openComposedBus, recordOwnStart, requiredCheckAt } from './composition.js'
 import { DeadEnds } from './dead-ends.js'
 import { GateRunSpool } from './gate-run-spool.js'
 import { sessionLifeIn } from './recorded-worker.js'
@@ -74,7 +75,7 @@ function askOwnerOfUnprovenHolder(busPath: string, question: string, lock: strin
     return null
   const db = openBus(busPath)
   try {
-    return openBusWait(db, new Date(nowMs).toISOString(), QUEUE_ACTOR, { need: 'command', text: question, command: `rm ${lock}` })
+    return openBusWait(db, closedWaitIds(db), new Date(nowMs).toISOString(), QUEUE_ACTOR, { need: 'command', text: question, command: `rm ${lock}` })
   }
   finally {
     db.close()
@@ -178,6 +179,7 @@ export class BusTick {
   private readonly inlineReducer: ReducerPass | null
 
   constructor(private readonly db: DatabaseSync, reducedInline: Projections | ReducerPass | null, private readonly netWatch: NetWatch, private readonly clock: () => Date, requests: () => void = () => {}, private readonly statuses: () => void = () => {}, private readonly stalled: () => void = () => {}, private readonly spools: () => string[] = () => [], private readonly elapsedMs: () => number = () => performance.now(), private readonly deadEnds: () => void = () => {}) {
+    composeBus(db)
     this.inlineReducer = reducedInline === null || reducedInline instanceof ReducerPass ? reducedInline : new ReducerPass(db, reducedInline, clock, requests)
   }
 
@@ -242,6 +244,7 @@ export interface ComposedTick {
 export const QUIET_REDUCED_MS = TICK_MS
 
 export function composeReducerPass(db: DatabaseSync, busPath: string, clock: () => Date, home: string, repo: string = process.cwd(), env: NodeJS.ProcessEnv = process.env, log: (line: string) => void = console.log, quietMs: number = QUIET_REDUCED_MS): ReducerPass {
+  composeBus(db)
   const projections = busProjections()
   const requests = new WindowRequests(db, clock, realRequestTools(db, busPath, repo, env, projections), ownerChannelOfBus(home, busPath))
   const answer = (): void => {
@@ -277,7 +280,7 @@ export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub
     for (const line of ends.step())
       console.log(`${PREFIX}${line}`)
   }
-  return { busTick: new BusTick(db, reducer, new NetWatch(db, gitHub, clock), clock, () => {}, statuses, stalled, spools, () => performance.now(), deadEnds) }
+  return { busTick: new BusTick(db, reducer, new NetWatch(db, gitHub, clock, RUN_SCRIPT, () => requiredCheckAt()), clock, () => {}, statuses, stalled, spools, () => performance.now(), deadEnds) }
 }
 
 export function startBus(db: DatabaseSync, clock: () => Date): string[] {
@@ -291,7 +294,7 @@ async function main(): Promise<number> {
     console.error(lock.stderr.join('\n'))
     return lock.exitCode
   }
-  const db = openBus(busPath)
+  const db = openComposedBus(busPath)
   recordOwnStart(db, 'run')
   const closed = startBus(db, () => new Date())
   if (closed.length > 0)
@@ -299,9 +302,115 @@ async function main(): Promise<number> {
   const spool = new GateRunSpool(db, gateRunSpoolPlaces(process.env, busPath, process.cwd()), PREFIX)
   const { busTick } = composeBusTick(db, busPath, ghApi(process.cwd()), ghApiPost(process.cwd()), () => new Date(), os.homedir(), () => spool.step(), 'own-thread')
   const reducer = startReducerLoop(busPath, os.homedir())
-  const board = startBoardTimer(busPath)
+  const board = startBoardThread(db, busPath)
   console.log(`${PREFIX}${busPath}, shadow mode: the reducer with the window requests every ${REDUCER_PERIOD_MS / 1000} s on its own connection in its own thread; NetWatch, the queues and the ${STATUS_CONTEXT} status check on each open PR head unless ${STATUS_OFF_FILE} sits beside it every ${TICK_MS / 1000} s; ${board.file} with ${board.dataFile} every ${BOARD_PERIOD_MS / 1000} s on a read-only connection in its own thread; no workers`)
   return superviseUntilEnd(() => tickWhileReducing(busTick, reducer), bothThreads(reducer, board), () => db.close())
+}
+
+type BoardTimerSpawn = NonNullable<Parameters<typeof startBoardTimer>[2]>
+type StartedBoardTimer = ReturnType<typeof startBoardTimer>
+
+export const BOARD_THREAD = BOARD_TIMER_PROCESS
+export const BOARD_RESTART_CAP_MS = 300_000
+const PERIODS_THAT_CLEAR_THE_FAILURES = 2
+
+export interface BoardThreadDown {
+  worker: string
+  cause: string
+  failures: number
+  nextAttemptAt: Date
+}
+
+export function restartDelayMs(periodMs: number, failures: number): number {
+  return Math.min(periodMs * 2 ** Math.max(0, failures - 1), Math.max(periodMs, BOARD_RESTART_CAP_MS))
+}
+
+export function boardThreadEndedLine(cause: string, restartInMs: number): string {
+  return `${PREFIX}the board thread ended (${cause}), so the board page stops being written; bus:run records worker.down and starts the thread again in ${(restartInMs / 1000).toFixed(1)} s`
+}
+
+export function boardThreadDownUnrecordedLine(error: unknown): string {
+  return `${PREFIX}recording worker.down for ${BOARD_THREAD} failed: ${(error instanceof Error ? error.message : String(error)).split('\n')[0]}; the thread is started again all the same`
+}
+
+class KeptBoardThread {
+  private thread: StartedBoardTimer | null = null
+  private failures = 0
+  private startedMs = 0
+  private restart: ReturnType<typeof setTimeout> | null = null
+  private stopped = false
+
+  constructor(private readonly busPath: string, private readonly periodMs: number, private readonly spawn: BoardTimerSpawn | undefined, private readonly down: (down: BoardThreadDown) => void, private readonly now: () => number, private readonly beat: (writtenAt: string) => void) {}
+
+  start(): StartedBoardTimer {
+    this.startedMs = this.now()
+    const thread: StartedBoardTimer = startBoardTimer(this.busPath, this.periodMs, this.spawn, cause => this.ended(thread, cause), this.beat)
+    this.thread = thread
+    return thread
+  }
+
+  async stop(): Promise<void> {
+    this.stopped = true
+    if (this.restart !== null)
+      clearTimeout(this.restart)
+    this.restart = null
+    const thread = this.thread
+    this.thread = null
+    if (thread !== null)
+      await thread.stop()
+  }
+
+  private ended(thread: StartedBoardTimer, cause: string): void {
+    if (this.stopped || thread !== this.thread)
+      return
+    this.thread = null
+    this.failures = this.now() - this.startedMs >= this.periodMs * PERIODS_THAT_CLEAR_THE_FAILURES ? 1 : this.failures + 1
+    const delay = restartDelayMs(this.periodMs, this.failures)
+    console.error(boardThreadEndedLine(cause, delay))
+    try {
+      this.down({ worker: BOARD_THREAD, cause, failures: this.failures, nextAttemptAt: new Date(this.now() + delay) })
+    }
+    catch (error) {
+      console.error(boardThreadDownUnrecordedLine(error))
+    }
+    this.restart = setTimeout(() => {
+      this.restart = null
+      if (!this.stopped)
+        this.start()
+    }, delay)
+  }
+}
+
+export function keepBoardThread(busPath: string, periodMs: number = BOARD_PERIOD_MS, spawn?: BoardTimerSpawn, down: (down: BoardThreadDown) => void = () => {}, now: () => number = Date.now, beat: (writtenAt: string) => void = () => {}): StartedBoardTimer {
+  const kept = new KeptBoardThread(busPath, periodMs, spawn, down, now, beat)
+  const first = kept.start()
+  return { file: first.file, dataFile: first.dataFile, stop: async () => kept.stop() }
+}
+
+export function boardThreadDownRecorder(db: DatabaseSync): (down: BoardThreadDown) => void {
+  return (down) => {
+    const ts = new Date().toISOString()
+    appendEvent(db, { ts, type: WORKER_DOWN, actor: 'policy', cardId: null, pr: null, head: null, dedupeKey: `${WORKER_DOWN}:${down.worker}:${ts}`, payload: { worker: down.worker, failures: down.failures, cause: down.cause, next_attempt_at: down.nextAttemptAt.toISOString() }, legacy: false })
+  }
+}
+
+export function boardBeatUnrecordedLine(error: unknown): string {
+  return `${PREFIX}recording the board timer's beat failed: ${(error instanceof Error ? error.message : String(error)).split('\n')[0]}; miko watch reads the board as stale once ${BOARD_STALE_TICKS} beats are missing`
+}
+
+export function boardBeatRecorder(db: DatabaseSync): (writtenAt: string) => void {
+  return (writtenAt) => {
+    try {
+      recordBoardBeat(db, writtenAt)
+    }
+    catch (error) {
+      console.error(boardBeatUnrecordedLine(error))
+    }
+  }
+}
+
+export function startBoardThread(db: DatabaseSync, busPath: string, periodMs: number = BOARD_PERIOD_MS, spawn?: BoardTimerSpawn): StartedBoardTimer {
+  return keepBoardThread(busPath, periodMs, spawn, boardThreadDownRecorder(db), Date.now, boardBeatRecorder(db))
 }
 
 export function tickWhileReducing(busTick: BusTick, reducer: Pick<StartedReducerLoop, 'failure'>): string[] {

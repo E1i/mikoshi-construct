@@ -33,11 +33,14 @@
       view.folds = stored.folds
   }
   catch {}
+  let boardFilters = null
   const showFilter = (hash) => {
     const backlog = document.getElementById(names.backlog)
     if (!backlog)
       return
-    if (hash)
+    const id = hash ? hash.slice(1) : ''
+    const onTheBoard = boardFilters === null ? Boolean(id) && (written === '' || Boolean(document.getElementById(id))) : boardFilters.includes(id)
+    if (onTheBoard)
       backlog.setAttribute(names.filterAttribute, hash.slice(1))
     else
       backlog.removeAttribute(names.filterAttribute)
@@ -404,11 +407,18 @@
       target.id = id
       backlog.prepend(target)
     })
+    if (Array.isArray(board.filters))
+      boardFilters = board.filters
+    const icon = names.icon && document.getElementById(names.icon.id)
+    if (icon && Array.isArray(board.alarms))
+      icon.setAttribute('href', board.alarms.length > 0 ? names.icon.alarm : names.icon.calm)
     stampAgents()
     stampFolds()
     showDaemon()
     countLoad()
-    if (!restored)
+    if (restored)
+      showFilter(view.filter)
+    else
       restore()
   }
   const markOld = () => {

@@ -5,12 +5,12 @@ import type { HarnessCandidate } from './harness.js'
 import type { AttachHarness } from './record.js'
 import type { AttachRefusal, AttachRefusalReason } from './refusals.js'
 import type { Rollback } from './rollback.js'
-import type { SettingsHook } from './settings.js'
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import type { LocalExclusion, RoleEnvironment, SettingsHook } from './settings.js'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { DECISIONS_FILE, repositoryRoot } from '../../../scripts/core/bus-path.js'
+import { CONSTRUCT_HOME_DIR, DECISIONS_FILE, isOwnerCheckout, repoIdOf, repositoryRoot } from '../../../scripts/core/bus-path.js'
 import { DEFAULT_LANES, sha256 } from '../../manifest.js'
 import { AI_TARGETS } from '../../presets/index.js'
 import { parseLaneCount } from '../../ui/prompts.js'
@@ -26,7 +26,7 @@ import { dropOriginal, keepOriginal } from './original.js'
 import { ATTACH_LEDGER_DIR, ATTACH_RECORD_FILE, ATTACH_RECORD_VERSION, attachedVersionOf, carriersReading, DEFAULT_PUSH_POLICY, NO_HARNESS, readAttachRecord, serveFromFlags, writeAttachRecord } from './record.js'
 import { harnessRefusal, refusalFor, unresolvableCheckRefusal } from './refusals.js'
 import { rollbackAttach } from './rollback.js'
-import { browserLabExcludedCommand, excludedBrowserLabLocally, installHookEntries, isSettingsHook, readSettings, SETTINGS_FILE, withExclusionRecorded } from './settings.js'
+import { browserLabExcludedCommand, excludedBrowserLabLocally, HOME_PREFIX, installHookEntries, isSettingsHook, PROJECT_SETTINGS_FILE, readSettings, roleEnvironmentAt, SETTINGS_FILE, settledSettingsText, withExclusionRecorded, wroteLocally } from './settings.js'
 import { shellWord } from './shell-word.js'
 import { planCarrierUpgrade, planWindowHooks, rewriteCarrier, writeCarriersExclusively } from './write.js'
 
@@ -315,14 +315,35 @@ function flagsTheRecordHolds(options: AttachOptions): string[] {
   return given.filter(([, value]) => value != null).map(([flag]) => flag)
 }
 
+export function roleEnvironment(root: string): RoleEnvironment {
+  return roleEnvironmentAt(`${HOME_PREFIX}${CONSTRUCT_HOME_DIR}/${repoIdOf(root)}`)
+}
+
+export function settledProjectSettings(root: string, text: string): string | null {
+  return isOwnerCheckout(root) ? null : settledSettingsText(text, roleEnvironment(root))
+}
+
+function constructOwnsProjectSettings(root: string): boolean {
+  try {
+    return settledProjectSettings(root, readFileSync(path.join(root, PROJECT_SETTINGS_FILE), 'utf8')) !== null
+  }
+  catch {
+    return false
+  }
+}
+
+export function excludedBrowserLabInTheConstruct(root: string, home: string = homedir()): LocalExclusion | null {
+  return excludedBrowserLabLocally(root, home, constructOwnsProjectSettings(root))
+}
+
 function upgradedSettingsHook(ui: Ui, root: string, hook: SettingsHook | undefined): SettingsHook | undefined {
   const recordable = isSettingsHook(hook) ? hook : null
-  const exclusion = recordable == null ? null : excludedBrowserLabLocally(root)
+  const exclusion = recordable == null ? null : excludedBrowserLabInTheConstruct(root)
   if (recordable == null || exclusion == null) {
     ui.glitch(ui.lore.initSettingsSkippedNoExclusion(browserLabExcludedCommand()))
     return hook
   }
-  if (exclusion.added.length === 0)
+  if (!wroteLocally(exclusion))
     return hook
   ui.line(ui.theme.dim(`  ${ui.lore.initBrowserLabExcluded(browserLabExcludedCommand())}`))
   return withExclusionRecorded(recordable, exclusion)

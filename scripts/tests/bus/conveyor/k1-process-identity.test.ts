@@ -20,6 +20,7 @@ import { realTimedShell } from '../../../nodes/witness/witness-executor.js'
 import { BusRead } from '../../../ports/bus-read.js'
 import { identityOf } from '../../../ports/process-table.js'
 import { BUS_RUN_LAUNCH, handedIdentity, PREFIX, startDetached } from '../../../supervisor/bg.js'
+import { reviewLaunch } from '../../../supervisor/composition.js'
 import { childrenNotEnded, identifiedOnBus, identifiedProcesses, readableRows, recordedWorkers, runningAs, SAME_START_MS, sameStart } from '../../../supervisor/recorded-worker.js'
 import { BusSupervisor, mainAdvancedSince, stopInstance, SUPERVISOR_LAUNCH, withoutRetiring } from '../../../supervisor/supervisor.js'
 import { workerLaunches } from '../../../supervisor/workers.js'
@@ -138,7 +139,7 @@ describe('scenario 03 (K1): a restart stops workers by recorded identity only', 
     }
     appendEvent(db, { ts: ts(), type: MAIN_ADVANCED, actor: 'netwatch', cardId: null, pr: null, head: null, dedupeKey: `${MAIN_ADVANCED}:${NEW_MAIN}`, payload: { sha: NEW_MAIN }, legacy: false })
 
-    const { launch } = workerLaunches(() => [])
+    const { launch } = workerLaunches(reviewLaunch(() => []))
     const processes = withoutRetiring(identifiedProcesses(table, db), db)
     let head = OLD_MAIN
     const started: string[] = []

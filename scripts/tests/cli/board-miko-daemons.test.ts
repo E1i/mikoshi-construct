@@ -1,11 +1,14 @@
+import type { DaemonEntry, WindowGrants } from '../../cli/board-page/daemon-catalog.js'
 import type { MikoBay, MikoPanelParts } from '../../cli/board-page/miko-panel.js'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import vm from 'node:vm'
 import { afterEach, describe, expect, it } from 'vitest'
+import { allowRule, declaredCommands, frontmatterFields } from '../../../src/commands/attach/daemon-commands.js'
+import { PROJECT_SETTINGS_FILE, SETTINGS_FILE } from '../../../src/commands/attach/settings.js'
 import { LORE, PLAIN_LORE } from '../../../src/ui/lore.js'
-import { ADAPTER_MANIFEST, adapterMutations, ADAPTERS_DIR, DAEMON_READER, daemonCatalog, daemonOf, installedDaemons, LOADED_SOURCE, manifestFields } from '../../cli/board-page/daemon-catalog.js'
+import { ADAPTER_MANIFEST, adapterMutations, ADAPTERS_DIR, DAEMON_READER, daemonCatalog, daemonOf, installedDaemons, LOADED_SOURCE, manifestFields, windowGrants } from '../../cli/board-page/daemon-catalog.js'
 import { ATTACH_RECORD, homeShort, mikoBay, mikoMode, mikoPanel } from '../../cli/board-page/miko-panel.js'
 
 const SCRIPT = readFileSync(path.resolve(import.meta.dirname, '../../cli/board-page/script.js'), 'utf8')
@@ -46,8 +49,13 @@ function repository(attached = false): string {
   return root
 }
 
+function grantingAll(catalog: readonly DaemonEntry[]): WindowGrants {
+  const commands = catalog.flatMap(entry => entry.commands)
+  return { allow: new Set(commands.map(allowRule)), excluded: new Set(commands) }
+}
+
 function bayOf(root: string, loaded: readonly string[]): MikoBay {
-  return mikoBay(root, loaded, LORE, existsSync, '')
+  return mikoBay(root, loaded, LORE, existsSync, '', grantingAll(daemonCatalog(root, undefined, '')))
 }
 
 function panelOf(root: string, loaded: readonly string[] = ['mcp-devkit', 'intake']): string {
@@ -123,7 +131,7 @@ function pixels(rule: string, property: string): number {
 describe('the DAEMONS cell as the design draws it', () => {
   it('matches the Daemons7 design', () => {
     const home = path.dirname(REPOSITORY_ROOT)
-    const html = mikoPanel({ ...PANEL, bay: mikoBay(REPOSITORY_ROOT, [], LORE, () => false, home) })
+    const html = mikoPanel({ ...PANEL, bay: mikoBay(REPOSITORY_ROOT, [], LORE, () => false, home, grantingAll(daemonCatalog(REPOSITORY_ROOT, undefined, home))) })
     const self = html.indexOf('<div class="miko-self">')
     const crawlers = html.indexOf('<div class="miko-crawlers"')
     const daemons = html.indexOf('<div class="miko-daemons bevel">')
@@ -263,10 +271,55 @@ describe('the mode', () => {
   })
 })
 
+describe('a daemon the window cannot run', () => {
+  const LAB_COMMAND = 'node <home>/.construct/browser-lab/bin/browser-lab.mjs *'
+
+  function declaringRepository(): { root: string, home: string, command: string } {
+    const root = repository()
+    const home = mkdtempSync(path.join(tmpdir(), 'board-miko-home-'))
+    roots.push(home)
+    writeFileSync(path.join(root, '.claude/skills/browser-lab/SKILL.md'), MANIFESTS['browser-lab']!.replace('daemon-sketch: hex-iris\n', `daemon-sketch: hex-iris\ndaemon-command: ${LAB_COMMAND}\n`))
+    return { root, home, command: LAB_COMMAND.replace('<home>', home) }
+  }
+
+  function grantIn(file: string, settings: unknown): void {
+    mkdirSync(path.dirname(file), { recursive: true })
+    writeFileSync(file, JSON.stringify(settings))
+  }
+
+  function panelIn(root: string, home: string): string {
+    return mikoPanel({ ...PANEL, bay: mikoBay(root, ['browser-lab', 'mcp-devkit'], LORE, existsSync, home) })
+  }
+
+  it('a daemon whose command the window settings miss shows as not installed', () => {
+    const { root, home, command } = declaringRepository()
+    const missing = panelIn(root, home)
+    expect(missing).toContain('<span class="daemons-chip">INSTALLED · 1</span>')
+    expect(slotOf(missing, 'BROWSER_LAB')).toContain('data-state="sleep" data-installed="false"')
+    expect(paneOf(missing, 'BROWSER_LAB')).toContain('<span class="pane-tag">SLEEPING</span>')
+    expect(paneOf(missing, 'MCP_DEVKIT')).toContain('data-default data-shown')
+    grantIn(path.join(root, SETTINGS_FILE), { sandbox: { excludedCommands: [command] } })
+    expect(panelIn(root, home)).toContain('INSTALLED · 1')
+    grantIn(path.join(root, SETTINGS_FILE), { permissions: { allow: [allowRule(command)] }, sandbox: { excludedCommands: [command] } })
+    const granted = panelIn(root, home)
+    expect(granted).toContain('<span class="daemons-chip">INSTALLED · 2</span>')
+    expect(slotOf(granted, 'BROWSER_LAB')).not.toContain('data-installed')
+    expect(paneOf(granted, 'BROWSER_LAB')).toContain('<span class="pane-tag">LOADED</span>')
+  })
+
+  it('the window grant may come from the user settings, and a grant made for another home does not count', () => {
+    const { root, home, command } = declaringRepository()
+    grantIn(path.join(home, PROJECT_SETTINGS_FILE), { permissions: { allow: [allowRule(command)] }, sandbox: { excludedCommands: [command] } })
+    expect(panelIn(root, home)).toContain('INSTALLED · 2')
+    expect(panelIn(root, path.join(home, 'elsewhere'))).toContain('INSTALLED · 1')
+  })
+})
+
 describe('the daemon catalog reader', () => {
   it('reads the daemon and its sketch from the skill manifest frontmatter, and no mutation from it', () => {
     expect(manifestFields('---\na: 1\nb:\n---\nc: 3\n')).toEqual(new Map([['a', '1'], ['b', '']]))
-    expect(daemonOf('lab', '---\ndaemon: LAB\ndaemon-mutations: ver_a, ver_b\n---\n')).toEqual({ daemon: 'LAB', skill: 'lab', sketch: null, mutations: [] })
+    expect(daemonOf('lab', '---\ndaemon: LAB\ndaemon-mutations: ver_a, ver_b\n---\n')).toEqual({ daemon: 'LAB', skill: 'lab', sketch: null, mutations: [], commands: [] })
+    expect(daemonOf('lab', '---\ndaemon: LAB\ndaemon-command: node <home>/lab.mjs *\n---\n', '/h')?.commands).toEqual(['node /h/lab.mjs *'])
     expect(daemonOf('intake', MANIFESTS.intake!)).toBeNull()
     expect(daemonOf('x', 'no frontmatter')).toBeNull()
   })
@@ -301,8 +354,16 @@ describe('the daemon catalog reader', () => {
     expect(STYLE).toContain('.pane-mutations li::before { content: \'↳ \'; }')
   })
 
+  it('the board reads a daemon manifest through the same frontmatter parser the install grants from', () => {
+    const text = '---\r\nname: lab\r\ndaemon: LAB\r\ndaemon-command: node <home>/a.mjs *\r\ndaemon-command: node <home>/b.mjs *\r\n---\r\n'
+    expect(manifestFields(text)).toEqual(new Map(frontmatterFields(text)))
+    expect(daemonOf('lab', text, '/h')?.commands).toEqual(declaredCommands(text, '/h'))
+    expect(declaredCommands(text, '/h')).toEqual(['node /h/a.mjs *', 'node /h/b.mjs *'])
+  })
+
   it('lists daemons by skill directory and marks LOADED only the skills of the current session', () => {
-    const daemons = installedDaemons(daemonCatalog(repository()), ['browser-lab'])
+    const root = repository()
+    const daemons = installedDaemons(daemonCatalog(root), ['browser-lab'], windowGrants(root, ''))
     expect(daemons.map(daemon => [daemon.daemon, daemon.loaded])).toEqual([['BROWSER_LAB', true], ['MCP_DEVKIT', false]])
     expect(daemonCatalog(path.join(tmpdir(), 'no-such-repository-for-daemons'))).toEqual([])
   })

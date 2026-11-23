@@ -6,6 +6,7 @@ import { HOLD_RECHECK_MS } from '../../core/card-hold.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_HELD, CARD_RELEASED, CARD_STARTED, CARD_TAKEOVER, PR_OPENED } from '../../core/events.js'
 import { failTask, leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { ownerHoldOf } from '../../nodes/answer/answer-source.js'
 import { HELD_FOR_OWNER } from '../../nodes/merge/merge-executor.js'
 import { cardTransitions } from '../../supervisor/composition.js'
@@ -62,7 +63,7 @@ function redCardTakenOver(): MergeBench {
   startedCard(made)
   made.gitHub.open({ number: PR, head: TAKEN_HEAD, required: 'failure', failed: ['required'] })
   made.tick()
-  failTask(made.db, cardTransitions(), made.clock.now().toISOString(), leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!, { reason: HELD_FOR_OWNER, withdraw: true }, SILENT_MS)
+  failTask(made.db, cardTransitions(), made.clock.now().toISOString(), leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!, { reason: HELD_FOR_OWNER, withdraw: true }, SILENT_MS)
   made.clock.advance(TAKEOVER_AFTER_MINUTES * MINUTE)
   expect(request(made, ['takeover', '--card', String(CARD), '--reason', REASON])).toMatchObject({ kind: 'done' })
   made.tick()
@@ -123,7 +124,7 @@ describe('a takeover ends at the push', () => {
     red.tick()
 
     expect(answerStates(red).filter(task => task.state === 'queued')).not.toEqual([])
-    const answer = leaseNext(red.db, red.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')
+    const answer = leaseNext(red.db, pullRequests(red.db), red.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')
     expect(answer).not.toBeNull()
     expect(ownerHoldOf(red.db, CARD)).toBeNull()
 

@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ANSWERED, CARD_STARTED, REVIEW_RECORDED, SHARD_ISSUED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor, findingsGivenByAReview, unprovedFindingsLine } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer, proofsIn, proofsPath, proofsRule, unprovedFindings } from '../../nodes/answer/answerer.js'
@@ -121,7 +122,7 @@ function changesOnTheHead(underAShard = false): Changes {
   return {
     bench,
     executor: (answerer, shardDecider) => new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, answerer, ownerMerges: () => OWNER_MERGES, clock: bench.clock.now, trees, dirty: () => false, liveSession: () => null, prepare: () => {}, mergeMain: () => () => ({ kind: 'inside', files: [] }), ...(shardDecider === undefined ? {} : { shardDecider, isolation: () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }) }) }),
-    lease: () => leaseNext(bench.db, bench.clock.now().toISOString(), 'answer', 'worker:answer:answer-1')!,
+    lease: () => leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'answer', 'worker:answer:answer-1')!,
   }
 }
 

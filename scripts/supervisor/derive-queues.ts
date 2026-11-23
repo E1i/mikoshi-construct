@@ -275,7 +275,7 @@ export const SETTLE_SOURCE: QueueSource = {
 }
 
 export function restartSource(rules: CandidateRules): QueueSource {
-  return { queue: 'restart', enqueue: (db, ts) => openCandidates(db, ts, 'restart', candidateRows(db, RESTART_CANDIDATES, everyRow), rules) }
+  return { queue: 'restart', enqueue: (db, ts) => openCandidates(db, ts, 'restart', candidateRows(db, RESTART_CANDIDATES, everyRow, rules.mergedCards(db)), rules) }
 }
 
 function supersededAndWithdrawn(db: DatabaseSync, ts: string, pass: QueuePass): string[] {

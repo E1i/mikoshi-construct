@@ -11,11 +11,14 @@ import type { TechnicalReason } from '../review/record-verdict.js'
 import type { UpdateSourceParts } from './update-candidates.js'
 import { Buffer } from 'node:buffer'
 import { NOT_MINE, notMine } from '../../core/card-automaton.js'
+import { pathsOutsideTheBody } from '../../core/card-bodies.js'
+import { closedWaitIds } from '../../core/card-readings.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { CI_RERUN_REQUESTED, COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, QUESTION_OWNER, REVIEW_RECORDED, UPDATE_DONE } from '../../core/events.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
 import { rerunDueOn } from '../../core/observations.js'
+import { ofPr } from '../../core/pr-readings.js'
 import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
 import { COMPLETED, keyOf, MERGE_REFUSED } from '../../core/queue.js'
 import { cardContract } from '../../intake/card-contract.js'
@@ -290,7 +293,7 @@ export class UpdateExecutor {
 
   private grownForTheOwner(lease: Lease, detail: string): UpdateOutcome {
     const ts = this.ts()
-    openBusWait(this.parts.db, ts, lease.actor, { need: 'decision', text: `card #${lease.cardId}, ${detail}`, card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) })
+    openBusWait(this.parts.db, closedWaitIds(this.parts.db), ts, lease.actor, { need: 'decision', text: `card #${lease.cardId}, ${detail}`, card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) })
     completeTask(this.parts.db, this.parts.cards, ts, lease, [])
     return { kind: 'stopped', taskKey: lease.taskKey, reason: QUESTION_OWNER, detail }
   }
@@ -343,7 +346,7 @@ export class UpdateExecutor {
   }
 
   private rerunDue(lease: Lease): boolean {
-    return lease.pr !== null && lease.head !== null && rerunDueOn(this.parts.db, lease.pr, lease.head)
+    return lease.pr !== null && lease.head !== null && rerunDueOn(this.parts.db, ofPr(this.parts.db, lease.pr), lease.head)
   }
 
   private rerunEvent(lease: Lease, request: RerunRequest): BusEvent {
@@ -491,7 +494,7 @@ export class UpdateExecutor {
     if (card === null)
       return this.denied(lease, technical(MERGE_REFUSED, `card #${lease.cardId} has no admitted body, so its branch and touches are unknown`))
     this.allowed(lease, MERGE_MAIN_COMMAND)
-    const merge = this.parts.mergeMain!(conflictingCardOf(this.parts.db, lease.cardId, card.branch, lease.head!))
+    const merge = this.parts.mergeMain!(conflictingCardOf((cardId, files) => pathsOutsideTheBody(this.parts.db, cardId, files.join('\n')), lease.cardId, card.branch, lease.head!))
     this.executed(lease, MERGE_MAIN_COMMAND, merge.kind === 'merged' ? { ok: true } : { ok: false, error: merge.kind === 'refused' ? merge.why : `conflicts inside the card's touches: ${merge.files.join(', ')}` })
     if (merge.kind === 'refused')
       return this.denied(lease, technical(MERGE_REFUSED, merge.why))

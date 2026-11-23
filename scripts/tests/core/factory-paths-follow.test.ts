@@ -16,13 +16,13 @@ describe('a path moved in the factory registry', () => {
       return { ...real, FACTORY_RUNTIME: moved(real.FACTORY_RUNTIME), FACTORY_WORKERS: moved(real.FACTORY_WORKERS), FACTORY_NAMED: moved(real.FACTORY_NAMED) }
     })
     const { BUS_RUN_MARKERS } = await import('../../supervisor/bg.js')
-    const { REVIEW_WORKER_MARKERS } = await import('../../supervisor/review-bg.js')
+    const { REVIEW_WORKER_MARKERS, reviewLaunch } = await import('../../supervisor/composition.js')
     const { SUPERVISOR_LAUNCH } = await import('../../supervisor/supervisor.js')
     const { workerLaunches } = await import('../../supervisor/workers.js')
     const { USAGE } = await import('../../window/window.js')
     const { TREE_PR_ENTRY, treePrCommand } = await import('../../ports/tree-publish.js')
     const { LOOP_SCRIPT } = await import('../../window/exit.js')
-    const markers = [BUS_RUN_MARKERS, REVIEW_WORKER_MARKERS, SUPERVISOR_LAUNCH.markers, ...Object.values(workerLaunches(() => [])).map(launch => launch.markers)]
+    const markers = [BUS_RUN_MARKERS, REVIEW_WORKER_MARKERS, SUPERVISOR_LAUNCH.markers, ...Object.values(workerLaunches(reviewLaunch(() => []))).map(launch => launch.markers)]
     expect(markers.map(list => list[0]!.startsWith(`${MOVED}/`))).toEqual(markers.map(() => true))
     expect(USAGE).toContain(`${MOVED}/window/window.ts`)
     expect(treePrCommand('/repo')).toContain(`${MOVED}/nodes/launch/tree-pr-cli.ts`)

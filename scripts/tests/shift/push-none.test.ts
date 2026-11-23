@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { writeAttachRecord } from '../../../src/commands/attach/record.js'
+import { closedWaitIds } from '../../core/card-readings.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
 import { busHeldCards } from '../../intake/intake.js'
 import { claudeAnswerer } from '../../nodes/answer/answerer.js'
@@ -14,7 +16,7 @@ import { PrCloser, RoundLimitRecutter } from '../../nodes/review/pr-close.js'
 import { ghNotePr } from '../../nodes/review/review-worker.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { GhBudgetWindow, ghPort } from '../../ports/gh.js'
-import { candidateRules, cardTransitions, updateParts } from '../../supervisor/composition.js'
+import { candidateRules, cardTransitions, requiredCheckAt, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from '../bus/github-fake.js'
 import { benchOverlaps, liveBench, mainMovesPastEveryPr, mergeBench } from '../bus/merge-bench.js'
@@ -106,7 +108,7 @@ describe('push policy none', () => {
       mainMovesPastEveryPr(made)
       detectUpdate(made)
       const executor = new UpdateExecutor({ cards: cardTransitions(), source: updateParts(), silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, settle: () => {}, pushPolicy: () => policy })
-      const outcome = executor.update(leaseNext(made.db, made.clock.now().toISOString(), 'update', 'worker:update:worker-1')!)
+      const outcome = executor.update(leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'update', 'worker:update:worker-1')!)
 
       expect({ puts: made.gitHub.puts.length, kind: outcome.kind }).toEqual({ puts, kind })
       if (outcome.kind === 'denied')
@@ -142,8 +144,8 @@ describe('push policy none', () => {
     try {
       made.gitHub.open({ number: 960, review: 'success' })
       made.tick()
-      const executor = new MergeExecutor({ cards: cardTransitions(), rules: candidateRules(), silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, run: null, pushPolicy: () => policy, overlaps: benchOverlaps })
-      const outcome = executor.merge(leaseNext(made.db, made.clock.now().toISOString(), 'merge', 'worker:merge:worker-1')!)
+      const executor = new MergeExecutor({ cards: cardTransitions(), rules: candidateRules(), silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, run: null, pushPolicy: () => policy, overlaps: benchOverlaps, requiredCheck: () => requiredCheckAt() })
+      const outcome = executor.merge(leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'merge', 'worker:merge:worker-1')!)
 
       expect({ puts: made.gitHub.puts.length, kind: outcome.kind }).toEqual({ puts, kind })
       if (outcome.kind === 'denied')
@@ -176,7 +178,7 @@ describe('push policy none', () => {
         writes.push(endpoint)
         throw new Error('written')
       }
-      const recutter = new RoundLimitRecutter({ db: made.db, gitHub: made.gitHub.client, post: record, patch: record, clock: made.clock.now, cardStates: () => busHeldCards(made.db), pushPolicy: () => policy })
+      const recutter = new RoundLimitRecutter({ db: made.db, gitHub: made.gitHub.client, post: record, patch: record, clock: made.clock.now, cardStates: () => busHeldCards(made.db), closedWaits: () => closedWaitIds(made.db), pushPolicy: () => policy })
       const outcome = recutter.recut({ cardId: 1080, pr: 980, head: sha('a'), findings: [] })
 
       expect(writes).toEqual([])

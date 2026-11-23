@@ -4,11 +4,12 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { RISK_LEVELS } from '../../../src/card/risk.js'
+import { closedWaitIds } from '../../core/card-readings.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
 import { CARD_STOPPED, QUESTION_OWNER, SHARD_ISSUED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { OWNER_EVEN_UNDER_THE_DECISION } from '../../policy/policy.js'
-import { AGENT_QUESTION, cardDecisionCommand, deciderUnderAShard, DECISIONS_SCOPE, DROPPED_WITNESS, OWNER_DECIDES, OWNERS_OF_A_STOP, OWNERS_UNDER_ANY_SHARD, STOP_DECIDERS_UNDER_A_SHARD, STOP_KINDS, stopKindOf, WINDOW_DECIDES, WITNESS_MOVED, witnessMoved } from '../../policy/shards.js'
+import { AGENT_QUESTION, cardDecisionCommand, deciderUnderAShard, DECISIONS_SCOPE, DROPPED_WITNESS, OWNER_DECIDES, OWNERS_OF_A_STOP, OWNERS_UNDER_ANY_SHARD, ownersUnderAnyShard, RATCHET_GROWTH, STOP_DECIDERS_UNDER_A_SHARD, STOP_KINDS, stopKindOf, WINDOW_DECIDES, WITNESS_MOVED, witnessMoved } from '../../policy/shards.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { runRequest, WindowRequests } from '../../window/window-requests.js'
 import { mergeBench } from './merge-bench.js'
@@ -19,6 +20,7 @@ const ASKED_BY_KIND: Readonly<Record<string, string>> = {
   'version-pr': 'may the version pull request go out now?',
   'npm-stage': 'may the npm stage run?',
   'security-invariants': 'may I edit architecture/security-invariants.md?',
+  [RATCHET_GROWTH]: 'may the row boundary:node-merge->decisions grow in contract/ratchet.json?',
   'claude-config': 'may I edit .claude/rules/tests.md?',
   'owner-merges': 'may I edit owner-merges?',
   'workflows': 'may I edit .github/workflows/ci.yml?',
@@ -43,7 +45,7 @@ function windowClosesTheStopOn(question: string): { kind: string, detail: string
   rooms.push({ made, root })
   const ts = made.clock.now().toISOString()
   appendEvent(made.db, { ts, type: SHARD_ISSUED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:ws-1`, payload: { id: 'ws-1', by: 'owner', scope: DECISIONS_SCOPE, until: new Date(made.clock.now().getTime() + 3_600_000).toISOString(), window: 1 }, legacy: false })
-  const wait = openBusWait(made.db, ts, 'worker:answer:s1', { need: 'decision', text: `card #${CARD} asks: ${question}`, command: cardDecisionCommand(CARD), card: CARD })
+  const wait = openBusWait(made.db, closedWaitIds(made.db), ts, 'worker:answer:s1', { need: 'decision', text: `card #${CARD} asks: ${question}`, command: cardDecisionCommand(CARD), card: CARD })
   appendEvent(made.db, { ts, type: CARD_STOPPED, actor: 'worker:answer:s1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${CARD}:first`, payload: { reason: QUESTION_OWNER, detail: question }, legacy: false })
   reduce(made.db, 'pending', busProjections())
   const refuse = (): never => {
@@ -104,6 +106,28 @@ describe('autonomy stops under a shard', () => {
     expect(stopKindOf(lost)).toBe(DROPPED_WITNESS)
     expect(windowClosesTheStopOn(lost)).toMatchObject({ kind: 'refused', detail: expect.stringContaining(`on ${DROPPED_WITNESS}, which stays the owner's under any shard`) as unknown })
     expect(windowClosesTheStopOn(ASKED_BY_KIND[WITNESS_MOVED]!).kind).toBe('done')
+  })
+
+  it('a ratchet growth question stays with the owner under any shard', () => {
+    expect(OWNERS_UNDER_ANY_SHARD).toHaveProperty(RATCHET_GROWTH)
+    for (const growth of [
+      ASKED_BY_KIND[RATCHET_GROWTH]!,
+      'may contract/ratchet.json take the new row?',
+      'the boundary row grows by one import; may it merge?',
+      'may this card grow the ratchet by 3 lines?',
+      'is this a ratchet growth the owner allows?',
+      'the boundary row node-merge->decisions grows by one import',
+      'the boundary budget grows by one import',
+      'may this card that grew the ratchet go in?',
+      'may this card grow a ratchet by one line?',
+      'may this card grow the boundary of node-merge?',
+    ]) {
+      expect(stopKindOf(growth)).toBe(RATCHET_GROWTH)
+      expect(ownersUnderAnyShard(growth)).toBe(RATCHET_GROWTH)
+      expect(deciderUnderAShard(growth)).toBe(OWNER_DECIDES)
+    }
+    expect(windowClosesTheStopOn(ASKED_BY_KIND[RATCHET_GROWTH]!)).toMatchObject({ kind: 'refused', detail: expect.stringContaining(`on ${RATCHET_GROWTH}, which stays the owner's under any shard`) as unknown })
+    expect(stopKindOf('may the retry back off at the boundary?')).toBe(AGENT_QUESTION)
   })
 
   it('only an R1 stop waits for the owner under a shard', () => {

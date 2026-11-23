@@ -4,11 +4,11 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
-import { appendEvent, openBus } from '../../core/db.js'
+import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_HELD, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, PR_OBSERVED, QUESTION_AGENT, WITNESS_RECORDED } from '../../core/events.js'
 import { LAUNCH_STOP_WITH_NO_PULL_REQUEST } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
-import { busProjections, deriveQueuesOfTheBus } from '../../supervisor/composition.js'
+import { busProjections, deriveQueuesOfTheBus, openComposedBus } from '../../supervisor/composition.js'
 import { sha } from './github-fake.js'
 
 const CARD = 1825
@@ -54,7 +54,7 @@ function released(db: DatabaseSync, request: number, { cardId = CARD, legacy = f
 
 function cardStoppedAskingToWiden(beforeTheStop: (db: DatabaseSync) => void = () => {}): DatabaseSync {
   const root = mkdtempSync(path.join(tmpdir(), 'bus-released-takeover-'))
-  const db = openBus(path.join(root, 'bus.db'))
+  const db = openComposedBus(path.join(root, 'bus.db'))
   opened.push({ db, root })
   admitted(db, 'body', 'scripts/a.ts')
   appendEvent(db, { ts: TS, type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${CARD}`, payload: { session: 'card-session-1', worktree: 'unused', branch: `feat/card-${CARD}`, base: sha('1') }, legacy: false })

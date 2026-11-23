@@ -9,7 +9,8 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NODE_DECLARATIONS, nodesSection } from '../../contract/factory/nodes.js'
-import { BUS_VERSION, BUS_VERSION_BEFORE_GATE_RUN, BUS_VERSION_BEFORE_LADDER_RUN, BUS_VERSION_BEFORE_THRESHOLD_SET, BUS_VERSION_RECORD, busVersionOf, CARD_VERSION, CARD_VERSION_BEFORE_TOUCH_SCOPE, CARD_VERSION_KEY, cardVersionIn, stampBusVersion, UNRECORDED_VERSION } from '../../core/bus-version.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
+import { BUS_VERSION, BUS_VERSION_BEFORE_GATE_RUN, BUS_VERSION_BEFORE_LADDER_RUN, BUS_VERSION_BEFORE_THRESHOLD_SET, BUS_VERSION_RECORD, busVersionOf, CARD_VERSION, CARD_VERSION_BEFORE_PLACEMENT_IMPORTS, CARD_VERSION_BEFORE_TOUCH_SCOPE, CARD_VERSION_KEY, cardVersionIn, stampBusVersion, UNRECORDED_VERSION } from '../../core/bus-version.js'
 import { admittedCardVersion, appendCardEvent } from '../../core/card-bodies.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { FACTORY_WORKERS } from '../../core/factory-paths.js'
@@ -171,8 +172,8 @@ describe('the node versions', () => {
     const node = new DeclaredNode(db, clock, [task])
 
     expect(busVersionOf(db)).toBe(UNRECORDED_VERSION)
-    expect(admittedCardVersion(db, CARD)).toBe(UNRECORDED_VERSION)
-    expect(admittedCardVersion(db, OTHER_CARD)).toBeNull()
+    expect(admittedCardVersion(BUS_CONTRACT, db, CARD)).toBe(UNRECORDED_VERSION)
+    expect(admittedCardVersion(BUS_CONTRACT, db, OTHER_CARD)).toBeNull()
     await runOnce(node)
     expect(node.handled).toHaveLength(1)
     expect(node.declared()).toBe(DECLARATION)
@@ -201,7 +202,7 @@ describe('the node versions', () => {
     db.close()
   })
 
-  it('a card admitted at card version 1 is read by a node of this build without a new admission, and a new admission carries version 2', async () => {
+  it('a card admitted at card version 1 is read by a node of this build without a new admission, and a new admission carries version 3', async () => {
     const db = openBus(busPath())
     const clock = new Clock()
     const task: QueuedTask = { queue: 'review', cardId: CARD }
@@ -209,20 +210,21 @@ describe('the node versions', () => {
     queueTaskWithin(db, clock.now().toISOString(), task)
     const node = new DeclaredNode(db, clock, [task])
 
-    expect(UNDERSTOOD_NOW.card).toEqual([CARD_VERSION_BEFORE_TOUCH_SCOPE, CARD_VERSION])
-    expect(CARD_VERSION).toBe(CARD_VERSION_BEFORE_TOUCH_SCOPE + 1)
+    expect(UNDERSTOOD_NOW.card).toEqual([CARD_VERSION_BEFORE_TOUCH_SCOPE, CARD_VERSION_BEFORE_PLACEMENT_IMPORTS, CARD_VERSION])
+    expect(CARD_VERSION_BEFORE_PLACEMENT_IMPORTS).toBe(CARD_VERSION_BEFORE_TOUCH_SCOPE + 1)
+    expect(CARD_VERSION).toBe(CARD_VERSION_BEFORE_PLACEMENT_IMPORTS + 1)
     await runOnce(node)
     expect(node.handled).toHaveLength(1)
-    expect(admittedCardVersion(db, CARD)).toBe(CARD_VERSION_BEFORE_TOUCH_SCOPE)
+    expect(admittedCardVersion(BUS_CONTRACT, db, CARD)).toBe(CARD_VERSION_BEFORE_TOUCH_SCOPE)
     expect(eventsOf(db, 'card.admitted')).toEqual([])
-    appendCardEvent(db, 'owner', { type: 'card.admitted', cardId: OTHER_CARD, ts: clock.now().toISOString(), dedupeKey: `card.admitted:${OTHER_CARD}`, payload: { text: '# card\n' } })
+    appendCardEvent(BUS_CONTRACT, db, 'owner', { type: 'card.admitted', cardId: OTHER_CARD, ts: clock.now().toISOString(), dedupeKey: `card.admitted:${OTHER_CARD}`, payload: { text: '# card\n' } })
     expect(cardVersionIn(eventsOf(db, 'card.admitted')[0]!.payload)).toBe(CARD_VERSION)
     db.close()
   })
 
   it('an admitted card body carries the card version this build writes', () => {
     const db = openBus(busPath())
-    appendCardEvent(db, 'owner', { type: 'card.admitted', cardId: CARD, ts: new Date().toISOString(), dedupeKey: `card.admitted:${CARD}`, payload: { text: '# card\n' } })
+    appendCardEvent(BUS_CONTRACT, db, 'owner', { type: 'card.admitted', cardId: CARD, ts: new Date().toISOString(), dedupeKey: `card.admitted:${CARD}`, payload: { text: '# card\n' } })
 
     expect(cardVersionIn(eventsOf(db, 'card.admitted')[0]!.payload)).toBe(CARD_VERSION)
     db.close()

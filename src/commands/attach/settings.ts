@@ -8,13 +8,12 @@ import { appendHookEntry, isJsonObject } from '../../materialize/strategies.js'
 import { engramFile } from '../../model/discovery.js'
 import { ATTACH_GUARD, ATTACH_WINDOW_HOOKS } from '../../presets/index.js'
 import { readTrackedPaths } from '../detach/index-reader.js'
+import { allowRule, SETTINGS_FILE, shippedDaemonCommands } from './daemon-commands.js'
 import { sha256OfBytes } from './original.js'
 
+export { PROJECT_SETTINGS_FILE, SETTINGS_FILE } from './daemon-commands.js'
+
 type JsonObject = Record<string, unknown>
-
-export const SETTINGS_FILE = '.claude/settings.local.json'
-
-export const PROJECT_SETTINGS_FILE = '.claude/settings.json'
 
 const GUARD_TIMEOUT_SECONDS = 30
 
@@ -69,7 +68,7 @@ export interface SandboxExclusion {
   createdExcluded: boolean
 }
 
-const RECORDED_BY_AN_EARLIER_ATTACH = 'node scripts/construct/browser-lab.mjs *'
+export const RECORDED_BY_AN_EARLIER_ATTACH = 'node scripts/construct/browser-lab.mjs *'
 
 export function browserLabInstalledScript(home: string = homedir()): string {
   return path.join(home, '.construct', 'browser-lab', 'bin', 'browser-lab.mjs')
@@ -77,6 +76,127 @@ export function browserLabInstalledScript(home: string = homedir()): string {
 
 export function browserLabExcludedCommand(home: string = homedir()): string {
   return `node ${browserLabInstalledScript(home)} *`
+}
+
+const CONSTRUCT_PROJECT_HOOK = 'scripts/construct/eddies.mjs'
+export const HOME_PREFIX = '~/'
+export const OWNER_CHANNEL_ENTRY = `${HOME_PREFIX}.construct-owner`
+const GIT_DIRECTORY = '.git'
+const GIT_DATA_RUNNING_CODE = ['hooks', 'config'] as const
+const CARD_TREE_SHARED_GIT_DATA = ['objects', 'refs', 'logs'] as const
+const GITHUB_DOMAIN = 'github.com'
+export const GITHUB_API_DOMAIN = `api.${GITHUB_DOMAIN}`
+export const ROLE_DOMAINS = [GITHUB_DOMAIN, GITHUB_API_DOMAIN, 'registry.npmjs.org'] as const
+export const PACKAGE_MANAGER_STORES = ['Library/pnpm/store', '.local/share/pnpm/store', '.npm'] as const
+
+export interface RoleSandbox {
+  enabled: boolean
+  autoAllowBashIfSandboxed: boolean
+  allowUnsandboxedCommands: boolean
+  filesystem: { allowWrite: string[], denyWrite: string[] }
+  network: { allowedDomains: string[] }
+}
+
+export interface RoleEnvironment {
+  allow: string[]
+  sandbox: RoleSandbox
+}
+
+export function roleEnvironmentAt(factory: string): RoleEnvironment {
+  return {
+    allow: [`Read(${factory}/**)`],
+    sandbox: {
+      enabled: true,
+      autoAllowBashIfSandboxed: true,
+      allowUnsandboxedCommands: false,
+      filesystem: {
+        allowWrite: [factory, `./${GIT_DIRECTORY}`, ...PACKAGE_MANAGER_STORES.map(store => `${HOME_PREFIX}${store}`)],
+        denyWrite: [OWNER_CHANNEL_ENTRY, ...GIT_DATA_RUNNING_CODE.map(entry => `./${GIT_DIRECTORY}/${entry}`)],
+      },
+      network: { allowedDomains: [...ROLE_DOMAINS] },
+    },
+  }
+}
+
+export function cardTreeGitWrites(gitDir: string, commonDir: string): string[] {
+  return [gitDir, ...CARD_TREE_SHARED_GIT_DATA.map(entry => path.join(commonDir, entry))]
+}
+
+function objectAt(parent: JsonObject, key: string): JsonObject {
+  const value = parent[key]
+  return isJsonObject(value) ? value : {}
+}
+
+function union(present: unknown, wanted: readonly string[]): unknown[] {
+  const held = Array.isArray(present) ? present : []
+  return [...held, ...wanted.filter(entry => !held.includes(entry))]
+}
+
+function holdsAListAt(parent: JsonObject, key: string): boolean {
+  return !(key in parent) || Array.isArray(parent[key])
+}
+
+function holdsAnObjectAt(parent: JsonObject, key: string): boolean {
+  return !(key in parent) || isJsonObject(parent[key])
+}
+
+function carriesTheConstructHook(settings: JsonObject): boolean {
+  const entries = objectAt(settings, 'hooks').PreToolUse
+  return Array.isArray(entries) && entries.some(entry => names(entry, CONSTRUCT_PROJECT_HOOK))
+}
+
+function environmentFits(settings: JsonObject): boolean {
+  if (!carriesTheConstructHook(settings) || !holdsAnObjectAt(settings, 'permissions') || !holdsAnObjectAt(settings, 'sandbox'))
+    return false
+  const sandbox = objectAt(settings, 'sandbox')
+  if (!holdsAnObjectAt(sandbox, 'filesystem') || !holdsAnObjectAt(sandbox, 'network') || !holdsAListAt(sandbox, 'excludedCommands'))
+    return false
+  const filesystem = objectAt(sandbox, 'filesystem')
+  return holdsAListAt(objectAt(settings, 'permissions'), 'allow') && holdsAListAt(filesystem, 'allowWrite') && holdsAListAt(filesystem, 'denyWrite') && holdsAListAt(objectAt(sandbox, 'network'), 'allowedDomains')
+}
+
+function withoutTheDeadLabEntry(sandbox: JsonObject): JsonObject {
+  if (!Array.isArray(sandbox.excludedCommands) || !sandbox.excludedCommands.includes(RECORDED_BY_AN_EARLIER_ATTACH))
+    return sandbox
+  const { excludedCommands, ...rest } = sandbox
+  const remaining = (excludedCommands as unknown[]).filter(command => command !== RECORDED_BY_AN_EARLIER_ATTACH)
+  return remaining.length === 0 ? rest : { ...rest, excludedCommands: remaining }
+}
+
+export function withRoleEnvironment(settings: JsonObject, environment: RoleEnvironment): JsonObject {
+  const permissions = objectAt(settings, 'permissions')
+  const sandbox = withoutTheDeadLabEntry(objectAt(settings, 'sandbox'))
+  const filesystem = objectAt(sandbox, 'filesystem')
+  const network = objectAt(sandbox, 'network')
+  const { filesystem: wantedFilesystem, network: wantedNetwork, ...flags } = environment.sandbox
+  return {
+    ...settings,
+    permissions: { ...permissions, allow: union(permissions.allow, environment.allow) },
+    sandbox: {
+      ...flags,
+      ...sandbox,
+      filesystem: { ...filesystem, allowWrite: union(filesystem.allowWrite, wantedFilesystem.allowWrite), denyWrite: union(filesystem.denyWrite, wantedFilesystem.denyWrite) },
+      network: { ...network, allowedDomains: union(network.allowedDomains, wantedNetwork.allowedDomains) },
+    },
+  }
+}
+
+export function settledSettingsText(text: string, environment: RoleEnvironment): string | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  }
+  catch {
+    return null
+  }
+  if (!isJsonObject(parsed) || !environmentFits(parsed))
+    return null
+  const settled = withRoleEnvironment(parsed, environment)
+  return isDeepStrictEqual(settled, parsed) ? text : `${JSON.stringify(settled, null, 2)}\n`
+}
+
+export function daemonAllowRules(home: string = homedir()): string[] {
+  return shippedDaemonCommands(home).map(allowRule)
 }
 
 const ENGRAM_TOOLS = ['Read', 'Edit'] as const
@@ -230,12 +350,12 @@ function revokeEngram(settings: JsonObject, engram: EngramPermissions): void {
     delete settings.permissions
 }
 
-function excludeBrowserLab(settings: JsonObject, entry: string): SandboxExclusion {
+function excludeCommands(settings: JsonObject, entries: string[]): SandboxExclusion {
   const createdSandbox = !('sandbox' in settings)
   const sandbox: JsonObject = isJsonObject(settings.sandbox) ? settings.sandbox : {}
   const createdExcluded = !('excludedCommands' in sandbox)
   const excluded: unknown[] = Array.isArray(sandbox.excludedCommands) ? sandbox.excludedCommands : []
-  const added = excluded.includes(entry) ? [] : [entry]
+  const added = entries.filter(entry => !excluded.includes(entry))
   excluded.push(...added)
   sandbox.excludedCommands = excluded
   settings.sandbox = sandbox
@@ -348,52 +468,84 @@ function slotNamed(container: JsonContainer, key: string): JsonSlot | undefined 
   return container.slots.filter(slot => slot.key === key).at(-1)
 }
 
-function withExcludedCommand(text: string, entry: string): string {
+function withArrayEntry(text: string, outer: string, inner: string, entry: string): string {
+  const root = readContainer(text, skipWhitespace(text, 0))
+  const outerSlot = slotNamed(root, outer)
+  if (outerSlot == null)
+    return appendInContainer(text, root, indent => `${JSON.stringify(outer)}: ${renderedAt({ [inner]: [entry] }, indent)}`)
+  const container = readContainer(text, outerSlot.valueStart)
+  const innerSlot = slotNamed(container, inner)
+  if (innerSlot == null)
+    return appendInContainer(text, container, indent => `${JSON.stringify(inner)}: ${renderedAt([entry], indent)}`)
+  return appendInContainer(text, readContainer(text, innerSlot.valueStart), () => JSON.stringify(entry))
+}
+
+function excludedListIn(text: string): JsonContainer | null {
   const root = readContainer(text, skipWhitespace(text, 0))
   const sandboxSlot = slotNamed(root, 'sandbox')
-  if (sandboxSlot == null)
-    return appendInContainer(text, root, indent => `"sandbox": ${renderedAt({ excludedCommands: [entry] }, indent)}`)
-  const sandbox = readContainer(text, sandboxSlot.valueStart)
-  const excludedSlot = slotNamed(sandbox, 'excludedCommands')
-  if (excludedSlot == null)
-    return appendInContainer(text, sandbox, indent => `"excludedCommands": ${renderedAt([entry], indent)}`)
-  return appendInContainer(text, readContainer(text, excludedSlot.valueStart), () => JSON.stringify(entry))
+  if (sandboxSlot == null || text[sandboxSlot.valueStart] !== '{')
+    return null
+  const excludedSlot = slotNamed(readContainer(text, sandboxSlot.valueStart), 'excludedCommands')
+  return excludedSlot == null || text[excludedSlot.valueStart] !== '[' ? null : readContainer(text, excludedSlot.valueStart)
+}
+
+function withoutExcludedCommand(text: string, entry: string): string {
+  const list = excludedListIn(text)
+  const at = list == null ? -1 : list.slots.findIndex(slot => text.slice(slot.valueStart, slot.valueEnd) === JSON.stringify(entry))
+  if (list == null || at === -1)
+    return text
+  const slot = list.slots[at]!
+  if (list.slots.length === 1)
+    return `${text.slice(0, list.open + 1)}${text.slice(list.close)}`
+  if (at === 0)
+    return `${text.slice(0, slot.start)}${text.slice(list.slots[1]!.start)}`
+  return `${text.slice(0, list.slots[at - 1]!.valueEnd)}${text.slice(slot.valueEnd)}`
 }
 
 export interface LocalExclusion extends SandboxExclusion {
+  allow: EngramPermissions
   createdFile: boolean
   beforeSha256: string | null
   afterSha256: string | null
 }
 
-export function excludeBrowserLabInLocalSettings(root: string, home: string = homedir()): LocalExclusion | null {
+export function wroteLocally(exclusion: LocalExclusion): boolean {
+  return exclusion.afterSha256 !== exclusion.beforeSha256
+}
+
+export function excludeBrowserLabInLocalSettings(root: string, home: string = homedir(), dropTheDeadEntry: boolean = false): LocalExclusion | null {
   const reading = readSettings(root)
   if (reading.kind === 'unreadable')
     return null
-  const entry = browserLabExcludedCommand(home)
-  const exclusion = excludeBrowserLab(reading.kind === 'read' ? structuredClone(reading.settings) : {}, entry)
+  const commands = shippedDaemonCommands(home)
+  const settings = reading.kind === 'read' ? structuredClone(reading.settings) : {}
+  const allow = allowEngram(settings, commands.map(allowRule))
+  const exclusion = excludeCommands(settings, commands)
   const beforeSha256 = reading.kind === 'read' ? sha256OfBytes(reading.bytes) : null
   const createdFile = reading.kind === 'absent'
-  if (exclusion.added.length === 0)
-    return { ...exclusion, createdFile, beforeSha256, afterSha256: beforeSha256 }
-  const text = reading.kind === 'read' ? withExcludedCommand(reading.bytes.toString('utf8'), entry) : `${JSON.stringify({ sandbox: { excludedCommands: [entry] } }, null, 2)}\n`
+  const initial = reading.kind === 'read' ? reading.bytes.toString('utf8') : '{}\n'
+  const excluded = exclusion.added.reduce((text, command) => withArrayEntry(text, 'sandbox', 'excludedCommands', command), initial)
+  const allowed = allow.added.reduce((written, rule) => withArrayEntry(written, 'permissions', 'allow', rule), excluded)
+  const text = dropTheDeadEntry ? withoutExcludedCommand(allowed, RECORDED_BY_AN_EARLIER_ATTACH) : allowed
+  if (text === initial)
+    return { ...exclusion, allow, createdFile, beforeSha256, afterSha256: beforeSha256 }
   const bytes = Buffer.from(text)
   writeSettingsBytes(root, bytes)
-  return { ...exclusion, createdFile, beforeSha256, afterSha256: sha256OfBytes(bytes) }
+  return { ...exclusion, allow, createdFile, beforeSha256, afterSha256: sha256OfBytes(bytes) }
 }
 
 function isLinkedWorktree(root: string): boolean {
   return existsSync(path.join(root, '.git')) && !lstatSync(path.join(root, '.git')).isDirectory()
 }
 
-export function excludedBrowserLabLocally(root: string, home: string = homedir()): LocalExclusion | null {
+export function excludedBrowserLabLocally(root: string, home: string = homedir(), constructOwnsProjectSettings: boolean = false): LocalExclusion | null {
   try {
     if (isLinkedWorktree(root))
       return null
     const index = readTrackedPaths(root)
     if (!('tracked' in index) || index.tracked.has(SETTINGS_FILE))
       return null
-    return excludeBrowserLabInLocalSettings(root, home)
+    return excludeBrowserLabInLocalSettings(root, home, constructOwnsProjectSettings)
   }
   catch {
     return null
@@ -407,18 +559,24 @@ export function withExclusionRecorded(hook: SettingsHook, exclusion: LocalExclus
     createdSandbox: held?.createdSandbox === true || exclusion.createdSandbox,
     createdExcluded: held?.createdExcluded === true || exclusion.createdExcluded,
   }
+  const engram: EngramPermissions = {
+    added: [...new Set([...(hook.engram?.added ?? []), ...exclusion.allow.added])],
+    createdPermissions: hook.engram?.createdPermissions === true || exclusion.allow.createdPermissions,
+    createdAllow: hook.engram?.createdAllow === true || exclusion.allow.createdAllow,
+  }
   const original = hook.original
   const untouchedSinceAttach = original != null && original.afterSha256 === exclusion.beforeSha256 && exclusion.afterSha256 != null
   return {
     ...hook,
     created: { ...hook.created, file: hook.created.file || (exclusion.createdFile && original == null) },
     sandbox,
+    ...(hook.engram == null && exclusion.allow.added.length === 0 ? {} : { engram }),
     ...(untouchedSinceAttach ? { original: { ...original, afterSha256: exclusion.afterSha256! } } : {}),
   }
 }
 
 function isSandboxRecord(value: unknown): boolean {
-  return value === undefined || (isJsonObject(value) && Array.isArray(value.added) && value.added.every(command => command === RECORDED_BY_AN_EARLIER_ATTACH || command === browserLabExcludedCommand()) && typeof value.createdSandbox === 'boolean' && typeof value.createdExcluded === 'boolean')
+  return value === undefined || (isJsonObject(value) && Array.isArray(value.added) && value.added.every(command => command === RECORDED_BY_AN_EARLIER_ATTACH || command === browserLabExcludedCommand() || shippedDaemonCommands().includes(command as string)) && typeof value.createdSandbox === 'boolean' && typeof value.createdExcluded === 'boolean')
 }
 
 function isEngramRecord(value: unknown): boolean {
@@ -430,7 +588,7 @@ export type SettingsInstall
     | { kind: 'unreadable' }
     | { kind: 'guarded' }
 
-export function installHookEntries(root: string, reading: SettingsReading): SettingsInstall {
+export function installHookEntries(root: string, reading: SettingsReading, home: string = homedir()): SettingsInstall {
   if (reading.kind === 'unreadable')
     return { kind: 'unreadable' }
   const settings: JsonObject = reading.kind === 'read' ? reading.settings : {}
@@ -445,8 +603,8 @@ export function installHookEntries(root: string, reading: SettingsReading): Sett
     return { event, entry: windowEntry, created: appendHookEntry(hooks, event, windowEntry) }
   })
   settings.hooks = hooks
-  const engram = allowEngram(settings, engramRules(root))
-  const sandbox = excludeBrowserLab(settings, browserLabExcludedCommand())
+  const engram = allowEngram(settings, [...engramRules(root, home), ...daemonAllowRules(home)])
+  const sandbox = excludeCommands(settings, shippedDaemonCommands(home))
   const afterSha256 = sha256OfBytes(writeSettings(root, settings))
   return { kind: 'installed', hook: { file: SETTINGS_FILE, created, entry, window, engram, sandbox }, afterSha256 }
 }

@@ -7,6 +7,7 @@ import { CARD_HELD, CARD_RELEASED, OPEN_QUESTION, OUTSIDE_TOUCHES, TASK_FAILED, 
 import { generationOfKey } from './identifiers.js'
 import { QUEUE_ACTOR, TASK_FOLDS, WITHDRAWN } from './queue.js'
 import { storedByKey } from './stored.js'
+import * as tasks from './tasks-query.js'
 
 export const HOLD_RECHECK_MS = 5 * 60_000
 
@@ -42,11 +43,7 @@ export interface QueueTaskRow {
   state: string
 }
 
-const ANSWERS_WITHDRAWN = `
-  SELECT task_key, queue, card_id, pr, head, state, event_id FROM tasks
-  WHERE card_id = ? AND queue = 'answer' AND state = ? AND event_id > ?
-  ORDER BY task_key
-`
+const ANSWER_QUEUE: Queue = 'answer'
 
 const HELD_FOR_OWNER = 'held_for_owner'
 const HOLD_EVENTS = [CARD_HELD, CARD_RELEASED]
@@ -69,9 +66,9 @@ function withdrawnForTheOwner(db: DatabaseSync, opened: number, eventIds: readon
 }
 
 function answersWithdrawnSince(db: DatabaseSync, cardId: number, opened: number): QueueTaskRow[] {
-  const rows = db.prepare(ANSWERS_WITHDRAWN).all(cardId, WITHDRAWN, opened) as unknown as (QueueTaskRow & { event_id: number })[]
-  const withdrawn = withdrawnForTheOwner(db, opened, rows.map(row => Number(row.event_id)))
-  return rows.filter(row => withdrawn.has(Number(row.event_id))).map(({ event_id: _eventId, ...task }) => task)
+  const rows = tasks.ofCard(db, cardId, { queue: ANSWER_QUEUE, state: WITHDRAWN, after: opened }).sort((a, b) => a.task_key < b.task_key ? -1 : a.task_key > b.task_key ? 1 : 0)
+  const withdrawn = withdrawnForTheOwner(db, opened, rows.map(row => row.event_id))
+  return rows.filter(row => withdrawn.has(row.event_id)).map(row => ({ task_key: row.task_key, queue: ANSWER_QUEUE, card_id: row.card_id, pr: row.pr, head: row.head, state: row.state }))
 }
 
 function latestLayerOf(layers: HoldLayers): 'owner' | 'takeover' | null {

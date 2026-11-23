@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, PR_OPENED, REJECTED, TASK_REQUEUED, TASK_SUPERSEDED } from '../../core/events.js'
 import { failTask, leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { FAILURES_TO_STOP } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { LaunchExecutor } from '../../nodes/launch/launch-executor.js'
@@ -38,7 +39,7 @@ function stoppedByFault(made: MergeBench, cardId: number): number {
   made.tick()
   let leaseGen = 0
   for (let failure = 0; failure < FAILURES_TO_STOP; failure += 1) {
-    const lease = leaseNext(made.db, ts(), 'launch', 'worker:launch:worker-1')!
+    const lease = leaseNext(made.db, pullRequests(made.db), ts(), 'launch', 'worker:launch:worker-1')!
     leaseGen = lease.leaseGen
     failTask(made.db, cardTransitions(), ts(), lease, { reason: 'start_failed', withdraw: false }, SILENT_MS)
   }
@@ -68,7 +69,7 @@ const sessionStarter: CardStarter = {
 }
 
 function launchedUnder(made: MergeBench, actor: string): Lease {
-  const lease = leaseNext(made.db, made.clock.now().toISOString(), 'launch', actor)!
+  const lease = leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'launch', actor)!
   const executor = new LaunchExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, starter: sessionStarter, clock: made.clock.now, disk: roomy, isolation: sandboxed })
   const outcome = executor.launch(lease)
   expect(outcome.kind === 'denied' ? outcome.denial : outcome.kind).toBe('started')

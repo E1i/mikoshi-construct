@@ -11,6 +11,7 @@ import { CARD_ADMITTED, CARD_CLOSED, CARD_HELD, CARD_MOVED, COMMAND_EXECUTED, ME
 import { prBodySha } from '../../core/identifiers.js'
 import { completeTask, leaseNext } from '../../core/lease.js'
 import { NODE_CURSORS } from '../../core/node.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { keyOf, MERGE_CANDIDATES, NEEDS_UPDATE, queueTask } from '../../core/queue.js'
 import { mergeCandidates } from '../../nodes/merge/merge-candidates.js'
 import { MERGE_QUEUE, MergeExecutor } from '../../nodes/merge/merge-executor.js'
@@ -19,7 +20,7 @@ import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { allowLiveCommand } from '../../policy/live-decision.js'
 import { SECRET_SCAN_CHECK } from '../../ports/gh.js'
-import { candidateRules, cardTransitions, deriveQueuesOfTheBus } from '../../supervisor/composition.js'
+import { candidateRules, cardTransitions, deriveQueuesOfTheBus, requiredCheckAt } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, MAIN_1, MAIN_2, REPO, sha } from './github-fake.js'
 import { benchOverlaps, eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
@@ -118,7 +119,7 @@ function lawOf(made: MergeBench): Record<string, unknown>[] {
 }
 
 function executorOf(made: MergeBench, parts: Partial<ConstructorParameters<typeof MergeExecutor>[0]>): MergeExecutor {
-  return new MergeExecutor({ cards: cardTransitions(), rules: candidateRules(), silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, run: null, overlaps: benchOverlaps, ...parts })
+  return new MergeExecutor({ cards: cardTransitions(), rules: candidateRules(), silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, run: null, overlaps: benchOverlaps, requiredCheck: () => requiredCheckAt(), ...parts })
 }
 
 function ownerDecided(made: MergeBench, pr: number): void {
@@ -223,7 +224,7 @@ describe('the merge node', () => {
     expect(nodeOf(made).found()).toEqual([])
 
     const ts = made.clock.now().toISOString()
-    completeTask(made.db, cardTransitions(), ts, leaseNext(made.db, ts, 'answer', 'worker:answer:worker-0')!, [])
+    completeTask(made.db, cardTransitions(), ts, leaseNext(made.db, pullRequests(made.db), ts, 'answer', 'worker:answer:worker-0')!, [])
     made.tick()
     expect(nodeOf(made).found()).toEqual([mergeKey(970)])
   })
@@ -314,7 +315,7 @@ describe('the merge node', () => {
     expect(mergeTasks(made, 970)).toBe(0)
 
     const ts = made.clock.now().toISOString()
-    completeTask(made.db, cardTransitions(), ts, leaseNext(made.db, ts, 'review', 'worker:review:reviewer-1')!, [])
+    completeTask(made.db, cardTransitions(), ts, leaseNext(made.db, pullRequests(made.db), ts, 'review', 'worker:review:reviewer-1')!, [])
     appendEvent(made.db, { ts, type: REVIEW_RECORDED, actor: 'worker:review:reviewer-1', cardId: 1070, pr: 970, head: sha('a'), dedupeKey: `${REVIEW_RECORDED}:in-flight`, payload: { head: sha('a'), verdict: 'pass', reviewer_session: 'reviewer-1', findings: [] }, legacy: false })
     const recorded = Number((made.db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }).id)
     await once(node)
@@ -593,7 +594,7 @@ describe('a denial that names a cure', () => {
   function theUpdateKeySpent(made: MergeBench): void {
     const ts = made.clock.now().toISOString()
     queueTask(made.db, ts, { queue: 'update', cardId: 1070, pr: 970, head: sha('a') })
-    completeTask(made.db, cardTransitions(), ts, leaseNext(made.db, ts, 'update', 'worker:update:worker-0')!, [])
+    completeTask(made.db, cardTransitions(), ts, leaseNext(made.db, pullRequests(made.db), ts, 'update', 'worker:update:worker-0')!, [])
   }
 
   function theUpdateDueCase(made: MergeBench): void {

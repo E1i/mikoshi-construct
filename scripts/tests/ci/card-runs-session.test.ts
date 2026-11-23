@@ -11,6 +11,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { branchCardRuns, busCheckCatalog, LayerWithoutTests } from '../../ci/card-runs.js'
 import { testsOfBranch } from '../../ci/prepush.js'
 import { catalogLayersByTest, catalogModuleLayers, testFoldersOfLayers, writeCatalog } from '../../cli/check-catalog.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { appendCardEvent } from '../../core/card-bodies.js'
 import { openBus } from '../../core/db.js'
 import { CARD_ADMITTED } from '../../core/events.js'
@@ -288,7 +289,7 @@ describe('a layer the branch assigns tests to', () => {
       modules: [{ module: MODULE, layers: [NEW_LAYER] }, { module: TOUCHED, layers: ['bus'] }],
     })
     const text = cardText(body, [MODULE])
-    appendCardEvent(db, 'owner', { ts: '2026-11-10T00:00:00.000Z', type: CARD_ADMITTED, cardId: CARD_ID, dedupeKey: `${CARD_ADMITTED}:${CARD_ID}`, payload: { text, textSha: textSha(text) } })
+    appendCardEvent(BUS_CONTRACT, db, 'owner', { ts: '2026-11-10T00:00:00.000Z', type: CARD_ADMITTED, cardId: CARD_ID, dedupeKey: `${CARD_ADMITTED}:${CARD_ID}`, payload: { text, textSha: textSha(text) } })
     reduce(db, 'pending', busProjections())
     db.close()
     return bus

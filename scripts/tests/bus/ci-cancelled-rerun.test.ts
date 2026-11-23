@@ -11,15 +11,16 @@ import { TICK_MS } from '../../core/cadence.js'
 import { openBus } from '../../core/db.js'
 import { CI_RERUN_REQUESTED, PR_OBSERVED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTaskWithin } from '../../core/queue.js'
 import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
 import { updateCandidates } from '../../nodes/update/update-candidates.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
-import { NetWatch } from '../../ports/netwatch.js'
 import { answerParts, busProjections, cardTransitions, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
+import { benchNetWatch } from './net-watch-bench.js'
 
 const CANCELLED_RUN = 4242
 const FAILED_RUN = 4343
@@ -63,7 +64,7 @@ function cancelBench(): CancelBench {
       return { ...check, id, output: { annotations_count: 1, annotations_url: `https://api.github.com/repos/{owner}/{repo}/check-runs/${id}/annotations` } }
     }) } }
   }
-  const busTick = new BusTick(db, busProjections(), new NetWatch(db, client, clock.now), clock.now)
+  const busTick = new BusTick(db, busProjections(), benchNetWatch(db, client, clock.now), clock.now)
   const executor = new UpdateExecutor({ cards: cardTransitions(), source: updateParts(), silentMs: SILENT_MS, db, gitHub: client, put: gitHub.put, post: gitHub.post, publish: gitHub.publish, clock: clock.now, settle: () => {} })
   const ts = (): string => clock.now().toISOString()
   const tick = (): void => {
@@ -83,7 +84,7 @@ function cancelBench(): CancelBench {
     updateOnce: (pr) => {
       for (const task of updateCandidates(db, ts(), updateParts()).filter(each => each.pr === pr))
         queueTaskWithin(db, ts(), task)
-      const lease = leaseNext(db, ts(), 'update', 'worker:update:worker-1')
+      const lease = leaseNext(db, pullRequests(db), ts(), 'update', 'worker:update:worker-1')
       return lease === null ? null : executor.update(lease)
     },
     close: () => {

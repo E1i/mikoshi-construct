@@ -4,6 +4,7 @@
   "may_use_factory": [
     "core/bus-path.js",
     "core/bus-readings.js",
+    "core/card-readings.js",
     "core/eddies.js",
     "core/events.js",
     "core/factory-paths.js",

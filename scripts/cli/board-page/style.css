@@ -566,7 +566,8 @@ header.panel::before { --_sweep: oklch(from var(--wire) l c h / 0.5); animation:
   &:hover { --_fg: var(--text); --_bd: var(--dim); }
   &:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 }
-.backlog:not(:has(.filter-target:target)) .chip[href="#show-all"] { --_bg: var(--wire); --_fg: var(--void); --_bd: var(--wire); }
+.backlog:not([data-filter]) .chip[href="#show-all"],
+.backlog[data-filter="show-all"] .chip[href="#show-all"] { --_bg: var(--wire); --_fg: var(--void); --_bd: var(--wire); }
 .scroll { flex: 1; min-block-size: 0; overflow: auto; scrollbar-color: var(--signal) var(--panel); }
 table { inline-size: 100%; min-inline-size: 54rem; border-collapse: collapse; }
 thead th {

@@ -9,6 +9,7 @@ import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { busReaderAt } from '../../../src/commands/board/bus.js'
+import { BOARD_BUS } from '../../../src/commands/board/index.js'
 import { buildCatalog, writeCatalog } from '../../cli/check-catalog.js'
 import { appendMatrix, buildMatrix, busMatrix, matrixArguments, matrixSummary, runMatrix, runMutation } from '../../cli/check-matrix.js'
 import { openBus } from '../../core/db.js'
@@ -243,7 +244,7 @@ describe('checks:matrix and the bus', () => {
     db.close()
     expect(row).toMatchObject({ type: CHECKS_MATRIX_EVENT, actor: 'worker:checks-matrix:test', card_id: null, pr: 922, head: BUS_HEAD })
     expect(JSON.parse(row!.payload)).toEqual({ full: null, killed: 1, survived: 1, notRun: 1, skipped: 1, summary: matrixSummary(matrix, results) })
-    const reading = busReaderAt(file)()
+    const reading = busReaderAt(file)(BOARD_BUS)
     expect(reading.status === 'read' && reading.facts.matrices).toEqual([{ pr: 922, head: BUS_HEAD, full: null, killed: 1, survived: 1, notRun: 1 }])
   })
 

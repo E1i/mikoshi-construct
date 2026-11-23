@@ -35,6 +35,7 @@ import { completeTask, leaseNext, recordWorkerStarted } from '../../core/lease.j
 import { MachineSessions } from '../../core/machine-sessions.js'
 import { Node } from '../../core/node.js'
 import { ownerMoveCommand } from '../../core/owner-commands.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { keyOf, queueTask, queueTaskWithin } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
@@ -49,10 +50,9 @@ import { dryRun } from '../../nodes/review/review-worker.js'
 import { claudeReviewer, ReviewTrees } from '../../nodes/review/reviewer.js'
 import { updateCandidates } from '../../nodes/update/update-candidates.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
-import { NetWatch } from '../../ports/netwatch.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
 import { launchName } from '../../supervisor/bg.js'
-import { answerParts, busProjections, cardTransitions, nodeSupply, updateParts } from '../../supervisor/composition.js'
+import { answerParts, busProjections, cardTransitions, nodeSupply, reviewLaunch, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { slotsVariable } from '../../supervisor/scheduler.js'
@@ -61,6 +61,7 @@ import { workerLaunches } from '../../supervisor/workers.js'
 import { ranTheGreenGate } from '../bus/gate-stream.js'
 import { Clock, FakeGitHub, sha } from '../bus/github-fake.js'
 import { eventsOf, liveBench, mergeBench } from '../bus/merge-bench.js'
+import { benchNetWatch } from '../bus/net-watch-bench.js'
 import { reachesSite } from './law-reach.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
@@ -142,7 +143,7 @@ async function restartKeepsSession(node: LawNode): Promise<void> {
   const db = openBus(path.join(root, 'bus.db'))
   const date = (): Date => new Date('2026-11-09T18:45:26.000Z')
   const ts = (): string => date().toISOString()
-  const launches = workerLaunches(() => [])
+  const launches = workerLaunches(reviewLaunch(() => []))
   const { close } = launches
   const sessionLaunch = launches[node as BusWorker]
   let alive: RunningProcess[] = [
@@ -348,7 +349,7 @@ function abandonedRunIsRerun(): void {
       const body = response.body as { check_runs: { name: string, conclusion: string | null }[] }
       return { ...response, body: { check_runs: body.check_runs.map(check => check.name === 'required' && check.conclusion === 'failure' ? { ...check, id: 77, output: { annotations_count: 1, annotations_url: url } } : check) } }
     }
-    const busTick = new BusTick(db, busProjections(), new NetWatch(db, client, clock.now), clock.now)
+    const busTick = new BusTick(db, busProjections(), benchNetWatch(db, client, clock.now), clock.now)
     busTick.run()
     clock.advance(TICK_MS)
     gitHub.open({ number: 1493, required: 'failure', failed: [], runs: [{ id: 4343, run_attempt: 1, status: 'completed', conclusion: 'failure' }] })
@@ -359,7 +360,7 @@ function abandonedRunIsRerun(): void {
       throw new Error('a required red only from abandoned jobs queued an answer')
     for (const task of updateCandidates(db, ts, updateParts()).filter(each => each.pr === 1493))
       queueTaskWithin(db, ts, task)
-    const lease = leaseNext(db, ts, 'update', 'worker:update:worker-1')
+    const lease = leaseNext(db, pullRequests(db), ts, 'update', 'worker:update:worker-1')
     if (lease === null)
       throw new Error('a required red only from abandoned jobs queued no rerun')
     new UpdateNodeUnderWitness({ silentMs: SILENT_MS, db, gitHub: client, put: gitHub.put, post: gitHub.post, publish: gitHub.publish, clock: clock.now, settle: () => {}, session: 'update-node-1', mode: 'live', env: {} }).handleUnderWitness(lease)

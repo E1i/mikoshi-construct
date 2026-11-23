@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest'
 import { appendEvent, OPEN_WAIT, openBus, OWNER_WAITS } from '../../core/db.js'
 import { CARD_STARTED, CARD_STOPPED, QUESTION_OWNER, SHARD_DECIDED, SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
@@ -80,7 +81,7 @@ async function askedUnderADecisionsShard(question: string): Promise<Asked> {
   }
   const trees: CardTreeTools = { home: world.handoff, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
   const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db, answerer, ownerMerges: () => readFileSync('architecture/owner-merges.md', 'utf8'), clock: () => now, trees, isolation: () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }), shardDecider: () => ({ answer: 'finish inside the touches' }) })
-  const outcome = await executor.answer(leaseNext(db, ts, 'answer', 'worker:answer:worker-1')!)
+  const outcome = await executor.answer(leaseNext(db, pullRequests(db), ts, 'answer', 'worker:answer:worker-1')!)
   reduce(db, 'pending', busProjections())
   const decided = Number((db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(SHARD_DECIDED) as { n: number }).n)
   const waits = db.prepare(`SELECT need, text, command, card_id, state FROM ${OWNER_WAITS}`).all().map(row => ({ ...row }))

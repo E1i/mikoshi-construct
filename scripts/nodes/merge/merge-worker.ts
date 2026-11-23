@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
+import type { CatalogRebuilt } from '../../cli/check-catalog.js'
 import type { Lease } from '../../core/lease.js'
 import type { DetectionMode, NodeDeclaration, Scope } from '../../core/node.js'
 import type { QueuedTask } from '../../core/queue.js'
@@ -23,7 +24,7 @@ import { loadedCodeSha, readThroughPort } from '../../ports/git.js'
 import { ghStatusPublisher } from '../../ports/github-status.js'
 import { ghApi, ghApiPut } from '../../ports/github.js'
 import { Meter } from '../../ports/meter.js'
-import { candidateRules, mainOverlapAt, nodeLiveness, nodeSupply, weightsDriftWatch } from '../../supervisor/composition.js'
+import { candidateRules, mainOverlapAt, nodeLiveness, nodeSupply, requiredCheckAt, weightsDriftWatch } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { DRY_RUN_ACTOR } from '../review/review-worker.js'
 import { mergeCandidates } from './merge-candidates.js'
@@ -40,7 +41,7 @@ const WHOLE_QUEUE_ON: ReadonlySet<string> = new Set([REDUCED, PR_GROUPS, MERGE_D
 
 export type MergeStep = MergeOutcome
 
-export type CatalogRebuild = (ref: string) => void
+export type CatalogRebuild = (ref: string) => CatalogRebuilt | void
 
 export interface MergeWorkerParts {
   db: DatabaseSync
@@ -90,7 +91,7 @@ export class MergeNode extends Node<MergeStep> {
     this.gitHub = parts.gitHub
     this.rebuildCatalog = parts.rebuildCatalog
     this.weights = parts.weights
-    this.executor = new MergeExecutor({ db: parts.db, cards: this.suppliedCards, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, run: parts.run, silentMs: parts.silentMs, pushPolicy: parts.pushPolicy, overlaps: parts.overlaps ?? mainOverlapAt(process.cwd()), rules: candidateRules() })
+    this.executor = new MergeExecutor({ db: parts.db, cards: this.suppliedCards, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, run: parts.run, silentMs: parts.silentMs, pushPolicy: parts.pushPolicy, overlaps: parts.overlaps ?? mainOverlapAt(process.cwd()), rules: candidateRules(), requiredCheck: () => requiredCheckAt() })
     this.declare(MERGE_NODE, scopeOf)
   }
 
@@ -145,7 +146,9 @@ export class MergeNode extends Node<MergeStep> {
 
   private rebuildAt(ref: string): void {
     try {
-      this.rebuildCatalog?.(ref)
+      const rebuilt = this.rebuildCatalog?.(ref)
+      if (rebuilt?.kind === 'skipped')
+        this.log(`the check catalog is not rebuilt at ${ref}: ${rebuilt.reason}`)
     }
     catch (error) {
       this.catalogNotRebuilt(ref, error)
@@ -184,7 +187,7 @@ export async function runMergeWorker(argv: string[], run: MergeRun): Promise<num
 
 export function liveMergeRun(cwd: string, busPath: string): MergeRun {
   const gitHub = ghApi(cwd)
-  return { busPath, rebuildCatalog: ref => rebuildCatalogAt(ref, busPath), gitHub, put: ghApiPut(cwd), publish: ghStatusPublisher(cwd), session: randomUUID(), pause: sleep, pushPolicy: () => pushPolicyOf(readThroughPort, cwd), weights: weightsDriftWatch(gitHub, busPath) }
+  return { busPath, rebuildCatalog: ref => rebuildCatalogAt(ref, busPath, cwd), gitHub, put: ghApiPut(cwd), publish: ghStatusPublisher(cwd), session: randomUUID(), pause: sleep, pushPolicy: () => pushPolicyOf(readThroughPort, cwd), weights: weightsDriftWatch(gitHub, busPath) }
 }
 
 async function main(): Promise<number> {

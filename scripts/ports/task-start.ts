@@ -16,12 +16,15 @@ import { bodySha, bodyShaWithoutTouches } from '../../src/commands/intake/confir
 import { readMilestones } from '../../src/manifest.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { NOT_A_BACKFILL } from '../core/backfill-source.js'
+import { BUS_CONTRACT } from '../core/bus-adapter.js'
 import { unsatisfiedDependencies } from '../core/card-automaton.js'
 import { busAdmittedBodies } from '../core/card-bodies.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
 import { ENTRY_RESULT, ENTRY_SCHEMA } from '../core/entry.js'
 import { CARD_ADMITTED, CARD_STARTED } from '../core/events.js'
+import { legacyHistory } from '../core/legacy-history.js'
 import { ADMIT_COMMAND, pnpmCommand } from '../core/owner-commands.js'
+import * as prs from '../core/pr-readings.js'
 import { cardBodyAdmissionOf, LEASED } from '../core/queue.js'
 import { slotsOf, slotsVariable } from '../supervisor/scheduler.js'
 import { STARTER_ACTOR, windowOpenPrs } from '../window/window-prs.js'
@@ -92,7 +95,7 @@ function unsatisfiedIn(bus: string, depends: readonly number[]): number[] {
     return [...depends]
   const db = openBus(bus)
   try {
-    return unsatisfiedDependencies(db)(depends)
+    return unsatisfiedDependencies(BUS_CONTRACT, db, { pullRequests: () => prs.all(db), journal: () => legacyHistory(db) })(depends)
   }
   finally {
     db.close()
@@ -415,7 +418,7 @@ export function realDeps(): TaskStartDeps {
     now: () => new Date(),
     session: clientAdapter().ownSession(process.env) ?? undefined,
     treeOf: id => cardTree(process.env, defaultBusPath(), id),
-    cardBody: busAdmittedBodies(defaultBusPath()),
+    cardBody: busAdmittedBodies(BUS_CONTRACT, defaultBusPath()),
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
     windowLimit: () => slotsOf(WINDOW_LIMIT_SLOTS, process.env),
   }
