@@ -17,8 +17,9 @@ describe('every gate is reachable from the harness, and anything outside it says
     expect(reachedByHarness()).toContain('quality:steps')
   })
 
-  it('runs the pinned-action input check offline in the harness, and keeps its fetching writer outside it', () => {
-    expect(reachedByHarness()).toContain('contract:actions')
+  it('runs the pinned-action input check offline through the harness test step, and keeps its fetching writer outside it', () => {
+    expect(reachedByHarness()).toContain('test')
+    expect(OUTSIDE_THE_HARNESS['contract:actions']).toContain('scripts/tests/contract/action-inputs.test.ts')
     expect(packageScripts()['contract:actions']).not.toContain('--fetch')
     expect(reachedByHarness()).not.toContain('contract:actions:fetch')
     expect(OUTSIDE_THE_HARNESS).toHaveProperty('contract:actions:fetch')

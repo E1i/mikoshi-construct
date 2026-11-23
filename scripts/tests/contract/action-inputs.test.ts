@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { actionYmlUrls, declaredInputs, fetchMissing, pinnedSteps, readRecordedInputs, refusals, renderRecordedInputs, workflowSteps } from '../../contract/action-inputs.js'
+import { actionYmlPaths, declaredInputs, fetchMissing, pinnedSteps, readRecordedInputs, refusals, renderRecordedInputs, workflowSteps } from '../../contract/action-inputs.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 
@@ -70,24 +70,25 @@ describe('the inputs of a pin are fetched once from its action.yml', () => {
     expect(declaredInputs('name: x\nruns:\n  using: node24\n')).toEqual([])
   })
 
-  it('looks for action.yml then action.yaml at the pinned ref, keeping a subpath', () => {
-    expect(actionYmlUrls('changesets/action@v2')).toEqual([
-      'https://raw.githubusercontent.com/changesets/action/v2/action.yml',
-      'https://raw.githubusercontent.com/changesets/action/v2/action.yaml',
+  it('reads action.yml then action.yaml at the pinned ref through the GitHub contents API, keeping a subpath', () => {
+    expect(actionYmlPaths('changesets/action@v2')).toEqual([
+      'repos/changesets/action/contents/action.yml?ref=v2',
+      'repos/changesets/action/contents/action.yaml?ref=v2',
     ])
-    expect(actionYmlUrls('github/codeql-action/init@v3')[0]).toBe('https://raw.githubusercontent.com/github/codeql-action/v3/init/action.yml')
+    expect(actionYmlPaths('github/codeql-action/init@v3')[0]).toBe('repos/github/codeql-action/contents/init/action.yml?ref=v3')
+    expect(actionYmlPaths('changesets/action@v2').some(apiPath => apiPath.includes('raw.githubusercontent.com'))).toBe(false)
   })
 
   it('fetches only the pins with no recorded inputs, and refuses a pin with no action file', async () => {
     const asked: string[] = []
-    const fetcher = async (url: string): Promise<string | undefined> => {
-      asked.push(url)
-      return url.endsWith('/action.yaml') ? 'inputs:\n  ref: {}\n  fetch-depth: {}\n' : undefined
+    const fetcher = async (apiPath: string): Promise<string | undefined> => {
+      asked.push(apiPath)
+      return apiPath.includes('/action.yaml?') ? 'inputs:\n  ref: {}\n  fetch-depth: {}\n' : undefined
     }
     const steps = pinnedSteps('release.yml', RELEASE_WORKFLOW)
     const recorded = await fetchMissing(steps, { 'changesets/action@v2': RECORDED['changesets/action@v2'] }, fetcher)
     expect(recorded['actions/checkout@v7']).toEqual(['fetch-depth', 'ref'])
-    expect(asked.every(url => url.includes('actions/checkout/v7'))).toBe(true)
+    expect(asked.every(apiPath => apiPath.startsWith('repos/actions/checkout/contents/') && apiPath.endsWith('?ref=v7'))).toBe(true)
     await expect(fetchMissing(steps, {}, async () => undefined)).rejects.toThrow('no action.yml found')
   })
 })

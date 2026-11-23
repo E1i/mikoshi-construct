@@ -3,6 +3,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parse } from 'yaml'
+import { execGh } from '../ports/gh.js'
 
 export const ACTION_INPUTS_RECORD = 'contract/action-inputs.json'
 const WORKFLOWS_DIR = '.github/workflows'
@@ -18,7 +19,7 @@ export interface PinnedStep {
   keys: string[]
 }
 
-type Fetcher = (url: string) => Promise<string | undefined>
+type Fetcher = (apiPath: string) => Promise<string | undefined>
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -57,11 +58,11 @@ export function declaredInputs(actionYml: string): string[] {
   return isRecord(document) && isRecord(document.inputs) ? Object.keys(document.inputs).sort() : []
 }
 
-export function actionYmlUrls(uses: string): string[] {
+export function actionYmlPaths(uses: string): string[] {
   const [location = '', ref = ''] = uses.split('@')
   const [owner, repo, ...subpath] = location.split('/')
-  const base = ['https://raw.githubusercontent.com', owner, repo, ref, ...subpath].join('/')
-  return [`${base}/action.yml`, `${base}/action.yaml`]
+  const base = ['repos', owner, repo, 'contents', ...subpath].join('/')
+  return [`${base}/action.yml?ref=${ref}`, `${base}/action.yaml?ref=${ref}`]
 }
 
 export function workflowSteps(root: string): PinnedStep[] {
@@ -85,8 +86,8 @@ export async function fetchMissing(steps: PinnedStep[], recorded: RecordedInputs
   const fetched: RecordedInputs = {}
   for (const pin of missing) {
     let body: string | undefined
-    for (const url of actionYmlUrls(pin)) {
-      body = await fetcher(url)
+    for (const apiPath of actionYmlPaths(pin)) {
+      body = await fetcher(apiPath)
       if (body !== undefined)
         break
     }
@@ -97,15 +98,19 @@ export async function fetchMissing(steps: PinnedStep[], recorded: RecordedInputs
   return { ...recorded, ...fetched }
 }
 
-async function fetchText(url: string): Promise<string | undefined> {
-  const response = await fetch(url)
-  return response.ok ? response.text() : undefined
+async function readThroughGithubPort(apiPath: string): Promise<string | undefined> {
+  const result = execGh(['api', '-H', 'Accept: application/vnd.github.raw', apiPath])
+  if (result.kind === 'ran')
+    return result.stdout
+  if (/HTTP 404/.test(result.reason))
+    return undefined
+  throw new Error(`the GitHub port could not read ${apiPath}: ${result.reason}`)
 }
 
 async function main(): Promise<void> {
   const steps = workflowSteps(REPO_ROOT)
   if (process.argv.includes('--fetch')) {
-    const recorded = await fetchMissing(steps, readRecordedInputs(REPO_ROOT), fetchText)
+    const recorded = await fetchMissing(steps, readRecordedInputs(REPO_ROOT), readThroughGithubPort)
     writeFileSync(path.join(REPO_ROOT, ACTION_INPUTS_RECORD), renderRecordedInputs(recorded))
     return
   }
