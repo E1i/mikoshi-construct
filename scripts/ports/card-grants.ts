@@ -7,6 +7,7 @@ export interface CardGrant {
   allow: readonly string[]
   domains: readonly string[]
   homeWrites: readonly string[]
+  excludedCommands: readonly string[]
 }
 
 const SANDBOX_UID = os.userInfo().uid
@@ -24,6 +25,7 @@ export const CARD_GRANTS: readonly CardGrant[] = [
     allow: ['Bash(codex *)', `Bash(mkdir -p ${GRANT_SCRATCH_DIRECTORY})`, `Bash(mkdir ${GRANT_SCRATCH_DIRECTORY})`, `Bash(git init ${GRANT_SCRATCH_DIRECTORY})`, ...scratchFileRules],
     domains: ['api.openai.com', 'chatgpt.com', 'auth.openai.com'],
     homeWrites: ['.codex'],
+    excludedCommands: ['codex exec *'],
   },
 ]
 

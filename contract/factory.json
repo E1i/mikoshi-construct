@@ -5394,7 +5394,7 @@
         "reexports": [],
         "technologyWords": [],
         "types": {
-          "CardGrant": "interface CardGrant { card: number; decision: string; allow: readonly string[]; domains: readonly string[]; homeWrites: readonly string[]; }"
+          "CardGrant": "interface CardGrant { card: number; decision: string; allow: readonly string[]; domains: readonly string[]; homeWrites: readonly string[]; excludedCommands: readonly string[]; }"
         }
       },
       "scripts/ports/card-tree.ts": {
