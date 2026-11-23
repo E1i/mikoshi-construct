@@ -1335,6 +1335,45 @@ describe('board.html', () => {
     expect(errors.mock.calls[0]![0]).toMatch(/^\[bus:board-timer\] recording the board timer's beat failed: .*readonly database; miko watch reads the board as stale/)
   })
 
+  it('the worker\'s own beat writer reports a refused beat with the stale line watch reads', () => {
+    const busPath = seededBus()
+    const refusing = new DatabaseSync(busPath)
+    try {
+      refusing.exec(`CREATE TRIGGER beat_refused BEFORE INSERT ON ${HEARTBEATS} BEGIN SELECT RAISE(ABORT, 'beat refused'); END`)
+    }
+    finally {
+      refusing.close()
+    }
+    const ticks: Array<() => void> = []
+    const board = readOnlyBoardProjection(busPath, TICK_MS, (writer) => {
+      const tick = boardBeatRecorder()(writer)
+      ticks.push(tick)
+      return tick
+    })
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      ticks.forEach(tick => tick())
+    }
+    finally {
+      board.close()
+    }
+    expect(ticks).toHaveLength(1)
+    expect(errors).toHaveBeenCalledTimes(1)
+    expect(errors.mock.calls[0]![0]).toBe(`[bus:board-timer] recording the board timer's beat failed: beat refused; miko watch reads the board as stale once ${BOARD_STALE_TICKS} beats are missing`)
+  })
+
+  it('closing the read-only board also closes its beat writer', () => {
+    const busPath = seededBus()
+    const writers: Array<{ record: (ts: string) => boolean }> = []
+    const board = readOnlyBoardProjection(busPath, TICK_MS, (writer) => {
+      writers.push(writer)
+      return () => {}
+    })
+    expect(writers[0]!.record(minutesAgo(1))).toBe(true)
+    board.close()
+    expect(() => writers[0]!.record(minutesAgo(0))).toThrow(/not open/)
+  })
+
   function busGoneDown(waits: Parameters<typeof withOwnerWaits>[1], handoff: string): string {
     const busPath = withOwnerWaits(seededBus(), waits)
     writeFileSync(handoffBeside(busPath), handoff)
