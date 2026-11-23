@@ -12,7 +12,7 @@ import { readManifest, readShiftGate } from '../../../src/manifest.js'
 import { createUi, silentWriter } from '../../../src/ui/console.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
 import { treeReportPath } from '../../core/places.js'
-import { CARD_GRANTS, cardOfTree, grantOf } from '../../ports/card-grants.js'
+import { CARD_GRANTS, cardOfTree, GRANT_SCRATCH_DIRECTORY, GRANT_SCRATCH_SPELLINGS, grantOf } from '../../ports/card-grants.js'
 import { CARD_SESSION_SANDBOX, SESSION_BASH_CAP, settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
 import { WIDE_VITEST_HOOKS } from '../../ports/wide-vitest-guard.js'
 
@@ -238,11 +238,15 @@ describe('a card granted by an owner decision gets exactly its grant and no othe
     return { sandbox: CARD_SESSION_SANDBOX, permissions: { allow: ['Bash(pnpm run quality)', `Edit(/${tree}/**)`] }, env: SESSION_BASH_CAP, hooks: WIDE_VITEST_HOOKS }
   }
 
-  it('card #2156 gets codex, git init and mkdir under $TMPDIR, the Codex API and sign-in hosts and ~/.codex by D-705, and nothing else', () => {
+  it('card #2156 gets codex, mkdir and git init of its fixed scratch directory, Write and Edit inside it, the Codex API and sign-in hosts and ~/.codex by D-705, and nothing else', () => {
     const tree = path.join(scratch, 'worktrees', String(GRANTED))
+    const uid = userInfo().uid
+    const probe = `/tmp/claude-${uid}/codex-live-hooks`
+    const resolved = `/private/tmp/claude-${uid}/codex-live-hooks`
+    expect(GRANT_SCRATCH_DIRECTORY).toBe(probe)
     expect(shiftSettings(tree, GATE, [], home)).toStrictEqual({
       sandbox: { ...CARD_SESSION_SANDBOX, network: { ...CARD_SESSION_SANDBOX.network, allowedDomains: CODEX_HOSTS }, filesystem: { allowWrite: [path.join(home, '.codex')] } },
-      permissions: { allow: ['Bash(pnpm run quality)', `Edit(/${tree}/**)`, 'Bash(codex *)', 'Bash(git init $TMPDIR/*)', 'Bash(mkdir $TMPDIR/*)', 'Bash(mkdir -p $TMPDIR/*)'] },
+      permissions: { allow: ['Bash(pnpm run quality)', `Edit(/${tree}/**)`, 'Bash(codex *)', `Bash(mkdir -p ${probe})`, `Bash(mkdir ${probe})`, `Bash(git init ${probe})`, `Write(/${probe}/**)`, `Edit(/${probe}/**)`, `Write(/${resolved}/**)`, `Edit(/${resolved}/**)`] },
       env: SESSION_BASH_CAP,
       hooks: WIDE_VITEST_HOOKS,
     })
@@ -276,16 +280,22 @@ describe('a card granted by an owner decision gets exactly its grant and no othe
     expect(others.map(built => ({ hosts: hostsOf(built), filesystem: built.sandbox.filesystem }))).toEqual([{ hosts: [], filesystem: undefined }, { hosts: [], filesystem: undefined }, { hosts: [], filesystem: undefined }])
   })
 
-  it('every row of the table names one card once, an owner decision, Bash rules only and bare host names', () => {
+  it('every row of the table names one card once, an owner decision, Bash rules and file rules confined to its scratch directory only, and bare host names', () => {
+    const confined = (rule: string): boolean => {
+      const file = /^(?:Write|Edit)\(\/(\/.+)\)$/.exec(rule)?.[1]
+      if (file === undefined || file.split('/').includes('..'))
+        return false
+      return GRANT_SCRATCH_SPELLINGS.some(scratch => file.startsWith(`${scratch}/`))
+    }
     const cards = CARD_GRANTS.map(grant => grant.card)
     const rows = CARD_GRANTS.map(grant => ({
       decision: /^D-\d+$/.test(grant.decision),
-      bash: grant.allow.every(rule => /^Bash\(.+\)$/.test(rule)),
+      rules: grant.allow.every(rule => /^Bash\(.+\)$/.test(rule) || confined(rule)),
       hosts: grant.domains.every(host => /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(host)),
       homeWrites: grant.homeWrites.every(entry => entry !== '' && !path.isAbsolute(entry) && !entry.split('/').includes('..')),
     }))
     expect(new Set(cards).size).toBe(cards.length)
-    expect(rows.every(row => row.decision && row.bash && row.hosts && row.homeWrites)).toBe(true)
+    expect(rows.every(row => row.decision && row.rules && row.hosts && row.homeWrites)).toBe(true)
   })
 })
 
