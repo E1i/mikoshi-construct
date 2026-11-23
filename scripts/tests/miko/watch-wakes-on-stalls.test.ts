@@ -221,6 +221,41 @@ describe('miko:watch wakes the window on a board timer that stopped beating', ()
   })
 })
 
+function signalsOf(bus: Bus): (now: number) => readonly { kind: string }[] {
+  const signals = productionDeps(bus.dir, bus.file).signals
+  if (signals === undefined)
+    throw new Error('productionDeps reads no signals')
+  return signals
+}
+
+function boardStaleKinds(signals: readonly { kind: string }[]): string[] {
+  return signals.map(signal => signal.kind).filter(kind => kind === BOARD_STALE)
+}
+
+const HEALTHY_BOARD_BEAT_AGE_MS = 14_500
+const SECOND_MS = 1000
+
+describe('miko:watch judges the board beat against the time it read it', () => {
+  it('a beat fresh when read is not stale when the cached read is judged 29 s later', () => {
+    const bus = aBus()
+    boardBeat(bus, NOW - HEALTHY_BOARD_BEAT_AGE_MS)
+    const signals = signalsOf(bus)
+    expect(boardStaleKinds(signals(NOW))).toEqual([])
+    expect(boardStaleKinds(signals(NOW + 29 * SECOND_MS))).toEqual([])
+  })
+
+  it('a board timer silent for more than three ticks still reads as stale', () => {
+    const silent = aBus()
+    boardBeat(silent, NOW - BOARD_STALE_TICKS * BOARD_TIMER_PERIOD_MS - 1)
+    expect(boardStaleKinds(signalsOf(silent)(NOW))).toEqual([BOARD_STALE])
+    const fell = aBus()
+    boardBeat(fell, NOW - HEALTHY_BOARD_BEAT_AGE_MS)
+    const signals = signalsOf(fell)
+    expect(boardStaleKinds(signals(NOW))).toEqual([])
+    expect(boardStaleKinds(signals(NOW + 30 * SECOND_MS))).toEqual([BOARD_STALE])
+  })
+})
+
 describe('miko:watch wakes on a stalled session and on a release loop', () => {
   it('a session.stalled event wakes miko:watch --once', async () => {
     const bus = aBus()
