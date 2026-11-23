@@ -201,6 +201,10 @@ export function recordBoardBeat(db: DatabaseSync, ts: string): boolean {
   return recordBeat(db, { process: BOARD_TIMER_PROCESS, type: PROCESS_HEARTBEAT, ts, payload: { process: BOARD_TIMER_PROCESS } })
 }
 
+export function openBoardBeatWriter(file: string): DatabaseSync {
+  return openDatabase(file, { timeout: BUSY_TIMEOUT_MS })
+}
+
 export function lastBoardBeat(db: DatabaseSync): string | undefined {
   return (db.prepare(`SELECT ts FROM ${HEARTBEATS} WHERE process = ? AND type = ?`).get(BOARD_TIMER_PROCESS, PROCESS_HEARTBEAT) as { ts: string } | undefined)?.ts
 }
