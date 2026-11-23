@@ -33,11 +33,12 @@
       view.folds = stored.folds
   }
   catch {}
+  let boardFilters = null
   const showFilter = (hash) => {
     const backlog = document.getElementById(names.backlog)
     if (!backlog)
       return
-    if (hash)
+    if (hash && (boardFilters === null || boardFilters.includes(hash.slice(1))))
       backlog.setAttribute(names.filterAttribute, hash.slice(1))
     else
       backlog.removeAttribute(names.filterAttribute)
@@ -404,6 +405,8 @@
       target.id = id
       backlog.prepend(target)
     })
+    if (Array.isArray(board.filters))
+      boardFilters = board.filters
     const icon = names.icon && document.getElementById(names.icon.id)
     if (icon && Array.isArray(board.alarms))
       icon.setAttribute('href', board.alarms.length > 0 ? names.icon.alarm : names.icon.calm)

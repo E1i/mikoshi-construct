@@ -256,10 +256,10 @@ function holds(selector: string, backlog: StubNode): boolean {
   return held
 }
 
-function redrawChips(page: BoardPageStub): void {
+function redrawChips(page: BoardPageStub, ids: readonly string[] = TAB_IDS): void {
   const backlog = page.byId.get(NAMES.backlog)!
   backlog.children.splice(0, backlog.children.length, ...backlog.children.filter(child => child.className !== 'chip'))
-  for (const id of TAB_IDS) {
+  for (const id of ids) {
     const chip = backlog.add(new StubNode('A'))
     chip.className = 'chip'
     chip.setAttribute('href', `#${id}`)
@@ -412,6 +412,26 @@ describe('the board page script', () => {
         reloaded.refresh()
         reloaded.receive({ filters: TAB_IDS })
         expect(activeChips(again), `refresh after reload ${id} with hash '${hash}'`).toEqual([`#${id}`])
+      }
+
+      const [all] = TAB_IDS
+      const left = TAB_IDS.filter(tab => tab !== id)
+      if (id === all)
+        continue
+      const gone = boardPage(storage)
+      const stale = run(gone, '', `#${id}`)
+      redrawChips(gone)
+      stale.receive({ filters: TAB_IDS })
+      redrawChips(gone, left)
+      stale.refresh()
+      stale.receive({ filters: left })
+      expect(activeChips(gone), `refresh after ${id} left the board`).toEqual([`#${all}`])
+      for (const hash of [`#${id}`, '']) {
+        const after = boardPage(storage)
+        const reloaded = run(after, '', hash)
+        redrawChips(after, left)
+        reloaded.receive({ filters: left })
+        expect(activeChips(after), `reload with hash '${hash}' after ${id} left the board`).toEqual([`#${all}`])
       }
     }
   })
