@@ -13,7 +13,7 @@ import { CHECK_MS, TICK_MS } from '../../core/cadence.js'
 import { defaultBusPath, openBus } from '../../core/db.js'
 import { expireLeases, LEASE_MS, leaseNext } from '../../core/lease.js'
 import { DATABASE_LOCKED, isDatabaseLocked, recordWorkerIdentity } from '../../core/node.js'
-import { cardTransitions, nodeLiveness, workerIdentity } from '../../supervisor/composition.js'
+import { cardTransitions, nodeLiveness, pullRequests, workerIdentity } from '../../supervisor/composition.js'
 import { ownStart } from '../../supervisor/heartbeat.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { switchedOn } from '../../supervisor/workers.js'
@@ -64,7 +64,7 @@ export class RestartWorker {
       this.startRecorded = true
     }
     expireLeases(this.parts.db, this.cards, ts, this.parts.silentMs)
-    const lease = leaseNext(this.parts.db, ts, 'restart', this.actor)
+    const lease = leaseNext(this.parts.db, pullRequests(this.parts.db), ts, 'restart', this.actor)
     if (lease !== null)
       return this.executor.restart(lease)
     const chains = this.executor.deadChains(this.actor)

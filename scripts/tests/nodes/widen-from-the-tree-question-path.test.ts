@@ -9,6 +9,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, QUESTION_AGENT, QUESTION_OWNER, SHARD_ISSUED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { cardTransitions } from '../../supervisor/composition.js'
@@ -52,7 +53,7 @@ async function ownersStopWith(changed: readonly string[]): Promise<Record<string
   made.tick()
   const asking: Answered = { session: 'answer-1', resumed: false, atContextWarn: false, before: sha('a'), after: sha('a'), owner: QUESTION, noViolationFreePath: true }
   const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer: async () => asking, ownerMerges: () => '', clock: made.clock.now, trees: { home: trees, exists: () => true, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null, prepare: () => {}, changedInTheTree: () => [...changed] })
-  await executor.answer(leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') as Lease)
+  await executor.answer(leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') as Lease)
   return eventsOf(made.db, CARD_STOPPED).at(-1)
 }
 

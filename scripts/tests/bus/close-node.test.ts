@@ -14,6 +14,7 @@ import { appendEvent } from '../../core/db.js'
 import { ARTIFACT_REMOVED, BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_MOVED, CARD_STARTED, CARD_VERIFIED, NODE_DETECTED, NODE_EQUIVALENCE, POLICY_DENIED, TASK_ENQUEUED } from '../../core/events.js'
 import { completeTask, failTask, leaseNext, StaleLease } from '../../core/lease.js'
 import { NODE_CURSORS } from '../../core/node.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { closeCandidates, FAILURES_TO_STOP, keyOf, queueTask } from '../../core/queue.js'
 import { CloseExecutor } from '../../nodes/close/close-executor.js'
 import { CloseNode } from '../../nodes/close/close-worker.js'
@@ -295,10 +296,10 @@ describe('the close node', () => {
     detectReview(made)
     const ts = made.clock.now().toISOString()
     queueTask(made.db, ts, { queue: 'answer', cardId: 1080, pr: 980, head: sha('a') })
-    const held = leaseNext(made.db, ts, 'answer', 'worker:answer:worker-1')!
+    const held = leaseNext(made.db, pullRequests(made.db), ts, 'answer', 'worker:answer:worker-1')!
     queueTask(made.db, ts, { queue: 'merge', cardId: 1080, pr: 980, head: sha('a') })
     for (let failure = 1; failure <= FAILURES_TO_STOP; failure += 1)
-      failTask(made.db, cardTransitions(), ts, leaseNext(made.db, ts, 'merge', 'worker:merge:worker-1')!, { reason: 'not_mergeable', withdraw: false }, SILENT_MS)
+      failTask(made.db, cardTransitions(), ts, leaseNext(made.db, pullRequests(made.db), ts, 'merge', 'worker:merge:worker-1')!, { reason: 'not_mergeable', withdraw: false }, SILENT_MS)
     expect(taskStatesOf(made, 'review', 980)).toEqual([{ head: sha('a'), state: 'queued' }])
     expect(taskStatesOf(made, 'answer', 980)).toEqual([{ head: sha('a'), state: 'leased' }])
     expect(taskStatesOf(made, 'merge', 980)).toEqual([{ head: sha('a'), state: 'stopped' }])
@@ -421,7 +422,7 @@ describe('the close node', () => {
     const ts = made.clock.now().toISOString()
     probeVerified(made, 1220, { path: 'cheap', verification: 'run', report: '/shift/report-1220.md' })
     queueTask(made.db, ts, { queue: 'close', cardId: 1220 })
-    const lease = leaseNext(made.db, ts, 'close', 'worker:close:node-1')!
+    const lease = leaseNext(made.db, pullRequests(made.db), ts, 'close', 'worker:close:node-1')!
     closedEarlier(made, 1220)
 
     const outcome = new CloseExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, reported: () => 'run', clock: made.clock.now, parking: path.join(made.root, 'parking'), trees: { remove: () => null } }).close(lease)

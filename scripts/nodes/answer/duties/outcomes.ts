@@ -5,6 +5,7 @@ import type { AfterFailure, CardTransitions, Lease } from '../../../core/lease.j
 import type { WaitStep } from '../../../core/node.js'
 import type { AdmittedScope } from '../answer-source.js'
 import { TICK_MS } from '../../../core/cadence.js'
+import { closedWaitIds } from '../../../core/card-readings.js'
 import { openBusWait } from '../../../core/db.js'
 import { CARD_STOPPED, POLICY_DENIED, QUESTION_OWNER } from '../../../core/events.js'
 import { completeTask, cutByRestart, failTask, releaseTask, RESTART_CUT, supersedeLease, waitTask } from '../../../core/lease.js'
@@ -77,7 +78,7 @@ export class AnswerOutcomes {
 
   ownersStop(lease: Lease, detail: string, scope: BusEvent[] = [], text = `card #${lease.cardId} asks: ${detail}`, widen = this.windowWidens(lease, detail)): AnswerOutcome {
     const ask = { need: 'decision' as const, text, command: cardDecisionCommand(lease.cardId), card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) }
-    return this.stopped(lease, QUESTION_OWNER, detail, widen.length === 0 ? {} : { widen }, scope, db => openBusWait(db, this.ts(), lease.actor, ask))
+    return this.stopped(lease, QUESTION_OWNER, detail, widen.length === 0 ? {} : { widen }, scope, db => openBusWait(db, closedWaitIds(db), this.ts(), lease.actor, ask))
   }
 
   ownersStopOnce(lease: Lease, detail: string, text: string, sameAsk: readonly string[], scope: BusEvent[] = []): AnswerOutcome {

@@ -5,6 +5,7 @@ import { appendEvent } from '../../../core/db.js'
 import { MERGE_DONE, REVIEW_RECORDED } from '../../../core/events.js'
 import { reviewInputOf } from '../../../core/identifiers.js'
 import { completeTask, leaseNext } from '../../../core/lease.js'
+import { all as pullRequests } from '../../../core/pr-readings.js'
 import { keyOf, queueTask, reviewCandidates } from '../../../core/queue.js'
 import { mergeCandidates } from '../../../nodes/merge/merge-candidates.js'
 import { MergeNode } from '../../../nodes/merge/merge-worker.js'
@@ -106,14 +107,14 @@ describe('conveyor O4: a decision scoped to a card supersedes its merge and upda
     const { body_sha: prBody } = bench.db.prepare('SELECT body_sha FROM prs WHERE pr = ?').get(PR) as { body_sha: string }
     const review = { queue: 'review' as const, cardId: CARD, pr: PR, head: HEAD, input: reviewInputOf(prBody, null) }
     queueTask(bench.db, o4.ts(), review)
-    const lease = leaseNext(bench.db, o4.ts(), 'review', 'worker:review:reviewer-1')!
+    const lease = leaseNext(bench.db, pullRequests(bench.db), o4.ts(), 'review', 'worker:review:reviewer-1')!
     completeTask(bench.db, cardTransitions(), o4.ts(), lease, [])
     expect(stateOf(bench, keyOf(review))).toBe('completed')
 
     decide(o4, DECISION)
     bench.tick()
     expect(stateOf(bench, keyOf(review))).toBe('queued')
-    const again = leaseNext(bench.db, o4.ts(), 'review', 'worker:review:reviewer-1')!
+    const again = leaseNext(bench.db, pullRequests(bench.db), o4.ts(), 'review', 'worker:review:reviewer-1')!
     completeTask(bench.db, cardTransitions(), o4.ts(), again, [])
     bench.tick()
     expect(stateOf(bench, keyOf(review))).toBe('completed')

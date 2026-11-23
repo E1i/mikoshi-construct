@@ -14,8 +14,14 @@ export interface DependencyWait {
   unmerged: string
   updateDue: string
   held: string
-  unmergedDependenciesOf: (db: DatabaseSync, cardId: number) => number[]
-  updateDueOn: (db: DatabaseSync, head: { card: number, pr: number, head: string }) => boolean
+  unmergedDependenciesOf: (db: DatabaseSync, mergedCards: readonly number[], cardId: number) => number[]
+  updateDueOn: (db: DatabaseSync, mergedCards: readonly number[], head: { card: number, pr: number, head: string }) => boolean
+}
+
+export const MERGED_CARDS = 'merged_cards'
+
+export function mergedCardsBinding(mergedCards: readonly number[]): Record<typeof MERGED_CARDS, string> {
+  return { [MERGED_CARDS]: JSON.stringify(mergedCards) }
 }
 
 function latestAdmissionDepends(names: DependencyWaitNames, card: string): string {
@@ -34,7 +40,7 @@ function unmergedDependenciesWhere(names: DependencyWaitNames, card: string): st
   return `
   SELECT dependency.card_id FROM (${latestAdmissionDepends(names, card)}) AS dependency
   WHERE NOT EXISTS (SELECT 1 FROM events AS done WHERE done.type = '${names.mergeDone}' AND done.legacy = 0 AND done.card_id = dependency.card_id)
-    AND NOT EXISTS (SELECT 1 FROM prs AS merged WHERE merged.card_id = dependency.card_id AND merged.state = 'merged')
+    AND dependency.card_id NOT IN (SELECT value FROM json_each(:${MERGED_CARDS}))
     AND NOT EXISTS (SELECT 1 FROM events AS legacy WHERE legacy.type = 'merge' AND legacy.legacy = 1 AND legacy.card_id = dependency.card_id)
   ORDER BY dependency.card_id
 `
@@ -66,13 +72,13 @@ export function dependencyWaitOf(names: DependencyWaitNames): DependencyWait {
   const updateDue = `(NOT ${unmerged} AND ${aDependencyMergedUnderTheHead(names, THE_PRS_ROW)})`
   const ofACard = unmergedDependenciesWhere(names, '?')
   const mergedUnderABoundHead = `SELECT ${aDependencyMergedUnderTheHead(names, BOUND_PARAMETERS)} AS merged`
-  const unmergedDependenciesOf = (db: DatabaseSync, cardId: number): number[] => (db.prepare(ofACard).all(cardId) as { card_id: number }[]).map(row => Number(row.card_id))
+  const unmergedDependenciesOf = (db: DatabaseSync, mergedCards: readonly number[], cardId: number): number[] => (db.prepare(ofACard).all(mergedCardsBinding(mergedCards), cardId) as { card_id: number }[]).map(row => Number(row.card_id))
   return {
     unmerged,
     updateDue,
     held: `(${unmerged} OR ${updateDue})`,
     unmergedDependenciesOf,
-    updateDueOn: (db, head) => unmergedDependenciesOf(db, head.card).length === 0
+    updateDueOn: (db, mergedCards, head) => unmergedDependenciesOf(db, mergedCards, head.card).length === 0
       && (db.prepare(mergedUnderABoundHead).get({ card: head.card, pr: head.pr, head: head.head }) as { merged: number }).merged === 1,
   }
 }

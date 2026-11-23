@@ -1,10 +1,11 @@
 import type { Lease } from '../../core/lease.js'
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, describe, expect, it } from 'vitest'
-import { openOwnerWaits } from '../../core/bus-readings.js'
+import { openOwnerWaits } from '../../core/card-readings.js'
 import { appendEvent, openOwnerWait } from '../../core/db.js'
 import { CARD_STARTED, CARD_STOPPED, OWNER_WAIT_CLOSED, POLICY_DENIED, QUESTION_AGENT } from '../../core/events.js'
 import { completeTask, leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { AnswerSources } from '../../nodes/answer/duties/source.js'
 import { cardTransitions } from '../../supervisor/composition.js'
 import { sha } from './github-fake.js'
@@ -68,7 +69,7 @@ describe('the owner wait an empty answer round opens names its own exits', () =>
     card.bench.tick()
     expect(card.bench.lease()).toBeNull()
     const ts = card.bench.clock.now().toISOString()
-    completeTask(card.bench.db, cardTransitions(), ts, leaseNext(card.bench.db, ts, 'answer', 'worker:answer:worker-1')!, [])
+    completeTask(card.bench.db, cardTransitions(), ts, leaseNext(card.bench.db, pullRequests(card.bench.db), ts, 'answer', 'worker:answer:worker-1')!, [])
     card.bench.tick()
 
     expect(card.bench.merge(card.bench.lease()!)).toMatchObject({ kind: 'merged' })

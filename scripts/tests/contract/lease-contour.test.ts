@@ -23,7 +23,7 @@ function relativeImportsOf(file: string): string[] {
     .map(text => path.posix.join(path.posix.dirname(file), text.replace(/\.js$/, '.ts')))
 }
 
-const RAISED_BY_THE_OWNER: RatchetNumbers = { 'boundary:node-review->decisions': 1, 'boundary:quality->events': 5, 'boundary:quality->ports': 10, 'boundary:window->quality': 1, 'boundary:decisions->card-record': 2, 'boundary:intake->card-record': 10, 'boundary:ports->card-record': 3, 'boundary:ports->pr-record': 1, 'boundary:pr-record->card-record': 3, 'boundary:rules->card-record': 4, 'boundary:window->card-record': 14 }
+const RAISED_BY_THE_OWNER: RatchetNumbers = { 'boundary:node-review->decisions': 1, 'boundary:quality->events': 5, 'boundary:quality->ports': 10, 'boundary:window->quality': 1, 'boundary:decisions->card-record': 2, 'boundary:intake->card-record': 10, 'boundary:ports->card-record': 3, 'boundary:ports->pr-record': 1, 'boundary:pr-record->card-record': 3, 'boundary:rules->card-record': 4, 'boundary:window->card-record': 15, 'boundary:board->card-record': 4 }
 
 function raisedByTheOwnerTo(recordedAtHead: RatchetNumbers, key: string, measured: number): boolean {
   return Object.hasOwn(RAISED_BY_THE_OWNER, key) && RAISED_BY_THE_OWNER[key] === measured && recordedAtHead[key] === measured

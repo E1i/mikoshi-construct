@@ -5,6 +5,7 @@ import { appendEvent, closeOwnerWait, openOwnerWait } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_STOPPED, POLICY_DENIED, TASK_COMPLETED, TASK_ENQUEUED, TASK_FAILED, TASK_LEASED } from '../../core/events.js'
 import { taskKey } from '../../core/identifiers.js'
 import { completeTask, expireLeases, failTask, LEASE_MS, leaseNext, leaseQueued, RENEW_MS, StaleLease } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { FAILURES_TO_STOP, LAUNCH_STOP_WITH_NO_PULL_REQUEST, queueTask } from '../../core/queue.js'
 import { RateLimited } from '../../ports/meter.js'
 import { cardTransitions } from '../../supervisor/composition.js'
@@ -80,7 +81,7 @@ function cardBeat(made: MergeBench): void {
 
 function failUntilTheLast(made: MergeBench): void {
   for (let failure = 1; failure < FAILURES_TO_STOP; failure += 1)
-    failTask(made.db, cardTransitions(), now(made), leaseNext(made.db, now(made), 'answer', 'worker:answer:a')!, { reason: 'answer_failed', withdraw: false }, SILENT_MS)
+    failTask(made.db, cardTransitions(), now(made), leaseNext(made.db, pullRequests(made.db), now(made), 'answer', 'worker:answer:a')!, { reason: 'answer_failed', withdraw: false }, SILENT_MS)
 }
 
 function ofTask(made: MergeBench, type: string, key: string): number {
@@ -93,8 +94,8 @@ describe('one lease contract', () => {
     benches.push(made)
     const key = queuedAnswer(made)
 
-    expect(leaseNext(made.db, now(made), 'answer', 'worker:answer:a')).toMatchObject({ taskKey: key, leaseGen: 1 })
-    expect(leaseNext(made.db, now(made), 'answer', 'worker:answer:b')).toBeNull()
+    expect(leaseNext(made.db, pullRequests(made.db), now(made), 'answer', 'worker:answer:a')).toMatchObject({ taskKey: key, leaseGen: 1 })
+    expect(leaseNext(made.db, pullRequests(made.db), now(made), 'answer', 'worker:answer:b')).toBeNull()
     expect(leaseQueued(made.db, now(made), key, 'worker:answer:b')).toBeNull()
     expect(ofTask(made, TASK_LEASED, key)).toBe(1)
   })
@@ -104,11 +105,11 @@ describe('one lease contract', () => {
     benches.push(made)
     const key = queuedAnswer(made)
     failUntilTheLast(made)
-    const killed = leaseNext(made.db, now(made), 'answer', 'worker:answer:killed')!
+    const killed = leaseNext(made.db, pullRequests(made.db), now(made), 'answer', 'worker:answer:killed')!
     const taken: Lease[] = []
     const take = (): void => {
       expireLeases(made.db, cardTransitions(), now(made), SILENT_MS)
-      const lease = leaseNext(made.db, now(made), 'answer', 'worker:answer:next')
+      const lease = leaseNext(made.db, pullRequests(made.db), now(made), 'answer', 'worker:answer:next')
       if (lease !== null)
         taken.push(lease)
     }
@@ -134,16 +135,16 @@ describe('one lease contract', () => {
     benches.push(made)
     const key = queuedAnswer(made)
     failUntilTheLast(made)
-    const last = leaseNext(made.db, now(made), 'answer', 'worker:answer:a')!
+    const last = leaseNext(made.db, pullRequests(made.db), now(made), 'answer', 'worker:answer:a')!
     beat(made, last)
 
     expect(failTask(made.db, cardTransitions(), now(made), last, { reason: 'answer_failed', withdraw: false }, SILENT_MS)).toBe('queued')
     expect({ stopped: eventsOf(made.db, CARD_STOPPED), alarms: eventsOf(made.db, BOARD_ALARM), failed: ofTask(made, TASK_FAILED, key) }).toEqual({ stopped: [], alarms: [], failed: FAILURES_TO_STOP - 1 })
     expect(taskState(made.db, key)).toMatchObject({ state: 'queued', failures: FAILURES_TO_STOP - 1 })
-    expect(leaseNext(made.db, now(made), 'answer', 'worker:answer:a')).toBeNull()
+    expect(leaseNext(made.db, pullRequests(made.db), now(made), 'answer', 'worker:answer:a')).toBeNull()
 
     made.clock.advance(SILENT_MS + 1_000)
-    const silent = leaseNext(made.db, now(made), 'answer', 'worker:answer:a')!
+    const silent = leaseNext(made.db, pullRequests(made.db), now(made), 'answer', 'worker:answer:a')!
     expect(failTask(made.db, cardTransitions(), now(made), silent, { reason: 'answer_failed', withdraw: false }, SILENT_MS)).toBe('stopped')
     expect(eventsOf(made.db, CARD_STOPPED)).toHaveLength(1)
   })
@@ -156,8 +157,8 @@ describe('one lease contract', () => {
     const task = { queue: 'merge' as const, cardId: CARD, pr: PR, head: HEAD }
     queueTask(made.db, now(made), task)
     for (let failure = 1; failure < FAILURES_TO_STOP; failure += 1)
-      failTask(made.db, cardTransitions(), now(made), leaseNext(made.db, now(made), 'merge', 'worker:merge:a')!, { reason: 'github_error', withdraw: false }, SILENT_MS)
-    const last = leaseNext(made.db, now(made), 'merge', 'worker:merge:a')!
+      failTask(made.db, cardTransitions(), now(made), leaseNext(made.db, pullRequests(made.db), now(made), 'merge', 'worker:merge:a')!, { reason: 'github_error', withdraw: false }, SILENT_MS)
+    const last = leaseNext(made.db, pullRequests(made.db), now(made), 'merge', 'worker:merge:a')!
     cardBeat(made)
 
     expect(failTask(made.db, cardTransitions(), now(made), last, { reason: 'github_error', withdraw: false }, SILENT_MS)).toBe('stopped')
@@ -168,16 +169,16 @@ describe('one lease contract', () => {
     const made = mergeBench()
     benches.push(made)
     const key = queuedAnswer(made)
-    const lease = leaseNext(made.db, now(made), 'answer', 'worker:answer:a')!
+    const lease = leaseNext(made.db, pullRequests(made.db), now(made), 'answer', 'worker:answer:a')!
     const limited = new RateLimited(403, 120)
     const denied = { ts: now(made), type: POLICY_DENIED, actor: 'policy', cardId: CARD, pr: PR, head: HEAD, dedupeKey: `${POLICY_DENIED}:${key}:1`, payload: { kind: 'technical', reason: 'github_error', detail: limited.message }, legacy: false }
 
     expect(failTask(made.db, cardTransitions(), now(made), lease, { reason: 'github_error', withdraw: false }, SILENT_MS, [denied])).toBe('queued')
     expect(ofTask(made, TASK_FAILED, key)).toBe(0)
     expect(taskState(made.db, key)).toMatchObject({ state: 'queued', failures: 0 })
-    expect(leaseNext(made.db, now(made), 'answer', 'worker:answer:a')).toBeNull()
+    expect(leaseNext(made.db, pullRequests(made.db), now(made), 'answer', 'worker:answer:a')).toBeNull()
     made.clock.advance(120_000)
-    expect(leaseNext(made.db, now(made), 'answer', 'worker:answer:a')).toMatchObject({ taskKey: key })
+    expect(leaseNext(made.db, pullRequests(made.db), now(made), 'answer', 'worker:answer:a')).toMatchObject({ taskKey: key })
   })
 
   it('a 403 with retry-after that the merge executor meets ends the merge task as wait and counts no failure', () => {

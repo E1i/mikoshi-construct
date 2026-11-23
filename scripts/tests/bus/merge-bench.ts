@@ -7,6 +7,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { TICK_MS } from '../../core/cadence.js'
+import { openOwnerWaits } from '../../core/card-readings.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { readDeclarations } from '../../core/declarations.js'
 import { CARD_VERIFIED, REVIEW_RECORDED, SHARD_USED } from '../../core/events.js'
@@ -14,6 +15,7 @@ import { REVIEW_ROUNDS } from '../../core/identifiers.js'
 import { leaseNext } from '../../core/lease.js'
 import { overlapDeclarationsOf, overlaps } from '../../core/order/overlap.js'
 import { orderEventsFrom, PrOrderTick } from '../../core/order/turn.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { MergeExecutor } from '../../nodes/merge/merge-executor.js'
 import { BusRead } from '../../ports/bus-read.js'
 import { MAIN_FILES_CAP } from '../../ports/snapshot.js'
@@ -62,7 +64,7 @@ export function benchOverlaps(pr: readonly string[], main: readonly string[]): b
 
 export function benchOrderTick(db: DatabaseSync, clock: Clock): PrOrderTick {
   const events = orderEventsFrom((type, fields, after) => new BusRead(db, { from: after + 1 }).slice(type as EventType, fields as never))
-  return new PrOrderTick(db, events, () => clock.now().toISOString(), () => BENCH_DECLARATIONS, '')
+  return new PrOrderTick(db, events, () => clock.now().toISOString(), () => BENCH_DECLARATIONS, '', () => openOwnerWaits(db))
 }
 
 export function mergeBench(intake: Intake = () => () => {}, liveNodes: LiveNodes = NO_NODES): MergeBench {
@@ -89,7 +91,7 @@ export function mergeBench(intake: Intake = () => () => {}, liveNodes: LiveNodes
     gitHub,
     clock,
     tick,
-    lease: (actor = 'worker:merge:worker-1') => leaseNext(db, clock.now().toISOString(), 'merge', actor),
+    lease: (actor = 'worker:merge:worker-1') => leaseNext(db, pullRequests(db), clock.now().toISOString(), 'merge', actor),
     merge: lease => executor.merge(lease),
     issueShard: () => {
       appendEvent(db, { ts: clock.now().toISOString(), type: SHARD_USED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${SHARD_USED}:shard-1`, payload: { id: 'shard-1', run: RUN }, legacy: false })

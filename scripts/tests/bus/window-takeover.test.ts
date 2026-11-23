@@ -11,6 +11,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_HELD, CARD_RELEASED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, WITNESS_RECORDED } from '../../core/events.js'
 import { failTask, leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { cardBodyShaOfCard, queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { ownerHoldOf } from '../../nodes/answer/answer-source.js'
@@ -102,7 +103,7 @@ function heldOrTakenOver(made: MergeBench): unknown[] {
 }
 
 function leaseAnswer(made: MergeBench): Lease {
-  return leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
+  return leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
 }
 
 function answerStatesOf(made: MergeBench): string[] {

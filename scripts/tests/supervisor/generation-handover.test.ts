@@ -9,6 +9,7 @@ import { PR_OBSERVED, SIGNAL_SENT, TASK_EXPIRED, TASK_LEASED, WORKER_RETIRING } 
 import { recordChildStarted, recordWorkerIdentity } from '../../core/handover.js'
 import { taskKey } from '../../core/identifiers.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { QUEUE_ACTOR, queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { BusRead } from '../../ports/bus-read.js'
@@ -146,7 +147,7 @@ describe('generation handover: the drain-limit stop of an inline worker', () => 
     queueTask(db, ts(), task)
     const key = taskKey(task)
     startedWorker(db, 'update', OLD_PID)
-    expect(leaseNext(db, ts(), 'update', actorOf('update'))?.taskKey).toBe(key)
+    expect(leaseNext(db, pullRequests(db), ts(), 'update', actorOf('update'))?.taskKey).toBe(key)
     inlineChild(db, 'update', OLD_PID, key)
 
     const { update } = workerLaunches(reviewLaunch(() => []))

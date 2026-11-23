@@ -2,8 +2,9 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../../core/lease.js'
 import type { AnswerSource, CardSession } from '../answer-source.js'
 import type { TreeMerge } from './tree.js'
-import { CLOSED_WAIT, openOwnerWaits, OWNER_WAITS } from '../../../core/bus-readings.js'
+import { CLOSED_WAIT, OWNER_WAITS } from '../../../core/bus-readings.js'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../../../core/card-automaton.js'
+import { closedWaitIds, openOwnerWaits } from '../../../core/card-readings.js'
 import { closeOwnerWait, inTransaction, openBusWait } from '../../../core/db.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_DROPPED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, WITNESS_RECORDED } from '../../../core/events.js'
 import { openDecisionWaitsOf, unmergedDependenciesOf } from '../../../core/queue.js'
@@ -200,7 +201,7 @@ export class AnswerSources {
       return
     const text = `${emptyRoundWaitPrefix(lease.cardId)}${stop.reason} stop left nothing, so no answer round runs until a decision bound to the card, an amend or a new head`
     const ask = { need: 'decision' as const, text, command: cardDecisionCommand(lease.cardId), card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) }
-    inTransaction(db, () => openBusWait(db, this.parts.clock().toISOString(), lease.actor, ask))
+    inTransaction(db, () => openBusWait(db, closedWaitIds(db), this.parts.clock().toISOString(), lease.actor, ask))
   }
 
   heldByADependency(lease: Lease): boolean {

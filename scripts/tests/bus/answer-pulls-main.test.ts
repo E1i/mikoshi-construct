@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, REVIEW_RECORDED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
@@ -77,7 +78,7 @@ describe('an answer round pulls main into the card tree', () => {
     made.gitHub.open({ number: PR, head, review: 'failure' })
     appendEvent(made.db, { ts, type: REVIEW_RECORDED, actor: 'worker:review:reviewer-1', cardId: CARD, pr: PR, head, dedupeKey: `${REVIEW_RECORDED}:${PR}`, payload: { head, verdict: 'changes', reviewer_session: 'reviewer-1', findings: ['name the reader'] }, legacy: false })
     made.tick()
-    const lease = leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
+    const lease = leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
     expect(lease).toMatchObject({ cardId: CARD, pr: PR, head })
     const seen: { fix: boolean, mainIn: boolean }[] = []
     const answerer: Answerer = async (request) => {

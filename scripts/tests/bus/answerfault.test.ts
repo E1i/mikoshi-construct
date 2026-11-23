@@ -11,6 +11,7 @@ import { appendEvent } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_OPENED, QUESTION_OWNER } from '../../core/events.js'
 import { REVIEW_ROUNDS } from '../../core/identifiers.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { FAILURES_TO_STOP, queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { cardTransitions } from '../../supervisor/composition.js'
@@ -65,7 +66,7 @@ function cardWhoseAnswerLeavesNothing(ends: AnswerEnd[] = []): Card {
     appendEvent(made.db, { ts: made.clock.now().toISOString(), type: DECISION_RECORDED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${DECISION_RECORDED}:${decided}`, payload: { source: 'owner', decision_id: 900 + decided, text: `#${CARD}: answer it again`, scope: [CARD] }, legacy: false })
     made.tick()
   }
-  return { made, executor, decide, lease: () => leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') }
+  return { made, executor, decide, lease: () => leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') }
 }
 
 function answerTask(made: MergeBench): { state: string, failures: number } {

@@ -11,6 +11,7 @@ import { TICK_MS } from '../../core/cadence.js'
 import { openBus } from '../../core/db.js'
 import { CI_RERUN_REQUESTED, PR_OBSERVED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTaskWithin } from '../../core/queue.js'
 import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
 import { updateCandidates } from '../../nodes/update/update-candidates.js'
@@ -83,7 +84,7 @@ function cancelBench(): CancelBench {
     updateOnce: (pr) => {
       for (const task of updateCandidates(db, ts(), updateParts()).filter(each => each.pr === pr))
         queueTaskWithin(db, ts(), task)
-      const lease = leaseNext(db, ts(), 'update', 'worker:update:worker-1')
+      const lease = leaseNext(db, pullRequests(db), ts(), 'update', 'worker:update:worker-1')
       return lease === null ? null : executor.update(lease)
     },
     close: () => {

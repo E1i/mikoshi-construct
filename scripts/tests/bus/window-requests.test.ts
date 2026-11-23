@@ -18,6 +18,7 @@ import { BOARD_ALARM, BUS_PULSE, CARD_ADMITTED, CARD_DROPPED, CARD_STOPPED, OWNE
 import { prBodySha, taskKey } from '../../core/identifiers.js'
 import { ownerInbox } from '../../core/inbox.js'
 import { failTask, leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { FAILURES_TO_STOP, queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { launchableCard } from '../../nodes/launch/launch-candidates.js'
@@ -201,7 +202,7 @@ function alarmedAnswer(made: Room): string {
 function failThrice(made: Room): void {
   const { bench } = made
   for (let failure = 0; failure < FAILURES_TO_STOP; failure += 1) {
-    const lease = leaseNext(bench.db, bench.clock.now().toISOString(), 'answer', 'worker:answer:answer-1')!
+    const lease = leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'answer', 'worker:answer:answer-1')!
     failTask(bench.db, cardTransitions(), bench.clock.now().toISOString(), lease, { reason: 'answer_failed', withdraw: false }, SILENT_MS)
   }
 }
@@ -354,7 +355,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
       stop: () => {},
     }
     const executor = new LaunchExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, disk: () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES }), isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }) })
-    const launchNext = (): LaunchOutcome => executor.launch(leaseNext(bench.db, bench.clock.now().toISOString(), 'launch', 'worker:launch:worker-1')!)
+    const launchNext = (): LaunchOutcome => executor.launch(leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'launch', 'worker:launch:worker-1')!)
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}` }, legacy: false })
     bench.tick()
     const key = taskKey({ queue: 'launch', cardId, generation: `admission-${cardId}` })
@@ -403,7 +404,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     bench.tick()
     const key = taskKey({ queue: 'launch', cardId, generation: `admission-${cardId}` })
     for (let failure = 0; failure < FAILURES_TO_STOP; failure += 1)
-      executor.launch(leaseNext(bench.db, bench.clock.now().toISOString(), 'launch', 'worker:launch:worker-1')!)
+      executor.launch(leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'launch', 'worker:launch:worker-1')!)
     bench.tick()
     expect(taskState(bench.db, key).state).toBe('stopped')
     const { causeHolds } = realRequestTools(bench.db, bench.busPath, repo, { [WORKTREE_HOME_VARIABLE]: home }, busProjections())

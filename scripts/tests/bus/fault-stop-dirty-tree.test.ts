@@ -7,6 +7,7 @@ import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED } from '../../core/events.js'
 import { taskKey } from '../../core/identifiers.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { FAILURES_TO_STOP } from '../../core/queue.js'
 import { launchableCard } from '../../nodes/launch/launch-candidates.js'
 import { LaunchExecutor } from '../../nodes/launch/launch-executor.js'
@@ -45,7 +46,7 @@ function faultStopped(cardId: number): MergeBench {
   appendEvent(bench.db, { ts: ts(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane: `lane-card-${cardId}`, decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}` }, legacy: false })
   bench.tick()
   for (let failure = 0; failure < FAILURES_TO_STOP; failure += 1)
-    executor.launch(leaseNext(bench.db, ts(), 'launch', 'worker:launch:worker-1')!)
+    executor.launch(leaseNext(bench.db, pullRequests(bench.db), ts(), 'launch', 'worker:launch:worker-1')!)
   bench.tick()
   return bench
 }

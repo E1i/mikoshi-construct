@@ -6,6 +6,7 @@ import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED } from '../../core/events.js'
 import { taskKey } from '../../core/identifiers.js'
 import { completeTask, failTask, leaseNext, leaseQueued } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { dependencyUpdateDueOn, FAILURES_TO_STOP, queueTask, STOPPED, unmergedDependenciesOf, WITHDRAWN } from '../../core/queue.js'
 import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
 import { updateCandidates } from '../../nodes/update/update-candidates.js'
@@ -212,7 +213,7 @@ describe('a dependent PR state × its dependency state', () => {
 
     expect(updatesOfThePr(bench)).toEqual(expected === NO_UPDATE ? [] : [OLD_HEAD])
     expect(answersOfTheCard(bench)).toEqual([])
-    const lease = leaseNext(bench.db, now(bench), 'update', UPDATE_ACTOR)
+    const lease = leaseNext(bench.db, pullRequests(bench.db), now(bench), 'update', UPDATE_ACTOR)
     expect(lease === null ? NO_UPDATE : outcomeOf(updateExecutor(bench).update(lease))).toBe(expected)
   })
 })

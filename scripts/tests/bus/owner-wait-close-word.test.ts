@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { closedWaitIds } from '../../core/card-readings.js'
 import { appendEvent, openBusWait, openOwnerWait } from '../../core/db.js'
 import { CARD_STOPPED, OWNER_WAIT_CLOSED, QUESTION_OWNER, SHARD_DECIDED, SHARD_ISSUED } from '../../core/events.js'
 import { ANSWER_SOURCE, OPEN_OWNER_STOP_OF_CARD } from '../../core/inbox.js'
@@ -45,7 +46,7 @@ function plainWait({ made }: Room): string {
 
 function stoppedWait({ made }: Room): string {
   const ts = made.clock.now().toISOString()
-  const wait = openBusWait(made.db, ts, 'worker:answer:s1', { need: 'decision', text: `card #${CARD} asks: may the retry back off?`, command: cardDecisionCommand(CARD), card: CARD })
+  const wait = openBusWait(made.db, closedWaitIds(made.db), ts, 'worker:answer:s1', { need: 'decision', text: `card #${CARD} asks: may the retry back off?`, command: cardDecisionCommand(CARD), card: CARD })
   appendEvent(made.db, { ts, type: CARD_STOPPED, actor: 'worker:answer:s1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${CARD}`, payload: { reason: QUESTION_OWNER, detail: 'may the retry back off?' }, legacy: false })
   reduce(made.db, 'pending', busProjections())
   return wait

@@ -8,6 +8,7 @@ import { CARD_ADMITTED, POLICY_DENIED, REVIEW_RECORDED } from '../../core/events
 import { prBodySha, taskKey } from '../../core/identifiers.js'
 import { ownerInbox } from '../../core/inbox.js'
 import { expireLeases, LEASE_MS, leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { NoLiveVerdict } from '../../nodes/merge/merge-worker.js'
 import { updateCandidates } from '../../nodes/update/update-candidates.js'
@@ -36,7 +37,7 @@ function updateBench() {
   return {
     ...bench,
     settled: () => settled,
-    leaseUpdate: (actor = 'worker:update:worker-1'): Lease | null => leaseNext(bench.db, bench.clock.now().toISOString(), 'update', actor),
+    leaseUpdate: (actor = 'worker:update:worker-1'): Lease | null => leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'update', actor),
     update: (lease: Lease): UpdateOutcome => executor.update(lease),
   }
 }

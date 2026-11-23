@@ -15,6 +15,7 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, PROCESS_JUDGED, RESTARTED, TASK_EXPIRED, WORKER_DOWN } from '../../core/events.js'
 import { RESTART_MISSED } from '../../core/inbox.js'
 import { completeTask, drainOpen, leaseNext, leaseWhileFree, openDrain, StaleLease } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { reduce } from '../../core/reducer.js'
 import { GH_ATTEMPTS, GhBudgetWindow, ghPort } from '../../ports/gh.js'
 import { ghApi } from '../../ports/github.js'
@@ -669,7 +670,7 @@ describe('the supervisor restarts itself after a merge under scripts/bus', () =>
     expect(state(elsewhere.taskKey)).toEqual({ state: 'leased', lease_gen: 1 })
 
     expect(() => completeTask(db, cardTransitions(), killedAt, killed, [])).toThrow(StaleLease)
-    const fresh = leaseNext(db, killedAt, 'launch', 'worker:launch:fresh')!
+    const fresh = leaseNext(db, pullRequests(db), killedAt, 'launch', 'worker:launch:fresh')!
     expect(fresh.leaseGen).toBe(killed.leaseGen + 1)
     expect(() => completeTask(db, cardTransitions(), killedAt, killed, [])).toThrow(StaleLease)
     completeTask(db, cardTransitions(), killedAt, fresh, [])

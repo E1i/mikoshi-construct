@@ -15,6 +15,7 @@ import { TICK_MS } from '../../core/cadence.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, CI_RERUN_REQUESTED, OWNER_WAIT_OPENED, PR_OPENED, SCOPE_WIDENED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask, queueTaskWithin } from '../../core/queue.js'
 import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
@@ -76,7 +77,7 @@ async function answerAsking(question: string): Promise<{ made: MergeBench, outco
     appendEvent(made.db, { ts: made.clock.now().toISOString(), type: PR_OPENED, actor: 'worker:shift:1', cardId: CARD, pr: 9775, head: null, dedupeKey: `${PR_OPENED}:${CARD}:9775`, payload: { pr: 9775 }, legacy: false })
   }
   const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty: () => false, liveSession: () => null, publishing: { committed: () => true, publish } })
-  const lease = leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') as Lease
+  const lease = leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') as Lease
   return { made, outcome: await executor.answer(lease), published }
 }
 
@@ -132,7 +133,7 @@ async function answerEditing(changed: readonly string[]): Promise<{ made: MergeB
   })
   const cardTrees: CardTreeTools = { home, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
   const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty: () => false, liveSession: () => null, prepare: () => {} })
-  const lease = leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') as Lease
+  const lease = leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') as Lease
   return { made, outcome: await executor.answer(lease), published }
 }
 
@@ -214,7 +215,7 @@ function busReading(failed: readonly string[], abandoned: readonly string[], fai
   const updates = updateCandidates(db, ts, updateParts()).filter(task => task.pr === PR)
   for (const task of updates)
     queueTaskWithin(db, ts, task)
-  const lease = leaseNext(db, ts, 'update', 'worker:update:worker-1')
+  const lease = leaseNext(db, pullRequests(db), ts, 'update', 'worker:update:worker-1')
   if (lease !== null)
     new UpdateExecutor({ cards: cardTransitions(), source: updateParts(), silentMs: SILENT_MS, db, gitHub: client, put: gitHub.put, post: gitHub.post, publish: gitHub.publish, clock: clock.now, settle: () => {} }).update(lease)
   const rerunEvents = Number((db.prepare('SELECT count(*) AS n FROM events WHERE type = ? AND pr = ?').get(CI_RERUN_REQUESTED, PR) as { n: number }).n)

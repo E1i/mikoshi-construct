@@ -3,8 +3,10 @@ import type { CardAutomaton, CardCondition, CardsSelected, NodeCandidates } from
 import type { Understood } from '../core/bus-version.js'
 import type { CardPrReadings } from '../core/card-automaton.js'
 import type { SliceParentsBackfill } from '../core/card-bodies.js'
-import type { CardTransitions, HolderStart, Lease } from '../core/lease.js'
+import type { EventType } from '../core/events.js'
+import type { CardTransitions, HolderStart, Lease, PullHead } from '../core/lease.js'
 import type { NodeKind, NodeSupply, ProcessIdentity, WorkerIdentity } from '../core/node.js'
+import type { PrOrderTick } from '../core/order/turn.js'
 import type { CandidateRules, Derived, MayRequeue, QueueSource, RequeueRow } from '../core/queue.js'
 import type { Projections } from '../core/reducer.js'
 import type { Fold, StoredEvent } from '../core/stored.js'
@@ -37,6 +39,7 @@ import { CHECK_MS, TICK_MS } from '../core/cadence.js'
 import { appendedOnCard, cardFolds, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION, cardsAnswered, CHANGES_CARD, CLOSED_CARD, DEFERRED_CARD, DROPPED_CARD, FALLEN_CARD, IN_REVIEW_CARD, MERGED_CARD, QUEUED_CARD, READY_CARD, RUNNING_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { admittedCardVersion, backfillPendingSliceParents, cardOfBranch } from '../core/card-bodies.js'
 import { cardDecisionReads, reviewedUnderTheCardDecision, reviewsTheCardDecisionReopens, withDecidedContinuations } from '../core/card-decisions.js'
+import { openOwnerWaits } from '../core/card-readings.js'
 import { CHAINS_PROJECTION } from '../core/chain.js'
 import { defaultBusPath, openBus } from '../core/db.js'
 import { CARD_DEFERRED, CARD_MOVED, CARD_PLANNED, CARD_STOPPED, CARD_UNPLANNED, DECISION_RECORDED, DECISIONS_IMPORTED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OBSERVED, PR_OPENED, RATCHET_THRESHOLD_SET, SLICE_PARENTS_BACKFILLED, TASK_ENQUEUED, TASK_REQUEUED } from '../core/events.js'
@@ -45,11 +48,13 @@ import { isFullSha, prOf } from '../core/identifiers.js'
 import { CARD_BLOCKS, OWNER, ownerQuestionAnswered } from '../core/inbox.js'
 import { foreignVersion, instanceOf, provenIdentity, recordWorkerIdentity, SWITCH_FLAG, UNHANDED } from '../core/node.js'
 import { orderDeclarationsAt, overlaps } from '../core/order/overlap.js'
+import { orderEventsFrom, prOrderTickAt } from '../core/order/turn.js'
 import { ownerWaitCommand } from '../core/owner-commands.js'
 import { linkRefusal, openedPrOf, prFolds, prRow } from '../core/pr-folds.js'
 import * as prs from '../core/pr-readings.js'
 import { closeCandidates, keyOf, reviewCandidates, taskRow, TASKS_PROJECTION } from '../core/queue.js'
 import { payloadOf, storedByKey } from '../core/stored.js'
+import { cardContract } from '../intake/card-contract.js'
 import { BusWeightsRecompute } from '../intake/intake.js'
 import { answerSource } from '../nodes/answer/answer-candidates.js'
 import { LAUNCH_SOURCE } from '../nodes/launch/launch-candidates.js'
@@ -72,6 +77,7 @@ import { launchDirOf } from '../ports/tree-publish.js'
 import { cardTreeRoots } from '../ports/worktree-home.js'
 import { foldPlanEvent } from '../window/plan-folds.js'
 import { releasingTakeoverOnPush } from '../window/takeover-push-release.js'
+import { PREFIX } from './bg.js'
 import { cardWaitFolds, closeWaitsOfAnEndedCard, closingTheWaitsOfAClosedPr, ownerWaitFolds } from './card-waits.js'
 import { causeGoneSource, derivedQueues, DOWNGRADE_PARKED_SOURCE, dueAgainSource, NO_CARD_TREE_SOURCE, restartSource, SETTLE_SOURCE, stopNoLongerHoldsSource } from './derive-queues.js'
 import { unendedStarts } from './expected-time.js'
@@ -142,6 +148,10 @@ export function cardTransitions(): CardTransitions {
   return { appendedOnCard }
 }
 
+export function pullRequests(db: DatabaseSync): readonly PullHead[] {
+  return prs.all(db)
+}
+
 export function nodeSupply(): NodeSupply {
   return {
     cards: cardTransitions(),
@@ -152,6 +162,7 @@ export function nodeSupply(): NodeSupply {
     ownIdentity: () => ownIdentity(),
     identityOf: tableIdentity(),
     refuses: refusesForeignCard,
+    pullRequests,
   }
 }
 
@@ -468,4 +479,8 @@ export function weightsDriftWatch(gitHub: GitHub, busPath: string): (db: Databas
     measure: run => driftOfRun((id, artifact) => ci.downloadArtifact(id, artifact), gitHub, run),
     ledger: new BusWeightsRecompute({ db, gitHub, hand: (cardId, file, text) => handFile(launchDirOf(homedir(), busPath), cardId, file, text), clock: () => new Date() }),
   })
+}
+
+export function busOrderTick(db: DatabaseSync, root: string): PrOrderTick {
+  return prOrderTickAt(db, root, PREFIX, orderEventsFrom((type, fields, after) => new BusRead(db, { from: after + 1 }).slice(type as EventType, fields as never)), () => openOwnerWaits(db), card => cardContract(db, card)?.touches ?? null)
 }

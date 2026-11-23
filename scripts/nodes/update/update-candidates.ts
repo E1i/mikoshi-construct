@@ -3,6 +3,7 @@ import type { Admits, Candidate, CandidateRules, QueuedTask, QueueSource, Record
 import { CARD_BODIES } from '../../core/card-bodies.js'
 import { cardDecisionKeyOf, MAIN_BRANCH } from '../../core/identifiers.js'
 import { withTheHeadsARerunIsDueOn } from '../../core/observations.js'
+import { all } from '../../core/pr-readings.js'
 import { A_DEPENDENCY_UPDATE_DUE, A_MERGE_SENT_TO_UPDATE_ON_THE_HEAD, aMergeCandidate, aTaskInFlight, candidateRows, COMPLETED, decidedPastRoundLimit, holdsTheTurn, keyOf, noTurnHeldBeside, openCandidates, recordedOrder, taskRow } from '../../core/queue.js'
 
 export interface UpdateSourceParts {
@@ -47,7 +48,7 @@ function updateDue(order: RecordedOrder, mayMerge: Admits, decided: Admits): Adm
 
 export function updateCandidates(db: DatabaseSync, ts: string, parts: UpdateSourceParts): QueuedTask[] {
   const { rules } = parts
-  return openCandidates(db, ts, 'update', withTheHeadsARerunIsDueOn(db, candidateRows(db, openPrsWithTheirUpdateCauses(parts.topPriority), updateDue(recordedOrder(db), aMergeCandidate(db, ts, rules), decidedPastRoundLimit(db, ts, rules)))), rules)
+  return openCandidates(db, ts, 'update', withTheHeadsARerunIsDueOn(db, all(db), candidateRows(db, openPrsWithTheirUpdateCauses(parts.topPriority), updateDue(recordedOrder(db), aMergeCandidate(db, ts, rules), decidedPastRoundLimit(db, ts, rules)))), rules)
 }
 
 function updatesSpentBeforeAMergeSentThem(db: DatabaseSync, ts: string, parts: UpdateSourceParts): RequeueRow[] {

@@ -9,6 +9,7 @@ import { RUNNING_CARD } from '../../core/card-automaton.js'
 import { appendEvent } from '../../core/db.js'
 import { ARTIFACT_REMOVED, BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_STARTED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { reduce } from '../../core/reducer.js'
 import { cardTreeSweep, DIRTY, EndedCardTrees, gitWorktrees, recordEndedTrees, TREE_PATCH, UNSAVED } from '../../nodes/close/ended-card-trees.js'
 import { TREE_LEFT } from '../../nodes/review/review-worker.js'
@@ -55,7 +56,7 @@ function closeLeased(cardId: number): void {
   bench.gitHub.close(pr, true)
   bench.tick()
   detectClose(bench.db, bench.clock.now)
-  expect(leaseNext(bench.db, bench.clock.now().toISOString(), 'close', 'worker:close:other')).toMatchObject({ cardId })
+  expect(leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'close', 'worker:close:other')).toMatchObject({ cardId })
 }
 
 function closed(cardId: number): void {

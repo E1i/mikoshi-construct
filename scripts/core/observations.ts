@@ -77,26 +77,32 @@ export function pathsOfTheLastObservation(previous: PreviousObservation | null, 
 
 export type PreviousObservationOf = (pr: number) => PreviousObservation | null
 
-const LATEST_OBSERVATION_OF_THE_HEAD = `(SELECT max(seen.id) FROM events AS seen WHERE seen.type = '${PR_OBSERVED}' AND seen.pr = prs.pr AND seen.head = prs.head)`
+function latestObservationOfTheHead(row: string): string {
+  return `(SELECT max(seen.id) FROM events AS seen WHERE seen.type = '${PR_OBSERVED}' AND seen.pr = ${row}.pr AND seen.head = ${row}.head)`
+}
 
-const RED_ONLY_FROM_CANCELLED_CHECKS = `EXISTS (
-    SELECT 1 FROM events AS observed WHERE observed.id = ${LATEST_OBSERVATION_OF_THE_HEAD}
+function redOnlyFromCancelledChecks(row: string): string {
+  return `EXISTS (
+    SELECT 1 FROM events AS observed WHERE observed.id = ${latestObservationOfTheHead(row)}
       AND json_extract(observed.payload, '$.ci') = 'red'
       AND json_array_length(observed.payload, '$.failed_checks') > 0
       AND json_array_length(observed.payload, '$.cancelled_checks') = json_array_length(observed.payload, '$.failed_checks')
   )`
+}
 
-const ITS_RERUN_SPENT = `EXISTS (
-    SELECT 1 FROM events AS rerun WHERE rerun.type = '${CI_RERUN_REQUESTED}' AND rerun.legacy = 0 AND rerun.pr = prs.pr AND rerun.head = prs.head
+function itsRerunSpent(row: string): string {
+  return `EXISTS (
+    SELECT 1 FROM events AS rerun WHERE rerun.type = '${CI_RERUN_REQUESTED}' AND rerun.legacy = 0 AND rerun.pr = ${row}.pr AND rerun.head = ${row}.head
   )`
+}
 
-export const A_RERUN_DUE = `(${RED_ONLY_FROM_CANCELLED_CHECKS} AND NOT ${ITS_RERUN_SPENT})`
+function aRerunDueOnTheRow(row: string): string {
+  return `(${redOnlyFromCancelledChecks(row)} AND NOT ${itsRerunSpent(row)})`
+}
 
-const CANCELLED_ONLY_TO_RERUN = `
-  SELECT pr, card_id, head FROM prs
-  WHERE state = 'open' AND ci = 'red' AND card_id IS NOT NULL AND head IS NOT NULL AND ${A_RERUN_DUE}
-  ORDER BY pr
-`
+export const A_RERUN_DUE = aRerunDueOnTheRow('prs')
+
+const A_RERUN_DUE_ON_THE_HEAD = `SELECT 1 FROM (SELECT ? AS pr, ? AS head) AS pull WHERE ${aRerunDueOnTheRow('pull')}`
 
 export interface HeadARerunIsDueOn {
   pr: number
@@ -104,16 +110,32 @@ export interface HeadARerunIsDueOn {
   head: string
 }
 
+export interface PullOnCi {
+  pr: number
+  card_id: number | null
+  head: string | null
+  state: string | null
+  ci: string | null
+}
+
 interface HeadOfAPr {
   pr: number | null
   head: string | null
 }
 
-export function rerunDueOn(db: DatabaseSync, pr: number, head: string): boolean {
-  return db.prepare(`SELECT 1 FROM prs WHERE pr = ? AND head = ? AND ci = 'red' AND ${A_RERUN_DUE}`).get(pr, head) !== undefined
+function dueOnTheHead(db: DatabaseSync, pr: number, head: string): boolean {
+  return db.prepare(A_RERUN_DUE_ON_THE_HEAD).get(pr, head) !== undefined
 }
 
-export function withTheHeadsARerunIsDueOn<Row extends HeadOfAPr>(db: DatabaseSync, taken: Row[]): (Row | HeadARerunIsDueOn)[] {
-  const due = db.prepare(CANCELLED_ONLY_TO_RERUN).all() as unknown as HeadARerunIsDueOn[]
+export function rerunDueOn(db: DatabaseSync, pull: PullOnCi | null, head: string): boolean {
+  return pull !== null && pull.head === head && pull.ci === 'red' && dueOnTheHead(db, pull.pr, head)
+}
+
+function redOpenHeadOfACard(pull: PullOnCi): HeadARerunIsDueOn[] {
+  return pull.state === 'open' && pull.ci === 'red' && pull.card_id !== null && pull.head !== null ? [{ pr: pull.pr, card_id: pull.card_id, head: pull.head }] : []
+}
+
+export function withTheHeadsARerunIsDueOn<Row extends HeadOfAPr>(db: DatabaseSync, pulls: readonly PullOnCi[], taken: Row[]): (Row | HeadARerunIsDueOn)[] {
+  const due = pulls.flatMap(redOpenHeadOfACard).filter(row => dueOnTheHead(db, row.pr, row.head)).sort((a, b) => a.pr - b.pr)
   return [...taken, ...due.filter(row => !taken.some(each => each.pr === row.pr && each.head === row.head))]
 }

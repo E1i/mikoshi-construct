@@ -24,6 +24,7 @@ import { appendEvent, openOwnerWait } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, SHARD_DECIDED, SHARD_ISSUED, TASK_ENQUEUED } from '../../core/events.js'
 import { assertHeld, failTask, leaseNext, StaleLease } from '../../core/lease.js'
 import { NODE_CURSORS } from '../../core/node.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { FAILURES_TO_STOP, keyOf, queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
@@ -177,7 +178,7 @@ function questionUnderShard(made: MergeBench, now: Date, shard: ShardIssue | nul
   appendEvent(made.db, { ts, type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: 905, pr: null, head: null, dedupeKey: `${CARD_STARTED}:905`, payload: { session: 'card-session-1', worktree, branch: 'feat/card-905', base: sha('1') }, legacy: false })
   const stop = stopped(made, 905)
   queueTask(made.db, ts, { queue: 'answer', cardId: 905, stop })
-  return { trees, lease: () => leaseNext(made.db, ts, 'answer', 'worker:answer:worker-1')! }
+  return { trees, lease: () => leaseNext(made.db, pullRequests(made.db), ts, 'answer', 'worker:answer:worker-1')! }
 }
 
 function askingAnswerer(question: string): Answerer {
@@ -243,7 +244,7 @@ describe('an answer on an amended card body', () => {
     const stop = stopped(made, CARD)
     const key = (body: string): string => keyOf({ queue: 'answer', cardId: CARD, stop, cardBody: body })
     queueTask(made.db, ts, { queue: 'answer', cardId: CARD, stop, cardBody: OLD_BODY })
-    const lease = (): Lease => leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
+    const lease = (): Lease => leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
     return { key, lease, trees: { home, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} } }
   }
 
@@ -840,7 +841,7 @@ describe('the answer node', () => {
     made.gitHub.open({ number: 1014, review: 'failure' })
     made.tick()
     for (let failure = 0; failure < FAILURES_TO_STOP; failure++)
-      failTask(made.db, cardTransitions(), made.clock.now().toISOString(), leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:probe')!, { reason: 'no_card_tree', withdraw: false }, SILENT_MS)
+      failTask(made.db, cardTransitions(), made.clock.now().toISOString(), leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:probe')!, { reason: 'no_card_tree', withdraw: false }, SILENT_MS)
     expect(taskState(made.db, prKey(1014)).state).toBe('stopped')
     await once(node)
     made.tick()

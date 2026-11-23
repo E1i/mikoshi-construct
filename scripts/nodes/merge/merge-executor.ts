@@ -13,6 +13,7 @@ import { changedFiles, changedPaths, mainFilesSince, REFUSED_NOT_UP_TO_DATE } fr
 import { loadCompositionModels } from '../../composition/files.js'
 import { NOT_MINE, notMine } from '../../core/card-automaton.js'
 import { cardHoldOf, HOLD_RECHECK_MS } from '../../core/card-hold.js'
+import { closedWaitIds } from '../../core/card-readings.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { BOARD_ALARM, COMMAND_EXECUTED, MERGE_DONE, POLICY_ALLOWED, POLICY_DENIED, SHARD_USED } from '../../core/events.js'
@@ -220,7 +221,7 @@ export class MergeExecutor {
   private askForAllowLive(): void {
     if (liveDecisionOf(decisionsInForceAt(this.parts.db, this.parts.clock()), MERGE_QUEUE) !== null || this.underTheOwnersWindowShard())
       return
-    openBusWait(this.parts.db, this.ts(), QUEUE_ACTOR, { need: 'command', text: `the ${MERGE_QUEUE} queue merges with no owner decision in force naming it live`, command: allowLiveCommand(MERGE_QUEUE) })
+    openBusWait(this.parts.db, closedWaitIds(this.parts.db), this.ts(), QUEUE_ACTOR, { need: 'command', text: `the ${MERGE_QUEUE} queue merges with no owner decision in force naming it live`, command: allowLiveCommand(MERGE_QUEUE) })
   }
 
   private underTheOwnersWindowShard(): boolean {
@@ -230,7 +231,7 @@ export class MergeExecutor {
   private askTheOwnerToMerge(lease: Lease, denial: MergeDenial): void {
     if (denial.kind !== 'authority' || !OWNER_MERGES_RULES.has(denial.rule) || lease.pr === null)
       return
-    openBusWait(this.parts.db, this.ts(), QUEUE_ACTOR, { need: 'merge', text: denial.detail, card: lease.cardId, pr: lease.pr })
+    openBusWait(this.parts.db, closedWaitIds(this.parts.db), this.ts(), QUEUE_ACTOR, { need: 'merge', text: denial.detail, card: lease.cardId, pr: lease.pr })
   }
 
   private heldInsteadOfAWait(lease: Lease, denial: MergeDenial): MergeDenial {

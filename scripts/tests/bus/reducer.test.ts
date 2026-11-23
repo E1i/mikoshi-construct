@@ -5,6 +5,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appendedOnCard } from '../../core/card-automaton.js'
+import { closedWaitIds } from '../../core/card-readings.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus, openBusWait, openOwnerWait } from '../../core/db.js'
 import { CARD_WAITING, DECISIONS_IMPORTED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, REJECTED, WITNESS_DOWNGRADE } from '../../core/events.js'
 import { cardIdOfDescription } from '../../core/identifiers.js'
@@ -506,10 +507,10 @@ describe('the reducer of the owner_waits projection', () => {
   it('a recorded decision closes the owner wait it answers', () => {
     const db = newBus()
     const ts = '2026-10-09T12:00:00.000Z'
-    const live = openBusWait(db, ts, 'policy', { need: 'command', text: 'the merge queue merges unswitched', command: allowLiveCommand('merge') })
+    const live = openBusWait(db, closedWaitIds(db), ts, 'policy', { need: 'command', text: 'the merge queue merges unswitched', command: allowLiveCommand('merge') })
     const question = openOwnerWait(db, ts, 'policy', { need: 'decision', text: 'which path?', card: 1213, request: 7 })
     const other = openOwnerWait(db, ts, 'policy', { need: 'decision', text: 'which name?', card: 1214, request: 8 })
-    expect(openBusWait(db, ts, 'policy', { need: 'command', text: 'again', command: allowLiveCommand('merge') })).toBe(live)
+    expect(openBusWait(db, closedWaitIds(db), ts, 'policy', { need: 'command', text: 'again', command: allowLiveCommand('merge') })).toBe(live)
     recordDecision(db, { ts, decisionId: 900, text: '[owner] allow-live merge', cards: [] })
     recordDecision(db, { ts, decisionId: 901, text: '[owner] the first path', cards: [1213] })
     expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 5, rejected: 0 })
@@ -525,8 +526,8 @@ describe('the reducer of the owner_waits projection', () => {
   it('a bare-text allow-live decision closes the wait the merge executor opened', () => {
     const db = newBus()
     const ts = '2026-10-09T12:00:00.000Z'
-    const live = openBusWait(db, ts, 'policy', { need: 'command', text: 'the merge queue merges unswitched', command: allowLiveCommand('merge') })
-    const review = openBusWait(db, ts, 'policy', { need: 'command', text: 'the review queue runs unswitched', command: allowLiveCommand('review') })
+    const live = openBusWait(db, closedWaitIds(db), ts, 'policy', { need: 'command', text: 'the merge queue merges unswitched', command: allowLiveCommand('merge') })
+    const review = openBusWait(db, closedWaitIds(db), ts, 'policy', { need: 'command', text: 'the review queue runs unswitched', command: allowLiveCommand('review') })
     recordDecision(db, { ts, decisionId: 902, text: '  allow-live merge ', cards: [] })
     reduce(db, 'pending', busProjections())
     expect(waits(db).map(wait => [wait.id, wait.state, wait.answer])).toEqual([[live, 'closed', 'D-902'], [review, 'open', null]])
@@ -536,7 +537,7 @@ describe('the reducer of the owner_waits projection', () => {
   it('a decision whose text ends in regex syntax folds and closes no wait', () => {
     const db = newBus()
     const ts = '2026-10-09T12:00:00.000Z'
-    const live = openBusWait(db, ts, 'policy', { need: 'command', text: 'the merge queue merges unswitched', command: allowLiveCommand('merge') })
+    const live = openBusWait(db, closedWaitIds(db), ts, 'policy', { need: 'command', text: 'the merge queue merges unswitched', command: allowLiveCommand('merge') })
     recordDecision(db, { ts, decisionId: 903, text: '[owner] see (', cards: [] })
     recordDecision(db, { ts, decisionId: 904, text: '[owner] tags: [a', cards: [] })
     expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 3, rejected: 0 })
@@ -559,7 +560,7 @@ describe('the reducer of the owner_waits projection', () => {
 
   it('a closed pull request closes the merge wait the owner-merges boundary opened', () => {
     const db = busWith(observed(800, 793))
-    const id = openBusWait(db, '2026-10-09T12:00:00.000Z', 'policy', { need: 'merge', text: 'changes architecture/security-invariants.md', card: 793, pr: 800 })
+    const id = openBusWait(db, closedWaitIds(db), '2026-10-09T12:00:00.000Z', 'policy', { need: 'merge', text: 'changes architecture/security-invariants.md', card: 793, pr: 800 })
     appendEvent(db, closed(800, true))
     reduce(db, 'pending', busProjections())
     expect(waits(db)).toEqual([{ id, need: 'merge', command: 'merge PR #800 (owner)', card_id: 793, pr: 800, state: 'closed', answer: 'PR #800 merged' }])

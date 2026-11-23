@@ -12,6 +12,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, SCOPE_WIDENED, SHARD_ISSUED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer, FreshBaseConflict } from '../../nodes/answer/answerer.js'
@@ -117,7 +118,7 @@ async function answerLeaving(changed: readonly string[], shard: boolean, publish
   made.tick()
   const reduced = made.clock.now().toISOString()
   queueTask(made.db, reduced, { queue: 'answer', cardId: CARD_ID, stop })
-  const lease = leaseNext(made.db, reduced, 'answer', 'worker:answer:worker-1') as Lease
+  const lease = leaseNext(made.db, pullRequests(made.db), reduced, 'answer', 'worker:answer:worker-1') as Lease
   const published: string[] = []
   const heads = [sha('a'), sha('e')]
   const answerer = claudeAnswerer(path.join(home, 'answers'), {

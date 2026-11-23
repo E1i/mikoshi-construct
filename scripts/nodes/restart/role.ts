@@ -3,6 +3,7 @@ import type { BusEvent } from '../../core/db.js'
 import type { EventPayload } from '../../core/events.js'
 import type { Fold, StoredEvent } from '../../core/stored.js'
 import type { IncrementalProjection } from '../../core/watermark.js'
+import { closedWaitIds } from '../../core/card-readings.js'
 import { appendEvent, CLOSED_WAIT, inTransaction, openBusWait, OWNER_WAITS } from '../../core/db.js'
 import { OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, ROLE_LEASED, ROLE_RAISE_FAILED, ROLE_RAISED, ROLE_RETURNED, ROLE_STOPPED, ROLE_TO_OWNER, WINDOW_HEARTBEAT } from '../../core/events.js'
 import { LEASE_MS } from '../../core/lease.js'
@@ -237,7 +238,7 @@ export function roleToOwner(db: DatabaseSync, ts: string, actor: string): RoleTo
       return null
     const start = ROLE_STARTS[row.role]
     const detail = ownerDetail(row, start)
-    const wait = start === null ? null : openBusWait(db, ts, actor, { need: 'command', text: detail, command: start })
+    const wait = start === null ? null : openBusWait(db, closedWaitIds(db), ts, actor, { need: 'command', text: detail, command: start })
     reduced(db, { ts, type: ROLE_TO_OWNER, actor, cardId: null, pr: null, head: null, dedupeKey: `${ROLE_TO_OWNER}:${row.role}:${row.event_id}`, payload: { role: row.role, handoff: row.handoff, detail, wait } satisfies EventPayload<typeof ROLE_TO_OWNER>, legacy: false })
     return { role: row.role, handoff: row.handoff, detail, wait }
   })
