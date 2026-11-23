@@ -229,3 +229,73 @@ describe('an owner wait over a card is opened from its current state and closes 
     expect(card.sources.sourceOf(card.lease(NEW_HEAD, DECISION))).toBeNull()
   })
 })
+
+const HELD_PR = 958
+const HELD_CARD = HELD_PR + 100
+const OLD_HEAD = sha('0')
+const HELD_NEW_HEAD = sha('a')
+
+interface HeldCard {
+  bench: MergeBench
+  sources: AnswerSources
+  answerLease: (head: string) => Lease
+  waitsOfTheCard: () => string[]
+}
+
+function heldAfterAnEmptyRound(): HeldCard {
+  const bench = liveBench()
+  benches.push(bench)
+  bench.gitHub.open({ number: HELD_PR, review: 'success', head: HELD_NEW_HEAD })
+  const ts = bench.clock.now().toISOString()
+  appendEvent(bench.db, { ts, type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: HELD_CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${HELD_CARD}`, payload: { session: 'card-session-1', worktree: `/trees/mc-${HELD_CARD}`, branch: `feat/card-${HELD_CARD}`, base: sha('1') }, legacy: false })
+  appendEvent(bench.db, { ts, type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId: HELD_CARD, pr: HELD_PR, head: OLD_HEAD, dedupeKey: `${CARD_STOPPED}:${HELD_CARD}`, payload: { reason: QUESTION_AGENT, detail: `card #${HELD_CARD} asks a question` }, legacy: false })
+  appendEvent(bench.db, { ts, type: POLICY_DENIED, actor: 'worker:answer:worker-1', cardId: HELD_CARD, pr: HELD_PR, head: OLD_HEAD, dedupeKey: `${POLICY_DENIED}:empty-round:${HELD_CARD}`, payload: { command: 'answer', kind: 'technical', reason: 'left_nothing', detail: 'an empty round' }, legacy: false })
+  const sources = new AnswerSources({ db: bench.db, clock: bench.clock.now })
+  const answerLease = (head: string): Lease => ({ taskKey: `answer:${HELD_CARD}:${head}`, queue: 'answer', cardId: HELD_CARD, pr: HELD_PR, head, leaseGen: 1, actor: 'worker:answer:worker-1' })
+  expect(sources.sourceOf(answerLease(OLD_HEAD))).toBeNull()
+  bench.tick()
+  return { bench, sources, answerLease, waitsOfTheCard: () => openOwnerWaits(bench.db).filter(wait => wait.card === HELD_CARD).map(wait => wait.text) }
+}
+
+describe('the owner wait an empty answer round opens names its own exits', () => {
+  it('an empty-round owner wait closes when a new head is observed on the pull request of the card', () => {
+    const card = heldAfterAnEmptyRound()
+
+    expect(card.waitsOfTheCard()).toEqual([expect.stringContaining('no answer round runs until a decision bound to the card, an amend or a new head')])
+    expect(card.sources.awaitedStop(card.answerLease(OLD_HEAD))).not.toBeNull()
+    expect(card.waitsOfTheCard()).toHaveLength(1)
+
+    expect(card.sources.awaitedStop(card.answerLease(HELD_NEW_HEAD))).toBeNull()
+    card.bench.tick()
+
+    expect(card.waitsOfTheCard()).toEqual([])
+    expect(eventsOf(card.bench.db, OWNER_WAIT_CLOSED)).toMatchObject([{ answer: `lifted: a new head ${HELD_NEW_HEAD} on pull request #${HELD_PR}` }])
+  })
+
+  it('the pull request is parked while the empty-round wait is open and while its answer is queued, then the new head merges, never denied owner_question_open', () => {
+    const card = heldAfterAnEmptyRound()
+
+    expect(card.bench.lease()).toBeNull()
+
+    card.sources.sourceOf(card.answerLease(HELD_NEW_HEAD))
+    card.bench.tick()
+    expect(card.bench.lease()).toBeNull()
+    const ts = card.bench.clock.now().toISOString()
+    completeTask(card.bench.db, cardTransitions(), ts, leaseNext(card.bench.db, pullRequests(card.bench.db), ts, 'answer', 'worker:answer:worker-1')!, [])
+    card.bench.tick()
+
+    expect(card.bench.merge(card.bench.lease()!)).toMatchObject({ kind: 'merged' })
+    expect(eventsOf(card.bench.db, POLICY_DENIED).filter(denied => denied.reason === 'owner_question_open')).toEqual([])
+  })
+
+  it('a decision wait of the card opened by another path stays open when the new head lifts the empty round', () => {
+    const card = heldAfterAnEmptyRound()
+    openOwnerWait(card.bench.db, card.bench.clock.now().toISOString(), 'policy', { need: 'decision', text: 'which path?', card: HELD_CARD, request: 7 })
+    card.bench.tick()
+
+    card.sources.awaitedStop(card.answerLease(HELD_NEW_HEAD))
+    card.bench.tick()
+
+    expect(card.waitsOfTheCard()).toEqual(['which path?'])
+  })
+})

@@ -7,7 +7,7 @@ import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../../../core/card-autom
 import { closedWaitIds, openOwnerWaits } from '../../../core/card-readings.js'
 import { closeOwnerWait, inTransaction, openBusWait } from '../../../core/db.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_DROPPED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, WITNESS_RECORDED } from '../../../core/events.js'
-import { mergedCards } from '../../../core/pr-readings.js'
+import { mergedCards, ofPr as pullRequestOf } from '../../../core/pr-readings.js'
 import { openDecisionWaitsOf, unmergedDependenciesOf } from '../../../core/queue.js'
 import { cardDecisionCommand, decisionsInForceAt } from '../../../policy/shards.js'
 import { BusRead } from '../../../ports/bus-read.js'
@@ -52,11 +52,9 @@ const WITNESS_ON_HEAD = `
 const RED_VERDICT = 'red'
 const GREEN_VERDICT = 'green'
 
-const PASS_AND_GREEN_CI_ON_HEAD = `SELECT 1 FROM prs WHERE pr = ? AND head = ? AND state = 'open' AND ci = 'green' AND verdict_on_head = 'pass'`
-
-const HEAD_FIRST_SEEN = `SELECT min(id) AS id FROM events WHERE legacy = 0 AND pr = ? AND head = ?`
-
-const DECISION_RECORDED_AT = `SELECT max(id) AS id FROM events WHERE legacy = 0 AND type = '${DECISION_RECORDED}' AND json_extract(payload, '$.decision_id') = ?`
+const OPEN_PR = 'open'
+const GREEN_CI = 'green'
+const PASS_VERDICT = 'pass'
 
 const FULL_SHA = /^[0-9a-f]{40}$/
 const CARD_ENDS: readonly string[] = [MERGED_CARD, CLOSED_CARD, DROPPED_CARD]
@@ -167,18 +165,18 @@ export class AnswerSources {
   readyToMerge(lease: Lease): boolean {
     if (lease.pr === null || lease.head === null)
       return false
-    const db = this.parts.db
-    return db.prepare(PASS_AND_GREEN_CI_ON_HEAD).get(lease.pr, lease.head) !== undefined
-      && db.prepare(WITNESS_ON_HEAD).get(lease.pr, lease.head, GREEN_VERDICT) !== undefined
+    const pull = pullRequestOf(this.parts.db, lease.pr)
+    return pull !== null && pull.head === lease.head && pull.state === OPEN_PR && pull.ci === GREEN_CI && pull.verdict_on_head === PASS_VERDICT
+      && this.parts.db.prepare(WITNESS_ON_HEAD).get(lease.pr, lease.head, GREEN_VERDICT) !== undefined
   }
 
   private carriedByTheHead(lease: Lease, decisionId: number): boolean {
     if (lease.pr === null || lease.head === null)
       return false
-    const db = this.parts.db
-    const decided = (db.prepare(DECISION_RECORDED_AT).get(decisionId) as { id: number | null } | undefined)?.id ?? null
-    const seen = (db.prepare(HEAD_FIRST_SEEN).get(lease.pr, lease.head) as { id: number | null } | undefined)?.id ?? null
-    return decided !== null && seen !== null && Number(seen) > Number(decided)
+    const read = new BusRead(this.parts.db)
+    const decided = read.slice(DECISION_RECORDED, ['decision_id']).filter(each => Number(each.fields.decision_id) === decisionId).at(-1)
+    const seen = read.where({ pr: lease.pr }).slice(PR_OBSERVED, ['head']).find(each => (each.head ?? each.fields.head) === lease.head)
+    return decided !== undefined && seen !== undefined && seen.id > decided.id
   }
 
   private exitTaken(lease: Lease, sinceTheStop: BusRead, round: { id: number, head: string | null }): EmptyRoundExit | null {

@@ -4416,7 +4416,7 @@
       "scripts/nodes/answer/answer-source.ts": 11,
       "scripts/nodes/answer/answer-worker.ts": 2,
       "scripts/nodes/answer/duties/publishing.ts": 3,
-      "scripts/nodes/answer/duties/source.ts": 5,
+      "scripts/nodes/answer/duties/source.ts": 2,
       "scripts/nodes/close/close-executor.ts": 3,
       "scripts/nodes/close/ended-card-trees.ts": 2,
       "scripts/nodes/close/task-close.ts": 4,
