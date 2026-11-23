@@ -4,9 +4,11 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync,
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { DatabaseSync } from 'node:sqlite'
 import { pathToFileURL } from 'node:url'
 import { build } from 'tsup'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { BOARD_RESTART_CAP_MS, restartDelayMs } from '../scripts/supervisor/run.js'
 import { copyFactoryAssets, factoryBuild, OUT_DIR, productBuild } from '../tsup.config.js'
 
 const REPOSITORY = path.resolve(import.meta.dirname, '..')
@@ -27,6 +29,16 @@ const KILLED_THREAD_DEADLINE_MS = 30_000
 const KILLED_THREAD_SCRIPT = 'kill-the-board-thread.mjs'
 const KILLED_BY = 'the board thread was killed by an exception'
 const MISSING_FILE = /ENOENT|ERR_MODULE_NOT_FOUND|Cannot find module/
+const THREAD_ENDED = 'the board thread ended'
+const KILLED_BUS_RUN_PERIODS = 6
+
+interface KilledBusRun {
+  output: string
+  restored: boolean
+  projectedAfterRestore: number
+  downs: Record<string, unknown>[]
+  rewritten: boolean
+}
 
 interface Shipped {
   BOARD_DATA_FILE: string
@@ -129,6 +141,52 @@ function theBusRun(): Promise<BusRun> {
   return busRun
 }
 
+function workerDownsIn(busPath: string, type: string): Record<string, unknown>[] {
+  const db = new DatabaseSync(busPath)
+  try {
+    return (db.prepare('SELECT payload FROM events WHERE type = ?').all(type) as { payload: string }[]).map(row => JSON.parse(row.payload) as Record<string, unknown>)
+  }
+  finally {
+    db.close()
+  }
+}
+
+async function runTheBusWithAThreadKilledOnce(): Promise<KilledBusRun> {
+  const env = consumerEnv('home-bus-run-killed-thread')
+  const busPath = env.CONSTRUCT_BUS_DB!
+  const dataFile = path.join(path.dirname(busPath), shipped.BOARD_DATA_FILE)
+  const timer = builtPathOf(BOARD_TIMER)
+  const shippedTimer = readFileSync(timer, 'utf8')
+  writeFileSync(timer, `throw new Error(${JSON.stringify(KILLED_BY)})\n`)
+  let output = ''
+  let restored = false
+  let projectedAfterRestore = 0
+  try {
+    const child = spawn(process.execPath, [builtPathOf(BUS_RUN)], { cwd: consumer.directory, env, stdio: ['ignore', 'pipe', 'pipe'], signal: AbortSignal.timeout(KILLED_BUS_RUN_PERIODS * shipped.BOARD_PERIOD_MS), killSignal: 'SIGKILL' })
+    const ended = once(child, 'close')
+    const read = (text: string): void => {
+      output += text
+      if (!restored && output.includes(THREAD_ENDED)) {
+        writeFileSync(timer, shippedTimer)
+        restored = true
+        return
+      }
+      if (restored)
+        projectedAfterRestore += text.split('\n').filter(line => line.includes(PROJECTED)).length
+      if (projectedAfterRestore > 0 && existsSync(dataFile))
+        child.kill('SIGKILL')
+    }
+    child.stdout.setEncoding('utf8').on('data', read)
+    child.stderr.setEncoding('utf8').on('data', read)
+    child.on('error', () => {})
+    await ended
+  }
+  finally {
+    writeFileSync(timer, shippedTimer)
+  }
+  return { output, restored, projectedAfterRestore, downs: existsSync(busPath) ? workerDownsIn(busPath, shipped.WORKER_DOWN) : [], rewritten: existsSync(dataFile) }
+}
+
 describe('the board thread of bus:run started from the packed package in an empty consumer', () => {
   beforeAll(async () => {
     consumer = await packIntoAnEmptyConsumer()
@@ -192,10 +250,27 @@ describe('the board thread of bus:run started from the packed package in an empt
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
     expect(run.stderr).not.toMatch(MISSING_FILE)
     expect(run.stderr).toContain(KILLED_BY)
-    expect(run.stderr).toContain('the board thread ended')
+    expect(run.stderr).toContain(THREAD_ENDED)
     const result = JSON.parse(run.stdout.trim().split('\n').at(-1)!) as { spawned: number, downs: Record<string, unknown>[], rewritten: boolean }
     expect(result.spawned).toBeGreaterThanOrEqual(2)
     expect(result.downs).toEqual([expect.objectContaining({ worker: shipped.BOARD_THREAD, failures: 1, cause: expect.stringContaining(KILLED_BY) })])
     expect(result.rewritten).toBe(true)
   }, PACK_TIMEOUT_MS)
+
+  it('bus:run itself, whose first board thread is killed by an exception, records worker.down and starts the thread again', async () => {
+    const run = await runTheBusWithAThreadKilledOnce()
+    expect(run.restored, run.output).toBe(true)
+    expect(run.output).toContain(KILLED_BY)
+    expect(run.downs, run.output).toEqual([expect.objectContaining({ worker: shipped.BOARD_THREAD, failures: 1, cause: expect.stringContaining(KILLED_BY) })])
+    expect(run.projectedAfterRestore, run.output).toBeGreaterThan(0)
+    expect(run.rewritten, run.output).toBe(true)
+  }, PACK_TIMEOUT_MS)
+})
+
+describe('the restart delay of the board thread bus:run keeps', () => {
+  it('a board period longer than the restart cap restarts after one period, not after the cap', () => {
+    const periodMs = 2 * BOARD_RESTART_CAP_MS
+    expect(restartDelayMs(periodMs, 1)).toBe(periodMs)
+    expect(restartDelayMs(periodMs, 4)).toBe(periodMs)
+  })
 })
