@@ -496,7 +496,14 @@ describe('a factory installed from the packed package', () => {
       expect(generationsOf(restarted.starts, WORKER_STARTED)).not.toContain(head)
     }, STARTED_WITHIN_MS * 3)
 
-    it('a bus:run another test started is never adopted', async () => {
+    it('a start the fixture\'s own supervisor handed is the fixture\'s own whatever its command line, and an adopted one only under the fixture root', () => {
+      const outsideTheFixture = process.pid
+      expect(commandOf(outsideTheFixture)).not.toContain(foreign.root)
+      expect(ofThisFixture({ type: WORKER_STARTED, worker: `worker:${LAUNCH_WORKER}:handed`, generation: installedVersion(), pid: outsideTheFixture, pgid: outsideTheFixture })).toBe(true)
+      expect(ofThisFixture({ type: WORKER_STARTED, worker: `${adoptedPrefix}${outsideTheFixture}`, generation: installedVersion(), pid: outsideTheFixture, pgid: outsideTheFixture })).toBe(false)
+    })
+
+    it('a bus:run another test started is never adopted [needs ps]', async () => {
       const elsewhere = realpathSync(mkdtempSync(path.join(tmpdir(), 'another-test-')))
       const entry = path.join(elsewhere, OUT_DIR, BUS_RUN_ENTRY)
       mkdirSync(path.dirname(entry), { recursive: true })
