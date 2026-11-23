@@ -20,6 +20,18 @@ export interface PinnedStep {
 
 export type Fetcher = (apiPath: string) => Promise<string | undefined>
 
+export type ActionFileRead = { kind: 'ran', stdout: string } | { kind: 'failed', reason: string }
+
+const ACTION_FILE_ABSENT = /HTTP 404/
+
+export function actionFileBody(apiPath: string, read: ActionFileRead): string | undefined {
+  if (read.kind === 'ran')
+    return read.stdout
+  if (ACTION_FILE_ABSENT.test(read.reason))
+    return undefined
+  throw new Error(`the GitHub port could not read ${apiPath}: ${read.reason}`)
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

@@ -1,63 +1,10 @@
-import type { GhCall } from '../../ports/gh.js'
-import { readFileSync, realpathSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import process from 'node:process'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ACTION_INPUTS_RECORD, actionYmlPaths, declaredInputs, fetchMissing, pinnedSteps, readRecordedInputs, refusals, renderRecordedInputs, workflowSteps } from '../../contract/action-inputs.js'
-
-const fetchScript = vi.hoisted(() => ({
-  record: 'contract/action-inputs.json',
-  answer: undefined as ((apiPath: string) => GhCall) | undefined,
-  recordedText: undefined as string | undefined,
-  asked: [] as string[],
-  written: [] as Array<{ file: string, text: string }>,
-}))
-
-vi.mock('../../ports/gh.js', async (original) => {
-  const gh = await original<typeof import('../../ports/gh.js')>()
-  return {
-    ...gh,
-    execGh: (args: string[]): GhCall => {
-      const apiPath = args.at(-1) ?? ''
-      fetchScript.asked.push(apiPath)
-      return fetchScript.answer!(apiPath)
-    },
-  }
-})
-
-vi.mock('node:fs', async (original) => {
-  const fs = await original<typeof import('node:fs')>()
-  const readFileSync = ((file: Parameters<typeof fs.readFileSync>[0], options?: Parameters<typeof fs.readFileSync>[1]) =>
-    fetchScript.recordedText !== undefined && String(file).endsWith(fetchScript.record) ? fetchScript.recordedText : fs.readFileSync(file, options)) as typeof fs.readFileSync
-  const writeFileSync = ((file: Parameters<typeof fs.writeFileSync>[0], text: Parameters<typeof fs.writeFileSync>[1]) => {
-    fetchScript.written.push({ file: String(file), text: String(text) })
-  }) as typeof fs.writeFileSync
-  return { ...fs, default: { ...fs, readFileSync, writeFileSync }, readFileSync, writeFileSync }
-})
+import { describe, expect, it } from 'vitest'
+import { actionFileBody, actionYmlPaths, declaredInputs, fetchMissing, pinnedSteps, readRecordedInputs, refusals, renderRecordedInputs, workflowSteps } from '../../contract/action-inputs.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
-const FETCH_SCRIPT = realpathSync(path.join(REPO_ROOT, 'scripts/contract/action-inputs-fetch.ts'))
-const ARGV_ENTRY = process.argv[1]
-
-afterEach(() => {
-  process.argv[1] = ARGV_ENTRY!
-  fetchScript.answer = undefined
-  fetchScript.recordedText = undefined
-  fetchScript.asked.length = 0
-  fetchScript.written.length = 0
-})
-
-async function runFetchScript(answer: (apiPath: string) => GhCall): Promise<void> {
-  fetchScript.answer = answer
-  fetchScript.recordedText = '{}\n'
-  process.argv[1] = FETCH_SCRIPT
-  vi.resetModules()
-  await import('../../contract/action-inputs-fetch.js')
-}
-
-function ghFailed(apiPath: string, detail: string): GhCall {
-  return { kind: 'failed', cause: 'failed', reason: `gh api -H Accept: application/vnd.github.raw ${apiPath}: ${detail}`, stdout: '', stderr: detail, attempts: 1 }
-}
+const ACTION_YML = 'repos/actions/checkout/contents/action.yml?ref=v7'
 
 const RELEASE_WORKFLOW = `
 on: push
@@ -177,21 +124,21 @@ describe('the inputs of a pin are fetched once from its action.yml', () => {
   })
 })
 
-describe('the fetching writer reads each action file through the GitHub port', () => {
-  it('reads past an action.yml the port answers 404 to, and writes the inputs of action.yaml for every pin', async () => {
-    await runFetchScript(apiPath => apiPath.includes('/action.yml?')
-      ? ghFailed(apiPath, 'gh: Not Found (HTTP 404)')
-      : { kind: 'ran', stdout: 'inputs:\n  token: {}\n', attempts: 1 })
-    const pins = [...new Set(workflowSteps(REPO_ROOT).map(step => step.uses))].sort()
-    expect(pins.length).toBeGreaterThan(0)
-    expect(fetchScript.asked.filter(apiPath => apiPath.includes('/action.yaml?'))).toHaveLength(pins.length)
-    expect(fetchScript.written).toHaveLength(1)
-    expect(fetchScript.written[0]!.file).toBe(path.join(REPO_ROOT, ACTION_INPUTS_RECORD))
-    expect(fetchScript.written[0]!.text).toBe(renderRecordedInputs(Object.fromEntries(pins.map(pin => [pin, ['token']]))))
+describe('a read of an action file through the GitHub port', () => {
+  it('answers the body of a read that ran', () => {
+    expect(actionFileBody(ACTION_YML, { kind: 'ran', stdout: 'inputs:\n  ref: {}\n' })).toBe('inputs:\n  ref: {}\n')
   })
 
-  it.each(['gh: Server Error (HTTP 500)', 'gh: Forbidden (HTTP 403)', 'gh: Gone (HTTP 410)'])('refuses on a GitHub port failure other than 404: %s', async (detail) => {
-    await expect(runFetchScript(apiPath => ghFailed(apiPath, detail))).rejects.toThrow('the GitHub port could not read')
-    expect(fetchScript.written).toEqual([])
+  it('reads a 404 as no such file, so action.yaml is tried after a missing action.yml', async () => {
+    expect(actionFileBody(ACTION_YML, { kind: 'failed', reason: `gh api ${ACTION_YML}: gh: Not Found (HTTP 404)` })).toBeUndefined()
+    const fetcher = async (apiPath: string): Promise<string | undefined> => actionFileBody(apiPath, apiPath.includes('/action.yml?')
+      ? { kind: 'failed', reason: 'gh: Not Found (HTTP 404)' }
+      : { kind: 'ran', stdout: 'inputs:\n  token: {}\n' })
+    expect(await fetchMissing(pinnedSteps('release.yml', RELEASE_WORKFLOW), RECORDED, fetcher)).toEqual(RECORDED)
+    expect((await fetchMissing(pinnedSteps('release.yml', RELEASE_WORKFLOW), {}, fetcher))['actions/checkout@v7']).toEqual(['token'])
+  })
+
+  it.each(['gh: Server Error (HTTP 500)', 'gh: Forbidden (HTTP 403)', 'gh: Gone (HTTP 410)', 'gh timed out after 20 s'])('refuses any other failure of the port: %s', (reason) => {
+    expect(() => actionFileBody(ACTION_YML, { kind: 'failed', reason })).toThrow(`the GitHub port could not read ${ACTION_YML}: ${reason}`)
   })
 })
