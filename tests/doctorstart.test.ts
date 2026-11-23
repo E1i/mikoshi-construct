@@ -11,6 +11,7 @@ import { statusOf } from '../scripts/core/handoff-status.js'
 import { sessionHandoffOf } from '../scripts/window/handoff-write.js'
 import { HANDOFF_VARIABLE, OWNER_COMMANDS, PACKAGE_COMMANDS } from '../scripts/window/loop.js'
 import { browserLabExcludedCommand } from '../src/commands/attach/settings.js'
+import { SYNC_APPLY } from '../src/commands/doctor/factory.js'
 import { DOCTOR_EXIT, factoryChecklist, printFactoryChecklist } from '../src/commands/doctor/index.js'
 import { runInit } from '../src/commands/init.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
@@ -116,7 +117,8 @@ describe('doctor --factory checks that the factory can start without the owner',
     for (const settings of widening) {
       localSettings(factory, JSON.stringify(settings))
       const checklist = check(factory)
-      expect(red(checklist), JSON.stringify(settings)).toEqual({ 'card-permissions': EDIT_LOCAL_SETTINGS })
+      const turnsTheSandboxOff = JSON.stringify(settings).includes('"enabled":false')
+      expect(red(checklist), JSON.stringify(settings)).toEqual({ 'card-permissions': EDIT_LOCAL_SETTINGS, ...(turnsTheSandboxOff ? { 'role-environment': SYNC_APPLY } : {}) })
       const { text, exit } = printed(checklist)
       expect(exit).toBe(DOCTOR_EXIT.notOk)
       expect(text).toContain(PLAIN_LORE.factoryItem['card-permissions'])
