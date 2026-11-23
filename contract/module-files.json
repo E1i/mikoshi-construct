@@ -197,8 +197,11 @@
     "scripts/core/owner-commands.ts"
   ],
   "contract-generator": [
+    "contract/action-inputs.json",
     "contract/factory.json",
     "contract/surface.json",
+    "scripts/contract/action-inputs-fetch.ts",
+    "scripts/contract/action-inputs.ts",
     "scripts/contract/bump.ts",
     "scripts/contract/declared.ts",
     "scripts/contract/factory-bump.ts",
@@ -695,6 +698,7 @@
     "scripts/tests/composition/files.test.ts",
     "scripts/tests/composition/model.test.ts",
     "scripts/tests/composition/render.test.ts",
+    "scripts/tests/contract/action-inputs.test.ts",
     "scripts/tests/contract/bus-contract-injected-card.test.ts",
     "scripts/tests/contract/bus-cut/cadence-to-core.test.ts",
     "scripts/tests/contract/bus-cut/events-decided.test.ts",
