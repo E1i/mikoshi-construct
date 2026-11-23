@@ -258,7 +258,8 @@ export function factoryChecklistExit(checklist: FactoryChecklist): number {
 
 function factoryItemLine(ui: Ui, item: FactoryItem): string {
   const verdict = item.goes ? ui.lore.factoryGoes : ui.lore.factoryStalls
-  return `  ${verdict}${item.slice.padEnd(8)}${ui.lore.factoryItem[item.item] ?? item.item}`
+  const label = ui.lore.factoryItem[item.item] ?? item.item
+  return `  ${verdict}${item.slice.padEnd(8)}${item.refused === undefined ? label : ui.lore.factoryRefusedRoles(label, item.refused)}`
 }
 
 export function printFactoryChecklist(ui: Ui, checklist: FactoryChecklist): number {

@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { PRIORITIES } from '../../src/card/parking.js'
 import { IN_REVIEW_CARD, RUNNING_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { cardHoldOf } from '../core/card-hold.js'
-import { defaultBusPath, openBus } from '../core/db.js'
+import { BOARD_STALE_TICKS, BOARD_TIMER_PERIOD_MS, defaultBusPath, lastBoardBeat, openBus } from '../core/db.js'
 import { BOARD_ALARM, BUS_PULSE, CARD_CLOSED, CARD_CONTINUED, CARD_DROPPED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, DECISION_RECORDED, GHOST_LINE, MERGE_DONE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_DONE, REQUEST_REFUSED, REVIEW_RECORDED, SESSION_STALLED, TASK_COMPLETED, TASK_EXPIRED, TASK_RELEASED, WINDOW_REQUEST, WITNESS_RECORDED, WORKER_DOWN } from '../core/events.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { HEARTBEAT_QUEUES } from '../core/lease.js'
@@ -62,6 +62,7 @@ export const WOKEN_DOWNS = 'miko-watch-downs.json'
 export const FACTORY_DOWN_MS = 10 * 60_000
 export const FACTORY_START = 'miko start'
 export const FACTORY_DOWN = 'factory down'
+export const BOARD_STALE = 'board stale'
 const DOWNS_READ_MS = 30_000
 const NOT_A_BUS_WORKER = [CARD_PROCESS, WINDOW_PROCESS, LOOP_PROCESS]
 
@@ -74,6 +75,13 @@ export function downsOf(lastBeat: string | undefined, now: number): WatchSignal[
   if (lastBeat === undefined || silentMs <= FACTORY_DOWN_MS)
     return []
   return [{ kind: FACTORY_DOWN, key: lastBeat, line: `${FACTORY_DOWN}: no bus worker wrote a heartbeat for ${Math.floor(silentMs / 60_000)} minutes, the last at ${lastBeat}; the factory does not start by itself, the window raises it with ${FACTORY_START}` }]
+}
+
+export function boardStaleOf(lastBeat: string | undefined, now: number): WatchSignal[] {
+  const silentMs = lastBeat === undefined ? 0 : now - Date.parse(lastBeat)
+  if (lastBeat === undefined || silentMs <= BOARD_STALE_TICKS * BOARD_TIMER_PERIOD_MS)
+    return []
+  return [{ kind: BOARD_STALE, key: lastBeat, line: `${BOARD_STALE}: the board timer wrote no beat for ${Math.floor(silentMs / BOARD_TIMER_PERIOD_MS)} board ticks of ${BOARD_TIMER_PERIOD_MS / 1000} s, the last at ${lastBeat}; the board page is not being rewritten, and what it shows is as old as that beat` }]
 }
 
 export function parentGoneLine(parent: number): string {
@@ -587,11 +595,11 @@ function observedHeads(bus: string, pr: number, beforeId: number): string[] {
 }
 
 function downsReader(bus: string): (now: number) => WatchSignal[] {
-  let read: { at: number, beat: string | undefined } | undefined
+  let read: { at: number, beat: string | undefined, board: string | undefined } | undefined
   return (now) => {
     if (read === undefined || Math.abs(now - read.at) >= DOWNS_READ_MS)
-      read = { at: now, beat: readBus(bus, db => lastWorkerBeat(lastProcessBeats(db))) }
-    return downsOf(read.beat, now)
+      read = { at: now, ...readBus(bus, db => ({ beat: lastWorkerBeat(lastProcessBeats(db)), board: lastBoardBeat(db) })) }
+    return [...downsOf(read.beat, now), ...boardStaleOf(read.board, now)]
   }
 }
 
