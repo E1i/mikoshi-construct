@@ -2244,8 +2244,7 @@
         "directory": false,
         "namedIn": [
           "scripts/cli/board-page.ts",
-          "scripts/cli/board-page/timer.ts",
-          "scripts/supervisor/run.ts"
+          "scripts/cli/board-page/timer.ts"
         ],
         "owner": "scripts/cli/board-page.ts",
         "source": "owner",
@@ -2256,6 +2255,7 @@
         "directory": false,
         "namedIn": [
           "scripts/cli/board-page.ts",
+          "scripts/cli/board-page/timer.ts",
           "scripts/window/board.ts"
         ],
         "owner": "scripts/cli/board-page.ts",
@@ -3679,6 +3679,7 @@
         "contract": [],
         "may_use": [],
         "owns": [
+          "scripts/core/built-entry.ts",
           "scripts/core/factory-paths.ts",
           "scripts/core/generated-files.ts",
           "scripts/core/declarations.ts",

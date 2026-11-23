@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { BoardThreadDown, BoardTimerSpawn, StartedBoardTimer } from '../cli/board-page/timer.js'
 import type { GitHubPost } from '../core/pr-status.js'
 import type { Derived } from '../core/queue.js'
 import type { Projections, ReduceCount } from '../core/reducer.js'
@@ -12,12 +13,12 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { BOARD_PERIOD_MS, startBoardTimer } from '../cli/board-page.js'
+import { BOARD_PERIOD_MS, startBoardTimer } from '../cli/board-page/timer.js'
 import { busDirOf } from '../core/bus-path.js'
 import { CHECK_MS, TICK_MS } from '../core/cadence.js'
 import { closedWaitIds } from '../core/card-readings.js'
-import { defaultBusPath, inTransaction, openBus, openBusWait } from '../core/db.js'
-import { WINDOW_REQUEST } from '../core/events.js'
+import { appendEvent, defaultBusPath, inTransaction, openBus, openBusWait } from '../core/db.js'
+import { WINDOW_REQUEST, WORKER_DOWN } from '../core/events.js'
 import { DATABASE_LOCKED, isDatabaseLocked } from '../core/node.js'
 import { setStepStatuses, STATUS_CONTEXT, STATUS_OFF_FILE, statusesSwitchedOff, statusFailureLine, statusLine } from '../core/pr-status.js'
 import { QUEUE_ACTOR } from '../core/queue.js'
@@ -302,9 +303,20 @@ async function main(): Promise<number> {
   const spool = new GateRunSpool(db, gateRunSpoolPlaces(process.env, busPath, process.cwd()), PREFIX)
   const { busTick } = composeBusTick(db, busPath, ghApi(process.cwd()), ghApiPost(process.cwd()), () => new Date(), os.homedir(), () => spool.step(), 'own-thread')
   const reducer = startReducerLoop(busPath, os.homedir())
-  const board = startBoardTimer(busPath)
+  const board = startBoardThread(db, busPath)
   console.log(`${PREFIX}${busPath}, shadow mode: the reducer with the window requests every ${REDUCER_PERIOD_MS / 1000} s on its own connection in its own thread; NetWatch, the queues and the ${STATUS_CONTEXT} status check on each open PR head unless ${STATUS_OFF_FILE} sits beside it every ${TICK_MS / 1000} s; ${board.file} with ${board.dataFile} every ${BOARD_PERIOD_MS / 1000} s on a read-only connection in its own thread; no workers`)
   return superviseUntilEnd(() => tickWhileReducing(busTick, reducer), bothThreads(reducer, board), () => db.close())
+}
+
+export function boardThreadDownRecorder(db: DatabaseSync): (down: BoardThreadDown) => void {
+  return (down) => {
+    const ts = new Date().toISOString()
+    appendEvent(db, { ts, type: WORKER_DOWN, actor: 'policy', cardId: null, pr: null, head: null, dedupeKey: `${WORKER_DOWN}:${down.worker}:${ts}`, payload: { worker: down.worker, failures: down.failures, cause: down.cause, next_attempt_at: down.nextAttemptAt.toISOString() }, legacy: false })
+  }
+}
+
+export function startBoardThread(db: DatabaseSync, busPath: string, periodMs: number = BOARD_PERIOD_MS, spawn?: BoardTimerSpawn): StartedBoardTimer {
+  return startBoardTimer(busPath, periodMs, spawn, boardThreadDownRecorder(db))
 }
 
 export function tickWhileReducing(busTick: BusTick, reducer: Pick<StartedReducerLoop, 'failure'>): string[] {

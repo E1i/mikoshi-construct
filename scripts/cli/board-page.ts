@@ -19,7 +19,6 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { Worker } from 'node:worker_threads'
 import { RUNS_PREFIX } from '../../src/card/covering-tests.js'
 import { fieldCommand } from '../../src/card/witness-fields.js'
 import { busFacts, CARD_STAGES, latestCardEvents, openTasks } from '../../src/commands/board/bus.js'
@@ -1180,40 +1179,6 @@ export function boardProjection(db: DatabaseSync, busPath: string, tickMs: numbe
         console.error(`${PREFIX}${error instanceof Error ? error.message.split('\n')[0] : String(error)}`)
       }
     },
-  }
-}
-
-export const BOARD_PERIOD_MS = 10_000
-export const BOARD_TIMER_PREFIX = '[bus:board-timer] '
-export const BOARD_TIMER_BUS_PATH = 'boardTimerBusPath'
-export const BOARD_TIMER_PERIOD = 'boardTimerPeriodMs'
-const BOARD_TIMER_ENTRY = new URL('./board-page/timer.ts', import.meta.url)
-
-export interface ReadOnlyBoard {
-  projection: BoardProjection
-  close: () => void
-}
-
-export function readOnlyBoardProjection(busPath: string, periodMs: number): ReadOnlyBoard {
-  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
-  return { projection: boardProjection(db, busPath, periodMs), close: () => db.close() }
-}
-
-export interface StartedBoardTimer {
-  file: string
-  dataFile: string
-  stop: () => Promise<void>
-}
-
-export type BoardTimerSpawn = (entry: URL, workerData: Record<string, unknown>) => { on: (event: 'error', listener: (error: Error) => void) => unknown, terminate: () => Promise<unknown> }
-
-export function startBoardTimer(busPath: string, periodMs: number = BOARD_PERIOD_MS, spawn: BoardTimerSpawn = (entry, workerData) => new Worker(entry, { workerData })): StartedBoardTimer {
-  const worker = spawn(BOARD_TIMER_ENTRY, { [BOARD_TIMER_BUS_PATH]: busPath, [BOARD_TIMER_PERIOD]: periodMs })
-  worker.on('error', error => console.error(`${BOARD_TIMER_PREFIX}${error.message.split('\n')[0]}`))
-  return {
-    file: path.join(path.dirname(busPath), BOARD_FILE),
-    dataFile: path.join(path.dirname(busPath), BOARD_DATA_FILE),
-    stop: async () => void await worker.terminate(),
   }
 }
 
