@@ -22,8 +22,9 @@ import { fileURLToPath } from 'node:url'
 import { parentPort, Worker } from 'node:worker_threads'
 import { RUNS_PREFIX } from '../../src/card/covering-tests.js'
 import { fieldCommand } from '../../src/card/witness-fields.js'
+import { CARD_STAGES, latestCardEvents, openTasks } from '../../src/commands/board/bus.js'
 import { DROPPED, droppedLine, goalOf, MARK_WORDS, planLine } from '../../src/commands/board/goal.js'
-import { busFacts, CARD_STAGES, latestCardEvents, openTasks } from '../../src/commands/board/index.js'
+import { busFacts } from '../../src/commands/board/index.js'
 import { backlogCards, byStage, counted, inLiveView, isLive, liftedByTheWindow, markedName, matrixLines, screenLines, sliceMark, slotsReading, standingLine, standingOf, tallyLine, taskGroupLine, taskGroups, taskTally, waitAction, waitTarget, WINDOW_WAITS_ROLE } from '../../src/commands/board/screens.js'
 import { clientTranscriptReader, factoryLiveness, readTranscript } from '../../src/commands/liveness.js'
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
@@ -69,10 +70,7 @@ export interface BoardFiles {
   rename: (from: string, to: string) => void
 }
 
-export const DISK_FILES: BoardFiles = {
-  write: (file, text) => writeFileSync(file, text),
-  rename: renameSync,
-}
+export const DISK_FILES: BoardFiles = { write: (file, text) => writeFileSync(file, text), rename: renameSync }
 
 export { escaped }
 export type { EddiesLimits, Gauges, RunsGroup, RunsReading }

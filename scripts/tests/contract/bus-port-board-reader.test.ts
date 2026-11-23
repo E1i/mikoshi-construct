@@ -39,6 +39,16 @@ function declaredShapes(file: string): string[] {
   return sourceOf(file).statements.flatMap(statement => ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement) ? [statement.name.text] : [])
 }
 
+function valuesReexportedFrom(file: string, source: string): string[] {
+  return sourceOf(file).statements.filter(ts.isExportDeclaration).flatMap((declaration) => {
+    const specifier = declaration.moduleSpecifier !== undefined && ts.isStringLiteral(declaration.moduleSpecifier) ? declaration.moduleSpecifier.text : ''
+    const target = specifier.startsWith('.') ? path.posix.join(path.posix.dirname(file), specifier).replace(/\.js$/, '.ts') : specifier
+    if (target !== source || declaration.isTypeOnly || declaration.exportClause === undefined || !ts.isNamedExports(declaration.exportClause))
+      return []
+    return declaration.exportClause.elements.filter(element => !element.isTypeOnly).map(element => element.name.text)
+  })
+}
+
 function readerParameterTypes(file: string): string[] {
   const alias = sourceOf(file).statements.filter(ts.isTypeAliasDeclaration).find(each => each.name.text === READER)
   return alias !== undefined && ts.isFunctionTypeNode(alias.type) ? alias.type.parameters.map(parameter => parameter.type?.getText() ?? '') : []
@@ -79,5 +89,9 @@ describe('the board reader takes the bus contract and opens no bus file', () => 
 
   it('the reader declares no copy of a shape its owner holds: the owner wait and the bus handle come from their owners through the root', () => {
     expect(declaredShapes(BOARD_READER).filter(name => OWNED_SHAPES.includes(name))).toEqual([])
+  })
+
+  it('the root passes no value of the reader through, so each name the reader exports has one public path', () => {
+    expect(valuesReexportedFrom(BOARD_ROOT, BOARD_READER)).toEqual([])
   })
 })

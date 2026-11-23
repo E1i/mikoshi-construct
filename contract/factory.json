@@ -4712,8 +4712,13 @@
         "types": {}
       },
       "src/commands/board/bus.ts": {
-        "constants": [],
-        "functions": {},
+        "constants": [
+          "CARD_STAGES"
+        ],
+        "functions": {
+          "latestCardEvents": "(db: BusDb, perCard: number): Map<number, BusCardEvent[]>",
+          "openTasks": "(db: BusDb): BusTask[]"
+        },
         "reexports": [
           "BusPanelFacts",
           "OwnerWait"
@@ -4755,11 +4760,7 @@
         "functions": {
           "busFacts": "(db: BusDb, now: Date): BusFacts"
         },
-        "reexports": [
-          "CARD_STAGES",
-          "latestCardEvents",
-          "openTasks"
-        ],
+        "reexports": [],
         "types": {}
       },
       "src/commands/board/screens.ts": {

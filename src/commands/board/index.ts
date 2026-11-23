@@ -25,7 +25,6 @@ import { buildView, FINISHED_SHOWN_HOURS, STALE_HOURS } from './view.js'
 
 export type { OwnerWait, OwnerWaitNeed } from '../../../scripts/core/bus-readings.js'
 export type { BusDb } from '../cost/bus.js'
-export { CARD_STAGES, latestCardEvents, openTasks } from './bus.js'
 export { PRS_FROM_STDIN } from './prs.js'
 export { STALE_HOURS }
 
