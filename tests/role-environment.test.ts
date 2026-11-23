@@ -274,6 +274,34 @@ describe('browser-lab is called only at its installed path, and starts where a r
     expect(readStep(card, { role: 'launch', step: 'second daemon', command: `node ${second} run`, writes: [], domains: [] })).toEqual({ refused: null, outsideTheSandbox: true })
   })
 
+  it('the doctor leaves out of the card flag an excluded daemon command whose program is not installed', async () => {
+    const made = await consumer()
+    const shipped = shippedDaemonCommands(made.home)
+    const cardExclusions = (daemons?: string[]): unknown => sandboxEntry(roleSituations(new FileReadings(made.dir), made.dir, made.home, daemons).card.layers[1]!.settings, 'excludedCommands')
+    expect(json(made.dir, SETTINGS_FILE).sandbox.excludedCommands).toEqual(shipped)
+    expect(cardExclusions()).toBeUndefined()
+
+    installTheLab(made.home)
+    const missing = path.join(made.home, '.construct', 'missing-daemon', 'bin', 'missing.mjs')
+    const daemons = [...shipped, `node ${missing} *`]
+    const local = json(made.dir, SETTINGS_FILE)
+    writeJson(made.dir, SETTINGS_FILE, { ...local, sandbox: { ...local.sandbox, excludedCommands: daemons } })
+    expect(cardExclusions(daemons)).toEqual(shipped)
+  })
+
+  it('the doctor models a daemon exclusion that only the project settings carry', async () => {
+    const made = await consumer()
+    installTheLab(made.home)
+    const shipped = shippedDaemonCommands(made.home)
+    const local = json(made.dir, SETTINGS_FILE)
+    writeJson(made.dir, SETTINGS_FILE, { ...local, sandbox: { ...local.sandbox, excludedCommands: [] } })
+    const project = json(made.dir, PROJECT_SETTINGS)
+    writeJson(made.dir, PROJECT_SETTINGS, { ...project, sandbox: { ...project.sandbox, excludedCommands: shipped } })
+
+    const card = roleSituations(new FileReadings(made.dir), made.dir, made.home).card
+    expect(sandboxEntry(card.layers[1]!.settings, 'excludedCommands')).toEqual(shipped)
+  })
+
   it('a call of the tree copy of browser-lab stays inside the card sandbox', async () => {
     const made = await consumer()
     installTheLab(made.home)
