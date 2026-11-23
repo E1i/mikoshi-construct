@@ -16,6 +16,7 @@ import { TICK_MS } from '../../core/cadence.js'
 import { DROPPED_LANE, MERGED_CARD } from '../../core/card-automaton.js'
 import { observeChain } from '../../core/chain.js'
 import { appendEvent, defaultBusPath, openBus } from '../../core/db.js'
+import { byId } from '../../core/events-query.js'
 import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_PLANNED, CARD_STARTED, CARD_STOPPED, MERGE_DONE, PLAN_CLOSED, PLAN_OPENED, RESTARTED, SHARD_ISSUED, SHARD_REVOKED } from '../../core/events.js'
 import { OWNER, RESTART_MISSED } from '../../core/inbox.js'
 import { completeTask, leaseNext, leaseWhileFree } from '../../core/lease.js'
@@ -132,7 +133,7 @@ function stopCard(bench: BoardBench, cardId: number): void {
 function planEvent(bench: BoardBench, type: string, payload: Record<string, unknown>, cardId: number | null = null): void {
   const dedupeKey = `${type}:${cardId}:${JSON.stringify(payload)}`
   appendEvent(bench.db, { ts: bench.ts(), type, actor: OWNER, cardId, pr: null, head: null, dedupeKey, payload, legacy: false })
-  foldPlanEvent(bench.db, storedByKey(bench.db, dedupeKey), { owner: OWNER, recut: RECUT_ACTOR, payloadOf })
+  foldPlanEvent(bench.db, storedByKey(bench.db, dedupeKey), { owner: OWNER, recut: RECUT_ACTOR, payloadOf, actorOf: (db, event) => byId(db, event.id)?.actor ?? null })
 }
 
 function openPlan(bench: BoardBench, cards: number[]): void {

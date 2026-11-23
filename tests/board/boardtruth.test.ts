@@ -10,6 +10,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { printBoard } from '../../scripts/cli/board-page.js'
 import { appendEvent, openBus } from '../../scripts/core/db.js'
+import { byId } from '../../scripts/core/events-query.js'
 import { CARD_MOVED, CARD_PLANNED, LANE_ASSIGNED, PLAN_OPENED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../scripts/core/events.js'
 import { OWNER } from '../../scripts/core/inbox.js'
 import { payloadOf, STORED_COLUMNS, storedByKey } from '../../scripts/core/stored.js'
@@ -105,7 +106,7 @@ function greeting(template: string, busFile: string): string {
 function planEvent(db: DatabaseSync, type: string, payload: Record<string, unknown>, cardId: number | null = null): void {
   const dedupeKey = `${type}:${cardId}:${JSON.stringify(payload)}`
   appendEvent(db, { ts: NOW.toISOString(), type, actor: OWNER, cardId, pr: null, head: null, dedupeKey, payload, legacy: false })
-  foldPlanEvent(db, db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE id = ?`).get(storedByKey(db, dedupeKey).id) as unknown as StoredEvent, { owner: OWNER, recut: RECUT_ACTOR, payloadOf })
+  foldPlanEvent(db, db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE id = ?`).get(storedByKey(db, dedupeKey).id) as unknown as StoredEvent, { owner: OWNER, recut: RECUT_ACTOR, payloadOf, actorOf: (db, event) => byId(db, event.id)?.actor ?? null })
 }
 
 function seedCard(db: DatabaseSync, card: number, lane: string): void {

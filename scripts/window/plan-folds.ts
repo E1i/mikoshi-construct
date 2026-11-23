@@ -8,6 +8,7 @@ export interface PlanParts {
   owner: string
   recut: string
   payloadOf: (event: StoredEvent) => Record<string, unknown>
+  actorOf: (db: DatabaseSync, event: StoredEvent) => string | null
 }
 
 function planText(payload: Record<string, unknown>, field: string): string {
@@ -15,17 +16,13 @@ function planText(payload: Record<string, unknown>, field: string): string {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : reject(`${field} is empty`)
 }
 
-function actorOf(db: DatabaseSync, event: StoredEvent): string | null {
-  return (db.prepare('SELECT actor FROM events WHERE id = ?').get(event.id) as { actor: string | null }).actor
-}
-
 function ownersPayload(db: DatabaseSync, event: StoredEvent, parts: PlanParts): Record<string, unknown> {
-  const actor = actorOf(db, event)
+  const actor = parts.actorOf(db, event)
   return actor === parts.owner ? parts.payloadOf(event) : reject(`${event.type} is the owner's, not ${actor}'s`)
 }
 
 function recutLinkPayload(db: DatabaseSync, event: StoredEvent, parts: PlanParts): Record<string, unknown> | null {
-  if (actorOf(db, event) !== parts.recut)
+  if (parts.actorOf(db, event) !== parts.recut)
     return null
   const payload = parts.payloadOf(event)
   return cardIdOf(payload.recut_of) === null ? reject(`${event.type} by ${parts.recut} names no recut_of card`) : payload

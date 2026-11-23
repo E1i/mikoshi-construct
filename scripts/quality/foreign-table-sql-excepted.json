@@ -71,7 +71,6 @@
   "scripts/window/eddies-measure.ts",
   "scripts/window/handoff-write.ts",
   "scripts/window/operator-work.ts",
-  "scripts/window/plan-folds.ts",
   "scripts/window/requests/amend.ts",
   "scripts/window/requests/context.ts",
   "scripts/window/requests/drop.ts",
