@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { LastReduced, OwnerWait } from './bus-readings.js'
 import { CLOSED_WAIT, OPEN_WAIT, OWNER_WAITS, readLastReduced } from './bus-readings.js'
+import { CARD_BODIES } from './card-bodies.js'
 import { EITHER_JOURNAL, events } from './events-query.js'
 import { OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED } from './events.js'
 
@@ -42,4 +43,30 @@ export function lastReducedOwnerWaits(db: DatabaseSync): LastReduced<OwnerWait[]
 
 export function closedWaitIds(db: DatabaseSync): string[] {
   return (db.prepare(CLOSED_WAIT_IDS).all() as { id: string }[]).map(row => String(row.id))
+}
+
+const A_WAIT_CLOSED_BEFORE = `SELECT 1 FROM ${OWNER_WAITS} WHERE id = ? AND state = '${CLOSED_WAIT}' AND event_id < ? LIMIT 1`
+
+export function waitClosedBefore(db: DatabaseSync, id: string, eventId: number): boolean {
+  return db.prepare(A_WAIT_CLOSED_BEFORE).get(id, eventId) !== undefined
+}
+
+export interface AdmittedBody {
+  admission_event_id: number
+  touches: unknown[]
+  creates: unknown[]
+}
+
+const BODY_ADMITTED_AFTER = `SELECT admission_event_id, touches, creates FROM ${CARD_BODIES} WHERE card_id = ? AND admission_event_id > ?`
+
+function listOf(stored: unknown): unknown[] {
+  if (typeof stored !== 'string')
+    return []
+  const parsed = JSON.parse(stored) as unknown
+  return Array.isArray(parsed) ? parsed : [parsed]
+}
+
+export function bodyAdmittedAfter(db: DatabaseSync, cardId: number, eventId: number): AdmittedBody | null {
+  const row = db.prepare(BODY_ADMITTED_AFTER).get(cardId, eventId) as { admission_event_id: number, touches: unknown, creates: unknown } | undefined
+  return row === undefined ? null : { admission_event_id: Number(row.admission_event_id), touches: listOf(row.touches), creates: listOf(row.creates) }
 }

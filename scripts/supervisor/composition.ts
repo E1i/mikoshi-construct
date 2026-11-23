@@ -3,7 +3,9 @@ import type { CardAutomaton, CardCondition, CardsSelected, NodeCandidates } from
 import type { Understood } from '../core/bus-version.js'
 import type { CardPrReadings } from '../core/card-automaton.js'
 import type { SliceParentsBackfill } from '../core/card-bodies.js'
+import type { ContinuationReads } from '../core/card-decisions.js'
 import type { EventType } from '../core/events.js'
+import type { InboxPrReadings } from '../core/inbox.js'
 import type { CardTransitions, HolderStart, Lease, PullHead } from '../core/lease.js'
 import type { NodeKind, NodeSupply, ProcessIdentity, WorkerIdentity } from '../core/node.js'
 import type { PrOrderTick } from '../core/order/turn.js'
@@ -43,11 +45,11 @@ import { cardDecisionReads, reviewedUnderTheCardDecision, reviewsTheCardDecision
 import { openOwnerWaits } from '../core/card-readings.js'
 import { CHAINS_PROJECTION } from '../core/chain.js'
 import { defaultBusPath, openBus } from '../core/db.js'
-import { byId } from '../core/events-query.js'
+import { byId, events } from '../core/events-query.js'
 import { CARD_DEFERRED, CARD_MOVED, CARD_PLANNED, CARD_STOPPED, CARD_UNPLANNED, DECISION_RECORDED, DECISIONS_IMPORTED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OBSERVED, PR_OPENED, RATCHET_THRESHOLD_SET, SLICE_PARENTS_BACKFILLED, TASK_ENQUEUED, TASK_REQUEUED } from '../core/events.js'
 import { FACTORY_WORKERS } from '../core/factory-paths.js'
 import { isFullSha, prOf } from '../core/identifiers.js'
-import { CARD_BLOCKS, OWNER, ownerQuestionAnswered } from '../core/inbox.js'
+import { CARD_BLOCKS, OWNER, OWNER_QUESTION_ANSWERED, ownerQuestionAnswered, ownerQuestionAnsweredAt } from '../core/inbox.js'
 import { foreignVersion, instanceOf, provenIdentity, recordWorkerIdentity, SWITCH_FLAG, UNHANDED } from '../core/node.js'
 import { orderDeclarationsAt, overlaps } from '../core/order/overlap.js'
 import { orderEventsFrom, prOrderTickAt } from '../core/order/turn.js'
@@ -56,6 +58,7 @@ import { linkRefusal, openedPrOf, prFolds, prRow } from '../core/pr-folds.js'
 import * as prs from '../core/pr-readings.js'
 import { closeCandidates, keyOf, reviewCandidates, taskRow, TASKS_PROJECTION } from '../core/queue.js'
 import { payloadOf, storedByKey } from '../core/stored.js'
+import * as tasks from '../core/tasks-query.js'
 import { cardContract } from '../intake/card-contract.js'
 import { BusWeightsRecompute } from '../intake/intake.js'
 import { answerSource } from '../nodes/answer/answer-candidates.js'
@@ -299,8 +302,24 @@ function decisionsAt(db: DatabaseSync, ts: string): InForceDecision[] {
   return decisionsInForceAt(db, new Date(ts))
 }
 
+const MERGED_PR_STATE = 'merged'
+const OPEN_PR_STATE = 'open'
+const ANSWER_QUEUE = 'answer'
+
+export const INBOX_PR_READINGS: InboxPrReadings = { mergedAt: (db, cardId) => prs.ofCard(db, cardId).filter(row => row.state === MERGED_PR_STATE).map(row => row.event_id) }
+
+export const CONTINUATION_READS: ContinuationReads = {
+  events,
+  taskOf: tasks.byKey,
+  answersOfCard: (db, cardId) => tasks.ofCard(db, cardId, { queue: ANSWER_QUEUE }),
+  answers: db => tasks.ofQueue(db, ANSWER_QUEUE),
+  openPrOf: (db, cardId) => prs.ofCard(db, cardId).filter(row => row.state === OPEN_PR_STATE).at(-1) ?? null,
+}
+
 export function composeBus(db: DatabaseSync): DatabaseSync {
-  return registerCardFunctions(db, CARD_BLOCKS)
+  registerCardFunctions(db, CARD_BLOCKS)
+  db.function(OWNER_QUESTION_ANSWERED, stop => stop === null ? 0 : Number(ownerQuestionAnsweredAt(db, Number(stop), INBOX_PR_READINGS)))
+  return db
 }
 
 export function openComposedBus(file: string = defaultBusPath()): DatabaseSync {
@@ -331,7 +350,7 @@ export function mergeParts(): MergeParts {
 }
 
 export function answerParts(): AnswerParts {
-  return { rules: candidateRules(), answered: ownerQuestionAnswered, continuations: withDecidedContinuations, windowWho: WINDOW_WHO }
+  return { rules: candidateRules(), answered: ownerQuestionAnswered, continuations: (db, planned, how) => withDecidedContinuations(db, planned, how, CONTINUATION_READS), windowWho: WINDOW_WHO }
 }
 
 export function updateParts(): UpdateSourceParts {

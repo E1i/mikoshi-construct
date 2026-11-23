@@ -9,7 +9,8 @@ import { openDatabase } from './sqlite.js'
 
 export const CARD_DECISIONS_HEADING = 'Owner decisions in force for this card. They are the owner\'s answer: follow them, and do not ask the owner again what they settle.'
 
-const ENDED_WITHOUT_RUNNING = `'superseded', 'withdrawn'`
+const ENDED_WITHOUT_RUNNING: readonly string[] = ['superseded', 'withdrawn']
+const LIVE_ANSWER_STATES: readonly string[] = ['queued', 'leased']
 
 export type CardDecisionLines = (db: DatabaseSync, cardId: number, now: Date) => string[]
 
@@ -103,34 +104,112 @@ export interface CardSql {
   downgradeWaitOpenOn: (card: string) => string
 }
 
-const A_STOP_AN_ANSWER_TASK_WROTE_ON_A_PR = `EXISTS (
-  SELECT 1 FROM tasks AS writer WHERE writer.queue = 'answer' AND writer.pr IS NOT NULL AND writer.task_key NOT LIKE '%:stop-%'
-    AND stop.dedupe_key = '${CARD_STOPPED}:' || writer.task_key || ':' || writer.lease_gen
-)`
+interface EventValue {
+  id: number
+  type: string
+  dedupe_key: string
+  data: Record<string, unknown> | null
+}
 
-const A_LIVE_TASK_OF_THE_DECISION = `EXISTS (
-  SELECT 1 FROM tasks AS continued WHERE continued.queue = 'answer' AND continued.card_id = named.card_id
-    AND continued.task_key LIKE '%:decision-' || named.decision_id AND continued.state NOT IN (${ENDED_WITHOUT_RUNNING})
-)`
+interface EventQuery {
+  types?: readonly string[]
+  keys?: readonly string[]
+  ids?: readonly number[]
+  pr?: number | null
+  legacy?: boolean | 'either'
+  newestFirst?: boolean
+  limit?: number
+}
 
-const A_QUESTION_A_DECISION_ANSWERS = `(
-  (json_extract(stop.payload, '$.reason') = '${QUESTION_OWNER}' AND NOT ${A_STOP_AN_ANSWER_TASK_WROTE_ON_A_PR})
-  OR (json_extract(stop.payload, '$.reason') = '${QUESTION_AGENT}' AND prs.pr IS NOT NULL)
-)`
+interface TaskValue {
+  task_key: string
+  queue: string
+  card_id: number
+  pr: number | null
+  state: string
+  lease_gen: number
+}
 
-export function cardDecisionTurnQuery(sql: CardSql): string {
-  return `
-  SELECT named.decision_id AS decision, decided.id AS decided_at, named.card_id AS card_id, prs.pr AS pr, prs.head AS head,
-    ${sql.cardBody('named.card_id')} AS card_body,
-    (SELECT max(reviewed.id) FROM events AS reviewed WHERE reviewed.type = '${REVIEW_RECORDED}' AND reviewed.legacy = 0 AND reviewed.pr = prs.pr) AS last_review,
-    (SELECT stop.id FROM events AS stop WHERE stop.id = ${sql.latestTurn('named.card_id')} AND stop.type = '${CARD_STOPPED}'
-      AND ${A_QUESTION_A_DECISION_ANSWERS} AND stop.id < decided.id) AS owner_stop
-  FROM (SELECT CAST(? AS INTEGER) AS decision_id, CAST(? AS INTEGER) AS card_id) AS named
-  JOIN events AS decided ON decided.type = '${DECISION_RECORDED}' AND decided.legacy = 0 AND decided.dedupe_key = '${DECISION_RECORDED}:' || named.decision_id
-  LEFT JOIN prs ON prs.pr = (SELECT max(open.pr) FROM prs AS open WHERE open.card_id = named.card_id AND open.state = 'open')
-  WHERE ${sql.notAWindowCard('named.card_id')} AND NOT ${sql.downgradeWaitOpenOn('named.card_id')}
-    AND NOT ${A_LIVE_TASK_OF_THE_DECISION}
-`
+export interface ContinuationReads {
+  events: (db: DatabaseSync, query: EventQuery) => readonly EventValue[]
+  taskOf: (db: DatabaseSync, taskKey: string) => TaskValue | null
+  answersOfCard: (db: DatabaseSync, cardId: number) => readonly TaskValue[]
+  answers: (db: DatabaseSync) => readonly TaskValue[]
+  openPrOf: (db: DatabaseSync, cardId: number) => { pr: number, head: string | null } | null
+}
+
+const CARD_PARAMETER = ':card'
+const STOPPED_BY = `${CARD_STOPPED}:`
+const THE_STOP_SEGMENT = ':stop-'
+
+export function cardFragmentsQuery(sql: CardSql): string {
+  return `SELECT ${sql.cardBody(CARD_PARAMETER)} AS card_body, ${sql.latestTurn(CARD_PARAMETER)} AS turn,
+    ${sql.notAWindowCard(CARD_PARAMETER)} AS not_a_window_card, ${sql.downgradeWaitOpenOn(CARD_PARAMETER)} AS downgrade_wait_open`
+}
+
+interface CardFragments {
+  card_body: unknown
+  turn: number | null
+  not_a_window_card: number | null
+  downgrade_wait_open: number | null
+}
+
+function holds(condition: number | null): boolean {
+  return condition !== null && Number(condition) !== 0
+}
+
+function fails(condition: number | null): boolean {
+  return condition !== null && Number(condition) === 0
+}
+
+function keyEndsWith(taskKey: string, ending: string): boolean {
+  return taskKey.toLowerCase().endsWith(ending.toLowerCase())
+}
+
+function writtenByAnAnswerOnAPr(db: DatabaseSync, stop: EventValue, reads: ContinuationReads): boolean {
+  if (!stop.dedupe_key.startsWith(STOPPED_BY))
+    return false
+  const written = stop.dedupe_key.slice(STOPPED_BY.length)
+  const at = written.lastIndexOf(':')
+  const writer = at < 0 ? null : reads.taskOf(db, written.slice(0, at))
+  return writer !== null && writer.queue === 'answer' && writer.pr !== null && !writer.task_key.toLowerCase().includes(THE_STOP_SEGMENT) && String(writer.lease_gen) === written.slice(at + 1)
+}
+
+function aQuestionADecisionAnswers(db: DatabaseSync, stop: EventValue, openPr: number | null, reads: ContinuationReads): boolean {
+  const reason = stop.data?.reason
+  return (reason === QUESTION_OWNER && !writtenByAnAnswerOnAPr(db, stop, reads)) || (reason === QUESTION_AGENT && openPr !== null)
+}
+
+function ownerStopOf(db: DatabaseSync, turn: number | null, decidedAt: number, openPr: number | null, reads: ContinuationReads): number | null {
+  if (turn === null)
+    return null
+  const stop = reads.events(db, { ids: [Number(turn)], legacy: 'either' })[0]
+  return stop !== undefined && stop.type === CARD_STOPPED && stop.id < decidedAt && aQuestionADecisionAnswers(db, stop, openPr, reads) ? stop.id : null
+}
+
+function aLiveTaskOfTheDecision(db: DatabaseSync, cardId: number, decision: number, reads: ContinuationReads): boolean {
+  return reads.answersOfCard(db, cardId).some(task => keyEndsWith(task.task_key, `:decision-${decision}`) && !ENDED_WITHOUT_RUNNING.includes(task.state))
+}
+
+export function cardDecisionTurn(db: DatabaseSync, sql: CardSql, reads: ContinuationReads, decision: number, cardId: number): CardDecisionTurn | null {
+  const decided = reads.events(db, { types: [DECISION_RECORDED], keys: [`${DECISION_RECORDED}:${decision}`] })[0]
+  if (decided === undefined)
+    return null
+  const fragments = db.prepare(cardFragmentsQuery(sql)).get({ card: cardId }) as unknown as CardFragments
+  if (!holds(fragments.not_a_window_card) || !fails(fragments.downgrade_wait_open) || aLiveTaskOfTheDecision(db, cardId, decision, reads))
+    return null
+  const open = reads.openPrOf(db, cardId)
+  const lastReview = open === null ? undefined : reads.events(db, { types: [REVIEW_RECORDED], pr: open.pr, newestFirst: true, limit: 1 })[0]
+  return {
+    decision,
+    decided_at: decided.id,
+    card_id: cardId,
+    pr: open?.pr ?? null,
+    head: open?.head ?? null,
+    card_body: fragments.card_body,
+    last_review: lastReview?.id ?? null,
+    owner_stop: ownerStopOf(db, fragments.turn, decided.id, open?.pr ?? null, reads),
+  }
 }
 
 export interface CardDecisionTurn {
@@ -163,29 +242,30 @@ export interface DecidedContinuations {
   cardBodyOf: (turn: CardDecisionTurn) => string | undefined
 }
 
-export function decidedContinuations(db: DatabaseSync, how: DecidedContinuations): QueuedTask[] {
+export function decidedContinuations(db: DatabaseSync, how: DecidedContinuations, reads: ContinuationReads): QueuedTask[] {
   const bound = how.decisions.filter(decision => decision.cards.length > 0)
   if (bound.length === 0)
     return []
-  const turnOf = db.prepare(cardDecisionTurnQuery(how.sql))
   return bound
-    .flatMap(decision => decision.cards.flatMap(card => turnOf.all(decision.decisionId, card) as unknown as CardDecisionTurn[]))
+    .flatMap(decision => decision.cards.flatMap((card) => {
+      const turn = cardDecisionTurn(db, how.sql, reads, decision.decisionId, card)
+      return turn === null ? [] : [turn]
+    }))
     .filter(turn => continuesTheCard(turn, how.pastTheLimit))
     .map(turn => ({ queue: 'answer', cardId: turn.card_id, pr: turn.pr ?? undefined, head: turn.head ?? undefined, cardBody: how.cardBodyOf(turn), decision: turn.decision }))
 }
 
-const CARDS_WITH_A_LIVE_ANSWER = `SELECT DISTINCT card_id FROM tasks WHERE queue = 'answer' AND state IN ('queued', 'leased')`
-
-const AN_ENDED_ANSWER_OF_THE_STOP = `SELECT 1 FROM tasks, (SELECT CAST(? AS INTEGER) AS stop) AS named WHERE queue = 'answer' AND card_id = ? AND state NOT IN ('queued', 'leased')
-  AND task_key LIKE '%:stop-' || named.stop LIMIT 1`
-
-function anAnswerTheStopAlreadySpent(db: DatabaseSync, task: QueuedTask): boolean {
-  return task.stop !== undefined && db.prepare(AN_ENDED_ANSWER_OF_THE_STOP).get(task.stop, task.cardId) !== undefined
+function anAnswerTheStopAlreadySpent(db: DatabaseSync, task: QueuedTask, reads: ContinuationReads): boolean {
+  return task.stop !== undefined && reads.answersOfCard(db, task.cardId).some(answer => !LIVE_ANSWER_STATES.includes(answer.state) && keyEndsWith(answer.task_key, `${THE_STOP_SEGMENT}${task.stop}`))
 }
 
-export function oneContinuationPerCard(db: DatabaseSync, planned: readonly QueuedTask[], decided: readonly QueuedTask[]): QueuedTask[] {
-  const answering = planned.filter(task => !anAnswerTheStopAlreadySpent(db, task))
-  const answered = new Set([...answering.map(task => task.cardId), ...(db.prepare(CARDS_WITH_A_LIVE_ANSWER).all() as { card_id: number }[]).map(row => Number(row.card_id))])
+function cardsWithALiveAnswer(db: DatabaseSync, reads: ContinuationReads): number[] {
+  return reads.answers(db).filter(answer => LIVE_ANSWER_STATES.includes(answer.state)).map(answer => answer.card_id)
+}
+
+export function oneContinuationPerCard(db: DatabaseSync, planned: readonly QueuedTask[], decided: readonly QueuedTask[], reads: ContinuationReads): QueuedTask[] {
+  const answering = planned.filter(task => !anAnswerTheStopAlreadySpent(db, task, reads))
+  const answered = new Set([...answering.map(task => task.cardId), ...cardsWithALiveAnswer(db, reads)])
   const first = new Map<number, QueuedTask>()
   for (const task of decided) {
     if (!answered.has(task.cardId) && !first.has(task.cardId))
@@ -194,7 +274,7 @@ export function oneContinuationPerCard(db: DatabaseSync, planned: readonly Queue
   return [...first.values()]
 }
 
-export function withDecidedContinuations(db: DatabaseSync, planned: readonly QueuedTask[], how: DecidedContinuations): QueuedTask[] {
-  const decided = decidedContinuations(db, how)
-  return decided.length === 0 ? [...planned] : [...planned, ...oneContinuationPerCard(db, planned, decided)]
+export function withDecidedContinuations(db: DatabaseSync, planned: readonly QueuedTask[], how: DecidedContinuations, reads: ContinuationReads): QueuedTask[] {
+  const decided = decidedContinuations(db, how, reads)
+  return decided.length === 0 ? [...planned] : [...planned, ...oneContinuationPerCard(db, planned, decided, reads)]
 }

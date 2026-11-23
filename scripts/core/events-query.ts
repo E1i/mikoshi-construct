@@ -15,6 +15,7 @@ export interface EventsQuery {
   keys?: readonly string[]
   ts?: string
   actorPrefix?: string
+  mentions?: string
   legacy?: boolean | typeof EITHER_JOURNAL
   newestFirst?: boolean
   limit?: number
@@ -86,7 +87,25 @@ function whereOf(query: EventsQuery): { clauses: string[], values: SQLInputValue
     add('ts = ?', query.ts)
   if (query.actorPrefix !== undefined)
     add('substr(actor, 1, ?) = ?', query.actorPrefix.length, query.actorPrefix)
+  if (query.mentions !== undefined)
+    add('instr(payload, ?) > 0', query.mentions)
   return { clauses, values }
+}
+
+interface EventsSql {
+  columns: string
+  alias?: string
+  where: string
+  newestFirst: boolean
+  limit: string
+}
+
+function eventsSql(sql: EventsSql): string {
+  return `SELECT ${sql.columns} FROM events${sql.alias === undefined ? '' : ` AS ${sql.alias}`}${sql.where} ORDER BY id ${sql.newestFirst ? 'DESC' : 'ASC'}${sql.limit}`
+}
+
+export function latestOfCardWhere(alias: string, condition: string): string {
+  return eventsSql({ columns: `${alias}.id AS id, ${alias}.payload AS payload`, alias, where: ` WHERE ${alias}.legacy = 0 AND ${alias}.card_id = ? AND ${condition}`, newestFirst: true, limit: ' LIMIT 1' })
 }
 
 export function events(db: DatabaseSync, query: EventsQuery = {}): EventRow[] {
@@ -95,7 +114,7 @@ export function events(db: DatabaseSync, query: EventsQuery = {}): EventRow[] {
   const { clauses, values } = whereOf(query)
   const where = clauses.length === 0 ? '' : ` WHERE ${clauses.join(' AND ')}`
   const limit = query.limit === undefined ? '' : ` LIMIT ${Math.max(0, Math.trunc(query.limit))}`
-  const sql = `SELECT ${ROW_COLUMNS} FROM events${where} ORDER BY id ${query.newestFirst === true ? 'DESC' : 'ASC'}${limit}`
+  const sql = eventsSql({ columns: ROW_COLUMNS, where, newestFirst: query.newestFirst === true, limit })
   return (db.prepare(sql).all(...values) as unknown as RawRow[]).map(rowOf)
 }
 
