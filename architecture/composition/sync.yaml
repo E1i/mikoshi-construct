@@ -16,7 +16,14 @@ description: >-
   settings also gets the installed browser lab exclusion in `.claude/settings.local.json`, through
   the one function `init` and `attach --upgrade` call, even when nothing else is written: a tracked
   or unreadable file is left alone and the run says so, an entry already held is not added twice,
-  every other byte stays, and the manifest records nothing of it. A block target whose record carries that sha and vars snapshot
+  every other byte stays, and the manifest records nothing of it. The role environment is a planned
+  write of the same `merge-hooks` target, never a side effect: `settledProjectSettings` in
+  `src/commands/attach/index.ts` unions the sandbox, the factory read rule and the role domains into
+  `.claude/settings.json` where the file carries the construct's eddies hook and the repository is
+  not the owner checkout; a planned settings write carries it, and a settings path classified `keep`
+  that lacks it becomes `update` in the apply report, so it is written by `applyPlan`, listed as
+  written and recorded in the `sync` branch like any other path; `runSync` reports the replayed
+  classes and leaves the environment to `--apply`. A block target whose record carries that sha and vars snapshot
   (manifest version 6, decision 0032) reads `block-edited` when its owned view differs from the sha,
   else `record-vars-edited` when the record's `vars` differ from the snapshot, else `keep` or
   `template-moved-on`. Any other append-block target is classified after `establishVariant` settles
@@ -83,6 +90,10 @@ nodes:
     label: planWrites · add and update where isWritable allows, the block spliced, discovery bodies carried over
     path: src/sync/write.ts
     boundary: classification
+  - id: environment
+    label: settledProjectSettings · the role environment unioned into the construct's settings, keep → update where it is missing
+    path: src/commands/attach/index.ts
+    boundary: classification
   - id: applied
     label: applyPlan · writes each planned file, creates, never deletes
     path: src/materialize/apply.ts
@@ -92,7 +103,7 @@ nodes:
     path: src/manifest.ts
     boundary: write
   - id: exclusion
-    label: excludedBrowserLabLocally · one entry in the untracked local settings, shared with init and attach --upgrade
+    label: excludedBrowserLabInTheConstruct · one entry in the untracked local settings, shared with init and attach --upgrade; reads the project settings, never writes them
     path: src/commands/attach/settings.ts
     boundary: write
   - id: print
@@ -121,7 +132,8 @@ edges:
   - {from: classify, to: json, kind: route, label: --json}
   - {from: classify, to: writes, kind: route, label: --apply}
   - {from: ownership, to: writes, kind: wires}
-  - {from: writes, to: applied, kind: sequence}
+  - {from: writes, to: environment, kind: sequence}
+  - {from: environment, to: applied, kind: sequence}
   - {from: applied, to: record, kind: sequence}
   - {from: record, to: exclusion, kind: sequence}
   - {from: exclusion, to: printApply, kind: sequence}

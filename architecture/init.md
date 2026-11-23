@@ -5,7 +5,7 @@ run `pnpm composition:render`; `pnpm composition:check` fails when the diagram a
 apart.
 
 <!-- composition:init -->
-`runInit(ui, options, prompter)` in `src/commands/init.ts` is the composition root: the four phases run in this order, every module is called from there, and nothing else writes to the target directory. Dotted edges are wiring, solid edges are the flow.
+`runInit(ui, options, prompter)` in `src/commands/init.ts` is the composition root: the four phases run in this order, every module is called from there, and nothing else writes to the target directory. The `.claude/settings.json` op leaves the plan with the role environment settled into it by `settledProjectSettings`, so `applyPlan` writes it and `construct.json` records it with the rest; the browser lab exclusion after it only reads that file. Dotted edges are wiring, solid edges are the flow.
 
 ```mermaid
 flowchart LR
@@ -28,6 +28,7 @@ flowchart LR
     templates["listTemplateFiles, render"]
     strategies["create / merge-json / append-block"]
     rules["Claude rules → Cursor rules"]
+    environment["settledProjectSettings · the role environment in the settings op"]
     apply["applyPlan"]
     manifest["construct.json"]
     model["construct.model.json"]
@@ -43,7 +44,8 @@ flowchart LR
   plan -.-> templates
   plan -.-> strategies
   plan -.-> rules
-  plan -->|"FileOp[] after confirm"| apply
+  plan -->|"FileOp[] after confirm"| environment
+  environment -->|"the settings op settled"| apply
   run -->|"readModel: validated before anything is written"| model
   run -->|"readManifest: the record already here"| manifest
   apply -->|"written files"| manifest

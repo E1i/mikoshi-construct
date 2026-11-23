@@ -20,9 +20,9 @@ import { ownedSha } from '../sync/ownership.js'
 import { isValidProjectName, parseLaneCount } from '../ui/prompts.js'
 import { VERSION } from '../version.js'
 import { shippedDaemonCommands } from './attach/daemon-commands.js'
-import { writeOwnerDecisionsBeside } from './attach/index.js'
+import { excludedBrowserLabInTheConstruct, settledProjectSettings, writeOwnerDecisionsBeside } from './attach/index.js'
 import { ATTACH_RECORD_FILE } from './attach/record.js'
-import { excludedBrowserLabLocally, PROJECT_SETTINGS_FILE } from './attach/settings.js'
+import { PROJECT_SETTINGS_FILE } from './attach/settings.js'
 import { printDetectReport } from './soulkill.js'
 
 function ownedShasOfBlocks(written: FileOp[]): Record<string, string> {
@@ -122,6 +122,13 @@ const DEPENDENCY_MANIFESTS = ['package.json', 'pnpm-workspace.yaml']
 
 function declaresDependencies(target: string): boolean {
   return DEPENDENCY_MANIFESTS.includes(path.basename(target))
+}
+
+function withTheRoleEnvironment(root: string, op: FileOp): FileOp {
+  if (op.target !== PROJECT_SETTINGS_FILE || op.action === 'skip')
+    return op
+  const content = settledProjectSettings(root, op.content)
+  return content === null ? op : { ...op, content }
 }
 
 function changesTheTree(root: string, op: FileOp): boolean {
@@ -402,11 +409,11 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
   const existingModel = readModel(root)
   const changing = applied.filter(op => changesTheTree(root, op))
   const next = nextStepAfter(changing, vars)
-  const written = applyPlan(root, plan.ops)
+  const written = applyPlan(root, plan.ops.map(op => withTheRoleEnvironment(root, op)))
   if (plan.ops.some(op => op.target === PROJECT_SETTINGS_FILE)) {
     const home = options.home ?? homedir()
     const command = shippedDaemonCommands(home).join(', ')
-    if (excludedBrowserLabLocally(root, home) != null)
+    if (excludedBrowserLabInTheConstruct(root, home) != null)
       ui.line(ui.theme.dim(`  ${ui.lore.initBrowserLabExcluded(command)}`))
     else
       ui.glitch(ui.lore.initSettingsSkippedNoExclusion(command))
