@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ParkedTask } from '../../src/card/parking.js'
 import type { CardEvent } from '../../src/commands/intake/index.js'
-import type { BusContract, BusEventData } from '../ports/bus-contract.js'
+import type { BusContract, BusEventData } from './bus-contract.js'
 import type { StoredEvent } from './stored-event.js'
 import { existsSync } from 'node:fs'
 import process from 'node:process'
@@ -10,6 +10,7 @@ import { textSha } from '../../src/card/text-sha.js'
 import { parentsFromCardLines, pathsNamedOutside } from '../../src/commands/intake/admit.js'
 import { isBackfill } from './backfill-source.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CONTINUED, CARD_STARTED, FACTORY_MODE, SLICE_PARENTS_BACKFILLED } from './events.js'
+import { reject } from './stored-event.js'
 
 export const CARD_BODIES = 'card_bodies'
 export const FACTORY_MODES = ['window', 'parallel'] as const
@@ -57,6 +58,10 @@ function payloadOrNull(event: StoredEvent): Record<string, unknown> | null {
   }
 }
 
+export function payloadObjectOf(event: StoredEvent): Record<string, unknown> {
+  return payloadOrNull(event) ?? reject('payload is not a JSON object')
+}
+
 export function isFactoryMode(mode: unknown): mode is FactoryMode {
   return typeof mode === 'string' && (FACTORY_MODES as readonly string[]).includes(mode)
 }
@@ -80,7 +85,7 @@ function versioned(bus: BusContract, db: DatabaseSync, event: CardEvent): CardEv
   if (event.type !== CARD_ADMITTED || typeof event.payload.text !== 'string')
     return event
   const previous = bus.latest(db, { types: [CARD_ADMITTED], card: event.cardId })
-  return { ...event, type: CARD_ADMITTED, payload: { ...event.payload, [bus.cardVersion.key]: bus.cardVersion.current, prevAdmissionId: previous?.id ?? null, prevTextSha: previous === null ? null : recordedTextSha(previous.payload) } }
+  return { ...event, type: CARD_ADMITTED, payload: { ...event.payload, cardVersion: bus.cardVersion.current, prevAdmissionId: previous?.id ?? null, prevTextSha: previous === null ? null : recordedTextSha(previous.payload) } }
 }
 
 export function laid(_db: DatabaseSync, event: CardEvent): CardEvent {

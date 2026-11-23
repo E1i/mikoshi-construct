@@ -1,5 +1,17 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { Fold, StoredEvent } from '../core/stored-event.js'
+
+export interface BusStoredEvent {
+  id: number
+  ts: string
+  type: string
+  card_id: number | null
+  pr: number | null
+  head: string | null
+  dedupe_key: string
+  payload: string
+}
+
+export type BusFold = (db: DatabaseSync, event: BusStoredEvent) => void
 
 export interface BusEventDraft {
   ts: string | null
@@ -26,7 +38,7 @@ export interface BusEventsQuery {
 
 export type BusEventData = Record<string, unknown>
 
-export interface BusEventRow extends StoredEvent {
+export interface BusEventRow extends BusStoredEvent {
   actor: string | null
   legacy: boolean
   data: BusEventData | null
@@ -40,12 +52,11 @@ export interface BusTaskRow {
 
 export interface BusProjection {
   table: string
-  folds: Record<string, Fold>
+  folds: Record<string, BusFold>
 }
 
 export interface BusCardVersion {
   current: number
-  key: string
   of: (payload: string | null) => number
 }
 
@@ -57,7 +68,6 @@ export interface BusContract {
   ofCard: (db: DatabaseSync, card: number, query?: Omit<BusEventsQuery, 'card'>) => BusEventRow[]
   perCard: (db: DatabaseSync, query?: Omit<BusEventsQuery, 'card'>) => Map<number, BusEventRow[]>
   tasksOfCard: (db: DatabaseSync, card: number, filter?: { queue?: string }) => BusTaskRow[]
-  payloadOf: (event: StoredEvent) => Record<string, unknown>
   lastEventId: (db: DatabaseSync) => number
   watermarkOf: (db: DatabaseSync, table: string) => number
   markReduced: (db: DatabaseSync, table: string, through: number) => void

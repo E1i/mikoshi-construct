@@ -7,6 +7,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { unsatisfiedDependencies } from '../../core/card-automaton.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_VERIFIED, WITNESS_RECORDED } from '../../core/events.js'
@@ -75,7 +76,7 @@ describe('a card whose goal is already on main', () => {
     const closed = w.db.prepare('SELECT pr, head, payload FROM events WHERE type = ? AND card_id = ?').all(CARD_CLOSED, CARD) as { pr: number | null, head: string, payload: string }[]
     expect(closed.map(row => ({ pr: row.pr, head: row.head, payload: JSON.parse(row.payload) as unknown }))).toEqual([{ pr: null, head: w.main, payload: { verification: 'run', witnessedOnMain: w.main } }])
     expect(cardState(w.db, CARD)).toBe('closed')
-    expect(unsatisfiedDependencies(w.db, dependencyReadings(w.db))([CARD])).toEqual([])
+    expect(unsatisfiedDependencies(BUS_CONTRACT, w.db, dependencyReadings(w.db))([CARD])).toEqual([])
   })
 
   it('a card whose witness is red on main records the red and stays open', async () => {
@@ -86,7 +87,7 @@ describe('a card whose goal is already on main', () => {
     expect(recorded.map(row => [row.pr, (JSON.parse(row.payload) as { verdict: string }).verdict])).toEqual([[null, 'red']])
     expect(w.db.prepare('SELECT 1 FROM events WHERE type = ? AND card_id = ?').get(CARD_CLOSED, CARD)).toBeUndefined()
     expect(cardState(w.db, CARD)).toBe('queued')
-    expect(unsatisfiedDependencies(w.db, dependencyReadings(w.db))([CARD])).toEqual([CARD])
+    expect(unsatisfiedDependencies(BUS_CONTRACT, w.db, dependencyReadings(w.db))([CARD])).toEqual([CARD])
   })
 })
 
@@ -96,6 +97,6 @@ describe('a probe closed by report', () => {
     appendEvent(w.db, { ts: TS, type: CARD_VERIFIED, actor: 'worker:task-close:by-hand', cardId: PROBE, pr: null, head: null, dedupeKey: `${CARD_VERIFIED}:${PROBE}:${TS}`, payload: { verification: 'run', report: '/reports/1502.md' }, legacy: false })
     reduce(w.db, 'pending', busProjections())
 
-    expect(unsatisfiedDependencies(w.db, dependencyReadings(w.db))([PROBE, CARD])).toEqual([CARD])
+    expect(unsatisfiedDependencies(BUS_CONTRACT, w.db, dependencyReadings(w.db))([PROBE, CARD])).toEqual([CARD])
   })
 })

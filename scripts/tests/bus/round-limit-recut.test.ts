@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
 import { AMEND_SOURCE } from '../../../src/commands/intake/admit.js'
 import { admittedRecord } from '../../../src/commands/intake/index.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { appendCardEvent } from '../../core/card-bodies.js'
 import { closedWaitIds } from '../../core/card-readings.js'
 import { appendEvent } from '../../core/db.js'
@@ -60,7 +61,7 @@ function admitCard(bench: MergeBench, text: string, source?: string): void {
   if (parsed.kind === 'refused')
     throw new Error(parsed.reason)
   const event = admittedRecord({ id: CARD, file: `${CARD}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now(), source)
-  appendCardEvent(bench.db, 'worker:intake:test', event)
+  appendCardEvent(BUS_CONTRACT, bench.db, 'worker:intake:test', event)
   bench.tick()
 }
 
@@ -239,7 +240,7 @@ describe('the re-cut of a pull request at the review round limit', () => {
         admitted += 1
         if (admitted === 2)
           return refuse(event)
-        return appendCardEvent(benches.at(-1)!.db, RECUT_ACTOR, event)
+        return appendCardEvent(BUS_CONTRACT, benches.at(-1)!.db, RECUT_ACTOR, event)
       } })
       fixed.reviewer.findings = [NARROW_FINDING]
       await reviewToTheLimit(fixed)

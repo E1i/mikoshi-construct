@@ -26,7 +26,8 @@
     "scripts/core/task-must-wait.ts",
     "scripts/core/projection-writes.ts",
     "scripts/core/projection-writes.known.json",
-    "scripts/core/rejection.ts"
+    "scripts/core/rejection.ts",
+    "scripts/core/bus-adapter.ts"
   ],
   "exclude": [],
   "shared": []

@@ -7,6 +7,7 @@ import { constants } from 'node:os'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { BUS_CONTRACT } from '../core/bus-adapter.js'
 import { appendedOnCard } from '../core/card-automaton.js'
 import { defaultBusPath, openBus } from '../core/db.js'
 import { cardIdOf, HEAVY_RUNS } from '../core/identifiers.js'
@@ -87,6 +88,6 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     clock: () => new Date(),
     pause: sleep,
     spawn: spawnInherited,
-    cards: { appendedOnCard },
+    cards: { appendedOnCard: (db, event) => appendedOnCard(BUS_CONTRACT, db, event) },
   })
 }

@@ -19,6 +19,7 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../../src/card/parking.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { busPathOf, machineBusPath } from '../../core/bus-path.js'
 import { cardSessionsIn } from '../../core/card-bodies.js'
 import { busCardDecisions, withCardDecisions } from '../../core/card-decisions.js'
@@ -283,7 +284,7 @@ export function busCardSessions(busPath: string): (cardId: number) => string[] {
       return []
     const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
     try {
-      return [...new Set(cardSessionsIn(db, cardId))]
+      return [...new Set(cardSessionsIn(BUS_CONTRACT, db, cardId))]
     }
     finally {
       db.close()

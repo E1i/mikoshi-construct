@@ -8,6 +8,7 @@ import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
 import { admittedRecord } from '../../../src/commands/intake/index.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { appendCardEvent } from '../../core/card-bodies.js'
 import { POLICY_DENIED, REVIEW_RECORDED, TASK_FAILED, TASK_LEASED } from '../../core/events.js'
 import { PLAN_STEP, plannerPastItsLimit } from '../../nodes/review/review-executor.js'
@@ -74,7 +75,7 @@ function admit(bench: MergeBench, pr: number): void {
   const parsed = parseParkingFile(`${card}.md`, text)
   if (parsed.kind === 'refused')
     throw new Error(parsed.reason)
-  appendCardEvent(bench.db, 'worker:intake:test', admittedRecord({ id: card, file: `${card}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now()))
+  appendCardEvent(BUS_CONTRACT, bench.db, 'worker:intake:test', admittedRecord({ id: card, file: `${card}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now()))
   bench.tick()
   bench.gitHub.open({ number: pr, head: sha(String(pr % 10)), ref: `feat/card-${card}`, body: cardBody(pr) })
   bench.tick()

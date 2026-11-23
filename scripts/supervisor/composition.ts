@@ -17,7 +17,6 @@ import type { UpdateSourceParts } from '../nodes/update/update-candidates.js'
 import type { DerivedHolds, ThresholdSet } from '../nodes/update/update-executor.js'
 import type { WitnessParts } from '../nodes/witness/witness-candidates.js'
 import type { InForceDecision } from '../policy/decisions/index.js'
-import type { BusContract } from '../ports/bus-contract.js'
 import type { GitHub } from '../ports/github.js'
 import type { PlanParts } from '../window/plan-folds.js'
 import type { DetachedLaunch } from './bg.js'
@@ -36,15 +35,15 @@ import { readAttachRecord } from '../../src/commands/attach/record.js'
 import { automatonOf, selectingNodes } from '../ci/card-automaton.js'
 import { GATE_RUN_SPOOL } from '../ci/gate-runs.js'
 import { driftOfRun } from '../ci/weights-law.js'
-import { CARD_VERSION, CARD_VERSION_KEY, cardVersionIn } from '../core/bus-version.js'
+import { BUS_CONTRACT } from '../core/bus-adapter.js'
 import { CHECK_MS, TICK_MS } from '../core/cadence.js'
-import { appendedOnCard, cardFolds, cardLinkObserved, cardPrMerged, cardPrOpened, cardsAnswered, cardsProjection, CHANGES_CARD, CLOSED_CARD, DEFERRED_CARD, DROPPED_CARD, FALLEN_CARD, IN_REVIEW_CARD, MERGED_CARD, QUEUED_CARD, READY_CARD, RUNNING_CARD, STOPPED_CARD } from '../core/card-automaton.js'
+import { appendedOnCard, cardFolds, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION, cardsAnswered, CHANGES_CARD, CLOSED_CARD, DEFERRED_CARD, DROPPED_CARD, FALLEN_CARD, IN_REVIEW_CARD, MERGED_CARD, QUEUED_CARD, READY_CARD, RUNNING_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { admittedCardVersion, backfillPendingSliceParents, cardOfBranch } from '../core/card-bodies.js'
 import { cardDecisionReads, reviewedUnderTheCardDecision, reviewsTheCardDecisionReopens, withDecidedContinuations } from '../core/card-decisions.js'
 import { openOwnerWaits } from '../core/card-readings.js'
 import { CHAINS_PROJECTION } from '../core/chain.js'
-import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, OPEN_WAIT, openBus } from '../core/db.js'
-import { byId, events, latest, ofCard, perCard } from '../core/events-query.js'
+import { defaultBusPath, openBus } from '../core/db.js'
+import { byId } from '../core/events-query.js'
 import { CARD_DEFERRED, CARD_MOVED, CARD_PLANNED, CARD_STOPPED, CARD_UNPLANNED, DECISION_RECORDED, DECISIONS_IMPORTED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OBSERVED, PR_OPENED, RATCHET_THRESHOLD_SET, SLICE_PARENTS_BACKFILLED, TASK_ENQUEUED, TASK_REQUEUED } from '../core/events.js'
 import { FACTORY_WORKERS } from '../core/factory-paths.js'
 import { isFullSha, prOf } from '../core/identifiers.js'
@@ -56,10 +55,7 @@ import { ownerWaitCommand } from '../core/owner-commands.js'
 import { linkRefusal, openedPrOf, prFolds, prRow } from '../core/pr-folds.js'
 import * as prs from '../core/pr-readings.js'
 import { closeCandidates, keyOf, reviewCandidates, taskRow, TASKS_PROJECTION } from '../core/queue.js'
-import { openDatabase } from '../core/sqlite.js'
 import { payloadOf, storedByKey } from '../core/stored.js'
-import * as tasks from '../core/tasks-query.js'
-import { lastEventId, markReduced, reduceProjection, watermarkOf } from '../core/watermark.js'
 import { cardContract } from '../intake/card-contract.js'
 import { BusWeightsRecompute } from '../intake/intake.js'
 import { answerSource } from '../nodes/answer/answer-candidates.js'
@@ -144,24 +140,6 @@ export function nodeLiveness(): NodeLiveness {
 }
 
 export type CardSessionMeasure = SessionMeasure
-
-export const BUS_CONTRACT: BusContract = {
-  appendEvent,
-  events,
-  latest,
-  byId,
-  ofCard,
-  perCard,
-  tasksOfCard: tasks.ofCard,
-  payloadOf,
-  lastEventId,
-  watermarkOf,
-  markReduced,
-  reduceProjection,
-  openReadOnly: file => openDatabase(file, { readOnly: true, timeout: BUSY_TIMEOUT_MS }),
-  openWait: OPEN_WAIT,
-  cardVersion: { current: CARD_VERSION, key: CARD_VERSION_KEY, of: cardVersionIn },
-}
 
 export function refusesForeignCard(db: DatabaseSync, lease: Lease, understands: Understood): string | null {
   const version = admittedCardVersion(BUS_CONTRACT, db, lease.cardId)
@@ -313,7 +291,7 @@ export function busOwnerWaitFolds(): Record<string, Fold> {
 export function busProjections(): Projections {
   return {
     folds: [releasingTakeoverOnPush(busPrFolds(), [PR_OBSERVED, PR_OPENED], db => new BusRead(db)), TASKS_PROJECTION.folds, CHAINS_PROJECTION.folds, ROLES_PROJECTION.folds, busDecisionFolds(), busCardFolds(), busOwnerWaitFolds(), PLAN_FOLDS, cardWaitFolds(cardWaitParts())],
-    incremental: [ROLES_PROJECTION, TASKS_PROJECTION, CHAINS_PROJECTION, cardsProjection(BUS_CONTRACT)],
+    incremental: [ROLES_PROJECTION, TASKS_PROJECTION, CHAINS_PROJECTION, CARDS_PROJECTION],
   }
 }
 

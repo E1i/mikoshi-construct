@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { runAmend } from '../../../src/commands/intake/amend.js'
 import { runMove } from '../../../src/commands/intake/move.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { BUS_DB_VARIABLE } from '../../core/bus-path.js'
 import { busAdmittedBodies } from '../../core/card-bodies.js'
 import { appendEvent, openBus } from '../../core/db.js'
@@ -179,7 +180,7 @@ describe('no runtime reader opens the parking directory; the card body comes fro
     const body = realDeps().cardBody!(90)
     expect(body).toContain(AMENDED_NOTE)
     expect(body).not.toContain('A parking body nobody admitted.')
-    expect(body).toBe(busAdmittedBodies(w.bus)(90))
+    expect(body).toBe(busAdmittedBodies(BUS_CONTRACT, w.bus)(90))
   })
 
   it('replaying the log in a copy of the repository at another path dumps byte-identical tasks', () => {

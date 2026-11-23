@@ -1,7 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { BusContract, BusEventDraft, BusEventRow, BusProjection } from '../ports/bus-contract.js'
+import type { BusContract, BusEventDraft, BusEventRow, BusProjection } from './bus-contract.js'
 import type { Fold, StoredEvent } from './stored-event.js'
 import { isBackfill } from './backfill-source.js'
+import { payloadObjectOf } from './card-bodies.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_DEFERRED, CARD_DROPPED, CARD_FELL, CARD_MOVED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, DROPPED_LANE, MERGE_DONE, PR_OPENED, QUESTION_OWNER, REVIEW_RECORDED, TERMINAL_LANES, WITNESS_RECORDED } from './events.js'
 import { reject } from './stored-event.js'
 
@@ -139,8 +140,8 @@ export function launchStartLease(leaseGen: number): { lease_gen?: number } {
   return leaseGen === FIRST_LEASE_GEN ? {} : { lease_gen: leaseGen }
 }
 
-function leaseGenCarriedBy(bus: BusContract, event: StoredEvent, current: LaunchLease | undefined): number | null {
-  const carried = bus.payloadOf(event).lease_gen
+function leaseGenCarriedBy(event: StoredEvent, current: LaunchLease | undefined): number | null {
+  const carried = payloadObjectOf(event).lease_gen
   if (typeof carried === 'number' && Number.isSafeInteger(carried) && carried > 0)
     return carried
   return current?.state === LEASED_TASK && event.dedupe_key === launchStartKey(current.task_key, current.lease_gen) ? current.lease_gen : null
@@ -148,7 +149,7 @@ function leaseGenCarriedBy(bus: BusContract, event: StoredEvent, current: Launch
 
 function restoreFromFault(bus: BusContract, db: DatabaseSync, event: StoredEvent, cardId: number): void {
   const current = currentLaunchLease(bus, db, cardId)
-  const carried = leaseGenCarriedBy(bus, event, current)
+  const carried = leaseGenCarriedBy(event, current)
   if (carried === null || carried !== current?.lease_gen)
     reject(`card ${cardId} is ${STOPPED_CARD} by ${FAULT}, and ${event.type} restores it only under the current lease_gen ${current?.lease_gen ?? 'of no launch'} of its launch, not ${carried ?? 'none'}`)
 }
@@ -177,15 +178,15 @@ function mergedInTheJournalBefore(bus: BusContract, db: DatabaseSync, cardId: nu
 
 function foldAdmitted(bus: BusContract, db: DatabaseSync, event: StoredEvent): void {
   const cardId = event.card_id ?? reject(`${CARD_ADMITTED} needs a card_id`)
-  if (isBackfill(bus.payloadOf(event)) || !ADMITTED_AGAIN.has(stateOf(db, cardId)))
+  if (isBackfill(payloadObjectOf(event)) || !ADMITTED_AGAIN.has(stateOf(db, cardId)))
     return
   moveCard(db, cardId, mergedInTheJournalBefore(bus, db, cardId, event.id) ? MERGED_CARD : QUEUED_CARD, event.id)
 }
 
-function foldReviewRecorded(bus: BusContract, db: DatabaseSync, event: StoredEvent): void {
+function foldReviewRecorded(db: DatabaseSync, event: StoredEvent): void {
   if (event.card_id === null || !REVIEWED.has(stateOf(db, event.card_id)))
     return
-  moveCard(db, event.card_id, bus.payloadOf(event).verdict === 'pass' ? READY_CARD : CHANGES_CARD, event.id)
+  moveCard(db, event.card_id, payloadObjectOf(event).verdict === 'pass' ? READY_CARD : CHANGES_CARD, event.id)
 }
 
 function foldMergeDone(db: DatabaseSync, event: StoredEvent): void {
@@ -323,9 +324,9 @@ function foldFell(db: DatabaseSync, event: StoredEvent): void {
   claimed(db, event, FALLS, FALLEN_CARD)
 }
 
-function foldMoved(bus: BusContract, db: DatabaseSync, event: StoredEvent, prs: CardPrReadings): void {
+function foldMoved(db: DatabaseSync, event: StoredEvent, prs: CardPrReadings): void {
   const cardId = event.card_id ?? reject(`${CARD_MOVED} needs a card_id`)
-  const lane = bus.payloadOf(event).lane
+  const lane = payloadObjectOf(event).lane
   if (typeof lane === 'string' && TERMINAL_LANES.has(lane) && !ENDED.has(stateOf(db, cardId)))
     moveCard(db, cardId, DROPPED_CARD, event.id)
   else if (stateOf(db, cardId) === DEFERRED_CARD)
@@ -344,9 +345,9 @@ function foldDropped(db: DatabaseSync, event: StoredEvent): void {
     moveCard(db, cardId, DROPPED_CARD, event.id)
 }
 
-function foldStopped(bus: BusContract, db: DatabaseSync, event: StoredEvent): void {
+function foldStopped(db: DatabaseSync, event: StoredEvent): void {
   const cardId = event.card_id ?? reject(`${CARD_STOPPED} needs a card_id`)
-  const reason = bus.payloadOf(event).reason
+  const reason = payloadObjectOf(event).reason
   if (typeof reason !== 'string' || !STOP_REASONS.has(reason))
     reject(`reason is not one of ${[...STOP_REASONS].join(' | ')}`)
   if (stateOf(db, cardId) === CLOSED_CARD)
@@ -354,42 +355,39 @@ function foldStopped(bus: BusContract, db: DatabaseSync, event: StoredEvent): vo
   moveCard(db, cardId, STOPPED_CARD, event.id)
 }
 
-function cardOnAppendFolds(bus: BusContract): Record<string, Fold> {
-  return {
-    [REVIEW_RECORDED]: (db, event) => foldReviewRecorded(bus, db, event),
-    [MERGE_DONE]: foldMergeDone,
-    [CARD_STOPPED]: (db, event) => foldStopped(bus, db, event),
-  }
+const CARD_ON_APPEND_FOLDS: Record<string, Fold> = {
+  [REVIEW_RECORDED]: foldReviewRecorded,
+  [MERGE_DONE]: foldMergeDone,
+  [CARD_STOPPED]: foldStopped,
 }
 
-export const CARD_FOLDED_ON_APPEND: readonly string[] = [REVIEW_RECORDED, MERGE_DONE, CARD_STOPPED]
+export const CARD_FOLDED_ON_APPEND: readonly string[] = Object.keys(CARD_ON_APPEND_FOLDS)
 
-const CARDS_TABLE = 'cards'
+export const CARDS_PROJECTION: BusProjection = { table: 'cards', folds: CARD_ON_APPEND_FOLDS }
 
-export function cardsProjection(bus: BusContract): BusProjection {
-  return { table: CARDS_TABLE, folds: cardOnAppendFolds(bus) }
+const CARD_FOLDS: Record<string, Fold> = {
+  ...CARD_ON_APPEND_FOLDS,
+  [CARD_FELL]: foldFell,
+  [CARD_DEFERRED]: foldDeferred,
+  [CARD_DROPPED]: foldDropped,
 }
 
 export function cardFolds(bus: BusContract, prs: CardPrReadings): Record<string, Fold> {
   return {
-    ...cardOnAppendFolds(bus),
+    ...CARD_FOLDS,
     [CARD_ADMITTED]: (db, event) => foldAdmitted(bus, db, event),
     [CARD_STARTED]: (db, event) => foldStarted(bus, db, event),
-    [CARD_FELL]: foldFell,
-    [CARD_DEFERRED]: foldDeferred,
-    [CARD_DROPPED]: foldDropped,
     [CARD_ANSWERED]: (db, event) => foldAnswered(db, event, prs),
     [CARD_CLOSED]: (db, event) => foldClosed(bus, db, event, prs),
-    [CARD_MOVED]: (db, event) => foldMoved(bus, db, event, prs),
+    [CARD_MOVED]: (db, event) => foldMoved(db, event, prs),
   }
 }
 
 export function appendedOnCard(bus: BusContract, db: DatabaseSync, event: BusEventDraft): boolean {
-  const projection = cardsProjection(bus)
   const current = bus.lastEventId(db)
   const appended = bus.appendEvent(db, event)
-  if (bus.watermarkOf(db, projection.table) === 0)
-    bus.markReduced(db, projection.table, current)
-  bus.reduceProjection(db, projection)
+  if (bus.watermarkOf(db, CARDS_PROJECTION.table) === 0)
+    bus.markReduced(db, CARDS_PROJECTION.table, current)
+  bus.reduceProjection(db, CARDS_PROJECTION)
   return appended
 }

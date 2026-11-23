@@ -14,6 +14,7 @@ import { branchCardRuns, cardRunsOf, runsSourceOfBranch, runsSourceOfPr, session
 import { CHANGESET_READERS, selectRun, sessionRun } from '../../ci/layers.js'
 import { sessionSelection, withCardRuns } from '../../ci/prepush.js'
 import { writeCatalog } from '../../cli/check-catalog.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { appendCardEvent } from '../../core/card-bodies.js'
 import { openBus } from '../../core/db.js'
 import { CARD_ADMITTED } from '../../core/events.js'
@@ -128,7 +129,7 @@ function layeredOf(changed: string[]) {
 
 function admit(db: DatabaseSync, masks: string[], touches: string[] = [WORKER]): void {
   const text = parkingFileText({ card: CARD_LINE, branch: BRANCH, touches, continue: 'stop', who: 'shift', body: `Do it.\n\n${runsLine(masks.map(mask => `layer:${mask}`))}` })
-  appendCardEvent(db, 'owner', { ts: '2026-11-05T00:00:00.000Z', type: CARD_ADMITTED, cardId: CARD_ID, dedupeKey: `${CARD_ADMITTED}:${CARD_ID}`, payload: { text, textSha: textSha(text) } })
+  appendCardEvent(BUS_CONTRACT, db, 'owner', { ts: '2026-11-05T00:00:00.000Z', type: CARD_ADMITTED, cardId: CARD_ID, dedupeKey: `${CARD_ADMITTED}:${CARD_ID}`, payload: { text, textSha: textSha(text) } })
   reduce(db, 'pending', busProjections())
 }
 
