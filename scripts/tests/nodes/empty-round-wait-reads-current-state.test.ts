@@ -8,7 +8,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { AMEND_SOURCE } from '../../../src/commands/intake/admit.js'
 import { openOwnerWaits } from '../../core/card-readings.js'
 import { appendEvent, openOwnerWait } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_CLOSED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, WITNESS_RECORDED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_CLOSED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, WITNESS_RECORDED } from '../../core/events.js'
 import { completeTask, leaseNext } from '../../core/lease.js'
 import { all as pullRequests } from '../../core/pr-readings.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
@@ -86,6 +86,11 @@ function greenWitness(card: Card, head: string): void {
 function reviewPass(card: Card, head: string, round = 'first'): void {
   card.bench.gitHub.open({ number: PR, head, review: 'success' })
   appendEvent(card.bench.db, { ts: card.at(), type: REVIEW_RECORDED, actor: 'worker:review:reviewer-1', cardId: CARD, pr: PR, head, dedupeKey: `${REVIEW_RECORDED}:${PR}:${head}:${round}`, payload: { head, verdict: 'pass', reviewer_session: 'reviewer-1', findings: [] }, legacy: false })
+  card.bench.tick()
+}
+
+function takeoverPushReleased(card: Card, head: string): void {
+  appendEvent(card.bench.db, { ts: card.at(), type: CARD_RELEASED, actor: 'policy', cardId: CARD, pr: PR, head, dedupeKey: `${CARD_RELEASED}:takeover-push:${CARD}:${head}`, payload: { reason: `takeover pushed ${head}`, takeover: true }, legacy: false })
   card.bench.tick()
 }
 
@@ -224,9 +229,113 @@ describe('an owner wait over a card is opened from its current state and closes 
     decide(card)
     card.bench.gitHub.open({ number: PR, head: NEW_HEAD })
     card.bench.tick()
+    takeoverPushReleased(card, NEW_HEAD)
 
     expect(card.sources.sourceOf(card.lease(HEAD, DECISION))).toMatchObject({ kind: 'decision', decisionId: DECISION })
     expect(card.sources.sourceOf(card.lease(NEW_HEAD, DECISION))).toBeNull()
+  })
+
+  it('a decision followed by a merge-main head with no takeover release still queues its answer', () => {
+    const card = aCard()
+    stop(card, QUESTION_OWNER)
+    decide(card)
+    card.bench.gitHub.open({ number: PR, head: NEW_HEAD })
+    card.bench.tick()
+
+    expect(card.sources.sourceOf(card.lease(NEW_HEAD, DECISION))).toMatchObject({ kind: 'decision', decisionId: DECISION })
+  })
+
+  it('a takeover release before the decision does not make the head carry it', () => {
+    const card = aCard()
+    stop(card, QUESTION_OWNER)
+    card.bench.gitHub.open({ number: PR, head: NEW_HEAD })
+    card.bench.tick()
+    takeoverPushReleased(card, NEW_HEAD)
+    decide(card)
+
+    expect(card.sources.sourceOf(card.lease(NEW_HEAD, DECISION))).toMatchObject({ kind: 'decision', decisionId: DECISION })
+  })
+})
+
+describe('a decision is answered unless every merge condition holds on the head it names', () => {
+  function decidedWith(pull: { review?: 'success', required?: 'pending' }, witnessed: boolean): Card {
+    const card = aCard()
+    stop(card)
+    emptyRound(card)
+    card.bench.gitHub.open({ number: PR, head: HEAD, ...pull })
+    if (pull.review === 'success')
+      reviewPass(card, HEAD)
+    card.bench.gitHub.open({ number: PR, head: HEAD, ...pull })
+    card.bench.tick()
+    if (witnessed)
+      greenWitness(card, HEAD)
+    decide(card)
+    return card
+  }
+
+  it('green CI and a green witness without a review pass still answer the decision', () => {
+    const card = decidedWith({}, true)
+
+    expect(card.sources.sourceOf(card.lease(HEAD, DECISION))).toMatchObject({ kind: 'decision', decisionId: DECISION })
+  })
+
+  it('a review pass and a green witness with CI not green still answer the decision', () => {
+    const card = decidedWith({ review: 'success', required: 'pending' }, true)
+
+    expect(card.sources.sourceOf(card.lease(HEAD, DECISION))).toMatchObject({ kind: 'decision', decisionId: DECISION })
+  })
+
+  it('a pull request ready on one head does not lift a decision the lease names on another', () => {
+    const card = decidedWith({ review: 'success' }, true)
+    greenWitness(card, NEW_HEAD)
+
+    expect(card.sources.sourceOf(card.lease(HEAD, DECISION))).toBeNull()
+    expect(card.sources.sourceOf(card.lease(NEW_HEAD, DECISION))).toMatchObject({ kind: 'decision', decisionId: DECISION })
+  })
+})
+
+describe('the dead-end detector lifts only its own wait, and only on a review pass of the observed head', () => {
+  function deadEndsStep(card: Card): string[] {
+    const lifted = new DeadEnds(card.bench.db, card.bench.clock.now, { selecting: () => [], events: NOBODY_STUCK }).step()
+    card.bench.tick()
+    return lifted
+  }
+
+  it('an owner wait over the pull request that another path opened stays open after a review pass on a new head', () => {
+    const card = aCard()
+    openOwnerWait(card.bench.db, card.at(), 'policy', { need: 'decision', text: 'which path?', card: CARD, pr: PR })
+    card.bench.tick()
+
+    reviewPass(card, NEW_HEAD)
+
+    expect(deadEndsStep(card)).toEqual([])
+    expect(card.waits()).toEqual(['which path?'])
+  })
+
+  it('a review pass after the dead end on an older head than the observed one keeps the wait', () => {
+    const card = aCard()
+    openOwnerWait(card.bench.db, card.at(), DEAD_END_ACTOR, { need: 'decision', text: `card #${CARD} is at a dead end`, card: CARD, pr: PR })
+    card.bench.tick()
+
+    reviewPass(card, HEAD)
+    card.bench.gitHub.open({ number: PR, head: NEW_HEAD, review: 'success' })
+    card.bench.tick()
+
+    expect(deadEndsStep(card)).toEqual([])
+    expect(card.waits()).toHaveLength(1)
+  })
+
+  it('a review pass recorded after the dead end while the observed pull request carries no pass keeps the wait', () => {
+    const card = aCard()
+    openOwnerWait(card.bench.db, card.at(), DEAD_END_ACTOR, { need: 'decision', text: `card #${CARD} is at a dead end`, card: CARD, pr: PR })
+    card.bench.tick()
+
+    appendEvent(card.bench.db, { ts: card.at(), type: REVIEW_RECORDED, actor: 'worker:review:reviewer-1', cardId: CARD, pr: PR, head: HEAD, dedupeKey: `${REVIEW_RECORDED}:${PR}:${HEAD}:unobserved`, payload: { head: HEAD, verdict: 'pass', reviewer_session: 'reviewer-1', findings: [] }, legacy: false })
+    card.bench.gitHub.open({ number: PR, head: HEAD, review: 'failure' })
+    card.bench.tick()
+
+    expect(deadEndsStep(card)).toEqual([])
+    expect(card.waits()).toHaveLength(1)
   })
 })
 

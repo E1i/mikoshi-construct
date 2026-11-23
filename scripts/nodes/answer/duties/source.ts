@@ -6,7 +6,7 @@ import { CLOSED_WAIT, OWNER_WAITS } from '../../../core/bus-readings.js'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../../../core/card-automaton.js'
 import { closedWaitIds, openOwnerWaits } from '../../../core/card-readings.js'
 import { closeOwnerWait, inTransaction, openBusWait } from '../../../core/db.js'
-import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_DROPPED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, WITNESS_RECORDED } from '../../../core/events.js'
+import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_DROPPED, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, WITNESS_RECORDED } from '../../../core/events.js'
 import { mergedCards, ofPr as pullRequestOf } from '../../../core/pr-readings.js'
 import { openDecisionWaitsOf, unmergedDependenciesOf } from '../../../core/queue.js'
 import { cardDecisionCommand, decisionsInForceAt } from '../../../policy/shards.js'
@@ -162,7 +162,7 @@ export class AnswerSources {
     return null
   }
 
-  readyToMerge(lease: Lease): boolean {
+  private readyToMerge(lease: Lease): boolean {
     if (lease.pr === null || lease.head === null)
       return false
     const pull = pullRequestOf(this.parts.db, lease.pr)
@@ -175,8 +175,9 @@ export class AnswerSources {
       return false
     const read = new BusRead(this.parts.db)
     const decided = read.slice(DECISION_RECORDED, ['decision_id']).filter(each => Number(each.fields.decision_id) === decisionId).at(-1)
-    const seen = read.where({ pr: lease.pr }).slice(PR_OBSERVED, ['head']).find(each => (each.head ?? each.fields.head) === lease.head)
-    return decided !== undefined && seen !== undefined && seen.id > decided.id
+    if (decided === undefined)
+      return false
+    return read.where({ card: lease.cardId, from: decided.id + 1 }).slice(CARD_RELEASED, ['takeover']).some(released => released.fields.takeover === true && released.head === lease.head)
   }
 
   private exitTaken(lease: Lease, sinceTheStop: BusRead, round: { id: number, head: string | null }): EmptyRoundExit | null {
