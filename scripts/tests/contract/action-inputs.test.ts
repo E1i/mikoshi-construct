@@ -138,7 +138,14 @@ describe('a read of an action file through the GitHub port', () => {
     expect((await fetchMissing(pinnedSteps('release.yml', RELEASE_WORKFLOW), {}, fetcher))['actions/checkout@v7']).toEqual(['token'])
   })
 
-  it.each(['gh: Server Error (HTTP 500)', 'gh: Forbidden (HTTP 403)', 'gh: Gone (HTTP 410)', 'gh timed out after 20 s'])('refuses any other failure of the port: %s', (reason) => {
+  it.each([
+    'gh: Server Error (HTTP 500)',
+    'gh: Forbidden (HTTP 403)',
+    'gh: Gone (HTTP 410)',
+    'gh timed out after 20 s',
+    'gh timed out after 404 ms',
+    'gh: Server Error (HTTP 500): upstream answered 404',
+  ])('refuses any other failure of the port: %s', (reason) => {
     expect(() => actionFileBody(ACTION_YML, { kind: 'failed', reason })).toThrow(`the GitHub port could not read ${ACTION_YML}: ${reason}`)
   })
 })
