@@ -6,8 +6,8 @@ import { CLOSED_WAIT, OWNER_WAITS } from '../../../core/bus-readings.js'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../../../core/card-automaton.js'
 import { closedWaitIds, openOwnerWaits } from '../../../core/card-readings.js'
 import { closeOwnerWait, inTransaction, openBusWait } from '../../../core/db.js'
-import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_DROPPED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, WITNESS_RECORDED } from '../../../core/events.js'
-import { mergedCards } from '../../../core/pr-readings.js'
+import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_DROPPED, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, WITNESS_RECORDED } from '../../../core/events.js'
+import { mergedCards, ofPr as pullRequestOf } from '../../../core/pr-readings.js'
 import { openDecisionWaitsOf, unmergedDependenciesOf } from '../../../core/queue.js'
 import { cardDecisionCommand, decisionsInForceAt } from '../../../policy/shards.js'
 import { BusRead } from '../../../ports/bus-read.js'
@@ -33,7 +33,7 @@ function emptyRoundWaitPrefix(cardId: number): string {
   return `card #${cardId} waits for the owner: an answer round after its `
 }
 
-type EmptyRoundExit = 'decision' | 'closed' | 'amend' | 'new-head'
+type EmptyRoundExit = 'decision' | 'closed' | 'amend' | 'merge-ready' | 'new-head'
 
 export interface AwaitedStop {
   id: number
@@ -43,11 +43,18 @@ export interface AwaitedStop {
 
 const DIRTY_ON_HEAD = `SELECT 1 FROM prs WHERE pr = ? AND head = ? AND state = 'open' AND mergeable = 'dirty'`
 
-const RED_WITNESS_ON_HEAD = `
-  SELECT json_extract(red.payload, '$.detail') AS detail FROM events AS red
-  WHERE red.id = (SELECT max(latest.id) FROM events AS latest WHERE latest.type = '${WITNESS_RECORDED}' AND latest.legacy = 0 AND latest.pr = ? AND latest.head = ?)
-    AND json_extract(red.payload, '$.verdict') = 'red'
+const WITNESS_ON_HEAD = `
+  SELECT json_extract(witness.payload, '$.detail') AS detail FROM events AS witness
+  WHERE witness.id = (SELECT max(latest.id) FROM events AS latest WHERE latest.type = '${WITNESS_RECORDED}' AND latest.legacy = 0 AND latest.pr = ? AND latest.head = ?)
+    AND json_extract(witness.payload, '$.verdict') = ?
 `
+
+const RED_VERDICT = 'red'
+const GREEN_VERDICT = 'green'
+
+const OPEN_PR = 'open'
+const GREEN_CI = 'green'
+const PASS_VERDICT = 'pass'
 
 const FULL_SHA = /^[0-9a-f]{40}$/
 const CARD_ENDS: readonly string[] = [MERGED_CARD, CLOSED_CARD, DROPPED_CARD]
@@ -115,6 +122,12 @@ export class AnswerSources {
     const source = answerSourceOf(this.parts.db, lease, this.parts.clock())
     if (this.heldByADependency(lease))
       return source?.kind === 'ci' ? source : null
+    if (this.readyToMerge(lease)) {
+      this.awaitedStop(lease)
+      return null
+    }
+    if (source?.kind === 'decision' && this.carriedByTheHead(lease, source.decisionId))
+      return null
     const awaited = source?.kind === 'decision' ? null : this.awaitedStop(lease)
     if (awaited !== null) {
       this.holdForTheOwner(lease, awaited)
@@ -142,20 +155,40 @@ export class AnswerSources {
     const round = card.where({ from: stop.id + 1 }).slice(POLICY_DENIED, ['command', 'reason']).filter(denied => denied.fields.command === 'answer' && denied.fields.reason === EMPTY_ROUND).at(-1)
     if (round === undefined)
       return null
-    const exit = this.exitTaken(lease, card.where({ from: round.id + 1 }), round)
+    const exit = this.exitTaken(lease, card.where({ from: stop.id + 1 }), round)
     if (exit === null || this.heldByADependency(lease))
       return { id: stop.id, reason: stop.reason, emptyRound: round.id }
     this.closeTheEmptyRoundWait(lease, exit, round.id)
     return null
   }
 
-  private exitTaken(lease: Lease, since: BusRead, round: { id: number, head: string | null }): EmptyRoundExit | null {
+  private readyToMerge(lease: Lease): boolean {
+    if (lease.pr === null || lease.head === null)
+      return false
+    const pull = pullRequestOf(this.parts.db, lease.pr)
+    return pull !== null && pull.head === lease.head && pull.state === OPEN_PR && pull.ci === GREEN_CI && pull.verdict_on_head === PASS_VERDICT
+      && this.parts.db.prepare(WITNESS_ON_HEAD).get(lease.pr, lease.head, GREEN_VERDICT) !== undefined
+  }
+
+  private carriedByTheHead(lease: Lease, decisionId: number): boolean {
+    if (lease.pr === null || lease.head === null)
+      return false
+    const read = new BusRead(this.parts.db)
+    const decided = read.slice(DECISION_RECORDED, ['decision_id']).filter(each => Number(each.fields.decision_id) === decisionId).at(-1)
+    if (decided === undefined)
+      return false
+    return read.where({ card: lease.cardId, from: decided.id + 1 }).slice(CARD_RELEASED, ['takeover']).some(released => released.fields.takeover === true && released.head === lease.head)
+  }
+
+  private exitTaken(lease: Lease, sinceTheStop: BusRead, round: { id: number, head: string | null }): EmptyRoundExit | null {
     if (this.decidedSince(lease, round.id))
       return 'decision'
     if (this.waitClosedSince(lease, round.id))
       return 'closed'
-    if (since.slice(CARD_ADMITTED, ['source']).some(admitted => admitted.fields.source === AMENDED_ADMISSION))
+    if (sinceTheStop.slice(CARD_ADMITTED, ['source']).some(admitted => admitted.fields.source === AMENDED_ADMISSION))
       return 'amend'
+    if (this.readyToMerge(lease))
+      return 'merge-ready'
     return lease.head !== null && lease.head !== round.head ? 'new-head' : null
   }
 
@@ -168,6 +201,7 @@ export class AnswerSources {
     const answers: Record<Exclude<EmptyRoundExit, 'closed'>, string> = {
       'decision': `lifted: a decision bound to card #${lease.cardId} was recorded`,
       'amend': `lifted: card #${lease.cardId} was amended`,
+      'merge-ready': `lifted: a review pass, green CI and green witnesses on ${lease.head} of pull request #${lease.pr}`,
       'new-head': `lifted: a new head ${lease.head} on ${lease.pr === null ? `card #${lease.cardId}` : `pull request #${lease.pr}`}`,
     }
     if (waits.length === 0)
@@ -227,7 +261,7 @@ export class AnswerSources {
   private redWitness(lease: Lease): Answering & { kind: 'changes' } | null {
     if (lease.pr === null || lease.head === null)
       return null
-    const red = this.parts.db.prepare(RED_WITNESS_ON_HEAD).get(lease.pr, lease.head) as { detail: unknown } | undefined
+    const red = this.parts.db.prepare(WITNESS_ON_HEAD).get(lease.pr, lease.head, RED_VERDICT) as { detail: unknown } | undefined
     if (red === undefined)
       return null
     const detail = typeof red.detail === 'string' && red.detail !== '' ? red.detail : 'the bus recorded no detail'
