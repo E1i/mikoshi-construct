@@ -47,7 +47,15 @@ describe('the settings a card session is started with in a repository after cons
 
   it('bus sessions may listen on the tsx pipe and no other socket', () => {
     const uid = userInfo().uid
-    expect(shiftSettings(tree, readShiftGate(tree), [], tree).sandbox.network).toEqual({ allowLocalBinding: true, allowUnixSockets: [`/tmp/claude-${uid}/tsx-${uid}`] })
+    expect(shiftSettings(tree, readShiftGate(tree), [], tree).sandbox.network).toEqual({ allowLocalBinding: true, allowUnixSockets: [`/tmp/claude-${uid}/tsx-${uid}`], allowMachLookup: ['com.apple.trustd*'] })
+  })
+
+  it('card sessions may look up trustd so gh verifies TLS, and no host is added', () => {
+    const cardWithNoGrantsRow = 2177
+    expect(grantOf(cardWithNoGrantsRow)).toBeNull()
+    const { network } = shiftSettings(tree, readShiftGate(tree), [], tree, cardWithNoGrantsRow).sandbox
+    expect(network.allowMachLookup).toEqual(['com.apple.trustd*'])
+    expect(network).not.toHaveProperty('allowedDomains')
   })
 
   it('allow exactly the gate commands of the tree\'s construct config and edits inside the card tree, and no other rule', () => {
