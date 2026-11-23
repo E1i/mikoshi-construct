@@ -54,6 +54,7 @@ const PRIMARY_RESULT_CODE = 0xFF
 const BUSY_RETRY_WINDOW_MS = 10_000
 const BUSY_RETRY_PAUSE_MS = 25
 const WRITER_HOLDS_LOCK_MS = 500
+const ANOTHER_TESTS_BUS_RUN = 'setInterval(() => {}, 1000)\n'
 const DRAFT = { cards: [{ name: 'open-question', kind: 'implement', milestone: 'netwatch', size: 'S', contour: 'cheap', decision: 'auto', who: 'shift', touches: ['architecture/open-questions.md'], task: 'Add one open question to architecture/open-questions.md.', witnesses: ['`grep -q probe architecture/open-questions.md` exits 0'] }] }
 
 interface Foreign {
@@ -370,8 +371,23 @@ describe('a factory installed from the packed package', () => {
     }).some(Boolean)
   }
 
+  function commandOf(pid: unknown): string {
+    if (typeof pid !== 'number')
+      return ''
+    const listed = spawnSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8', timeout: CHILD_WITHIN_MS })
+    return listed.status === 0 ? listed.stdout.trim() : ''
+  }
+
+  function ofThisFixture(start: Start): boolean {
+    return !adoptedRecord(start) || commandOf(start.pid).includes(foreign.root)
+  }
+
+  function fixtureStartsSince(bus: string, after: number): Start[] {
+    return startsSince(bus, after).filter(ofThisFixture)
+  }
+
   async function stopEverythingStartedSince(after: number): Promise<void> {
-    await waitFor(() => !startsSince(foreign.bus, after).map(killed).some(Boolean), () => `every process started on ${foreign.bus} since event ${after} gone`, STOPPED_WITHIN_MS)
+    await waitFor(() => !fixtureStartsSince(foreign.bus, after).map(killed).some(Boolean), () => `every process this fixture started on ${foreign.bus} since event ${after} gone`, STOPPED_WITHIN_MS)
   }
 
   function diskLowSince(bus: string, after: number): boolean {
@@ -426,7 +442,7 @@ describe('a factory installed from the packed package', () => {
     try {
       expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
       await waitFor(() => diskLowSince(foreign.bus, after) || startsSince(foreign.bus, after).some(start => start.type === CHILD_STARTED), () => `a child.started of the launch worker in ${foreign.bus}: ${JSON.stringify(startsSince(foreign.bus, after))}\n${run.stdout}\n${run.stderr}\n${busLogs()}`, STARTED_WITHIN_MS)
-      return { starts: startsSince(foreign.bus, after), childStarted: !diskLowSince(foreign.bus, after) }
+      return { starts: fixtureStartsSince(foreign.bus, after), childStarted: !diskLowSince(foreign.bus, after) }
     }
     finally {
       await stopEverythingStartedSince(after)
@@ -478,6 +494,37 @@ describe('a factory installed from the packed package', () => {
       const restarted = await restartedFactory('generation-after-commit')
       expectGeneration(restarted, installedVersion())
       expect(generationsOf(restarted.starts, WORKER_STARTED)).not.toContain(head)
+    }, STARTED_WITHIN_MS * 3)
+
+    it('a start the fixture\'s own supervisor handed is the fixture\'s own whatever its command line, and an adopted one only under the fixture root', () => {
+      const outsideTheFixture = process.pid
+      expect(commandOf(outsideTheFixture)).not.toContain(foreign.root)
+      expect(ofThisFixture({ type: WORKER_STARTED, worker: `worker:${LAUNCH_WORKER}:handed`, generation: installedVersion(), pid: outsideTheFixture, pgid: outsideTheFixture })).toBe(true)
+      expect(ofThisFixture({ type: WORKER_STARTED, worker: `${adoptedPrefix}${outsideTheFixture}`, generation: installedVersion(), pid: outsideTheFixture, pgid: outsideTheFixture })).toBe(false)
+    })
+
+    it('a bus:run another test started is never adopted [needs ps]', async () => {
+      const elsewhere = realpathSync(mkdtempSync(path.join(tmpdir(), 'another-test-')))
+      const entry = path.join(elsewhere, OUT_DIR, BUS_RUN_ENTRY)
+      mkdirSync(path.dirname(entry), { recursive: true })
+      writeFileSync(entry, ANOTHER_TESTS_BUS_RUN)
+      const another = spawn(process.execPath, [entry], { cwd: elsewhere, stdio: 'ignore' })
+      const exited = new Promise<unknown>(resolve => another.once('exit', resolve))
+      try {
+        await waitFor(() => commandOf(another.pid).includes(entry), () => `the bus:run of another test at ${entry} listed`, STARTED_WITHIN_MS)
+        const after = lastEventId(foreign.bus)
+        const restarted = await restartedFactory('another-tests-bus-run')
+        expect(startsSince(foreign.bus, after).filter(adoptedRecord).map(start => start.pid)).toContain(another.pid)
+        expect(restarted.starts.map(start => start.pid)).not.toContain(another.pid)
+        expect(another.exitCode).toBeNull()
+        expect(another.signalCode).toBeNull()
+        expectGeneration(restarted, installedVersion())
+      }
+      finally {
+        another.kill('SIGKILL')
+        await exited
+        rmSync(elsewhere, { recursive: true, force: true })
+      }
     }, STARTED_WITHIN_MS * 3)
   })
 })
