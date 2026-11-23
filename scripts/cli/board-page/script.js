@@ -404,11 +404,16 @@
       target.id = id
       backlog.prepend(target)
     })
+    const icon = names.icon && document.getElementById(names.icon.id)
+    if (icon && Array.isArray(board.alarms))
+      icon.setAttribute('href', board.alarms.length > 0 ? names.icon.alarm : names.icon.calm)
     stampAgents()
     stampFolds()
     showDaemon()
     countLoad()
-    if (!restored)
+    if (restored)
+      showFilter(view.filter)
+    else
       restore()
   }
   const markOld = () => {

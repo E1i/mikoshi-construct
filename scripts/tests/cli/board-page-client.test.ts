@@ -2,8 +2,13 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import vm from 'node:vm'
 import { describe, expect, it } from 'vitest'
+import { renderShell } from '../../cli/board-page.js'
+import { filterId, filterRule, LIVE_FILTER } from '../../cli/board-page/live-cards.js'
 
 const SCRIPT = readFileSync(path.resolve(import.meta.dirname, '../../cli/board-page/script.js'), 'utf8')
+const STYLE = readFileSync(path.resolve(import.meta.dirname, '../../cli/board-page/style.css'), 'utf8')
+const SHELL = renderShell('0.0.0', 10_000)
+const PAGE_NAMES = JSON.parse(/window\.BOARD_NAMES = (\{.*\});\n/.exec(SHELL)![1]!) as { filterAttribute: string, icon: { id: string, calm: string, alarm: string } }
 const WRITTEN = '2026-11-16T10:00:00.000Z'
 const TICK_MS = 10_000
 const WRITE_SLACK_MS = 1_500
@@ -26,6 +31,8 @@ const NAMES = {
   dataFile: 'board-data.js',
   refreshIn: 'refresh-in',
   round: { over: '#ff0000', warn: '#ffff00', calm: '#00ff00', warnShare: 0.75, overTime: 'over', remaining: 'left' },
+  filterAttribute: PAGE_NAMES.filterAttribute,
+  icon: PAGE_NAMES.icon,
 }
 
 type Listener = (event: { target: StubNode, key?: string }) => void
@@ -43,6 +50,7 @@ class StubNode {
   parent: StubNode | null = null
   textContent = ''
   innerHTML = ''
+  className = ''
   id = ''
   src = ''
   open = false
@@ -57,6 +65,12 @@ class StubNode {
   add(child: StubNode): StubNode {
     child.parent = this
     this.children.push(child)
+    return child
+  }
+
+  prepend(child: StubNode): StubNode {
+    child.parent = this
+    this.children.unshift(child)
     return child
   }
 
@@ -151,16 +165,18 @@ function withCounter(page: BoardPageStub, count: string): StubNode {
   return counter
 }
 
-function run(page: BoardPageStub, written = WRITTEN) {
+function run(page: BoardPageStub, written = WRITTEN, hash = '') {
   let now = page.loadedAt
   let frames: (() => void)[] = []
   const timeouts: { run: () => void, ms: number }[] = []
   const appended: StubNode[] = []
+  const location = { hash }
+  const windowListeners = new Map<string, (() => void)[]>()
   const document = Object.assign(new StubNode('DOCUMENT'), {
     title: '',
     body: { dataset: { written, tickMs: String(TICK_MS) } },
     head: { appendChild: (child: StubNode) => appended.push(child) },
-    getElementById: (id: string) => page.byId.get(id) ?? null,
+    getElementById: (id: string) => page.byId.get(id) ?? page.root.descendants().find(node => node.id === id) ?? null,
     createElement: (tag: string) => new StubNode(tag.toUpperCase()),
     querySelector: (selector: string) => page.root.querySelector(selector),
     querySelectorAll: (selector: string) => page.root.descendants().filter(node => node.matches(selector)),
@@ -169,8 +185,8 @@ function run(page: BoardPageStub, written = WRITTEN) {
     BOARD_NAMES: NAMES,
     document,
     localStorage: page.storage,
-    location: { hash: '' },
-    addEventListener: () => {},
+    location,
+    addEventListener: (type: string, listener: () => void) => windowListeners.set(type, [...windowListeners.get(type) ?? [], listener]),
     setTimeout: (callback: () => void, ms: number) => timeouts.push({ run: callback, ms }),
     requestAnimationFrame: (callback: () => void) => frames.push(callback),
     Date: { now: () => now, parse: Date.parse },
@@ -182,6 +198,14 @@ function run(page: BoardPageStub, written = WRITTEN) {
     timeouts,
     appended,
     context,
+    location,
+    fire: (type: string): void => windowListeners.get(type)?.forEach(listener => listener()),
+    receive: (board: Record<string, unknown>): void => {
+      const latest = appended.at(-1)!
+      context.BOARD = { written: new Date(Date.parse(WRITTEN) + appended.length * 1_000).toISOString(), tickMs: TICK_MS, slots: {}, filters: [], ...board }
+      latest.onload!()
+    },
+    refresh: (): void => timeouts.at(-1)!.run(),
     advance: (ms: number): void => {
       now += ms
     },
@@ -193,6 +217,68 @@ function run(page: BoardPageStub, written = WRITTEN) {
     },
     click: (target: StubNode): void => document.dispatch('click', target),
   }
+}
+
+const TAB_IDS = ['all', LIVE_FILTER, 'review'].map(filterId)
+const TARGET_AFTER_REDRAW = ':not(:has(.filter-target:target))'
+const NESTED_LIGHT = /^(\S+) \{.*& (\.chip\[href="#[\w-]+"\]) \{ (--_bg: var\(--wire\))/
+const LIT_RULE = /([^{}]+)\{\s*--_bg: var\(--wire\)/g
+const LIT_SELECTOR = /^(\S+) \.chip\[href="(#[\w-]+)"\]$/
+
+function chipLighters(): { backlog: string, chip: string }[] {
+  const flattened = ['live', 'review'].map(filterRule).map(rule => NESTED_LIGHT.exec(rule)!).map(match => `${match[1]} ${match[2]} { ${match[3]}; }`)
+  const selectors = [...[STYLE, ...flattened].join('\n').matchAll(LIT_RULE)].flatMap(match => match[1]!.split(',').map(selector => selector.trim()))
+  return selectors.flatMap((selector) => {
+    const lit = LIT_SELECTOR.exec(selector)
+    return lit === null ? [] : [{ backlog: lit[1]!, chip: lit[2]! }]
+  })
+}
+
+function holds(selector: string, backlog: StubNode): boolean {
+  expect(selector.startsWith('.backlog')).toBe(true)
+  let rest = selector.slice('.backlog'.length)
+  let held = true
+  while (rest !== '') {
+    const attribute = /^\[([\w-]+)="([^"]*)"\]/.exec(rest)
+    if (attribute !== null) {
+      held &&= backlog.attributes.get(attribute[1]!) === attribute[2]
+      rest = rest.slice(attribute[0].length)
+    }
+    else if (/^:not\(\[[\w-]+\]\)/.test(rest)) {
+      const absent = /^:not\(\[([\w-]+)\]\)/.exec(rest)!
+      held &&= !backlog.attributes.has(absent[1]!)
+      rest = rest.slice(absent[0].length)
+    }
+    else if (rest.startsWith(TARGET_AFTER_REDRAW)) {
+      rest = rest.slice(TARGET_AFTER_REDRAW.length)
+    }
+    else {
+      throw new Error(`no reading for ${rest}`)
+    }
+  }
+  return held
+}
+
+function redrawChips(page: BoardPageStub): void {
+  const backlog = page.byId.get(NAMES.backlog)!
+  backlog.children.splice(0, backlog.children.length, ...backlog.children.filter(child => child.className !== 'chip'))
+  for (const id of TAB_IDS) {
+    const chip = backlog.add(new StubNode('A'))
+    chip.className = 'chip'
+    chip.setAttribute('href', `#${id}`)
+  }
+}
+
+function activeChips(page: BoardPageStub): string[] {
+  const backlog = page.byId.get(NAMES.backlog)!
+  const lighters = chipLighters()
+  return backlog.children.filter(child => child.className === 'chip').map(chip => chip.attributes.get('href')!).filter(href => lighters.some(lighter => lighter.chip === href && holds(lighter.backlog, backlog)))
+}
+
+function decodedIcon(uri: string): string {
+  const prefix = 'data:image/svg+xml,'
+  expect(uri.startsWith(prefix)).toBe(true)
+  return decodeURIComponent(uri.slice(prefix.length))
 }
 
 function storedView(storage: MemoryStorage): { folds: Record<string, boolean> } {
@@ -303,5 +389,65 @@ describe('the board page script', () => {
     page.advance(600)
     page.paint()
     expect(counter.textContent).toBe('6.0')
+  })
+
+  it('exactly one chip is active after load, reload, hashchange and every refresh, on every tab', () => {
+    for (const [index, id] of TAB_IDS.entries()) {
+      const storage = new MemoryStorage()
+      const loaded = boardPage(storage)
+      const page = run(loaded, '', `#${id}`)
+      redrawChips(loaded)
+      page.receive({ filters: TAB_IDS })
+      expect(activeChips(loaded), `load ${id}`).toEqual([`#${id}`])
+      redrawChips(loaded)
+      page.refresh()
+      page.receive({ filters: TAB_IDS })
+      expect(activeChips(loaded), `refresh ${id}`).toEqual([`#${id}`])
+
+      const other = TAB_IDS[(index + 1) % TAB_IDS.length]!
+      page.location.hash = `#${other}`
+      page.fire('hashchange')
+      expect(activeChips(loaded), `hashchange ${id} → ${other}`).toEqual([`#${other}`])
+      page.location.hash = `#${id}`
+      page.fire('hashchange')
+
+      for (const hash of [`#${id}`, '']) {
+        const again = boardPage(storage)
+        const reloaded = run(again, '', hash)
+        redrawChips(again)
+        reloaded.receive({ filters: TAB_IDS })
+        expect(activeChips(again), `reload ${id} with hash '${hash}'`).toEqual([`#${id}`])
+        redrawChips(again)
+        reloaded.refresh()
+        reloaded.receive({ filters: TAB_IDS })
+        expect(activeChips(again), `refresh after reload ${id} with hash '${hash}'`).toEqual([`#${id}`])
+      }
+    }
+  })
+
+  it('favicon: the page carries an inline SVG enso and inverts it while an alarm is open', () => {
+    const link = /<head>.*<link rel="icon" type="image\/svg\+xml" id="([\w-]+)" href="([^"]+)">.*<\/head>/s.exec(SHELL)
+    expect(link).not.toBeNull()
+    expect(link![1]).toBe(NAMES.icon.id)
+    expect(link![2]).toBe(NAMES.icon.calm)
+    const calm = decodedIcon(NAMES.icon.calm)
+    const alarm = decodedIcon(NAMES.icon.alarm)
+    expect(calm).toMatch(/^<svg [^>]*>.*<\/svg>$/)
+    const ground = (svg: string): string => /<rect [^>]*fill='([^']+)'/.exec(svg)![1]!
+    const ink = (svg: string): string => [...svg.matchAll(/stroke='([^']+)'/g)].at(-1)![1]!
+    expect([ground(alarm), ink(alarm)]).toEqual([ink(calm), ground(calm)])
+
+    const stub = boardPage()
+    const icon = stub.root.add(new StubNode('LINK'))
+    icon.id = NAMES.icon.id
+    const page = run(stub, '')
+    page.receive({ alarms: [] })
+    expect(icon.attributes.get('href')).toBe(NAMES.icon.calm)
+    page.refresh()
+    page.receive({ alarms: ['disk'] })
+    expect(icon.attributes.get('href')).toBe(NAMES.icon.alarm)
+    page.refresh()
+    page.receive({ alarms: [] })
+    expect(icon.attributes.get('href')).toBe(NAMES.icon.calm)
   })
 })
