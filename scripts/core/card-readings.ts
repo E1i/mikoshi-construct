@@ -1,7 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { LastReduced, OwnerWait } from './bus-readings.js'
 import { CLOSED_WAIT, OPEN_WAIT, OWNER_WAITS, readLastReduced } from './bus-readings.js'
-import { CARD_BODIES } from './card-bodies.js'
 import { EITHER_JOURNAL, events } from './events-query.js'
 import { OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED } from './events.js'
 
@@ -56,6 +55,8 @@ export interface AdmittedBody {
   touches: unknown[]
   creates: unknown[]
 }
+
+const CARD_BODIES = 'card_bodies'
 
 const BODY_ADMITTED_AFTER = `SELECT admission_event_id, touches, creates FROM ${CARD_BODIES} WHERE card_id = ? AND admission_event_id > ?`
 
