@@ -4710,17 +4710,10 @@
         "types": {}
       },
       "src/commands/board/bus.ts": {
-        "constants": [
-          "CARD_STAGES"
-        ],
-        "functions": {
-          "busFacts": "(db: BusDb, now: Date, transcripts: TranscriptReader = clientTranscriptReader): BusFacts",
-          "latestCardEvents": "(db: BusDb, perCard: number): Map<number, BusCardEvent[]>",
-          "openTasks": "(db: BusDb): BusTask[]"
-        },
+        "constants": [],
+        "functions": {},
         "reexports": [
-          "BusPanelFacts",
-          "OwnerWait"
+          "BusPanelFacts"
         ],
         "types": {
           "BusCard": "interface BusCard { id: number; state: string | null; stage: CardStage; lane: string | null; line: string | null; since: string | null; body: boolean; closed: boolean; closedAt: string | null; parent?: SliceParent; }",
@@ -4731,6 +4724,7 @@
           "CardStage": "type CardStage = typeof CARD_STAGES[number]",
           "CardsAtStage": "interface CardsAtStage { stage: CardStage; cards: number[]; }",
           "CrawlerReading": "interface CrawlerReading { id: string; kind: string; description: string | null; startedAt: string | null; state: string; context: number | null; spent: number | null; }",
+          "OwnerWait": "interface OwnerWait { id: string; need: OwnerWaitNeed; text: string; command: string | null; card: number | null; pr: number | null; since: string; lifter: Extract<WaitLifter, 'owner' | 'window'>; decision: string | null; }",
           "SubagentReading": "interface SubagentReading { name: string; context: number | null; spent: number | null; at: string | null; }"
         }
       },
@@ -4756,8 +4750,14 @@
         "constants": [
           "BOARD_EXIT"
         ],
-        "functions": {},
-        "reexports": [],
+        "functions": {
+          "busFacts": "(db: DatabaseSync, now: Date, transcripts?: TranscriptReader): BusFacts"
+        },
+        "reexports": [
+          "CARD_STAGES",
+          "latestCardEvents",
+          "openTasks"
+        ],
         "types": {}
       },
       "src/commands/board/screens.ts": {

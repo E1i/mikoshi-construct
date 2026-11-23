@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { busReaderAt } from '../../../src/commands/board/bus.js'
+import { BOARD_BUS } from '../../../src/commands/board/index.js'
 import { openBus } from '../../core/db.js'
 import { WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../core/events.js'
 import { superviseUntilReplaced } from '../../supervisor/supervisor.js'
@@ -31,7 +32,7 @@ function hookLine(root: string, event: 'start' | 'stop', id: string, type: strin
 }
 
 function windowAgentsOnBoard(busPath: string): string[] {
-  const reading = busReaderAt(busPath, () => NOW)()
+  const reading = busReaderAt(busPath, () => NOW)(BOARD_BUS)
   if (reading.status !== 'read')
     throw new Error(reading.status)
   return reading.facts.services.flatMap(service => service.role === 'window' ? (service.subagents ?? []).map(agent => agent.name) : [])
@@ -59,7 +60,7 @@ describe('the supervisor tick that publishes the window subagents', () => {
     expect(tick.step()).toHaveLength(1)
     expect(db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(WINDOW_HEARTBEAT)).toEqual({ n: 0 })
     expect(windowAgentsOnBoard(busPath)).toEqual(['scan'])
-    const tile = (busReaderAt(busPath, () => NOW)() as { facts: { services: { session?: string }[] } }).facts.services[0]!
+    const tile = (busReaderAt(busPath, () => NOW)(BOARD_BUS) as { facts: { services: { session?: string }[] } }).facts.services[0]!
     expect(tile.session).toBe(SESSION)
 
     hookLine(root, 'stop', 'agent-a', 'scan')
