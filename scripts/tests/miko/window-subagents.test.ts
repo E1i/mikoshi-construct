@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { busReaderAt } from '../../../src/commands/board/bus.js'
+import { BOARD_BUS } from '../../../src/commands/board/index.js'
 import { PLAIN_LORE } from '../../../src/ui/lore.js'
 import { openBus } from '../../core/db.js'
 import { recordWindowSubagent, runWindowSubagent, windowSubagentCall, windowSubagentKey } from '../../window/window-subagents.js'
@@ -44,7 +45,7 @@ describe('the window subagent event', () => {
     const started = { session: 's1', role: 'implementer', task: '#1071', phase: 'started' as const, tree: '/t' }
     expect(recordWindowSubagent(db, { ...started, step: 'implement 1/3 @ low' }, AT)).toBe(true)
     expect(recordWindowSubagent(db, { ...started, step: 'implement 2/3 @ medium' }, AT)).toBe(true)
-    const running = busReaderAt(file, () => AT)()
+    const running = busReaderAt(file, () => AT)(BOARD_BUS)
     expect(running.status === 'read' && running.facts.services).toEqual([windowTileOf('implementer')])
     db.close()
   })
@@ -53,10 +54,10 @@ describe('the window subagent event', () => {
     const file = busFile()
     const db = openBus(file)
     recordWindowSubagent(db, { session: 's1', role: 'implementer', task: '#1071', phase: 'started', tree: '/t', step: 'implement 1/3 @ high' }, AT)
-    const running = busReaderAt(file, () => AT)()
+    const running = busReaderAt(file, () => AT)(BOARD_BUS)
     expect(running.status === 'read' && running.facts.services).toEqual([windowTileOf('implementer')])
     recordWindowSubagent(db, { session: 's1', role: 'implementer', task: '#1071', phase: 'ended' }, AT)
-    const ended = busReaderAt(file, () => AT)()
+    const ended = busReaderAt(file, () => AT)(BOARD_BUS)
     expect(ended.status === 'read' && ended.facts.services).toEqual([])
     db.close()
   })
@@ -69,10 +70,10 @@ describe('the window subagent event', () => {
     expect(recordWindowSubagent(db, of('a2', 'started'), AT)).toBe(true)
     expect(recordWindowSubagent(db, of('a1', 'started'), AT)).toBe(false)
     expect(windowSubagentKey(of('a1', 'started'))).toBe('window.subagent:s1:a1:started')
-    const both = busReaderAt(file, () => AT)()
+    const both = busReaderAt(file, () => AT)(BOARD_BUS)
     expect(both.status === 'read' && both.facts.services[0]!.subagents!.map(agent => agent.name)).toEqual(['scan', 'scan'])
     recordWindowSubagent(db, of('a1', 'ended'), AT)
-    const one = busReaderAt(file, () => AT)()
+    const one = busReaderAt(file, () => AT)(BOARD_BUS)
     expect(one.status === 'read' && one.facts.services[0]!.subagents).toHaveLength(1)
     db.close()
   })
@@ -92,7 +93,7 @@ describe('the window subagent command', () => {
   it('writes the event the board reads, and exits 1 on a refused call without opening the bus', () => {
     const file = busFile()
     expect(runWindowSubagent(['--session', 's1', '--role', 'brief', '--task', '#9', '--phase', 'started'], file, () => AT)).toBe(0)
-    const running = busReaderAt(file, () => AT)()
+    const running = busReaderAt(file, () => AT)(BOARD_BUS)
     expect(running.status === 'read' && running.facts.services).toEqual([windowTileOf('brief')])
     expect(runWindowSubagent([], path.join(path.dirname(file), 'never.db'), () => AT)).toBe(1)
   })

@@ -18,6 +18,7 @@ import { RECUT_ACTOR } from '../../scripts/policy/round-limit-decision.js'
 import { foldPlanEvent } from '../../scripts/window/plan-folds.js'
 import { busReaderAt } from '../../src/commands/board/bus.js'
 import { goalOf } from '../../src/commands/board/goal.js'
+import { BOARD_BUS } from '../../src/commands/board/index.js'
 import { backlogLines, boardScreens, flowLines, waitHint, waitsLines } from '../../src/commands/board/screens.js'
 import { factoryLiveness, WINDOW_SILENT_MS } from '../../src/commands/liveness.js'
 import { LORE, PLAIN_LORE } from '../../src/ui/lore.js'
@@ -72,7 +73,7 @@ function pageOf(busPath: string): string {
 }
 
 function factsOf(busPath: string): BusFacts {
-  const reading = busReaderAt(busPath, () => NOW)()
+  const reading = busReaderAt(busPath, () => NOW)(BOARD_BUS)
   if (reading.status !== 'read')
     throw new Error(`the bus was ${reading.status}`)
   return reading.facts

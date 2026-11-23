@@ -710,6 +710,7 @@
     "scripts/tests/contract/bus-cut/reducer-takes-projections.test.ts",
     "scripts/tests/contract/bus-cut/witnesses-to-card.test.ts",
     "scripts/tests/contract/bus-gate.test.ts",
+    "scripts/tests/contract/bus-port-board-reader.test.ts",
     "scripts/tests/contract/cards-fold-in-composition.test.ts",
     "scripts/tests/contract/codegen-events-cards-lint.test.ts",
     "scripts/tests/contract/codegen-events-cards.test.ts",

@@ -19,6 +19,7 @@ import { switchedOn } from '../scripts/supervisor/workers.js'
 import { BOARD_FILE } from '../scripts/window/board.js'
 import { realRequestTools } from '../scripts/window/window-request-tools.js'
 import { busReaderAt } from '../src/commands/board/bus.js'
+import { BOARD_BUS } from '../src/commands/board/index.js'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const PLIST = path.join(ROOT, 'scripts/supervisor/launchd/dev.mikoshi.bus.plist')
@@ -179,7 +180,7 @@ describe('per-repository bus home', () => {
     finally {
       db.close()
     }
-    expect(busReaderAt(widgetsBus)().status).toBe('read')
+    expect(busReaderAt(widgetsBus)(BOARD_BUS).status).toBe('read')
     expect(eventCards(widgetsBus)).toEqual([7])
     expect(eventCards(gadgetsBus)).toEqual([9])
   })

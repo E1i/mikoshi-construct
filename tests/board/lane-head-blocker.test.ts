@@ -14,6 +14,7 @@ import { holdReason, launchCandidates } from '../../scripts/nodes/launch/launch-
 import { busProjections } from '../../scripts/supervisor/composition.js'
 import { textSha } from '../../src/card/text-sha.js'
 import { busReaderAt } from '../../src/commands/board/bus.js'
+import { BOARD_BUS } from '../../src/commands/board/index.js'
 import { screenLines } from '../../src/commands/board/screens.js'
 import { PLAIN_LORE } from '../../src/ui/lore.js'
 
@@ -103,7 +104,7 @@ describe('the board prints no lane head, though the bus still reads what holds e
     const expected = expectedHeads(bus)
     expect(new Set(expected.map(head => head.lane)).size).toBe(2)
 
-    const reading = busReaderAt(bus.file, () => NOW)()
+    const reading = busReaderAt(bus.file, () => NOW)(BOARD_BUS)
     if (reading.status !== 'read')
       throw new Error(`the bus was not read: ${reading.status}`)
     expect(reading.facts.laneHeads).toEqual(expect.arrayContaining(expected))

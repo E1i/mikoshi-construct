@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
-import { busFacts } from '../../../src/commands/board/bus.js'
+import { busFacts } from '../../../src/commands/board/index.js'
 import { screenLines, waitsLines } from '../../../src/commands/board/screens.js'
 import { PLAIN_LORE } from '../../../src/ui/lore.js'
 import { BUS_CONTRACT } from '../../core/bus-adapter.js'
