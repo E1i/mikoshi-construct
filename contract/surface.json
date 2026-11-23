@@ -2091,22 +2091,16 @@
       "exits": [
         1
       ],
-      "flags": [
-        "fetch"
-      ],
+      "flags": [],
       "json": false,
       "unknownFlag": "not read"
     },
     "contract:actions:fetch": {
       "entries": [
-        "scripts/contract/action-inputs.ts"
+        "scripts/contract/action-inputs-fetch.ts"
       ],
-      "exits": [
-        1
-      ],
-      "flags": [
-        "fetch"
-      ],
+      "exits": [],
+      "flags": [],
       "json": false,
       "unknownFlag": "not read"
     },

@@ -1,13 +1,12 @@
-import { readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { readdirSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parse } from 'yaml'
-import { execGh } from '../ports/gh.js'
 
 export const ACTION_INPUTS_RECORD = 'contract/action-inputs.json'
 const WORKFLOWS_DIR = '.github/workflows'
-const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
+export const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 
 export type RecordedInputs = Record<string, string[]>
 
@@ -19,7 +18,7 @@ export interface PinnedStep {
   keys: string[]
 }
 
-type Fetcher = (apiPath: string) => Promise<string | undefined>
+export type Fetcher = (apiPath: string) => Promise<string | undefined>
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -98,23 +97,8 @@ export async function fetchMissing(steps: PinnedStep[], recorded: RecordedInputs
   return { ...recorded, ...fetched }
 }
 
-async function readThroughGithubPort(apiPath: string): Promise<string | undefined> {
-  const result = execGh(['api', '-H', 'Accept: application/vnd.github.raw', apiPath])
-  if (result.kind === 'ran')
-    return result.stdout
-  if (/HTTP 404/.test(result.reason))
-    return undefined
-  throw new Error(`the GitHub port could not read ${apiPath}: ${result.reason}`)
-}
-
-async function main(): Promise<void> {
-  const steps = workflowSteps(REPO_ROOT)
-  if (process.argv.includes('--fetch')) {
-    const recorded = await fetchMissing(steps, readRecordedInputs(REPO_ROOT), readThroughGithubPort)
-    writeFileSync(path.join(REPO_ROOT, ACTION_INPUTS_RECORD), renderRecordedInputs(recorded))
-    return
-  }
-  const refused = refusals(steps, readRecordedInputs(REPO_ROOT))
+function main(): void {
+  const refused = refusals(workflowSteps(REPO_ROOT), readRecordedInputs(REPO_ROOT))
   for (const line of refused)
     console.error(line)
   if (refused.length > 0)
@@ -122,4 +106,4 @@ async function main(): Promise<void> {
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
-  await main()
+  main()

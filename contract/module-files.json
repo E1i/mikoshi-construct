@@ -200,6 +200,7 @@
     "contract/action-inputs.json",
     "contract/factory.json",
     "contract/surface.json",
+    "scripts/contract/action-inputs-fetch.ts",
     "scripts/contract/action-inputs.ts",
     "scripts/contract/bump.ts",
     "scripts/contract/declared.ts",
