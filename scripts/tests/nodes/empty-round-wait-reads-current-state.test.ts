@@ -292,6 +292,15 @@ describe('a decision is answered unless every merge condition holds on the head 
     expect(card.sources.sourceOf(card.lease(HEAD, DECISION))).toBeNull()
     expect(card.sources.sourceOf(card.lease(NEW_HEAD, DECISION))).toMatchObject({ kind: 'decision', decisionId: DECISION })
   })
+
+  it('a review pass, green CI and a green witness on the head of a closed pull request still answer the decision', () => {
+    const card = decidedWith({ review: 'success' }, true)
+    card.bench.gitHub.close(PR, false)
+    card.bench.tick()
+
+    expect(pullRequests(card.bench.db).find(pull => pull.pr === PR)).toMatchObject({ head: HEAD, state: 'closed', ci: 'green', verdict_on_head: 'pass' })
+    expect(card.sources.sourceOf(card.lease(HEAD, DECISION))).toMatchObject({ kind: 'decision', decisionId: DECISION })
+  })
 })
 
 describe('the dead-end detector lifts only its own wait, and only on a review pass of the observed head', () => {
@@ -334,6 +343,20 @@ describe('the dead-end detector lifts only its own wait, and only on a review pa
     card.bench.gitHub.open({ number: PR, head: HEAD, review: 'failure' })
     card.bench.tick()
 
+    expect(deadEndsStep(card)).toEqual([])
+    expect(card.waits()).toHaveLength(1)
+  })
+
+  it('a review recorded with changes on the observed head after the dead end keeps the wait while the observed pull request carries a pass', () => {
+    const card = aCard('success')
+    openOwnerWait(card.bench.db, card.at(), DEAD_END_ACTOR, { need: 'decision', text: `card #${CARD} is at a dead end`, card: CARD, pr: PR })
+    card.bench.tick()
+
+    appendEvent(card.bench.db, { ts: card.at(), type: REVIEW_RECORDED, actor: 'worker:review:reviewer-1', cardId: CARD, pr: PR, head: HEAD, dedupeKey: `${REVIEW_RECORDED}:${PR}:${HEAD}:changes`, payload: { head: HEAD, verdict: 'changes', reviewer_session: 'reviewer-1', findings: ['a defect'] }, legacy: false })
+    card.bench.gitHub.open({ number: PR, head: HEAD, review: 'success' })
+    card.bench.tick()
+
+    expect(pullRequests(card.bench.db).find(pull => pull.pr === PR)).toMatchObject({ head: HEAD, verdict_on_head: 'pass' })
     expect(deadEndsStep(card)).toEqual([])
     expect(card.waits()).toHaveLength(1)
   })
