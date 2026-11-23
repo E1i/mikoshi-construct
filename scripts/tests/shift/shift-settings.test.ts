@@ -1,10 +1,11 @@
 import type { ShiftGate } from '../../../src/manifest.js'
+import type { CardGrant } from '../../ports/card-grants.js'
 import type { ShiftSettings } from '../../ports/shift-settings.js'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir, userInfo } from 'node:os'
 import path from 'node:path'
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { allowRule, shippedDaemonCommands } from '../../../src/commands/attach/daemon-commands.js'
 import { browserLabExcludedCommand, browserLabInstalledScript } from '../../../src/commands/attach/settings.js'
 import { runInit } from '../../../src/commands/init.js'
@@ -15,6 +16,13 @@ import { treeReportPath } from '../../core/places.js'
 import { CARD_GRANTS, cardOfTree, GRANT_SCRATCH_DIRECTORY, GRANT_SCRATCH_SPELLINGS, grantOf } from '../../ports/card-grants.js'
 import { CARD_SESSION_SANDBOX, SESSION_BASH_CAP, settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
 import { WIDE_VITEST_HOOKS } from '../../ports/wide-vitest-guard.js'
+
+const plantedGrants = vi.hoisted(() => ({ rows: [] as CardGrant[] }))
+
+vi.mock('../../ports/card-grants.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../ports/card-grants.js')>()
+  return { ...original, grantOf: (card: number | null) => original.grantOf(card, [...original.CARD_GRANTS, ...plantedGrants.rows]) }
+})
 
 function editCovers(rule: string, file: string): boolean {
   const pattern = /^Edit\(\/(.+)\)$/.exec(rule)?.[1]
@@ -39,7 +47,15 @@ describe('the settings a card session is started with in a repository after cons
 
   it('bus sessions may listen on the tsx pipe and no other socket', () => {
     const uid = userInfo().uid
-    expect(shiftSettings(tree, readShiftGate(tree), [], tree).sandbox.network).toEqual({ allowLocalBinding: true, allowUnixSockets: [`/tmp/claude-${uid}/tsx-${uid}`] })
+    expect(shiftSettings(tree, readShiftGate(tree), [], tree).sandbox.network).toEqual({ allowLocalBinding: true, allowUnixSockets: [`/tmp/claude-${uid}/tsx-${uid}`], allowMachLookup: ['com.apple.trustd*'] })
+  })
+
+  it('card sessions may look up trustd so gh verifies TLS, and no host is added', () => {
+    const cardWithNoGrantsRow = 2177
+    expect(grantOf(cardWithNoGrantsRow)).toBeNull()
+    const { network } = shiftSettings(tree, readShiftGate(tree), [], tree, cardWithNoGrantsRow).sandbox
+    expect(network.allowMachLookup).toEqual(['com.apple.trustd*'])
+    expect(network).not.toHaveProperty('allowedDomains')
   })
 
   it('allow exactly the gate commands of the tree\'s construct config and edits inside the card tree, and no other rule', () => {
@@ -232,7 +248,16 @@ describe('a card granted by an owner decision gets exactly its grant and no othe
     home = path.join(scratch, 'home')
   })
 
-  afterEach(() => rmSync(scratch, { recursive: true, force: true }))
+  afterEach(() => {
+    plantedGrants.rows = []
+    rmSync(scratch, { recursive: true, force: true })
+  })
+
+  const PLANTED = 9901
+
+  function plantedRow(excludedCommands: string[]): CardGrant {
+    return { card: PLANTED, decision: 'D-0', allow: [], domains: [], homeWrites: [], excludedCommands }
+  }
 
   function plainOf(tree: string): ShiftSettings {
     return { sandbox: CARD_SESSION_SANDBOX, permissions: { allow: ['Bash(pnpm run quality)', `Edit(/${tree}/**)`] }, env: SESSION_BASH_CAP, hooks: WIDE_VITEST_HOOKS }
@@ -282,6 +307,27 @@ describe('a card granted by an owner decision gets exactly its grant and no othe
     const other = shiftSettings(tree, GATE, [], home, GRANTED + 1)
     expect({ granted: built.sandbox.excludedCommands, other: other.sandbox.excludedCommands }).toEqual({ granted: [entry, 'codex exec *'], other: [entry] })
     expect(built.permissions.allow).toContain(allowRule(entry))
+  })
+
+  it('a granted exclusion equal to an installed daemon command reaches excludedCommands once', () => {
+    const tree = path.join(scratch, 'worktrees', String(PLANTED))
+    const entry = browserLabExcludedCommand(home)
+    mkdirSync(path.join(tree, '.claude'), { recursive: true })
+    writeFileSync(path.join(tree, '.claude', 'settings.local.json'), JSON.stringify({ sandbox: { excludedCommands: [entry] } }))
+    mkdirSync(path.dirname(browserLabInstalledScript(home)), { recursive: true })
+    writeFileSync(browserLabInstalledScript(home), '')
+    plantedGrants.rows = [plantedRow([entry])]
+    const built = shiftSettings(tree, GATE, [], home)
+    expect(built.sandbox.excludedCommands).toEqual([entry])
+    expect(JSON.parse(settingsFlag(built).at(-1)!).sandbox.excludedCommands).toEqual([entry])
+  })
+
+  it('a granted row with no excluded command leaves the sandbox with no excludedCommands key', () => {
+    const tree = path.join(scratch, 'worktrees', String(PLANTED))
+    plantedGrants.rows = [plantedRow([])]
+    const { sandbox } = shiftSettings(tree, GATE, [], home)
+    expect(Object.hasOwn(sandbox, 'excludedCommands')).toBe(false)
+    expect(sandbox).toStrictEqual({ ...CARD_SESSION_SANDBOX, network: { ...CARD_SESSION_SANDBOX.network, allowedDomains: [] } })
   })
 
   it('the card is read from the tree name the bus gives it, in either home', () => {

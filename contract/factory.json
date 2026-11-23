@@ -4715,7 +4715,6 @@
           "CARD_STAGES"
         ],
         "functions": {
-          "busFacts": "(db: BusDb, now: Date, transcripts: TranscriptReader = clientTranscriptReader): BusFacts",
           "latestCardEvents": "(db: BusDb, perCard: number): Map<number, BusCardEvent[]>",
           "openTasks": "(db: BusDb): BusTask[]"
         },
@@ -4757,7 +4756,9 @@
         "constants": [
           "BOARD_EXIT"
         ],
-        "functions": {},
+        "functions": {
+          "busFacts": "(db: BusDb, now: Date): BusFacts"
+        },
         "reexports": [],
         "types": {}
       },
