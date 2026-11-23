@@ -1,19 +1,15 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ParkedTask } from '../../src/card/parking.js'
 import type { CardEvent } from '../../src/commands/intake/index.js'
-import type { EventData } from './events-query.js'
-import type { StoredEvent } from './stored.js'
+import type { BusContract, BusEventData } from '../ports/bus-contract.js'
+import type { StoredEvent } from './stored-event.js'
 import { existsSync } from 'node:fs'
 import process from 'node:process'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { textSha } from '../../src/card/text-sha.js'
 import { parentsFromCardLines, pathsNamedOutside } from '../../src/commands/intake/admit.js'
 import { isBackfill } from './backfill-source.js'
-import { CARD_VERSION, CARD_VERSION_KEY, cardVersionIn } from './bus-version.js'
-import { appendEvent, BUSY_TIMEOUT_MS } from './db.js'
-import { byId, latest, ofCard, perCard } from './events-query.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CONTINUED, CARD_STARTED, FACTORY_MODE, SLICE_PARENTS_BACKFILLED } from './events.js'
-import { openDatabase } from './sqlite.js'
 
 export const CARD_BODIES = 'card_bodies'
 export const FACTORY_MODES = ['window', 'parallel'] as const
@@ -65,8 +61,8 @@ export function isFactoryMode(mode: unknown): mode is FactoryMode {
   return typeof mode === 'string' && (FACTORY_MODES as readonly string[]).includes(mode)
 }
 
-export function factoryMode(db: DatabaseSync): FactoryMode {
-  const mode = latest(db, { types: [FACTORY_MODE] })?.data?.mode
+export function factoryMode(bus: BusContract, db: DatabaseSync): FactoryMode {
+  const mode = bus.latest(db, { types: [FACTORY_MODE] })?.data?.mode
   return isFactoryMode(mode) ? mode : DEFAULT_MODE
 }
 
@@ -80,11 +76,11 @@ function recordedTextSha(payload: string): string | null {
   }
 }
 
-function versioned(db: DatabaseSync, event: CardEvent): CardEvent {
+function versioned(bus: BusContract, db: DatabaseSync, event: CardEvent): CardEvent {
   if (event.type !== CARD_ADMITTED || typeof event.payload.text !== 'string')
     return event
-  const previous = latest(db, { types: [CARD_ADMITTED], card: event.cardId })
-  return { ...event, type: CARD_ADMITTED, payload: { ...event.payload, [CARD_VERSION_KEY]: CARD_VERSION, prevAdmissionId: previous?.id ?? null, prevTextSha: previous === null ? null : recordedTextSha(previous.payload) } }
+  const previous = bus.latest(db, { types: [CARD_ADMITTED], card: event.cardId })
+  return { ...event, type: CARD_ADMITTED, payload: { ...event.payload, [bus.cardVersion.key]: bus.cardVersion.current, prevAdmissionId: previous?.id ?? null, prevTextSha: previous === null ? null : recordedTextSha(previous.payload) } }
 }
 
 export function laid(_db: DatabaseSync, event: CardEvent): CardEvent {
@@ -97,11 +93,11 @@ function present(value: unknown): boolean {
   return value !== undefined && value !== null
 }
 
-function namesALine(data: EventData | null): data is EventData {
+function namesALine(data: BusEventData | null): data is BusEventData {
   return typeof data?.card === 'string' || typeof data?.text === 'string'
 }
 
-function carriesAParent(data: EventData | null): boolean {
+function carriesAParent(data: BusEventData | null): boolean {
   const parent = data?.parent
   return parent !== null && typeof parent === 'object' && !Array.isArray(parent)
 }
@@ -128,8 +124,8 @@ function sayOnStderr(line: string): void {
   process.stderr.write(`${line}\n`)
 }
 
-function latestCardLines(db: DatabaseSync): AdmittedCardLine[] {
-  return [...perCard(db, { types: [CARD_ADMITTED] })].flatMap(([card, admissions]) => {
+function latestCardLines(bus: BusContract, db: DatabaseSync): AdmittedCardLine[] {
+  return [...bus.perCard(db, { types: [CARD_ADMITTED] })].flatMap(([card, admissions]) => {
     const data = admissions.map(admission => admission.data).filter(namesALine).at(-1)
     if (data === undefined)
       return []
@@ -138,18 +134,18 @@ function latestCardLines(db: DatabaseSync): AdmittedCardLine[] {
   })
 }
 
-function admittedCardLines(db: DatabaseSync, except: number): CardLine[] {
-  return latestCardLines(db).filter(row => row.card !== except)
+function admittedCardLines(bus: BusContract, db: DatabaseSync, except: number): CardLine[] {
+  return latestCardLines(bus, db).filter(row => row.card !== except)
 }
 
-function withSliceParent(db: DatabaseSync, event: CardEvent, say: Say): CardEvent {
+function withSliceParent(bus: BusContract, db: DatabaseSync, event: CardEvent, say: Say): CardEvent {
   const line = event.payload.card
   if (event.type !== CARD_ADMITTED || event.payload.parent !== undefined || typeof line !== 'string')
     return event
   const own = { card: event.cardId, line }
   if (!namesASlice(own))
     return event
-  const transfer = parentsFromCardLines([own], [...admittedCardLines(db, event.cardId), own])
+  const transfer = parentsFromCardLines([own], [...admittedCardLines(bus, db, event.cardId), own])
   const parent = transfer.cards[String(event.cardId)]
   if (parent === undefined) {
     if (transfer.unread.includes(event.cardId))
@@ -159,15 +155,15 @@ function withSliceParent(db: DatabaseSync, event: CardEvent, say: Say): CardEven
   return { ...event, type: CARD_ADMITTED, payload: { ...event.payload, parent } }
 }
 
-export function appendCardEvent(db: DatabaseSync, actor: string, unversioned: CardEvent, say: Say = sayOnStderr): boolean {
-  const event = withSliceParent(db, versioned(db, unversioned), say)
-  return appendEvent(db, { ts: event.ts, type: event.type, actor, cardId: event.cardId, pr: null, head: null, dedupeKey: event.dedupeKey, payload: event.payload, legacy: false })
+export function appendCardEvent(bus: BusContract, db: DatabaseSync, actor: string, unversioned: CardEvent, say: Say = sayOnStderr): boolean {
+  const event = withSliceParent(bus, db, versioned(bus, db, unversioned), say)
+  return bus.appendEvent(db, { ts: event.ts, type: event.type, actor, cardId: event.cardId, pr: null, head: null, dedupeKey: event.dedupeKey, payload: event.payload, legacy: false })
 }
 
 const CARRIES_A_SESSION = [CARD_STARTED, CARD_CONTINUED, CARD_ANSWERED]
 
-export function cardSessionsIn(db: DatabaseSync, cardId: number): string[] {
-  return ofCard(db, cardId, { types: CARRIES_A_SESSION }).flatMap(event => typeof event.data?.session === 'string' ? [event.data.session] : [])
+export function cardSessionsIn(bus: BusContract, db: DatabaseSync, cardId: number): string[] {
+  return bus.ofCard(db, cardId, { types: CARRIES_A_SESSION }).flatMap(event => typeof event.data?.session === 'string' ? [event.data.session] : [])
 }
 
 export function cardBodyText(db: DatabaseSync, cardId: number): string | null {
@@ -180,24 +176,24 @@ export interface AdmittedBody {
   sha: string
 }
 
-export function admittedBodies(db: DatabaseSync, cardId: number): AdmittedBody[] {
-  return ofCard(db, cardId, { types: [CARD_ADMITTED], newestFirst: true }).flatMap(({ id, data }) => {
+export function admittedBodies(bus: BusContract, db: DatabaseSync, cardId: number): AdmittedBody[] {
+  return bus.ofCard(db, cardId, { types: [CARD_ADMITTED], newestFirst: true }).flatMap(({ id, data }) => {
     const text = data?.text
     return typeof text === 'string' && data?.textSha === textSha(text) ? [{ id, text, sha: String(data.textSha) }] : []
   })
 }
 
-export function admittedBodyText(db: DatabaseSync, cardId: number): string | null {
-  return admittedBodies(db, cardId)[0]?.text ?? null
+export function admittedBodyText(bus: BusContract, db: DatabaseSync, cardId: number): string | null {
+  return admittedBodies(bus, db, cardId)[0]?.text ?? null
 }
 
-export function busAdmittedBodies(busPath: string): (cardId: number) => string | null {
+export function busAdmittedBodies(bus: BusContract, busPath: string): (cardId: number) => string | null {
   return (cardId) => {
     if (!existsSync(busPath))
       return null
-    const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+    const db = bus.openReadOnly(busPath)
     try {
-      return admittedBodyText(db, cardId)
+      return admittedBodyText(bus, db, cardId)
     }
     finally {
       db.close()
@@ -207,12 +203,12 @@ export function busAdmittedBodies(busPath: string): (cardId: number) => string |
 
 const ADMISSION_OF_THE_BODY = `SELECT admission_event_id FROM ${CARD_BODIES} WHERE card_id = ?`
 
-export function admittedCardVersion(db: DatabaseSync, cardId: number): number | null {
+export function admittedCardVersion(bus: BusContract, db: DatabaseSync, cardId: number): number | null {
   const row = db.prepare(ADMISSION_OF_THE_BODY).get(cardId) as { admission_event_id: number | null } | undefined
   if (row === undefined)
     return null
-  const admission = row.admission_event_id === null ? null : byId(db, Number(row.admission_event_id))
-  return cardVersionIn(admission?.payload ?? null)
+  const admission = row.admission_event_id === null ? null : bus.byId(db, Number(row.admission_event_id))
+  return bus.cardVersion.of(admission?.payload ?? null)
 }
 
 export function pathsOutsideTheBody(db: DatabaseSync, cardId: number, text: string): string[] {
@@ -258,30 +254,30 @@ export interface SliceParentsBackfill {
   transfer: TransferredParents
 }
 
-function sliceParentTransfer(db: DatabaseSync): TransferredParents {
-  const every = latestCardLines(db)
+function sliceParentTransfer(bus: BusContract, db: DatabaseSync): TransferredParents {
+  const every = latestCardLines(bus, db)
   const lines = every.map(({ card, line }) => ({ card, line }))
   return parentsFromCardLines(lines.filter((_, at) => !every[at]!.carrying), lines)
 }
 
-function recordTransfer(db: DatabaseSync, ts: string, actor: string, transfer: TransferredParents): boolean {
-  return appendEvent(db, { ts, type: SLICE_PARENTS_BACKFILLED, actor, cardId: null, pr: null, head: null, dedupeKey: SLICE_PARENTS_BACKFILLED, payload: { cards: transfer.cards, unread: transfer.unread }, legacy: false })
+function recordTransfer(bus: BusContract, db: DatabaseSync, ts: string, actor: string, transfer: TransferredParents): boolean {
+  return bus.appendEvent(db, { ts, type: SLICE_PARENTS_BACKFILLED, actor, cardId: null, pr: null, head: null, dedupeKey: SLICE_PARENTS_BACKFILLED, payload: { cards: transfer.cards, unread: transfer.unread }, legacy: false })
 }
 
-export function backfillSliceParents(db: DatabaseSync, ts: string, actor: string = SLICE_PARENTS_ACTOR): SliceParentsBackfill {
-  const transfer = sliceParentTransfer(db)
-  return { recorded: recordTransfer(db, ts, actor, transfer), transfer }
+export function backfillSliceParents(bus: BusContract, db: DatabaseSync, ts: string, actor: string = SLICE_PARENTS_ACTOR): SliceParentsBackfill {
+  const transfer = sliceParentTransfer(bus, db)
+  return { recorded: recordTransfer(bus, db, ts, actor, transfer), transfer }
 }
 
-export function backfillPendingSliceParents(db: DatabaseSync, ts: string): SliceParentsBackfill | null {
-  const transfer = sliceParentTransfer(db)
+export function backfillPendingSliceParents(bus: BusContract, db: DatabaseSync, ts: string): SliceParentsBackfill | null {
+  const transfer = sliceParentTransfer(bus, db)
   if (Object.keys(transfer.cards).length === 0 && transfer.unread.length === 0)
     return null
-  return { recorded: recordTransfer(db, ts, SLICE_PARENTS_BUS_ACTOR, transfer), transfer }
+  return { recorded: recordTransfer(bus, db, ts, SLICE_PARENTS_BUS_ACTOR, transfer), transfer }
 }
 
-export function bodyNotFoldedYet(db: DatabaseSync, cardId: number): boolean {
-  const admissions = ofCard(db, cardId, { types: [CARD_ADMITTED], newestFirst: true })
+export function bodyNotFoldedYet(bus: BusContract, db: DatabaseSync, cardId: number): boolean {
+  const admissions = bus.ofCard(db, cardId, { types: [CARD_ADMITTED], newestFirst: true })
   const admission = admissions.find(({ data }) => data !== null && !isBackfill(data) && carriesABody(data))
   if (admission === undefined)
     return false
