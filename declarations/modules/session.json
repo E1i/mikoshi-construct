@@ -9,8 +9,6 @@
     "scripts/core/handoff-dir.ts",
     "scripts/core/handoff-fields.ts",
     "scripts/core/handoff-status.ts",
-    "scripts/core/card-automaton.ts",
-    "scripts/core/card-hold.ts",
     "scripts/core/chain.ts",
     "scripts/core/places.ts",
     "scripts/core/report.ts",

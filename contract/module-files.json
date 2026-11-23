@@ -166,6 +166,7 @@
     "scripts/core/sqlite.ts",
     "scripts/core/stored.ts",
     "scripts/core/task-must-wait.ts",
+    "scripts/core/tasks-query.ts",
     "scripts/core/watermark.ts"
   ],
   "card-model": [
@@ -179,11 +180,14 @@
   "card-record": [
     "scripts/cli/card.ts",
     "scripts/core/backfill-source.ts",
+    "scripts/core/card-automaton.ts",
     "scripts/core/card-bodies.ts",
+    "scripts/core/card-hold.ts",
     "scripts/intake/admissions.ts",
     "scripts/intake/card-archive.ts",
     "scripts/intake/card-contract.ts",
     "scripts/intake/witness-fields-backfill.ts",
+    "scripts/supervisor/card-waits.ts",
     "src/card/text-sha.ts",
     "src/card/witness-fields.ts"
   ],
@@ -726,6 +730,7 @@
     "scripts/tests/contract/module-ownership-generated.test.ts",
     "scripts/tests/contract/one-writer-per-table.test.ts",
     "scripts/tests/contract/owner-commands-detector.test.ts",
+    "scripts/tests/contract/owner-reads/card-domain.test.ts",
     "scripts/tests/contract/owner-reads/card-reads-events-through-bus.test.ts",
     "scripts/tests/contract/owner-reads/events-query.test.ts",
     "scripts/tests/contract/permanent-suite-holds-on-any-base.test.ts",
@@ -1671,6 +1676,7 @@
   "pr-record": [
     "scripts/core/merge-event.ts",
     "scripts/core/pr-folds.ts",
+    "scripts/core/pr-readings.ts",
     "scripts/core/pr-status.ts",
     "scripts/nodes/review/dry-run-record.ts",
     "scripts/nodes/review/pr-close.ts",
@@ -2592,8 +2598,6 @@
   "session": [
     "scripts/cli/slot.ts",
     "scripts/core/cadence.ts",
-    "scripts/core/card-automaton.ts",
-    "scripts/core/card-hold.ts",
     "scripts/core/chain.ts",
     "scripts/core/eddies.ts",
     "scripts/core/handoff-dir.ts",
@@ -2609,7 +2613,6 @@
     "scripts/supervisor/bg.ts",
     "scripts/supervisor/bus-heal.ts",
     "scripts/supervisor/bus-snapshot.ts",
-    "scripts/supervisor/card-waits.ts",
     "scripts/supervisor/composition.ts",
     "scripts/supervisor/dead-ends.ts",
     "scripts/supervisor/derive-queues.ts",
