@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { CarriedTree, Lease } from '../../core/lease.js'
 import type { InForceDecision } from '../../policy/decisions/index.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { CARD_BODIES, cardSessionsIn } from '../../core/card-bodies.js'
 import { cardHoldOf } from '../../core/card-hold.js'
 import { CARD_STARTED, CARD_STOPPED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_RECORDED, TASK_COMPLETED, TASK_FAILED, TASK_RELEASED, TASK_SUPERSEDED } from '../../core/events.js'
@@ -163,7 +164,7 @@ function startedOf(db: DatabaseSync, cardId: number): CardSession | null {
   const branch = text(payload.branch)
   if (started === null || worktree === null || branch === null)
     return null
-  return { session: cardSessionsIn(db, cardId).at(-1) ?? started, worktree, branch }
+  return { session: cardSessionsIn(BUS_CONTRACT, db, cardId).at(-1) ?? started, worktree, branch }
 }
 
 function chainSessionOf(payload: Record<string, unknown>): string {

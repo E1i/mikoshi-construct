@@ -9,6 +9,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { branchCardRuns, cardReadingOf, cardRunsOf, LayerWithoutTests } from '../../ci/card-runs.js'
 import { cruise } from '../../ci/select.js'
 import { catalogModules, catalogTests, testFoldersOfLayers, writeCatalog } from '../../cli/check-catalog.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { appendCardEvent } from '../../core/card-bodies.js'
 import { openBus } from '../../core/db.js'
 import { CARD_ADMITTED } from '../../core/events.js'
@@ -59,7 +60,7 @@ function catalogBus(): { db: DatabaseSync, file: string } {
 
 function admitUntested(db: DatabaseSync): void {
   const text = parkingFileText({ card: CARD_LINE, branch: BRANCH, touches: [CORE], continue: 'stop', who: 'shift', body: `Do it.\n\n${runsLine([`layer:${UNTESTED}`])}` })
-  appendCardEvent(db, 'owner', { ts: '2026-11-05T00:00:00.000Z', type: CARD_ADMITTED, cardId: CARD_ID, dedupeKey: `${CARD_ADMITTED}:${CARD_ID}`, payload: { text, textSha: textSha(text) } })
+  appendCardEvent(BUS_CONTRACT, db, 'owner', { ts: '2026-11-05T00:00:00.000Z', type: CARD_ADMITTED, cardId: CARD_ID, dedupeKey: `${CARD_ADMITTED}:${CARD_ID}`, payload: { text, textSha: textSha(text) } })
   reduce(db, 'pending', busProjections())
 }
 

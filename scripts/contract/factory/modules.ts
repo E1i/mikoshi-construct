@@ -45,7 +45,7 @@ const within = (folder: string, ...names: string[]): string[] => names.map(name 
 const core = (...names: string[]): string[] => within(factory('core'), ...names)
 const supervisor = (...names: string[]): string[] => within(factory('supervisor'), ...names.map(name => `${name}.ts`))
 
-const BUS_CONTRACT = core('db.ts', 'sqlite.ts', 'queue.ts', 'dependency-wait.ts', 'lease.ts', 'node.ts', 'stored.ts', 'errors.ts', 'bus-path.ts', 'bus-readings.ts', 'bus-version.ts', 'reducer.ts', 'every.ts', 'watermark.ts', 'events-query.ts', 'tasks-query.ts', 'entry.ts', 'observations.ts', 'task-must-wait.ts')
+const BUS_CONTRACT = core('db.ts', 'sqlite.ts', 'queue.ts', 'dependency-wait.ts', 'lease.ts', 'node.ts', 'stored.ts', 'errors.ts', 'bus-path.ts', 'bus-readings.ts', 'bus-version.ts', 'reducer.ts', 'every.ts', 'watermark.ts', 'events-query.ts', 'tasks-query.ts', 'entry.ts', 'observations.ts', 'task-must-wait.ts', 'bus-adapter.ts')
 
 const SESSION_CONTRACT = [
   ...core('machine-sessions.ts', 'eddies.ts', 'journal.ts', 'tasks.ts', 'handoff-dir.ts', 'handoff-fields.ts', 'handoff-status.ts', 'chain.ts', 'places.ts', 'report.ts', 'legacy-history.ts', 'import-closure.ts', 'cadence.ts'),
@@ -93,7 +93,7 @@ export const DRAWN: Readonly<Record<string, DrawnModule>> = {
   'bus': { contract: BUS_CONTRACT, may_use: ['events'], status: 'decided' },
   'session': { contract: SESSION_CONTRACT, may_use: ['bus', 'card-model', 'card-record', 'command-registry', 'ports-adapters', 'events', 'order'], status: 'decided' },
   'card-model': decided([]),
-  'card-record': decided(['bus', 'card-model', 'command-registry', 'events']),
+  'card-record': decided(['bus', 'card-model', 'command-registry', 'events', 'ports']),
   'plan': decided(['card-model', 'card-record', 'events']),
   'pr-record': decided(['bus', 'events']),
   'command-registry': decided([]),

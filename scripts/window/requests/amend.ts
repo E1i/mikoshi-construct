@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { RequestContext, RequestExecutor } from './context.js'
 import type { AdmitResult, AmendedStop, AmendFlags, CardAdmissionsPort, CardEventPort } from './reach.js'
 import type { Executed, RequestPayload } from './request.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { withWitnessRecords, witnessRecordsOf } from '../../quality/witness-records.js'
 import { answerToResumeAfterAmend, appendCardEvent, bodyNotFoldedYet, BusDecisions, CARD_ADMITTED, CARD_BODIES, cardBodyText, cardIdOf, correctionText, INTAKE_ACTOR_PREFIX, inTransaction, laid, launchWaitsOf, layLanes, OPEN_OWNER_STOP_OF_CARD, queueAgain, repositoryLanes, runAmend } from './reach.js'
 import { messageOf, text } from './request.js'
@@ -53,10 +54,10 @@ function amendEvents(context: RequestContext, request: number): CardEventPort {
   const actor = `${INTAKE_ACTOR_PREFIX}request-${request}`
   return event => inTransaction(context.db, () => {
     if (event.type !== CARD_ADMITTED) {
-      appendCardEvent(context.db, actor, event)
+      appendCardEvent(BUS_CONTRACT, context.db, actor, event)
       return
     }
-    appendCardEvent(context.db, actor, laid(context.db, event))
+    appendCardEvent(BUS_CONTRACT, context.db, actor, laid(context.db, event))
     layLanes(context.db, repositoryLanes(context.repository)(), event.ts, actor, event.cardId)
   })
 }
@@ -78,7 +79,7 @@ export const execute: RequestExecutor = (context, request, payload) => {
   const cardId = cardIdOf(payload.card)
   if (cardId === null)
     return { done: false, why: 'amend names no card' }
-  if (bodyNotFoldedYet(db, cardId))
+  if (bodyNotFoldedYet(BUS_CONTRACT, db, cardId))
     return { done: false, why: `#${cardId}: the bus has not folded its latest body yet; ask again on the next tick` }
   const lane = (db.prepare(`SELECT lane FROM ${CARD_BODIES} WHERE card_id = ?`).get(cardId) as { lane: string | null } | undefined)?.lane ?? null
   const stop = db.prepare(OPEN_OWNER_STOP_OF_CARD).get(cardId) as { id: number, payload: string } | undefined

@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { BUS_CONTRACT } from '../scripts/core/bus-adapter.js'
 import { appendCardEvent } from '../scripts/core/card-bodies.js'
 import { closedWaitIds } from '../scripts/core/card-readings.js'
 import { openBus } from '../scripts/core/db.js'
@@ -49,7 +50,7 @@ function admitInto(db: DatabaseSync, cardId: number): void {
   const parsed = parseParkingFile(`${cardId}.md`, text)
   if (parsed.kind === 'refused')
     throw new Error(parsed.reason)
-  appendCardEvent(db, 'worker:intake:test', admittedRecord({ id: cardId, file: `${cardId}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', NOW))
+  appendCardEvent(BUS_CONTRACT, db, 'worker:intake:test', admittedRecord({ id: cardId, file: `${cardId}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', NOW))
   reduce(db, 'pending', busProjections())
 }
 

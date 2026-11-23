@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { BUS_CONTRACT } from '../../scripts/core/bus-adapter.js'
 import { appendCardEvent } from '../../scripts/core/card-bodies.js'
 import { openBus } from '../../scripts/core/db.js'
 import { CARD_ADMITTED } from '../../scripts/core/events.js'
@@ -83,7 +84,7 @@ describe('the Shredder writes the parent on each slice it cuts', () => {
     const said: string[] = []
     try {
       for (const id of [90, 91])
-        appendCardEvent(db, 'worker:intake:test', { type: CARD_ADMITTED, cardId: id, ts: '2026-11-17T09:00:00.000Z', dedupeKey: `${CARD_ADMITTED}:${id}`, payload: { card: `#${id} twice-slice-1 [implement/runner/S/cheap/owner]` } }, line => said.push(line))
+        appendCardEvent(BUS_CONTRACT, db, 'worker:intake:test', { type: CARD_ADMITTED, cardId: id, ts: '2026-11-17T09:00:00.000Z', dedupeKey: `${CARD_ADMITTED}:${id}`, payload: { card: `#${id} twice-slice-1 [implement/runner/S/cheap/owner]` } }, line => said.push(line))
       const parents = (db.prepare('SELECT card_id, payload FROM events WHERE type = ? ORDER BY id').all(CARD_ADMITTED) as { card_id: number, payload: string }[])
         .map(row => [Number(row.card_id), (JSON.parse(row.payload) as Record<string, unknown>).parent ?? null])
       expect(parents).toEqual([[90, { card: 90, part: 1, of: 1 }], [91, null]])
@@ -101,9 +102,9 @@ describe('the Shredder writes the parent on each slice it cuts', () => {
     const said: string[] = []
     try {
       const line = (id: number, part: number): string => `#${id} again-slice-${part} [implement/runner/S/cheap/owner]`
-      appendCardEvent(db, 'worker:intake:test', { type: CARD_ADMITTED, cardId: 90, ts: '2026-11-17T09:00:00.000Z', dedupeKey: `${CARD_ADMITTED}:90`, payload: { card: line(90, 1) } }, entry => said.push(entry))
-      appendCardEvent(db, 'worker:intake:test', { type: CARD_ADMITTED, cardId: 91, ts: '2026-11-17T09:01:00.000Z', dedupeKey: `${CARD_ADMITTED}:91`, payload: { card: line(91, 2) } }, entry => said.push(entry))
-      appendCardEvent(db, 'worker:intake:test', { type: CARD_ADMITTED, cardId: 91, ts: '2026-11-17T09:02:00.000Z', dedupeKey: `${CARD_ADMITTED}:91:amend`, payload: { card: line(91, 2) } }, entry => said.push(entry))
+      appendCardEvent(BUS_CONTRACT, db, 'worker:intake:test', { type: CARD_ADMITTED, cardId: 90, ts: '2026-11-17T09:00:00.000Z', dedupeKey: `${CARD_ADMITTED}:90`, payload: { card: line(90, 1) } }, entry => said.push(entry))
+      appendCardEvent(BUS_CONTRACT, db, 'worker:intake:test', { type: CARD_ADMITTED, cardId: 91, ts: '2026-11-17T09:01:00.000Z', dedupeKey: `${CARD_ADMITTED}:91`, payload: { card: line(91, 2) } }, entry => said.push(entry))
+      appendCardEvent(BUS_CONTRACT, db, 'worker:intake:test', { type: CARD_ADMITTED, cardId: 91, ts: '2026-11-17T09:02:00.000Z', dedupeKey: `${CARD_ADMITTED}:91:amend`, payload: { card: line(91, 2) } }, entry => said.push(entry))
       const parents = (db.prepare('SELECT card_id, payload FROM events WHERE type = ? ORDER BY id').all(CARD_ADMITTED) as { card_id: number, payload: string }[])
         .map(row => [Number(row.card_id), (JSON.parse(row.payload) as Record<string, unknown>).parent ?? null])
       expect(parents).toEqual([
@@ -124,7 +125,7 @@ describe('the Shredder writes the parent on each slice it cuts', () => {
     const db = openBus(path.join(root, 'bus.db'))
     try {
       const cut = { card: 94, part: 1, of: 2 }
-      appendCardEvent(db, 'worker:intake:test', { type: CARD_ADMITTED, cardId: 95, ts: '2026-11-17T09:00:00.000Z', dedupeKey: `${CARD_ADMITTED}:95`, payload: { card: '#95 cut-slice-1 [implement/runner/S/cheap/owner]', parent: cut } }, () => {})
+      appendCardEvent(BUS_CONTRACT, db, 'worker:intake:test', { type: CARD_ADMITTED, cardId: 95, ts: '2026-11-17T09:00:00.000Z', dedupeKey: `${CARD_ADMITTED}:95`, payload: { card: '#95 cut-slice-1 [implement/runner/S/cheap/owner]', parent: cut } }, () => {})
       const row = db.prepare('SELECT payload FROM events WHERE type = ? AND card_id = ?').get(CARD_ADMITTED, 95) as { payload: string }
       expect((JSON.parse(row.payload) as Record<string, unknown>).parent).toEqual(cut)
     }

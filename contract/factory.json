@@ -3489,7 +3489,8 @@
           "scripts/core/tasks-query.ts",
           "scripts/core/entry.ts",
           "scripts/core/observations.ts",
-          "scripts/core/task-must-wait.ts"
+          "scripts/core/task-must-wait.ts",
+          "scripts/core/bus-adapter.ts"
         ],
         "may_use": [
           "events"
@@ -3519,7 +3520,8 @@
           "scripts/core/task-must-wait.ts",
           "scripts/core/projection-writes.ts",
           "scripts/core/projection-writes.known.json",
-          "scripts/core/rejection.ts"
+          "scripts/core/rejection.ts",
+          "scripts/core/bus-adapter.ts"
         ],
         "status": "decided"
       },
@@ -3565,7 +3567,8 @@
           "bus",
           "card-model",
           "command-registry",
-          "events"
+          "events",
+          "ports"
         ],
         "owns": [
           "scripts/core/card-bodies.ts",
@@ -3929,6 +3932,7 @@
           "scripts/ports/**",
           "scripts/core/gh-callers.ts",
           "scripts/core/gh-callers.known.json",
+          "scripts/core/bus-contract.ts",
           "!scripts/ports/client/codex/adapter.ts",
           "!scripts/ports/client/contract.ts",
           "!scripts/ports/disk.ts",

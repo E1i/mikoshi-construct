@@ -17,6 +17,8 @@ const NODE_TO_ADAPTER = [
   ['scripts/nodes/answer/answerer.ts', 'scripts/ports/client/contract.ts'],
 ] as const
 
+const PORTS_GRANTED_BY_D778 = ['card-record']
+
 describe('ports-adapters is a decided module (D-503)', () => {
   it('a node imports a pure adapter without a violation', { timeout: REPO_RUN_TIMEOUT }, () => {
     const report = repositoryReport()
@@ -38,11 +40,11 @@ describe('ports-adapters is a decided module (D-503)', () => {
     expect(ports?.owns.filter(glob => glob.startsWith('!scripts/ports/')).map(glob => glob.slice(1)).sort()).toEqual([...PURE_ADAPTERS].sort())
   })
 
-  it('the decided importers of the adapters are granted ports-adapters and no wide ports grant exists', () => {
+  it('the decided importers of the adapters are granted ports-adapters and the only wide ports grant is the one D-778 gives card-record', () => {
     const granted = Object.entries(MODULE_GRAPH.modules).filter(([, spec]) => spec.may_use.includes('ports-adapters')).map(([id]) => id).sort()
     const widePorts = Object.entries(MODULE_GRAPH.modules).filter(([, spec]) => spec.may_use.includes('ports')).map(([id]) => id)
 
     expect(granted).toEqual(['node-answer', 'node-close', 'node-launch', 'node-merge', 'node-restart', 'node-review', 'node-update', 'node-witness', 'session'])
-    expect(widePorts).toEqual([])
+    expect(widePorts).toEqual(PORTS_GRANTED_BY_D778)
   })
 })

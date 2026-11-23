@@ -9,6 +9,7 @@ import ts from 'typescript'
 import { afterAll, describe, expect, it } from 'vitest'
 import { catalogueOf, typedReading, writtenEvents } from '../../contract/factory/payloads.js'
 import { parsedFiles } from '../../contract/factory/walk.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { CARD_VERSION } from '../../core/bus-version.js'
 import { appendCardEvent } from '../../core/card-bodies.js'
 import { appendEvent } from '../../core/db.js'
@@ -159,7 +160,7 @@ describe('the typed catalogue of bus events', () => {
     benches.push(made)
     const ts = made.clock.now().toISOString()
     const admission = { card: `#${ADMITTED_BY_INTAKE} lifted`, lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], text: `card: #${ADMITTED_BY_INTAKE} lifted`, plan: { plan: 'P-1', item: 'a' }, admission: `admission-${ADMITTED_BY_INTAKE}` }
-    expect(appendCardEvent(made.db, 'worker:intake:window', { type: CARD_ADMITTED, cardId: ADMITTED_BY_INTAKE, ts, dedupeKey: `${CARD_ADMITTED}:${ADMITTED_BY_INTAKE}`, payload: admission })).toBe(true)
+    expect(appendCardEvent(BUS_CONTRACT, made.db, 'worker:intake:window', { type: CARD_ADMITTED, cardId: ADMITTED_BY_INTAKE, ts, dedupeKey: `${CARD_ADMITTED}:${ADMITTED_BY_INTAKE}`, payload: admission })).toBe(true)
     appendEvent(made.db, { ts, type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId: ADMITTED_BY_INTAKE, pr: null, head: null, dedupeKey: `${LAUNCH_STOP_WITH_NO_PULL_REQUEST}${ADMITTED_BY_INTAKE}`, payload: { reason: 'question.agent', detail: 'asks', widen: [] }, legacy: false })
     const stop = (made.db.prepare(`SELECT max(id) AS id FROM events WHERE type = '${CARD_STOPPED}'`).get() as { id: number }).id
     made.tick()

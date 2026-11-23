@@ -21,6 +21,7 @@ import { createMain } from '../../src/program.js'
 import { createUi } from '../../src/ui/console.js'
 import { resolveTheme } from '../../src/ui/theme.js'
 import { RECOMPUTE_DRIFTED_SHARE, WEIGHTS_PATH } from '../ci/weights-law.js'
+import { BUS_CONTRACT } from '../core/bus-adapter.js'
 import { BUS_DB_VARIABLE, ForeignBusRefused } from '../core/bus-path.js'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.js'
 import { admittedBodyText, appendCardEvent, laid } from '../core/card-bodies.js'
@@ -111,7 +112,7 @@ export function busCardAdmissions(db: DatabaseSync): CardAdmissionsPort {
     const admission = intakeAdmissions(db).filter(entry => entry.task === String(cardId)).at(-1)
     if (admission === undefined)
       return null
-    const text = admittedBodyText(db, cardId)
+    const text = admittedBodyText(BUS_CONTRACT, db, cardId)
     return withWitnessRecords(text === null ? admission : { ...admission, text }, witnessRecordsOf(db, cardId))
   }
 }
@@ -125,7 +126,7 @@ function admissionOfMove(db: DatabaseSync, move: CardEvent): CardEvent | null {
   const { to } = move.payload
   if (typeof to !== 'string')
     return null
-  const text = admittedBodyText(db, move.cardId) ?? parkedText(to, move.cardId)
+  const text = admittedBodyText(BUS_CONTRACT, db, move.cardId) ?? parkedText(to, move.cardId)
   if (text === null)
     return null
   const parsed = parseParkingFile(`${move.cardId}.md`, text)
@@ -241,11 +242,11 @@ export function busCardEvents(db: DatabaseSync, session: string = SESSION_BY_HAN
   const record = (event: CardEvent): void => {
     if (needsAnAdmission(event) && db.prepare(ANY_ADMISSION).get(event.cardId) === undefined)
       throw new Error(`Refused: #${event.cardId} has no card.admitted in the bus, so the bus cannot hold its move; admit it first. Nothing was moved.`)
-    appendCardEvent(db, actor, laid(db, event))
+    appendCardEvent(BUS_CONTRACT, db, actor, laid(db, event))
     registerPlan(db, event, release)
     const admitted = event.type === CARD_MOVED ? admissionOfMove(db, event) : null
     if (admitted !== null)
-      appendCardEvent(db, actor, admitted)
+      appendCardEvent(BUS_CONTRACT, db, actor, admitted)
   }
   const recordAll = (events: readonly CardEvent[]): void => {
     if (events.some(event => event.type === CARD_ADMITTED))
@@ -368,7 +369,7 @@ export class BusWeightsRecompute implements RecomputeLedger {
       const text = recomputeCardText(id!, figures)
       this.parts.hand(id!, WEIGHTS_PATH, table)
       const at = this.parts.clock()
-      if (!appendCardEvent(db, WEIGHTS_DRIFT_ACTOR, laid(db, recomputeEventOf(id!, text, figures.run, at))))
+      if (!appendCardEvent(BUS_CONTRACT, db, WEIGHTS_DRIFT_ACTOR, laid(db, recomputeEventOf(id!, text, figures.run, at))))
         throw new Error(`the card.admitted of recompute card #${id} was not appended`)
       return id!
     })

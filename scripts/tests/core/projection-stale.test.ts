@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { busFacts } from '../../../src/commands/board/bus.js'
 import { screenLines, waitsLines } from '../../../src/commands/board/screens.js'
 import { PLAIN_LORE } from '../../../src/ui/lore.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { CARD_TYPES_FOLDED_ON_APPEND, CARDS, DECISIONS, OWNER_WAITS, PROJECTION_TYPES, readCurrent, staleProjection } from '../../core/bus-readings.js'
 import { appendedOnCard, CARDS_PROJECTION } from '../../core/card-automaton.js'
 import { openOwnerWaits } from '../../core/card-readings.js'
@@ -118,7 +119,7 @@ describe('a reader of a projection behind its events', () => {
     expect(watermarkOf(db, SNAPSHOT)).toBeGreaterThanOrEqual(3)
     expect(readCurrent(db, [OWNER_WAITS, DECISIONS, CARDS], () => ({ waits: openOwnerWaits(db).map(each => each.id), decisions: inForceDecisions(db).map(each => each.decisionId) })))
       .toEqual({ stale: null, rows: { waits: [wait], decisions: [1] }, at: decided })
-    appendedOnCard(db, { ts: TS, type: CARD_STOPPED, actor: 'policy', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${CARD}`, payload: { reason: QUESTION_OWNER }, legacy: false })
+    appendedOnCard(BUS_CONTRACT, db, { ts: TS, type: CARD_STOPPED, actor: 'policy', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${CARD}`, payload: { reason: QUESTION_OWNER }, legacy: false })
     expect(staleProjection(db, CARDS)).toBeNull()
   })
 

@@ -16,6 +16,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { parseParkingFile } from '../../../src/card/parking.js'
 import { NOT_A_BACKFILL } from '../../core/backfill-source.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { TICK_MS } from '../../core/cadence.js'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD, RUNNING_CARD } from '../../core/card-automaton.js'
 import { admittedBodies, admittedBodyText, bodyNotFoldedYet, pathsOutsideTheBody } from '../../core/card-bodies.js'
@@ -444,7 +445,7 @@ export class LaunchNode extends Node<LaunchStep> {
     if (continuer === undefined)
       return this.stopContinuation(start, 'continuation-refused', `${exited}; no continuer is wired, so no session continues from it`)
     if (!(this.launchParts.handedOff?.(session) ?? false))
-      this.launchParts.buildHandoff?.(card, session, admittedBodyText(this.db, start.card_id))
+      this.launchParts.buildHandoff?.(card, session, admittedBodyText(BUS_CONTRACT, this.db, start.card_id))
     return this.continueSession(start, card, continuer, exited)
   }
 
@@ -464,7 +465,7 @@ export class LaunchNode extends Node<LaunchStep> {
       return this.continueSession(start, card, continuer, exited)
     const reported = this.reportedStopReason(start)
     if (this.continuationsUsed(start) < MAX_RESTARTS)
-      this.launchParts.buildHandoff?.(card, session, admittedBodyText(this.db, start.card_id))
+      this.launchParts.buildHandoff?.(card, session, admittedBodyText(BUS_CONTRACT, this.db, start.card_id))
     return this.continueSession(start, card, continuer, exited, reported)
   }
 
@@ -476,7 +477,7 @@ export class LaunchNode extends Node<LaunchStep> {
     if (continuer === undefined)
       return this.stopContinuation(start, 'eddies-stop', `${exited}; no continuer is wired, so no session continues from it`)
     if (!(this.launchParts.handedOff?.(session) ?? false) && this.continuationsUsed(start) < MAX_RESTARTS)
-      this.launchParts.buildHandoff?.(card, session, admittedBodyText(this.db, start.card_id))
+      this.launchParts.buildHandoff?.(card, session, admittedBodyText(BUS_CONTRACT, this.db, start.card_id))
     return this.continueSession(start, card, continuer, exited)
   }
 
@@ -499,7 +500,7 @@ export class LaunchNode extends Node<LaunchStep> {
   }
 
   private kindOf(cardId: number): string | null {
-    const text = admittedBodyText(this.db, cardId)
+    const text = admittedBodyText(BUS_CONTRACT, this.db, cardId)
     const parsed = text === null ? null : parseParkingFile(`${cardId}.md`, text)
     return parsed?.kind === 'parked' ? parsed.parked.task.card.kind : null
   }
@@ -568,7 +569,7 @@ export class LaunchNode extends Node<LaunchStep> {
   }
 
   private amendSince(start: RunningStart): BodyAmend | null {
-    const bodies = admittedBodies(this.db, start.card_id)
+    const bodies = admittedBodies(BUS_CONTRACT, this.db, start.card_id)
     const amended = bodies[0]
     const started = bodies.find(body => body.id < start.id)
     if (amended === undefined || started === undefined || amended.id <= start.id || started.sha === amended.sha || onlyThePriorityMoved({ started_text: started.text, amended_text: amended.text }))
@@ -586,7 +587,7 @@ export class LaunchNode extends Node<LaunchStep> {
   }
 
   private continueSession(start: RunningStart, card: StartedCard, continuer: SessionContinuer, exited: string, reported: string | null = this.reportedStopReason(start)): boolean {
-    if (waitHeldAtTheExit(this.db, this.ts(), this.actor, { cardId: start.card_id, startKey: start.dedupe_key, session: card.session, exited }) || bodyNotFoldedYet(this.db, start.card_id) || this.usageLimitResetPending() !== null)
+    if (waitHeldAtTheExit(this.db, this.ts(), this.actor, { cardId: start.card_id, startKey: start.dedupe_key, session: card.session, exited }) || bodyNotFoldedYet(BUS_CONTRACT, this.db, start.card_id) || this.usageLimitResetPending() !== null)
       return false
     const used = this.continuationsUsed(start)
     if (used >= MAX_RESTARTS)
@@ -750,7 +751,7 @@ export class LaunchNode extends Node<LaunchStep> {
   }
 
   protected handle(lease: Lease): LaunchStep {
-    if (bodyNotFoldedYet(this.db, lease.cardId))
+    if (bodyNotFoldedYet(BUS_CONTRACT, this.db, lease.cardId))
       return this.waitOn(lease, BODY_NOT_FOLDED, new Date(this.parts.clock().getTime() + TICK_MS).toISOString())
     const ownerSaid = ownerMovedSince(this.db, lease.cardId, 'launch')
     if (!ownerSaid && cardHoldOf(this.db, lease.cardId) !== null)
