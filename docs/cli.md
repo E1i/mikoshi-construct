@@ -505,8 +505,9 @@ available with a release, not a fault in the repository. `--json` carries it as 
 `construct doctor --factory` answers one question before you start the factory: will it go. It reads
 each item the factory needs and says **goes** or **does not go**; under every red item it prints the
 command that turns it green. The exit code is `0` when every item goes and `1` while any is red;
-`--json` prints `{ schemaVersion, goes, bus, items: [{ item, slice, goes, command }] }`, `command`
-being `null` on a green item.
+`--json` prints `{ schemaVersion, goes, bus, items: [{ item, slice, goes, command, refused? }] }`,
+`command` being `null` on a green item and `refused` naming, on a red role item, each role and the
+step it cannot take.
 
 | Item | Slice | Goes when | Red → run |
 |------|-------|-----------|-----------|
@@ -514,6 +515,8 @@ being `null` on a green item.
 | `factory-hooks` | PARITY | `.claude/settings.json` carries the eddies guard and prompt hooks and the window heartbeat | `construct sync --apply` |
 | `pnpm-floor` | PARITY | `packageManager` pins pnpm at or above the pnpm mikoshi pins | `corepack use pnpm@<floor>` |
 | `pnpm-store-ignored` | PARITY | `.gitignore` ignores `.pnpm-store/` | `printf '.pnpm-store/\n' >> .gitignore` |
+| `role-environment` | PARITY | every role takes its first step in the environment the product writes, read from `.claude/settings.json` and `.claude/settings.local.json` and never from `~/.claude/settings.json`: the window reads its handoff, runs `miko watch --once` and commits in a branch; launch and answer commit in a card tree whose git data lives in the main checkout; review reads it | `construct sync --apply` |
+| `browser-lab-roles` | PARITY | once the bus has installed `~/.construct/browser-lab/bin/browser-lab.mjs`, its absolute command runs outside the sandbox in the window, launch and answer; a copy of the script in the repository stays inside it | `construct sync --apply` |
 | `window-live` | PARITY | the newest window heartbeat on the bus is fresh — the same liveness the board reads | `claude` in the repository |
 | `live-merge`, `live-update` | ONEWORD | `allow-live merge` / `allow-live update` is in force in the owner decisions beside the bus | `construct say "ghost-protocol 6h" && construct-factory --mode ghost-protocol` |
 
@@ -946,7 +949,25 @@ not edited, and the run prints that the browser organ runs inside the sandbox wi
 That does not change the exit code. Under `--json` the key `browserLabExclusion` reads `added`, `held`
 or `refused`, and is absent where the construct carries no Claude settings. `sync` without `--apply`
 writes nothing, this file included. `construct.json` records nothing of it: the line holds a home path
-and stays on this machine.
+and stays on this machine. The same write takes out `node scripts/construct/browser-lab.mjs *`, the
+relative entry an earlier `init` left there, which excluded nothing; every other byte stays.
+
+**The role environment.** Where the construct carries the Claude settings, `init` and `--apply` write
+into `.claude/settings.json` the environment every role runs in, so no role leans on the owner's
+`~/.claude/settings.json`, which a window or card session started with `--setting-sources
+project,local` never reads: `sandbox.enabled`, `autoAllowBashIfSandboxed`, `allowUnsandboxedCommands:
+false`, `filesystem.allowWrite` of `~/.construct/<repo>`, `./.git` and the package-manager stores,
+`filesystem.denyWrite` of `~/.construct-owner` (the owner channel) and of `./.git/hooks` and
+`./.git/config`, `network.allowedDomains` of the GitHub hosts and `registry.npmjs.org`,
+and `Read(~/.construct/<repo>/**)`. Every path is written from `~`, so no home path reaches a clone. It
+is a union: nothing the repository already holds is removed or overridden, and a file that does not
+carry the construct's eddies hook, or a key that does not read as settings, is left as it is; the
+relative browser-lab entry is dropped only in such a construct-owned repository, so a repository
+`attach` delivered to keeps it until `detach`. `--apply` records the owned view with the environment in
+it.
+A card session adds, through the `--settings` the bus passes it, the git data of its own tree —
+`<repo>/.git/worktrees/<id>` and the shared `objects`, `refs` and `logs` — so it commits in a tree
+whose git data lives in the main checkout.
 
 **What it never writes.** A `keep` (there is nothing to write), a `conflict` (a decision only an owner
 can make), a `removed` path (deleted deliberately; sync never puts it back), an `orphaned` path (it

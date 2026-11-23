@@ -150,6 +150,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   factoryStalls: string
   factoryItem: Record<string, string>
   factoryRun: (command: string) => string
+  factoryRefusedRoles: (label: string, refused: string[]) => string
   factoryVerdict: (goes: boolean, stalled: number) => string
   syncApplyRefused: string
   syncApplyWrote: (count: number) => string
@@ -429,9 +430,7 @@ function expectRoleMinutesNotRecorded(undated: number, runs: number, source: str
 }
 
 function confirmedByLine(autoConfirm: boolean, windowShard: string | null): string {
-  if (autoConfirm)
-    return 'accepted in advance by --auto-confirm'
-  return windowShard === null ? 'confirmed by a person' : `confirmed by window under shard ${windowShard}`
+  return autoConfirm ? 'accepted in advance by --auto-confirm' : windowShard === null ? 'confirmed by a person' : `confirmed by window under shard ${windowShard}`
 }
 
 function andMore(rest: readonly string[]): string {
@@ -583,10 +582,7 @@ export const LORE: Lore = {
   youAreHereNoClaim: 'YOU ARE HERE: construct.model.json carries no claim, so there is none to place',
   youAreHereNoModel: 'YOU ARE HERE: nowhere to place you \u2014 there is no construct.model.json, so nothing is known about claims',
   wireHarness: 'Existing configs were kept, so the harness is not wired in yet. /construct-discover does this first; by hand:',
-  wireHarnessSteps: [
-    'tsconfig: include scripts/**/*.ts; vitest: include scripts/tests/**/*.test.ts',
-    'package.json: make the quality script run composition:check (and contracts:check when there is a contract)',
-  ],
+  wireHarnessSteps: ['tsconfig: include scripts/**/*.ts; vitest: include scripts/tests/**/*.test.ts', 'package.json: make the quality script run composition:check (and contracts:check when there is a contract)'],
   costMeasuredBy: (version: string) => `Measured by construct v${version} \u2014 quote the version with every figure taken from here.`,
   costUnsupported: (runtime: string) => `No usage feed: the ${runtime} runtime does not expose per-run token usage.`,
   costEmpty: 'No /implement runs recorded here yet.',
@@ -654,6 +650,8 @@ export const LORE: Lore = {
     'pnpm-floor': 'packageManager pins pnpm at or above the mikoshi floor',
     'pnpm-store-ignored': '.gitignore ignores .pnpm-store/',
     'card-permissions': 'settings.local.json widens no card session: no permissions.allow, additionalDirectories, defaultMode or sandbox beyond the one exclusion of the browser organ there; keep them in ~/.claude/settings.json, which card sessions never read',
+    'role-environment': 'every role takes its first step in the environment this jack writes, not in your user settings: the window reads its handoff, runs miko watch --once and commits in a branch; launch and answer commit in the card tree; review reads it. A red line names the role and the step its sandbox refuses; sync --apply writes the environment into .claude/settings.json',
+    'browser-lab-roles': 'browser-lab starts outside the sandbox in every role that calls it (window, launch, answer): the installed absolute command is excluded from the sandbox where that role reads it. A red line names the role where it does not start; sync --apply writes the exclusion',
     'gh-account': 'gh calls of the nodes and launched card sessions jack in as the GitHub account the factory recorded; a RUN line here warns that gh is switched to another one, and ladder and answer sessions and the pushes of the nodes still follow it: run it to put them and your own gh commands back on this repository',
     'window-live': 'a window heartbeat is fresh on the bus',
     'window-continue': 'the last STATUS: line of the window handoff is CONTINUE; write it with STATUS: CONTINUE through the handoff writer once the window may go on without the owner',
@@ -661,6 +659,7 @@ export const LORE: Lore = {
     'live-update': 'allow-live update is in force',
   },
   factoryRun: (command: string) => `RUN // ${command}`,
+  factoryRefusedRoles: (label: string, refused: string[]) => `${label} // REFUSED: ${refused.join('; ')}`,
   factoryVerdict: (goes: boolean, stalled: number) => goes ? 'THE FACTORY GOES' : `THE FACTORY DOES NOT GO // ${stalled} RED`,
   syncApplyRefused: 'LEFT TO YOU',
   syncApplyWrote: (count: number) => `${count} path${count === 1 ? '' : 's'} written. The manifest records the owned view of each of them.`,
@@ -998,10 +997,7 @@ export const PLAIN_LORE: Lore = {
   youAreHereNoClaim: 'You are here: construct.model.json carries no claim, so there is none to place',
   youAreHereNoModel: 'You are here: nowhere to place you \u2014 there is no construct.model.json, so nothing is known about claims',
   wireHarness: 'Existing configs were kept, so the harness is not wired in yet. /construct-discover does this first; by hand:',
-  wireHarnessSteps: [
-    'tsconfig: include scripts/**/*.ts; vitest: include scripts/tests/**/*.test.ts',
-    'package.json: make the quality script run composition:check (and contracts:check when there is a contract)',
-  ],
+  wireHarnessSteps: ['tsconfig: include scripts/**/*.ts; vitest: include scripts/tests/**/*.test.ts', 'package.json: make the quality script run composition:check (and contracts:check when there is a contract)'],
   costMeasuredBy: (version: string) => `Measured by construct v${version} \u2014 quote the version with every figure taken from here.`,
   costUnsupported: (runtime: string) => `The ${runtime} runtime does not expose per-run token usage.`,
   costEmpty: 'No /implement runs recorded here yet.',
@@ -1069,6 +1065,8 @@ export const PLAIN_LORE: Lore = {
     'pnpm-floor': 'packageManager pins pnpm at or above the mikoshi floor',
     'pnpm-store-ignored': '.gitignore ignores .pnpm-store/',
     'card-permissions': '.claude/settings.local.json widens no card-session permission: it carries no permissions.allow, permissions.additionalDirectories, permissions.defaultMode or sandbox beyond the one exclusion of the browser lab; move them to ~/.claude/settings.json, which card sessions do not read',
+    'role-environment': 'every role takes its first step in the environment the product writes, not in your user settings: the window reads its handoff, runs miko watch --once and commits in a branch; launch and answer commit in the card tree; review reads it. A red line names the role and the step its sandbox refuses; sync --apply writes the environment into .claude/settings.json',
+    'browser-lab-roles': 'browser-lab starts outside the sandbox in every role that calls it (window, launch, answer): the installed absolute command is excluded from the sandbox where that role reads it. A red line names the role where it does not start; sync --apply writes the exclusion',
     'gh-account': 'gh calls of the nodes and launched card sessions run as the GitHub account the factory recorded; a Run line here warns that gh is switched to another one, and ladder and answer sessions and the pushes of the nodes still follow it: run it to put them and your own gh commands back on this repository',
     'window-live': 'a window heartbeat is fresh on the bus',
     'window-continue': 'the last STATUS: line of the window handoff is CONTINUE; write the handoff with STATUS: CONTINUE once the window may go on without the owner',
@@ -1076,6 +1074,7 @@ export const PLAIN_LORE: Lore = {
     'live-update': 'allow-live update is in force',
   },
   factoryRun: (command: string) => `Run: ${command}`,
+  factoryRefusedRoles: (label: string, refused: string[]) => `${label}. Refused: ${refused.join('; ')}`,
   factoryVerdict: (goes: boolean, stalled: number) => goes ? 'The factory goes.' : `The factory does not go: ${stalled} item${stalled === 1 ? '' : 's'} red.`,
   syncApplyRefused: 'Left to you',
   syncApplyWrote: (count: number) => `${count} path${count === 1 ? '' : 's'} written. The manifest records the owned view of each of them.`,
