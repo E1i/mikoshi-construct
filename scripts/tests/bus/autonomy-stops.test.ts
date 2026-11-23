@@ -116,6 +116,11 @@ describe('autonomy stops under a shard', () => {
       'the boundary row grows by one import; may it merge?',
       'may this card grow the ratchet by 3 lines?',
       'is this a ratchet growth the owner allows?',
+      'the boundary row node-merge->decisions grows by one import',
+      'the boundary budget grows by one import',
+      'may this card that grew the ratchet go in?',
+      'may this card grow a ratchet by one line?',
+      'may this card grow the boundary of node-merge?',
     ]) {
       expect(stopKindOf(growth)).toBe(RATCHET_GROWTH)
       expect(ownersUnderAnyShard(growth)).toBe(RATCHET_GROWTH)

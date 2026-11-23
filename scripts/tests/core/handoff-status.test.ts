@@ -1,5 +1,5 @@
 import type { WindowShard } from '../../policy/shards.js'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -18,6 +18,8 @@ const SRC_MAY_NOT_IMPORT_THE_OWNER_YET = ['src/commands/doctor/factory.ts']
 const STATUS_CONCEPTS = CONCEPTS.filter(concept => concept.id === 'handoff-status')
 const SHARD: WindowShard = { id: 'ws-1', by: 'Eli', scope: 'merge+decisions', until: '2026-10-17T16:00:00.000Z' }
 const OWNER_QUESTION = 'STATUS: OWNER — boundary: owner-question'
+const WINDOW_DOC = path.join(REPO_ROOT, 'architecture', 'window.md')
+const DOCUMENTED_BOUNDARIES = /only at a named boundary —(.*?)— and under/s
 
 const PLANTED: readonly (readonly [string, string])[] = [
   ['a regex over the STATUS line', 'export const LINE = /^STATUS:\\s*(CONTINUE|OWNER)\\b/'],
@@ -99,5 +101,13 @@ describe('the STATUS line of a handoff', () => {
     const refusal = ownerUnderDecisionsShardRefusal(ownerQuestion, SHARD)!
     expect(refusal).toContain('under the active merge+decisions shard ws-1')
     expect(refusal.slice(refusal.indexOf('stays the owner\'s:')).split(/[:,]\s*/)).toContain(RATCHET_GROWTH)
+  })
+
+  it('window.md names every owner boundary and no other', () => {
+    const list = DOCUMENTED_BOUNDARIES.exec(readFileSync(WINDOW_DOC, 'utf8'))?.[1] ?? ''
+    const documented = [...list.matchAll(/`([^`]+)`/g)].map(match => match[1])
+
+    expect(documented).toContain(RATCHET_GROWTH)
+    expect([...documented].sort()).toEqual([...OWNER_BOUNDARIES].sort())
   })
 })
