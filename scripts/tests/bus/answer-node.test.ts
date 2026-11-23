@@ -205,6 +205,7 @@ const KEPT_BY_THE_OWNER: Record<string, string[]> = {
   [VERSION_PR_RESERVATION]: ['may the version pull request merge?', 'is changeset-release/main ready?', 'merge chore: version packages?'],
   'npm-stage': ['approve the npm stage?'],
   'security-invariants': ['may it edit security-invariants?'],
+  'ratchet-growth': ['may the boundary row grow in contract/ratchet.json?'],
 }
 
 function admitted(made: MergeBench, cardId: number): void {

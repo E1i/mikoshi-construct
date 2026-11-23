@@ -7,7 +7,8 @@ import { busDownOf } from '../../cli/board-page.js'
 import { CONCEPTS } from '../../contract/factory/concepts.js'
 import { findSites, overlapsSection } from '../../contract/factory/overlaps.js'
 import { statusLineOf, statusOf, statusOfFile } from '../../core/handoff-status.js'
-import { ownerUnderDecisionsShardRefusal } from '../../window/handoff-write.js'
+import { RATCHET_GROWTH } from '../../policy/shards.js'
+import { OWNER_BOUNDARIES, ownerUnderDecisionsShardRefusal } from '../../window/handoff-write.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const OWNER = 'scripts/core/handoff-status.ts'
@@ -87,5 +88,16 @@ describe('the STATUS line of a handoff', () => {
     expect(ownerUnderDecisionsShardRefusal(answeredOnly, SHARD)).toContain('under the active merge+decisions shard ws-1')
     expect(ownerUnderDecisionsShardRefusal(none, SHARD)).toContain('under the active merge+decisions shard ws-1')
     expect(ownerUnderDecisionsShardRefusal(named, null)).toBeNull()
+  })
+
+  it('ratchet growth stays with the owner under a decisions shard', () => {
+    const ratchetGrowth = handoff(['owner waits: none', `STATUS: OWNER — boundary: ${RATCHET_GROWTH}`])
+    const ownerQuestion = handoff(['owner waits: none', OWNER_QUESTION])
+
+    expect(ownerUnderDecisionsShardRefusal(ratchetGrowth, SHARD)).toBeNull()
+    expect(OWNER_BOUNDARIES).toContain(RATCHET_GROWTH)
+    const refusal = ownerUnderDecisionsShardRefusal(ownerQuestion, SHARD)!
+    expect(refusal).toContain('under the active merge+decisions shard ws-1')
+    expect(refusal.slice(refusal.indexOf('stays the owner\'s:')).split(/[:,]\s*/)).toContain(RATCHET_GROWTH)
   })
 })
