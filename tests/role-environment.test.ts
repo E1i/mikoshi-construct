@@ -11,7 +11,7 @@ import { OWNER_CHANNEL_HOME } from '../scripts/owner/channel.js'
 import { windowCommand } from '../scripts/ports/client/claude/adapter.js'
 import { shiftSettings } from '../scripts/ports/shift-settings.js'
 import { allowRule } from '../src/commands/attach/daemon-commands.js'
-import { browserLabExcludedCommand, browserLabInstalledScript, OWNER_CHANNEL_ENTRY, RECORDED_BY_AN_EARLIER_ATTACH, ROLE_DOMAINS, SETTINGS_FILE } from '../src/commands/attach/settings.js'
+import { browserLabExcludedCommand, browserLabInstalledScript, cardTreeGitWrites, OWNER_CHANNEL_ENTRY, RECORDED_BY_AN_EARLIER_ATTACH, ROLE_DOMAINS, SETTINGS_FILE } from '../src/commands/attach/settings.js'
 import { browserLabStep, cardFirstSteps, factoryChecklist, LAB_ROLES, readStep, roleSituations, windowFirstSteps } from '../src/commands/doctor/factory.js'
 import { FileReadings } from '../src/commands/doctor/readings.js'
 import { printFactoryChecklist } from '../src/commands/doctor/report.js'
@@ -245,6 +245,7 @@ describe('a card session of a consumer commits in a tree whose git data lives in
     const card = cardTreeOf(made)
     const session = cardSessionOf(card, made.home)
     const steps = cardFirstSteps(card.gitDir, card.commonDir)
+    expect(shiftSettings(card.tree, { prepush: [], handoffWrite: null, codeMatrix: null }, [], made.home).sandbox.filesystem?.allowWrite).toEqual(expect.arrayContaining(cardTreeGitWrites(card.gitDir, card.commonDir)))
     expect(Object.fromEntries(steps.map(step => [step.role, readStep(session, step).refused]))).toEqual({ launch: null, answer: null, review: null })
   })
 

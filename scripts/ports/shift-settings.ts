@@ -3,7 +3,6 @@ import { existsSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { allowRule, daemonProgram, SETTINGS_FILE, shippedDaemonCommands } from '../../src/commands/attach/daemon-commands.js'
-import { cardTreeGitWrites } from '../../src/commands/attach/settings.js'
 import { isJsonObject } from '../../src/materialize/strategies.js'
 import { cardOfTree, grantOf } from './card-grants.js'
 import { WIDE_VITEST_HOOKS } from './wide-vitest-guard.js'
@@ -58,6 +57,12 @@ function commonDirOf(gitDir: string): string | null {
   catch {
     return null
   }
+}
+
+const CARD_TREE_SHARED_GIT_DATA = ['objects', 'refs', 'logs'] as const
+
+function cardTreeGitWrites(gitDir: string, commonDir: string): string[] {
+  return [gitDir, ...CARD_TREE_SHARED_GIT_DATA.map(entry => path.join(commonDir, entry))]
 }
 
 function mainCheckoutOf(tree: string): string | null {

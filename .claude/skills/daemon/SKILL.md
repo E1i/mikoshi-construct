@@ -17,7 +17,8 @@ Then run the workflow with `scriptPath: scripts/construct/daemon.workflow` and t
 - `adapter`: `.construct/daemon/<name>`.
 - `limit`: how many objects run at once; 2 when it is not given.
 - `baseProfile`: the browser profile every object runs on a fresh `--profile-from` copy of, so objects run in
-  parallel without sharing state. Log in once into it with `browser-lab.mjs … --headed --profile <dir>`.
+  parallel without sharing state. Log in once into it with
+  `node <home>/.construct/browser-lab/bin/browser-lab.mjs … --headed --profile <dir>`.
 - `run`: only to continue a run id `daemon-run.mjs objects` printed; otherwise the run gets a new id.
 
 The workflow only orders. Each step is a command of `scripts/construct/daemon-run.mjs`:
@@ -31,8 +32,9 @@ node scripts/construct/daemon-run.mjs verdict <adapter> <run> <object> --agent <
 `objects` builds the extension and lists the objects, one JSON line each with an `id`. `prepare` copies the
 extension to a lab copy and runs the adapter's `prepare` on it; an object whose prepare fails is recorded
 unobserved and starts no agent. A fresh agent per object reads the adapter's `mechanic` prompt and observes
-through `scripts/construct/browser-lab.mjs`, its hands through `browser-lab.mjs hands`. `verdict` runs the
-adapter's `success` on the object's evidence directory.
+through the installed `node <home>/.construct/browser-lab/bin/browser-lab.mjs`, its hands through
+`node <home>/.construct/browser-lab/bin/browser-lab.mjs hands`, never through a copy in the repository.
+`verdict` runs the adapter's `success` on the object's evidence directory.
 
 ## Evidence
 

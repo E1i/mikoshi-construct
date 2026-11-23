@@ -4701,8 +4701,7 @@
       "src/commands/attach/settings.ts": {
         "constants": [],
         "functions": {
-          "browserLabInstalledScript": "(home: string = homedir()): string",
-          "cardTreeGitWrites": "(gitDir: string, commonDir: string): string[]"
+          "browserLabInstalledScript": "(home: string = homedir()): string"
         },
         "reexports": [],
         "types": {}
