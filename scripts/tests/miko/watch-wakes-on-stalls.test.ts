@@ -5,9 +5,11 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
 import { SESSION_STALLED, TASK_COMPLETED, TASK_RELEASED } from '../../core/events.js'
+import { recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
 import { RELEASES_IN_A_ROW } from '../../window/release-loop.js'
 import { ONCE_STORE, OnceStore } from '../../window/watch-store.js'
-import { CATCHUP_LAG, caughtUpLine, deliverOnce, productionDeps, selectOnce, tick, watchState } from '../../window/watch.js'
+import { CATCHUP_LAG, caughtUpLine, deliverOnce, FACTORY_DOWN, FACTORY_DOWN_MS, FACTORY_START, productionDeps, selectOnce, tick, watchState } from '../../window/watch.js'
+import { LOOP_PROCESS } from '../../window/window-heartbeat.js'
 
 const OUTSIDE_TOUCHES = 'outside-touches'
 const CARD = 1903
@@ -64,6 +66,80 @@ function depsOf(bus: Bus, emitted: string[] = []): WatchDeps {
 function loopLines(lines: readonly string[]): string[] {
   return lines.filter(line => line.startsWith(`bus ${TASK_RELEASED}`))
 }
+
+const NOW = Date.parse('2026-11-19T08:50:00.000Z')
+const MINUTE_MS = 60_000
+const WORKER = 'worker:launch:4242'
+
+function beat(bus: Bus, process: string, at: number): void {
+  const db = openBus(bus.file)
+  try {
+    recordProcessHeartbeat(db, new Date(at).toISOString(), process)
+  }
+  finally {
+    db.close()
+  }
+}
+
+async function onceLines(bus: Bus): Promise<string[]> {
+  const emitted: string[] = []
+  const store = OnceStore.open(path.join(bus.dir, ONCE_STORE), { file: path.join(bus.dir, 'legacy.json'), text: undefined }, () => FROM_START)
+  try {
+    await deliverOnce(store, depsOf(bus, emitted), undefined, () => NOW)
+  }
+  finally {
+    store.close()
+  }
+  return emitted.flatMap(line => line.split('\n'))
+}
+
+function downLines(lines: readonly string[], kind: string): string[] {
+  return lines.filter(line => line.startsWith(`${kind}:`))
+}
+
+describe('miko:watch wakes the window on a factory that stopped', () => {
+  it('a bus with no pulse for N minutes wakes the window with factory down', async () => {
+    const bus = aBus()
+    beat(bus, WORKER, NOW - FACTORY_DOWN_MS - MINUTE_MS)
+    const lines = downLines(await onceLines(bus), FACTORY_DOWN)
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toContain(`the last at ${new Date(NOW - FACTORY_DOWN_MS - MINUTE_MS).toISOString()}`)
+    const deps = depsOf(bus)
+    expect(downLines(tick(watchState(deps), deps, NOW), FACTORY_DOWN)).toEqual([])
+  })
+
+  it('a bus whose workers wrote no heartbeat for 10 minutes wakes the window with factory down and names miko start', () => {
+    expect(FACTORY_DOWN_MS).toBe(10 * MINUTE_MS)
+    const alive = aBus()
+    beat(alive, WORKER, NOW - FACTORY_DOWN_MS + MINUTE_MS)
+    const aliveDeps = depsOf(alive)
+    expect(downLines(tick(watchState(aliveDeps), aliveDeps, NOW), FACTORY_DOWN)).toEqual([])
+    const down = aBus()
+    beat(down, WORKER, NOW - FACTORY_DOWN_MS - MINUTE_MS)
+    beat(down, `${LOOP_PROCESS}window-loop`, NOW)
+    const deps = depsOf(down)
+    const state = watchState(deps)
+    const woken = downLines(tick(state, deps, NOW), FACTORY_DOWN)
+    expect(woken).toHaveLength(1)
+    expect(woken[0]).toContain(`no bus worker wrote a heartbeat for 11 minutes`)
+    expect(woken[0]).toContain(FACTORY_START)
+    expect(downLines(tick(state, deps, NOW), FACTORY_DOWN)).toEqual([])
+    const never = aBus()
+    const neverDeps = depsOf(never)
+    expect(downLines(tick(watchState(neverDeps), neverDeps, NOW), FACTORY_DOWN)).toEqual([])
+  })
+
+  it('a factory that came back and stopped again wakes the window again', () => {
+    const bus = aBus()
+    beat(bus, WORKER, NOW - FACTORY_DOWN_MS - MINUTE_MS)
+    const deps = depsOf(bus)
+    const state = watchState(deps)
+    expect(downLines(tick(state, deps, NOW), FACTORY_DOWN)).toHaveLength(1)
+    const later = NOW + 30 * MINUTE_MS
+    beat(bus, WORKER, later - FACTORY_DOWN_MS - MINUTE_MS)
+    expect(downLines(tick(state, deps, later), FACTORY_DOWN)).toHaveLength(1)
+  })
+})
 
 describe('miko:watch wakes on a stalled session and on a release loop', () => {
   it('a session.stalled event wakes miko:watch --once', async () => {
