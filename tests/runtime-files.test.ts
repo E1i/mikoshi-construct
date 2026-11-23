@@ -24,6 +24,7 @@ const BESIDE_THE_BUILD = ['package.json', 'declarations/generated']
 const SOURCE_LOADER = 'tsx'
 const REVIEW_PLANNER_PORT = 'scripts/ports/review-planner.ts'
 const LAYER_MAP_READER = 'scripts/core/layer-map.ts'
+const DAEMON_COMMANDS_READER = 'src/commands/attach/daemon-commands.ts'
 
 function twinOf(source: string): string {
   return source.replace(SOURCE_MODULE, BUILT_MODULE)
@@ -64,6 +65,13 @@ function readFromTheBuild(): BuiltReadings {
   return JSON.parse(run.stdout) as BuiltReadings
 }
 
+function daemonCommandsOf(module: string, loader: string[]): string[] {
+  const evaluate = 'const { shippedDaemonCommands } = await import(process.env.READER); console.log(JSON.stringify(shippedDaemonCommands(process.env.HOME)))'
+  const run = spawnSync(process.execPath, [...loader, '--input-type=module', '--eval', evaluate], { cwd: ROOT, env: { PATH: process.env.PATH, HOME: stage, TMPDIR: tmpdir(), READER: pathToFileURL(module).href }, encoding: 'utf8' })
+  expect(run.status, run.stderr).toBe(0)
+  return JSON.parse(run.stdout) as string[]
+}
+
 describe('every runtime file and worker path resolves the same from the sources and from dist', () => {
   beforeAll(async () => {
     stage = realpathSync(mkdtempSync(path.join(tmpdir(), 'runtime-paths-')))
@@ -99,6 +107,13 @@ describe('every runtime file and worker path resolves the same from the sources 
     const fromTheSources = readLayerMap()
     expect(built.globals).toEqual(fromTheSources.globals)
     expect(built.folders).toEqual(fromTheSources.folders)
+  })
+
+  it('the factory build finds the shipped templates and reads the same daemon commands as the sources', () => {
+    const fromTheBuild = daemonCommandsOf(path.join(dist, twinOf(DAEMON_COMMANDS_READER)), [])
+    const fromTheSources = daemonCommandsOf(path.join(ROOT, DAEMON_COMMANDS_READER), ['--import', SOURCE_LOADER])
+    expect(fromTheSources.length).toBeGreaterThan(0)
+    expect(fromTheBuild).toEqual(fromTheSources)
   })
 })
 
