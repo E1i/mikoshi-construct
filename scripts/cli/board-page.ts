@@ -126,6 +126,8 @@ const CARD_PREFIX = /^card:\s*/
 const FIELD_COUNT = 5
 const NONE = '—'
 const ALL_FILTER = 'all'
+const ENSO = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='GROUND'/><path d='M20.4 7A10 10 0 1 0 25.4 12.6' fill='none' stroke='#2de2e6' stroke-width='4.5' stroke-linecap='round' transform='translate(-1.5 0)'/><path d='M20.4 7A10 10 0 1 0 25.4 12.6' fill='none' stroke='INK' stroke-width='4.5' stroke-linecap='round'/></svg>`
+const BOARD_ICON = { id: 'board-icon', calm: `data:image/svg+xml,${encodeURIComponent(ENSO.replace('GROUND', '#07080d').replace('INK', '#ff3b5c'))}`, alarm: `data:image/svg+xml,${encodeURIComponent(ENSO.replace('GROUND', '#ff3b5c').replace('INK', '#07080d'))}` }
 const MINUTE_MS = 60_000
 export const BOARD_DATA_FILE = 'board-data.js'
 const BOARD_DATA_PREFIX = 'window.BOARD = '
@@ -813,7 +815,7 @@ export const VIEW_KEY = 'construct-board:view'
 
 const PAGE_SCRIPT = path.join(import.meta.dirname, 'board-page', 'script.js')
 const SCRIPT_NAMES_GLOBAL = 'window.BOARD_NAMES'
-const SCRIPT_NAMES = { drill: DRILL, drillContent: DRILL_CONTENT, backlogScroll: BACKLOG_SCROLL, viewKey: VIEW_KEY, dialogPrefix: DIALOG_PREFIX, handoffDialog: HANDOFF_DIALOG, decisionsDialog: DECISIONS_DIALOG, busLive: BUS_LIVE, offlineReading: OFFLINE_READING, pulse: PULSE_ELEMENT_ID, titlePrefix: `${constructCommand('board')} · `, slotPrefix: SLOT_PREFIX, backlog: BACKLOG, filterAttribute: FILTER_ATTRIBUTE, staleTicks: STALE_TICKS, staleReading: STALE_READING, dataFile: BOARD_DATA_FILE, refreshIn: REFRESH_IN, round: { ...ROUND_COLOURS, ...ROUND_LABELS } }
+const SCRIPT_NAMES = { drill: DRILL, drillContent: DRILL_CONTENT, backlogScroll: BACKLOG_SCROLL, viewKey: VIEW_KEY, dialogPrefix: DIALOG_PREFIX, handoffDialog: HANDOFF_DIALOG, decisionsDialog: DECISIONS_DIALOG, busLive: BUS_LIVE, offlineReading: OFFLINE_READING, pulse: PULSE_ELEMENT_ID, titlePrefix: `${constructCommand('board')} · `, slotPrefix: SLOT_PREFIX, backlog: BACKLOG, filterAttribute: FILTER_ATTRIBUTE, icon: BOARD_ICON, staleTicks: STALE_TICKS, staleReading: STALE_READING, dataFile: BOARD_DATA_FILE, refreshIn: REFRESH_IN, round: { ...ROUND_COLOURS, ...ROUND_LABELS } }
 const SCRIPT = `\n${SCRIPT_NAMES_GLOBAL} = ${JSON.stringify(SCRIPT_NAMES)};\n${readFileSync(PAGE_SCRIPT, 'utf8')}`
 
 function dialogsSlot(page: BoardPage): string {
@@ -853,13 +855,10 @@ export interface BoardSlots {
 
 const EMPTY_SLOTS: BoardSlots = { warnings: '', kv: '', goal: '', waits: '', services: '', flow: '', backlog: '', rows: '', status: '', dialogs: '' }
 
-export interface BoardData {
-  written: string
-  tickMs: number | null
-  pulse: string | null
-  waits: OwnerWait[]
+export interface BoardData extends BoardSnapshot {
   slots: BoardSlots
   filters: string[]
+  alarms: string[]
 }
 
 export function boardData(page: BoardPage): BoardData {
@@ -881,6 +880,7 @@ export function boardData(page: BoardPage): BoardData {
       dialogs: dialogsSlot(page),
     },
     filters: filterTargetIds(page.facts),
+    alarms: page.facts.panel?.alarm == null ? [] : [page.facts.panel.alarm.reason ?? NONE],
   }
 }
 
@@ -957,8 +957,8 @@ function busDownWaits(down: BusDown): string {
   return items.length === 0 ? note('No open owner wait in the last snapshot or the handoff.') : waitStrip('waits for you', items)
 }
 
-function pageHead(title: string, body: string): string[] {
-  return ['<!doctype html>', '<html lang="en"><head><meta charset="utf-8">', '<meta name="viewport" content="width=device-width, initial-scale=1">', `<title>${constructCommand('board')} · ${title}</title>`, `<style>${STYLE}</style></head>${body}`]
+function pageHead(title: string, body: string, alarmed = false): string[] {
+  return ['<!doctype html>', '<html lang="en"><head><meta charset="utf-8">', `<link rel="icon" type="image/svg+xml" id="${BOARD_ICON.id}" href="${alarmed ? BOARD_ICON.alarm : BOARD_ICON.calm}">`, '<meta name="viewport" content="width=device-width, initial-scale=1">', `<title>${constructCommand('board')} · ${title}</title>`, `<style>${STYLE}</style></head>${body}`]
 }
 
 export function renderBusDown(down: BusDown): string {
@@ -989,17 +989,17 @@ export function busJson(db: DatabaseSync, now: Date, liveOnly = false): string {
 }
 
 export function renderBoard(page: BoardPage): string {
-  const { slots, filters } = boardData(page)
-  return pageHtml(page.version, page.facts.at, page.tickMs, slots, filters)
+  const { slots, filters, alarms } = boardData(page)
+  return pageHtml(page.version, page.facts.at, page.tickMs, slots, filters, alarms.length > 0)
 }
 
 export function renderShell(version: string, tickMs: number | null): string {
   return pageHtml(version, '', tickMs, EMPTY_SLOTS, [])
 }
 
-function pageHtml(version: string, written: string, tickMs: number | null, slots: BoardSlots, filters: readonly string[]): string {
+function pageHtml(version: string, written: string, tickMs: number | null, slots: BoardSlots, filters: readonly string[], alarmed = false): string {
   return [
-    ...pageHead(escaped(written), `<body data-written="${escaped(written)}" data-tick-ms="${tickMs ?? ''}">`),
+    ...pageHead(escaped(written), `<body data-written="${escaped(written)}" data-tick-ms="${tickMs ?? ''}">`, alarmed),
     headerPanel(version, slots),
     `<div class="warnings" id="${SLOT_PREFIX}warnings">${slots.warnings}</div>`,
     `<section class="panel bevel" id="${SLOT_PREFIX}services" aria-labelledby="h-services">\n${slots.services}\n</section>`,

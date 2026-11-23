@@ -3,6 +3,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { allowRule } from '../src/commands/attach/daemon-commands.js'
 import { runAttach, SETTINGS_FILE } from '../src/commands/attach/index.js'
 import { ATTACH_RECORD_FILE } from '../src/commands/attach/record.js'
 import { browserLabExcludedCommand, excludedBrowserLabLocally, isSettingsHook, readSettings } from '../src/commands/attach/settings.js'
@@ -115,7 +116,7 @@ describe('init writes the exclusion where a home path stays on this machine', ()
     mkdirSync(path.join(dir, '.claude'))
     writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify({ model: 'opus', sandbox: { excludedCommands: ['docker *'] } }))
     await runInit(ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
-    expect(JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8'))).toEqual({ model: 'opus', sandbox: { excludedCommands: ['docker *', browserLabExcludedCommand()] } })
+    expect(JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8'))).toEqual({ model: 'opus', sandbox: { excludedCommands: ['docker *', browserLabExcludedCommand()] }, permissions: { allow: [allowRule(browserLabExcludedCommand())] } })
   })
 
   it('a dry run writes no settings.local.json', async () => {
@@ -168,46 +169,54 @@ describe('the one function that writes the exclusion', () => {
     return readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')
   }
 
+  const ALLOW_JSON = JSON.stringify(allowRule(ENTRY))
+  const COMPACT_ALLOW = `"permissions": {"allow":[${ALLOW_JSON}]}`
+  const INDENTED_ALLOW = `"permissions": {\n    "allow": [\n      ${ALLOW_JSON}\n    ]\n  }`
+
   const LAYOUTS: Record<string, { before: string, after: string }> = {
     'no sandbox, compact': {
       before: '{"model":"opus"}',
-      after: `{"model":"opus","sandbox": {"excludedCommands":[${ENTRY_JSON}]}}`,
+      after: `{"model":"opus","sandbox": {"excludedCommands":[${ENTRY_JSON}]},${COMPACT_ALLOW}}`,
     },
     'no sandbox, indented by four with odd values': {
       before: '{\n    "n": 1.0,\n    "u": "\\u00e9",\n    "1": [ 1,2 ]\n}\n',
-      after: `{\n    "n": 1.0,\n    "u": "\\u00e9",\n    "1": [ 1,2 ],\n    "sandbox": {\n      "excludedCommands": [\n        ${ENTRY_JSON}\n      ]\n    }\n}\n`,
+      after: `{\n    "n": 1.0,\n    "u": "\\u00e9",\n    "1": [ 1,2 ],\n    "sandbox": {\n      "excludedCommands": [\n        ${ENTRY_JSON}\n      ]\n    },\n    "permissions": {\n      "allow": [\n        ${ALLOW_JSON}\n      ]\n    }\n}\n`,
     },
     'an empty object': {
       before: '{}\n',
-      after: `{\n  "sandbox": {\n    "excludedCommands": [\n      ${ENTRY_JSON}\n    ]\n  }\n}\n`,
+      after: `{\n  "sandbox": {\n    "excludedCommands": [\n      ${ENTRY_JSON}\n    ]\n  },\n  ${INDENTED_ALLOW}\n}\n`,
     },
     'a sandbox without the list': {
       before: '{ "sandbox": { "enabled": true }, "z": "}" }',
-      after: `{ "sandbox": { "enabled": true, "excludedCommands": [${ENTRY_JSON}] }, "z": "}" }`,
+      after: `{ "sandbox": { "enabled": true, "excludedCommands": [${ENTRY_JSON}] }, "z": "}", ${COMPACT_ALLOW} }`,
     },
     'an empty sandbox': {
       before: '{\n  "sandbox": {}\n}\n',
-      after: `{\n  "sandbox": {\n    "excludedCommands": [\n      ${ENTRY_JSON}\n    ]\n  }\n}\n`,
+      after: `{\n  "sandbox": {\n    "excludedCommands": [\n      ${ENTRY_JSON}\n    ]\n  },\n  ${INDENTED_ALLOW}\n}\n`,
     },
     'a list with entries, a string holding brackets and a quote': {
       before: '{\n  "sandbox": {\n    "excludedCommands": [\n      "a ] \\" }"\n    ]\n  },\n  "after": null\n}\n',
-      after: `{\n  "sandbox": {\n    "excludedCommands": [\n      "a ] \\" }",\n      ${ENTRY_JSON}\n    ]\n  },\n  "after": null\n}\n`,
+      after: `{\n  "sandbox": {\n    "excludedCommands": [\n      "a ] \\" }",\n      ${ENTRY_JSON}\n    ]\n  },\n  "after": null,\n  ${INDENTED_ALLOW}\n}\n`,
     },
     'an empty list': {
       before: '{"sandbox":{"excludedCommands":[ ]}}',
-      after: `{"sandbox":{"excludedCommands":[\n  ${ENTRY_JSON}\n]}}`,
+      after: `{"sandbox":{"excludedCommands":[\n  ${ENTRY_JSON}\n]},${COMPACT_ALLOW}}`,
     },
     'crlf line ends': {
       before: '{\r\n  "a": true\r\n}\r\n',
-      after: `{\r\n  "a": true,\r\n  "sandbox": {\n    "excludedCommands": [\n      ${ENTRY_JSON}\n    ]\n  }\r\n}\r\n`,
+      after: `{\r\n  "a": true,\r\n  "sandbox": {\n    "excludedCommands": [\n      ${ENTRY_JSON}\n    ]\n  },\r\n  ${INDENTED_ALLOW}\r\n}\r\n`,
     },
     'a key repeated, the last one the parser reads': {
       before: '{"sandbox":{"excludedCommands":["x"]},"sandbox":{"excludedCommands":["y"]}}',
-      after: `{"sandbox":{"excludedCommands":["x"]},"sandbox":{"excludedCommands":["y",${ENTRY_JSON}]}}`,
+      after: `{"sandbox":{"excludedCommands":["x"]},"sandbox":{"excludedCommands":["y",${ENTRY_JSON}]},${COMPACT_ALLOW}}`,
     },
     'a key written with an escape': {
       before: '{"s\\u0061ndbox":{"enabled":false}}',
-      after: `{"s\\u0061ndbox":{"enabled":false,"excludedCommands": [${ENTRY_JSON}]}}`,
+      after: `{"s\\u0061ndbox":{"enabled":false,"excludedCommands": [${ENTRY_JSON}]},${COMPACT_ALLOW}}`,
+    },
+    'an allow list already there': {
+      before: '{"permissions":{"allow":["Read(x)"]}}',
+      after: `{"permissions":{"allow":["Read(x)",${ALLOW_JSON}]},"sandbox": {"excludedCommands":[${ENTRY_JSON}]}}`,
     },
   }
 
@@ -219,8 +228,13 @@ describe('the one function that writes the exclusion', () => {
   }
 
   it('an entry already held is not added twice and the file is not rewritten', () => {
-    const before = `{ "sandbox" : { "excludedCommands" : [ ${ENTRY_JSON} ] } }`
+    const before = `{ "sandbox" : { "excludedCommands" : [ ${ENTRY_JSON} ] }, "permissions" : { "allow" : [ ${ALLOW_JSON} ] } }`
     expect(written(before)).toBe(before)
+  })
+
+  it('a held exclusion with no allow rule gains only the rule', () => {
+    const before = `{ "sandbox" : { "excludedCommands" : [ ${ENTRY_JSON} ] } }`
+    expect(written(before)).toBe(`{ "sandbox" : { "excludedCommands" : [ ${ENTRY_JSON} ] }, ${COMPACT_ALLOW} }`)
   })
 
   it('reports what it added, and nothing when the entry was held', () => {

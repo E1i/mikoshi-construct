@@ -5,6 +5,7 @@ user-invocable: true
 argument-hint: <command> [extension directory or page url]
 daemon: BROWSER_LAB
 daemon-sketch: hex-iris
+daemon-command: node <home>/.construct/browser-lab/bin/browser-lab.mjs *
 ---
 
 Use this when the result of a task lives in a browser: an extension, a page whose behaviour must be seen, a UI.

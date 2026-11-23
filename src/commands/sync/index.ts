@@ -8,7 +8,7 @@ import { applyPlan } from '../../materialize/apply.js'
 import { PATH_CLASSES } from '../../sync/classify.js'
 import { replay } from '../../sync/replay.js'
 import { planWrites } from '../../sync/write.js'
-import { browserLabExcludedCommand, excludedBrowserLabLocally, PROJECT_SETTINGS_FILE } from '../attach/settings.js'
+import { browserLabExcludedCommand, excludedBrowserLabLocally, PROJECT_SETTINGS_FILE, wroteLocally } from '../attach/settings.js'
 
 export interface SyncReport {
   fromVersion: string
@@ -51,7 +51,7 @@ function excludeInstalledLab(root: string, home: string): BrowserLabExclusion {
   const command = browserLabExcludedCommand(home)
   if (exclusion == null)
     return { command, state: 'refused' }
-  return { command, state: exclusion.added.length === 0 ? 'held' : 'added' }
+  return { command, state: wroteLocally(exclusion) ? 'added' : 'held' }
 }
 
 export function applySync(root: string, version: string, home: string = homedir()): SyncApplyReport | null {

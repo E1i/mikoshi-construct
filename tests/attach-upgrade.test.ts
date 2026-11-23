@@ -9,7 +9,7 @@ import { BUS_DB_VARIABLE, BUS_FILE } from '../scripts/core/bus-path.js'
 import { factoryHomeFor } from '../src/commands/attach/beside.js'
 import { ATTACH_RECORD_FILE, EXCLUDE_FILE, planCarriers, readAttachRecord, readExcludeBlockPaths, runAttach, runAttachUpgrade, SETTINGS_FILE } from '../src/commands/attach/index.js'
 import { attachedVersionOf, carriersReading, writeAttachRecord } from '../src/commands/attach/record.js'
-import { browserLabExcludedCommand } from '../src/commands/attach/settings.js'
+import { browserLabExcludedCommand, daemonAllowRules } from '../src/commands/attach/settings.js'
 import { askDetach } from '../src/commands/detach/index.js'
 import { printDoctor, runDoctor } from '../src/commands/doctor/index.js'
 import { sha256 } from '../src/manifest.js'
@@ -336,6 +336,26 @@ describe('construct attach --upgrade', () => {
     expect(excludedOf(dir)).toEqual(['docker *', browserLabExcludedCommand()])
   })
 
+  it('an upgrade over a held exclusion records the daemon allow rule it adds, and detach removes it', async () => {
+    const dir = await attached()
+    const rules = daemonAllowRules()
+    const settings = JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')) as { permissions: { allow: string[] } }
+    settings.permissions.allow = settings.permissions.allow.filter(rule => !rules.includes(rule))
+    writeFileSync(path.join(dir, SETTINGS_FILE), `${JSON.stringify(settings, null, 2)}\n`)
+    const record = recordOf(dir)
+    record.settingsHook!.engram!.added = record.settingsHook!.engram!.added.filter(rule => !rules.includes(rule))
+    delete record.settingsHook!.original
+    writeAttachRecord(dir, record)
+    expect(excludedOf(dir)).toEqual([browserLabExcludedCommand()])
+
+    await runAttachUpgrade(ui, { dir, yes: true })
+
+    expect(recordOf(dir).settingsHook?.engram?.added).toEqual(expect.arrayContaining(rules))
+    expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toContain(rules[0])
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
+    expect(existsSync(path.join(dir, SETTINGS_FILE)) && readFileSync(path.join(dir, SETTINGS_FILE), 'utf8').includes(rules[0]!)).toBe(false)
+  })
+
   it('a repository attached by an earlier build keeps its relative entry until detach, which removes both', async () => {
     const RELATIVE = 'node scripts/construct/browser-lab.mjs *'
     const dir = await attached()
@@ -382,7 +402,7 @@ describe('construct attach --upgrade', () => {
     writeAttachRecord(dir, record)
 
     await runAttachUpgrade(ui, { dir, yes: true })
-    expect(JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8'))).toEqual({ sandbox: { excludedCommands: [browserLabExcludedCommand()] } })
+    expect(JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8'))).toEqual({ sandbox: { excludedCommands: [browserLabExcludedCommand()] }, permissions: { allow: daemonAllowRules() } })
 
     expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     expect(existsSync(path.join(dir, SETTINGS_FILE))).toBe(false)

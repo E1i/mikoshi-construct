@@ -2270,11 +2270,8 @@
         "namedIn": [
           "scripts/construct/browser-lab.mjs",
           "scripts/ports/prepare-tree.ts",
-          "scripts/ports/shift-settings.ts",
           "src/commands/attach/index.ts",
           "src/commands/attach/settings.ts",
-          "src/commands/doctor/factory.ts",
-          "src/commands/init.ts",
           "src/commands/sync/index.ts"
         ],
         "owner": "scripts/ports/prepare-tree.ts",
@@ -4661,6 +4658,22 @@
           "WitnessField": "interface WitnessField { id: string; run: string; test: string | null; head: WitnessExpectation; base: WitnessExpectation; proves: string; }"
         }
       },
+      "src/commands/attach/daemon-commands.ts": {
+        "constants": [
+          "DAEMON_KEY",
+          "PROJECT_SETTINGS_FILE",
+          "SETTINGS_FILE"
+        ],
+        "functions": {
+          "allowRule": "(command: string): string",
+          "daemonProgram": "(command: string): string | null",
+          "declaredCommands": "(text: string, home: string = homedir()): string[]",
+          "frontmatterFields": "(text: string): Array<readonly [ string, string ]>",
+          "shippedDaemonCommands": "(home: string = homedir()): string[]"
+        },
+        "reexports": [],
+        "types": {}
+      },
       "src/commands/attach/index.ts": {
         "constants": [
           "ATTACH_EXIT: Record<AttachResult['status'] | 'required-check-unresolvable', number>"
@@ -4684,11 +4697,8 @@
         }
       },
       "src/commands/attach/settings.ts": {
-        "constants": [
-          "SETTINGS_FILE"
-        ],
+        "constants": [],
         "functions": {
-          "browserLabExcludedCommand": "(home: string = homedir()): string",
           "browserLabInstalledScript": "(home: string = homedir()): string"
         },
         "reexports": [],
@@ -6245,6 +6255,6 @@
         }
       }
     },
-    "portsVersion": 6
+    "portsVersion": 7
   }
 }
