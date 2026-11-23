@@ -58,6 +58,17 @@
     "run-id",
     "skip-decompress"
   ],
+  "actions/github-script@v8": [
+    "base-url",
+    "debug",
+    "github-token",
+    "previews",
+    "result-encoding",
+    "retries",
+    "retry-exempt-status-codes",
+    "script",
+    "user-agent"
+  ],
   "actions/setup-node@v7": [
     "architecture",
     "cache",

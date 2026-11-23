@@ -121,7 +121,7 @@
     "prepack": "pnpm --silent build --silent",
     "privacy:check": "node --import tsx scripts/privacy/check.ts",
     "quality": "node --import tsx scripts/quality/lock.ts node --import tsx scripts/scratch/run.ts pnpm run quality:steps",
-    "quality:steps": "pnpm composition:check &&pnpm model:check && pnpm privacy:check && pnpm layers:check && pnpm lint && pnpm typecheck && pnpm test && pnpm docs:build && pnpm docs:pending && pnpm docs:anchors",
+    "quality:steps": "pnpm composition:check && pnpm model:check && pnpm privacy:check && pnpm layers:check && pnpm lint && pnpm typecheck && pnpm test && pnpm docs:build && pnpm docs:pending && pnpm docs:anchors",
     "release": "pnpm build && node --import tsx scripts/release/stage-publish.ts && changeset tag",
     "shard": "node --import tsx scripts/policy/shard.ts",
     "release:evidence": "node --import tsx scripts/release/evidence.ts",
