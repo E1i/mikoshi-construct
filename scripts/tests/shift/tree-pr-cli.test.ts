@@ -399,7 +399,7 @@ describe('the session a refusal returns the card to', () => {
 
     const argv = readFileSync(seen, 'utf8').trim().split('\n')
     expect(JSON.parse(argv[argv.indexOf('--settings') + 1]!)).toEqual({
-      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY] } },
+      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY], allowMachLookup: ['com.apple.trustd*'] } },
       permissions: { allow: [`Bash(${TREE_GATE})`, `Edit(/${tree}/**)`] },
       env: SESSION_BASH_CAP,
       hooks: WIDE_VITEST_HOOKS,
