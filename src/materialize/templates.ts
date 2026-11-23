@@ -1,11 +1,17 @@
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const HERE = path.dirname(fileURLToPath(import.meta.url))
+const TEMPLATES_DIRECTORY = 'templates'
+const GROUP_EVERY_PRESET_LAYERS = 'base'
+const PACKAGE_ROOTS_FROM_HERE = ['..', path.join('..', '..'), path.join('..', '..', '..')]
 
 export function templatesRoot(): string {
-  const candidates = [path.resolve(import.meta.dirname, '../templates'), path.resolve(import.meta.dirname, '../../templates')]
-  const found = candidates.find(candidate => existsSync(candidate))
+  const candidates = PACKAGE_ROOTS_FROM_HERE.map(root => path.resolve(HERE, root, TEMPLATES_DIRECTORY))
+  const found = candidates.find(candidate => existsSync(path.join(candidate, GROUP_EVERY_PRESET_LAYERS)))
   if (found == null)
-    throw new Error(`templates directory not found next to ${import.meta.dirname}`)
+    throw new Error(`templates directory not found next to ${HERE}`)
   return found
 }
 
