@@ -2084,6 +2084,26 @@
       "json": false,
       "unknownFlag": "not read"
     },
+    "contract:actions": {
+      "entries": [
+        "scripts/contract/action-inputs.ts"
+      ],
+      "exits": [
+        1
+      ],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "contract:actions:fetch": {
+      "entries": [
+        "scripts/contract/action-inputs-fetch.ts"
+      ],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
     "contract:bump": {
       "entries": [
         "scripts/contract/bump.ts"
