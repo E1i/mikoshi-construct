@@ -3,15 +3,10 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { execGh } from '../ports/gh.js'
-import { ACTION_INPUTS_RECORD, fetchMissing, readRecordedInputs, renderRecordedInputs, REPO_ROOT, workflowSteps } from './action-inputs.js'
+import { ACTION_INPUTS_RECORD, actionFileBody, fetchMissing, readRecordedInputs, renderRecordedInputs, REPO_ROOT, workflowSteps } from './action-inputs.js'
 
 async function readThroughGithubPort(apiPath: string): Promise<string | undefined> {
-  const result = execGh(['api', '-H', 'Accept: application/vnd.github.raw', apiPath])
-  if (result.kind === 'ran')
-    return result.stdout
-  if (/HTTP 404/.test(result.reason))
-    return undefined
-  throw new Error(`the GitHub port could not read ${apiPath}: ${result.reason}`)
+  return actionFileBody(apiPath, execGh(['api', '-H', 'Accept: application/vnd.github.raw', apiPath]))
 }
 
 async function main(): Promise<void> {
