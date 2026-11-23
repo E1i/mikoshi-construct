@@ -63,8 +63,6 @@ export const FACTORY_DOWN_MS = 10 * 60_000
 export const FACTORY_START = 'miko start'
 export const FACTORY_DOWN = 'factory down'
 export const BOARD_STALE = 'board stale'
-export const BUS_WORKERS = 'bus workers'
-export const BOARD_TIMER = 'board timer'
 const DOWNS_READ_MS = 30_000
 const NOT_A_BUS_WORKER = [CARD_PROCESS, WINDOW_PROCESS, LOOP_PROCESS]
 
@@ -76,14 +74,14 @@ export function downsOf(lastBeat: string | undefined, now: number): WatchSignal[
   const silentMs = lastBeat === undefined ? 0 : now - Date.parse(lastBeat)
   if (lastBeat === undefined || silentMs <= FACTORY_DOWN_MS)
     return []
-  return [{ kind: FACTORY_DOWN, subject: BUS_WORKERS, facts: lastBeat, line: `${FACTORY_DOWN}: no bus worker wrote a heartbeat for ${Math.floor(silentMs / 60_000)} minutes, the last at ${lastBeat}; the factory does not start by itself, the window raises it with ${FACTORY_START}` }]
+  return [{ kind: FACTORY_DOWN, subject: 'bus workers', facts: lastBeat, line: `${FACTORY_DOWN}: no bus worker wrote a heartbeat for ${Math.floor(silentMs / 60_000)} minutes, the last at ${lastBeat}; the factory does not start by itself, the window raises it with ${FACTORY_START}` }]
 }
 
 export function boardStaleOf(lastBeat: string | undefined, now: number): WatchSignal[] {
   const silentMs = lastBeat === undefined ? 0 : now - Date.parse(lastBeat)
   if (lastBeat === undefined || silentMs <= BOARD_STALE_TICKS * BOARD_TIMER_PERIOD_MS)
     return []
-  return [{ kind: BOARD_STALE, subject: BOARD_TIMER, facts: lastBeat, line: `${BOARD_STALE}: the board timer wrote no beat for ${Math.floor(silentMs / BOARD_TIMER_PERIOD_MS)} board ticks of ${BOARD_TIMER_PERIOD_MS / 1000} s, the last at ${lastBeat}; the board page is not being rewritten, and what it shows is as old as that beat` }]
+  return [{ kind: BOARD_STALE, subject: 'board timer', facts: lastBeat, line: `${BOARD_STALE}: the board timer wrote no beat for ${Math.floor(silentMs / BOARD_TIMER_PERIOD_MS)} board ticks of ${BOARD_TIMER_PERIOD_MS / 1000} s, the last at ${lastBeat}; the board page is not being rewritten, and what it shows is as old as that beat` }]
 }
 
 export function parentGoneLine(parent: number): string {
@@ -414,10 +412,7 @@ export function newSignals(woken: ReadonlyMap<string, string>, signals: readonly
 }
 
 export function withWokenSignals(woken: ReadonlyMap<string, string>, signals: readonly WatchSignal[]): Map<string, string> {
-  const next = new Map(woken)
-  for (const signal of signals)
-    next.set(signalIdentity(signal), signal.facts)
-  return next
+  return new Map([...woken, ...signals.map(signal => [signalIdentity(signal), signal.facts] as const)])
 }
 
 export function tick(state: WatchState, deps: WatchDeps, now = Date.now()): string[] {
@@ -701,7 +696,6 @@ function rememberSignals(file: string, signals: readonly WatchSignal[]): void {
 
 export function productionDeps(handoff: string, bus: string): WatchDeps {
   const woken = path.join(handoff, WOKEN_STALLS)
-  const wokenSignals = path.join(handoff, WOKEN_SIGNALS)
   const actor = requestActor(process.env)
   return {
     bus,
@@ -719,8 +713,8 @@ export function productionDeps(handoff: string, bus: string): WatchDeps {
     wokenStalls: () => readWokenStalls(woken),
     rememberStalls: stalls => rememberStalls(woken, stalls),
     signals: signalsReader(bus),
-    wokenSignals: () => readWokenSignals(wokenSignals),
-    rememberSignals: signals => rememberSignals(wokenSignals, signals),
+    wokenSignals: () => readWokenSignals(path.join(handoff, WOKEN_SIGNALS)),
+    rememberSignals: signals => rememberSignals(path.join(handoff, WOKEN_SIGNALS), signals),
     emit: emitLine,
     beforeCommit: async () => {},
     beat: windowBeat(bus, windowOf(process.env), Date.now),
