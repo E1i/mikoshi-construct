@@ -6025,14 +6025,11 @@
         ],
         "functions": {
           "settingsFlag": "(settings: ShiftSettings): string[]",
-          "shiftSettings": "(tree: string, gate: ShiftGate, writable: string[] = [], home: string = os.homedir(), card: number | null = cardOfTree(tree)): ShiftSettings",
-          "treeGitWrites": "(tree: string): string[]"
+          "shiftSettings": "(tree: string, gate: ShiftGate, writable: string[] = [], home: string = os.homedir(), card: number | null = cardOfTree(tree)): ShiftSettings"
         },
-        "language": "technology",
+        "language": "factory",
         "reexports": [],
-        "technologyWords": [
-          "git"
-        ],
+        "technologyWords": [],
         "types": {
           "ShiftSettings": "interface ShiftSettings { sandbox: typeof CARD_SESSION_SANDBOX & { excludedCommands?: string[]; filesystem?: { allowWrite?: string[]; denyWrite?: string[]; }; network: { allowedDomains?: string[]; }; }; permissions: { allow: string[]; deny?: string[]; }; env: typeof SESSION_BASH_CAP; hooks: typeof WIDE_VITEST_HOOKS; }"
         }
@@ -6247,6 +6244,6 @@
         }
       }
     },
-    "portsVersion": 6
+    "portsVersion": 7
   }
 }

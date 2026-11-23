@@ -65,7 +65,7 @@ function mainCheckoutOf(tree: string): string | null {
   return common !== null && path.basename(common) === '.git' ? path.dirname(common) : null
 }
 
-export function treeGitWrites(tree: string): string[] {
+function treeGitWrites(tree: string): string[] {
   const gitDir = gitDirOfLinkedTree(tree)
   const common = gitDir === null ? null : commonDirOf(gitDir)
   return gitDir === null || common === null ? [] : cardTreeGitWrites(gitDir, common)

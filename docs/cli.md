@@ -958,7 +958,7 @@ into `.claude/settings.json` the environment every role runs in, so no role lean
 project,local` never reads: `sandbox.enabled`, `autoAllowBashIfSandboxed`, `allowUnsandboxedCommands:
 false`, `filesystem.allowWrite` of `~/.construct/<repo>`, `./.git` and the package-manager stores,
 `filesystem.denyWrite` of `~/.construct-owner` (the owner channel) and of `./.git/hooks` and
-`./.git/config`, `network.allowedDomains` of `github.com`, `api.github.com` and `registry.npmjs.org`,
+`./.git/config`, `network.allowedDomains` of the GitHub hosts and `registry.npmjs.org`,
 and `Read(~/.construct/<repo>/**)`. Every path is written from `~`, so no home path reaches a clone. It
 is a union: nothing the repository already holds is removed or overridden, and a file that does not
 carry the construct's eddies hook, or a key that does not read as settings, is left as it is; the

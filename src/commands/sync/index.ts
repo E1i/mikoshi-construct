@@ -10,7 +10,8 @@ import { PATH_CLASSES } from '../../sync/classify.js'
 import { ownedSha } from '../../sync/ownership.js'
 import { replay } from '../../sync/replay.js'
 import { planWrites } from '../../sync/write.js'
-import { browserLabExcludedCommand, excludedBrowserLabLocally, PROJECT_SETTINGS_FILE, settledProjectSettings } from '../attach/settings.js'
+import { excludedBrowserLabWithTheEnvironment, settledProjectSettings } from '../attach/index.js'
+import { browserLabExcludedCommand, PROJECT_SETTINGS_FILE } from '../attach/settings.js'
 
 export interface SyncReport {
   fromVersion: string
@@ -49,7 +50,7 @@ export function runSync(root: string, version: string): SyncReport | null {
 }
 
 function excludeInstalledLab(root: string, home: string): BrowserLabExclusion {
-  const exclusion = excludedBrowserLabLocally(root, home)
+  const exclusion = excludedBrowserLabWithTheEnvironment(root, home)
   const command = browserLabExcludedCommand(home)
   if (exclusion == null)
     return { command, state: 'refused' }

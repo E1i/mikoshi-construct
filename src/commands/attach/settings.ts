@@ -4,7 +4,6 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { isDeepStrictEqual } from 'node:util'
-import { CONSTRUCT_HOME_DIR, isOwnerCheckout, repoIdOf } from '../../../scripts/core/bus-path.js'
 import { appendHookEntry, isJsonObject } from '../../materialize/strategies.js'
 import { engramFile } from '../../model/discovery.js'
 import { ATTACH_GUARD, ATTACH_WINDOW_HOOKS } from '../../presets/index.js'
@@ -102,12 +101,7 @@ export interface RoleEnvironment {
   sandbox: RoleSandbox
 }
 
-export function factoryHomeEntry(root: string): string {
-  return `${HOME_PREFIX}${CONSTRUCT_HOME_DIR}/${repoIdOf(root)}`
-}
-
-export function roleEnvironment(root: string): RoleEnvironment {
-  const factory = factoryHomeEntry(root)
+export function roleEnvironmentAt(factory: string): RoleEnvironment {
   return {
     allow: [`Read(${factory}/**)`],
     sandbox: {
@@ -186,9 +180,7 @@ export function withRoleEnvironment(settings: JsonObject, environment: RoleEnvir
   }
 }
 
-export type EnvironmentWrite = 'written' | 'held' | 'refused' | 'owner-checkout'
-
-export function settledProjectSettings(root: string, text: string): string | null {
+export function settledSettingsText(text: string, environment: RoleEnvironment): string | null {
   let parsed: unknown
   try {
     parsed = JSON.parse(text)
@@ -196,29 +188,10 @@ export function settledProjectSettings(root: string, text: string): string | nul
   catch {
     return null
   }
-  if (isOwnerCheckout(root) || !isJsonObject(parsed) || !environmentFits(parsed))
+  if (!isJsonObject(parsed) || !environmentFits(parsed))
     return null
-  const settled = withRoleEnvironment(parsed, roleEnvironment(root))
+  const settled = withRoleEnvironment(parsed, environment)
   return isDeepStrictEqual(settled, parsed) ? text : `${JSON.stringify(settled, null, 2)}\n`
-}
-
-export function writeRoleEnvironment(root: string): EnvironmentWrite {
-  if (isOwnerCheckout(root))
-    return 'owner-checkout'
-  const file = path.join(root, PROJECT_SETTINGS_FILE)
-  try {
-    const text = readFileSync(file, 'utf8')
-    const settled = settledProjectSettings(root, text)
-    if (settled === null)
-      return 'refused'
-    if (settled === text)
-      return 'held'
-    writeFileSync(file, settled)
-    return 'written'
-  }
-  catch {
-    return 'refused'
-  }
 }
 
 const ENGRAM_TOOLS = ['Read', 'Edit'] as const
@@ -552,8 +525,7 @@ function isLinkedWorktree(root: string): boolean {
   return existsSync(path.join(root, '.git')) && !lstatSync(path.join(root, '.git')).isDirectory()
 }
 
-export function excludedBrowserLabLocally(root: string, home: string = homedir()): LocalExclusion | null {
-  const constructOwnsProjectSettings = ['written', 'held'].includes(writeRoleEnvironment(root))
+export function excludedBrowserLabLocally(root: string, home: string = homedir(), constructOwnsProjectSettings: boolean = false): LocalExclusion | null {
   try {
     if (isLinkedWorktree(root))
       return null
