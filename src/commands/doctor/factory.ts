@@ -10,7 +10,7 @@ import { FACTORY_MANIFEST } from '../../../scripts/policy/touch-scope.js'
 import { readManifest, recordedShas } from '../../manifest.js'
 import { MIKOSHI_PNPM, pinnedPnpm } from '../../presets/index.js'
 import { allowRule, shippedDaemonCommands } from '../attach/daemon-commands.js'
-import { browserLabExcludedCommand, browserLabInstalledScript, cardTreeGitWrites, HOME_PREFIX } from '../attach/settings.js'
+import { browserLabExcludedCommand, browserLabInstalledScript, cardTreeGitWrites, GITHUB_API_DOMAIN, HOME_PREFIX } from '../attach/settings.js'
 import { factoryLiveness } from '../liveness.js'
 import { FileReadings } from './readings.js'
 
@@ -193,7 +193,7 @@ export function windowFirstSteps(root: string, home: string, handoff: string): F
   const git = path.join(root, '.git')
   return [
     { role: 'window', step: 'read the handoff', command: `cat ${handoff}`, writes: [], domains: [] },
-    { role: 'window', step: 'miko watch --once', command: 'miko watch --once', writes: [path.join(repoHome(home, repoIdOf(root)), BUS_FILE)], domains: ['api.github.com'] },
+    { role: 'window', step: 'miko watch --once', command: 'miko watch --once', writes: [path.join(repoHome(home, repoIdOf(root)), BUS_FILE)], domains: [GITHUB_API_DOMAIN] },
     { role: 'window', step: 'git commit in a branch', command: 'git commit -m step', writes: gitCommitWrites(git, git), domains: [] },
   ]
 }

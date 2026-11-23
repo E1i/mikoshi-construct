@@ -84,7 +84,9 @@ export const OWNER_CHANNEL_ENTRY = `${HOME_PREFIX}.construct-owner`
 const GIT_DIRECTORY = '.git'
 const GIT_DATA_RUNNING_CODE = ['hooks', 'config'] as const
 export const CARD_TREE_SHARED_GIT_DATA = ['objects', 'refs', 'logs'] as const
-export const ROLE_DOMAINS = ['github.com', 'api.github.com', 'registry.npmjs.org'] as const
+const GITHUB_DOMAIN = 'github.com'
+export const GITHUB_API_DOMAIN = `api.${GITHUB_DOMAIN}`
+export const ROLE_DOMAINS = [GITHUB_DOMAIN, GITHUB_API_DOMAIN, 'registry.npmjs.org'] as const
 export const PACKAGE_MANAGER_STORES = ['Library/pnpm/store', '.local/share/pnpm/store', '.npm'] as const
 
 export interface RoleSandbox {
