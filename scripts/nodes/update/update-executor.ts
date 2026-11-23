@@ -15,6 +15,7 @@ import { pathsOutsideTheBody } from '../../core/card-bodies.js'
 import { closedWaitIds } from '../../core/card-readings.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
+import { ofCard } from '../../core/events-query.js'
 import { CI_RERUN_REQUESTED, COMMAND_EXECUTED, OWNER_WAIT_OPENED, POLICY_ALLOWED, POLICY_DENIED, QUESTION_OWNER, REVIEW_RECORDED, UPDATE_DONE } from '../../core/events.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
 import { rerunDueOn } from '../../core/observations.js'
@@ -185,12 +186,10 @@ function insideTheTouchesLine(lease: Lease, files: readonly string[]): string {
   return `pull request #${lease.pr} conflicts with ${MAIN_BRANCH} at ${lease.head} inside the card's own touches: ${files.join(', ')}; the conflict is the card's own (D-441, Q267), so it goes to the answer session to merge ${MAIN_BRANCH} keeping both sides, not to the owner`
 }
 
-const OWNER_WAITS_OF_A_CARD = `SELECT json_extract(payload, '$.id') AS wait, json_extract(payload, '$.text') AS text FROM events WHERE legacy = 0 AND type = '${OWNER_WAIT_OPENED}' AND card_id = ? ORDER BY id`
-
 export function closedWaitTextsOf(db: DatabaseSync, cardId: number): string[] {
   const closed = new Set(closedWaitIds(db))
-  return (db.prepare(OWNER_WAITS_OF_A_CARD).all(cardId) as { wait: unknown, text: unknown }[])
-    .flatMap(opened => closed.has(String(opened.wait)) && typeof opened.text === 'string' ? [opened.text] : [])
+  return ofCard(db, cardId, { types: [OWNER_WAIT_OPENED] })
+    .flatMap(opened => closed.has(String(opened.data?.id)) && typeof opened.data?.text === 'string' ? [opened.data.text] : [])
 }
 
 function technical(reason: UpdateTechnicalReason, detail: string): UpdateDenial {

@@ -4439,7 +4439,7 @@
       "scripts/nodes/review/review-worker.ts": 3,
       "scripts/nodes/update/update-candidates.ts": 1,
       "scripts/nodes/update/update-done.ts": 1,
-      "scripts/nodes/update/update-executor.ts": 3,
+      "scripts/nodes/update/update-executor.ts": 2,
       "scripts/nodes/witness/witness-candidates.ts": 5,
       "scripts/nodes/witness/witness-executor.ts": 3,
       "scripts/policy/decisions/index.ts": 13,
