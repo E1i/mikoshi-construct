@@ -40,6 +40,8 @@ function memoryDeps(events: BusEvent[], end: () => number, emitted: string[] = [
     stuck: () => [],
     wokenStalls: () => new Map(),
     rememberStalls: () => {},
+    wokenSignals: () => new Map(),
+    rememberSignals: () => {},
     emit: async (line) => {
       emitted.push(line)
     },
