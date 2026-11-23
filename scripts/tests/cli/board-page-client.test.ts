@@ -2,13 +2,10 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import vm from 'node:vm'
 import { describe, expect, it } from 'vitest'
-import { renderShell } from '../../cli/board-page.js'
-import { filterId, filterRule, LIVE_FILTER } from '../../cli/board-page/live-cards.js'
+import { FILTER_ATTRIBUTE, filterId, filterRule, LIVE_FILTER } from '../../cli/board-page/live-cards.js'
 
 const SCRIPT = readFileSync(path.resolve(import.meta.dirname, '../../cli/board-page/script.js'), 'utf8')
 const STYLE = readFileSync(path.resolve(import.meta.dirname, '../../cli/board-page/style.css'), 'utf8')
-const SHELL = renderShell('0.0.0', 10_000)
-const PAGE_NAMES = JSON.parse(/window\.BOARD_NAMES = (\{.*\});\n/.exec(SHELL)![1]!) as { filterAttribute: string, icon: { id: string, calm: string, alarm: string } }
 const WRITTEN = '2026-11-16T10:00:00.000Z'
 const TICK_MS = 10_000
 const WRITE_SLACK_MS = 1_500
@@ -31,8 +28,8 @@ const NAMES = {
   dataFile: 'board-data.js',
   refreshIn: 'refresh-in',
   round: { over: '#ff0000', warn: '#ffff00', calm: '#00ff00', warnShare: 0.75, overTime: 'over', remaining: 'left' },
-  filterAttribute: PAGE_NAMES.filterAttribute,
-  icon: PAGE_NAMES.icon,
+  filterAttribute: FILTER_ATTRIBUTE,
+  icon: { id: 'board-icon', calm: 'data:image/svg+xml,calm', alarm: 'data:image/svg+xml,alarm' },
 }
 
 type Listener = (event: { target: StubNode, key?: string }) => void
@@ -275,12 +272,6 @@ function activeChips(page: BoardPageStub): string[] {
   return backlog.children.filter(child => child.className === 'chip').map(chip => chip.attributes.get('href')!).filter(href => lighters.some(lighter => lighter.chip === href && holds(lighter.backlog, backlog)))
 }
 
-function decodedIcon(uri: string): string {
-  const prefix = 'data:image/svg+xml,'
-  expect(uri.startsWith(prefix)).toBe(true)
-  return decodeURIComponent(uri.slice(prefix.length))
-}
-
 function storedView(storage: MemoryStorage): { folds: Record<string, boolean> } {
   return JSON.parse(storage.getItem(NAMES.viewKey) ?? '{}') as { folds: Record<string, boolean> }
 }
@@ -425,18 +416,7 @@ describe('the board page script', () => {
     }
   })
 
-  it('favicon: the page carries an inline SVG enso and inverts it while an alarm is open', () => {
-    const link = /<head>.*<link rel="icon" type="image\/svg\+xml" id="([\w-]+)" href="([^"]+)">.*<\/head>/s.exec(SHELL)
-    expect(link).not.toBeNull()
-    expect(link![1]).toBe(NAMES.icon.id)
-    expect(link![2]).toBe(NAMES.icon.calm)
-    const calm = decodedIcon(NAMES.icon.calm)
-    const alarm = decodedIcon(NAMES.icon.alarm)
-    expect(calm).toMatch(/^<svg [^>]*>.*<\/svg>$/)
-    const ground = (svg: string): string => /<rect [^>]*fill='([^']+)'/.exec(svg)![1]!
-    const ink = (svg: string): string => [...svg.matchAll(/stroke='([^']+)'/g)].at(-1)![1]!
-    expect([ground(alarm), ink(alarm)]).toEqual([ink(calm), ground(calm)])
-
+  it('favicon: the page script swaps the icon to the alarm one while an alarm is open and back when it closes', () => {
     const stub = boardPage()
     const icon = stub.root.add(new StubNode('LINK'))
     icon.id = NAMES.icon.id

@@ -19,7 +19,7 @@ import { BANNER, LORE } from '../../../src/ui/lore.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
 import { interfaceVersion } from '../../../src/version.js'
 import { checkMatrix, subagent, writeBus } from '../../../tests/board/bus-fixture.js'
-import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, FLOW_META, printBoard, PROGRESS_ORDER, readEddiesLimits, readModelVersion, RELEASE_PROGRESS_ORDER, VIEW_KEY, writeBoardPage } from '../../cli/board-page.js'
+import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, FLOW_META, printBoard, PROGRESS_ORDER, readEddiesLimits, readModelVersion, RELEASE_PROGRESS_ORDER, renderShell, VIEW_KEY, writeBoardPage } from '../../cli/board-page.js'
 import { filterRule } from '../../cli/board-page/live-cards.js'
 import { BUS_VERSION } from '../../core/bus-version.js'
 import { TICK_MS } from '../../core/cadence.js'
@@ -1429,5 +1429,23 @@ describe('board.html', () => {
     expect(board.content.innerHTML).toBe(board.templates.get('dialog-card-861'))
     board.key('Escape')
     expect(board.dialog.open).toBe(false)
+  })
+
+  it('favicon: the head carries an inline SVG enso, and the alarm icon swaps its ground and ink', () => {
+    const shell = renderShell('0.0.0', 10_000)
+    const names = JSON.parse(/window\.BOARD_NAMES = (\{.*\});\n/.exec(shell)![1]!) as { icon: { id: string, calm: string, alarm: string } }
+    const link = /<head>.*<link rel="icon" type="image\/svg\+xml" id="([\w-]+)" href="([^"]+)">.*<\/head>/s.exec(shell)
+    expect(link?.slice(1)).toEqual([names.icon.id, names.icon.calm])
+    const svgOf = (uri: string): string => {
+      const prefix = 'data:image/svg+xml,'
+      expect(uri.startsWith(prefix)).toBe(true)
+      return decodeURIComponent(uri.slice(prefix.length))
+    }
+    const calm = svgOf(names.icon.calm)
+    const alarm = svgOf(names.icon.alarm)
+    expect(calm).toMatch(/^<svg [^>]*>.*<\/svg>$/)
+    const ground = (svg: string): string => /<rect [^>]*fill='([^']+)'/.exec(svg)![1]!
+    const ink = (svg: string): string => [...svg.matchAll(/stroke='([^']+)'/g)].at(-1)![1]!
+    expect([ground(alarm), ink(alarm)]).toEqual([ink(calm), ground(calm)])
   })
 })
