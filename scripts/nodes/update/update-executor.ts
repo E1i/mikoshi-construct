@@ -12,11 +12,10 @@ import type { UpdateSourceParts } from './update-candidates.js'
 import { Buffer } from 'node:buffer'
 import { NOT_MINE, notMine } from '../../core/card-automaton.js'
 import { pathsOutsideTheBody } from '../../core/card-bodies.js'
-import { closedWaitIds } from '../../core/card-readings.js'
+import { closedWaitIds, closedWaitTextsOf } from '../../core/card-readings.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { ofCard } from '../../core/events-query.js'
-import { CI_RERUN_REQUESTED, COMMAND_EXECUTED, OWNER_WAIT_OPENED, POLICY_ALLOWED, POLICY_DENIED, QUESTION_OWNER, REVIEW_RECORDED, UPDATE_DONE } from '../../core/events.js'
+import { CI_RERUN_REQUESTED, COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, QUESTION_OWNER, REVIEW_RECORDED, UPDATE_DONE } from '../../core/events.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
 import { rerunDueOn } from '../../core/observations.js'
 import { ofPr } from '../../core/pr-readings.js'
@@ -184,12 +183,6 @@ const WITHDRAWN_REASONS: ReadonlySet<UpdateTechnicalReason> = new Set([NOT_MINE,
 
 function insideTheTouchesLine(lease: Lease, files: readonly string[]): string {
   return `pull request #${lease.pr} conflicts with ${MAIN_BRANCH} at ${lease.head} inside the card's own touches: ${files.join(', ')}; the conflict is the card's own (D-441, Q267), so it goes to the answer session to merge ${MAIN_BRANCH} keeping both sides, not to the owner`
-}
-
-export function closedWaitTextsOf(db: DatabaseSync, cardId: number): string[] {
-  const closed = new Set(closedWaitIds(db))
-  return ofCard(db, cardId, { types: [OWNER_WAIT_OPENED] })
-    .flatMap(opened => closed.has(String(opened.data?.id)) && typeof opened.data?.text === 'string' ? [opened.data.text] : [])
 }
 
 function technical(reason: UpdateTechnicalReason, detail: string): UpdateDenial {

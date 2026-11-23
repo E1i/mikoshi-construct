@@ -1,26 +1,30 @@
 import type { Lease } from '../../core/lease.js'
+import type { TreeCard } from '../../nodes/launch/tree-pr.js'
 import type { UpdateOutcome } from '../../nodes/update/update-executor.js'
 import type { DerivedReading, GrownDerived } from '../../policy/derived-files.js'
 import type { MergeBench } from './merge-bench.js'
+import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { TestCoverage } from '../../../src/card/covering-tests.js'
 import { textSha } from '../../../src/card/text-sha.js'
+import { closedWaitTextsOf } from '../../core/card-readings.js'
 import { appendEvent, closeOwnerWait, openOwnerWait } from '../../core/db.js'
 import { CARD_ADMITTED, OWNER_WAIT_OPENED } from '../../core/events.js'
 import { RATCHET_FILE } from '../../core/generated-files.js'
 import { leaseNext } from '../../core/lease.js'
 import { all as pullRequests } from '../../core/pr-readings.js'
-import { answerFollowed, derivedSplit, ownerHeardOn } from '../../nodes/launch/tree-pr.js'
-import { closedWaitTextsOf, UpdateExecutor } from '../../nodes/update/update-executor.js'
+import { busClosedWaitTexts } from '../../nodes/launch/launch-root.js'
+import { answerFollowed, derivedSplit, ownerHeardOn, treePr } from '../../nodes/launch/tree-pr.js'
+import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { derivedGrowthLine, growthAskedBefore, growthToAsk } from '../../policy/derived-files.js'
 import { cardAllowances, cardTransitions, derivedHolds, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
-import { eventsOf, liveBench } from './merge-bench.js'
+import { eventsOf, liveBench, mergeBench } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
 
 const RATCHET = RATCHET_FILE.path
@@ -37,6 +41,7 @@ const NODES_THAT_ASK_ABOUT_GROWTH: Record<string, { files: readonly string[], re
   update: { files: ['scripts/nodes/update/update-executor.ts', 'scripts/nodes/update/update-worker.ts', 'scripts/supervisor/composition.ts'], readsTheCard: /allowances\(cardId\)/ },
   answer: { files: ['scripts/nodes/answer/answerer.ts'], readsTheCard: /request\.allowances/ },
 }
+const LAUNCH_PORTS = { file: 'scripts/nodes/launch/tree-pr-cli.ts', readsTheBus: /allowances: busAllowances\(REAL_BUS\.busPath\),\s+closedWaitTexts: busClosedWaitTexts\(REAL_BUS\.busPath\)/ }
 const JUDGES = ['scripts/policy/derived-files.ts', 'scripts/policy/touch-scope.ts']
 
 function json(value: unknown): string {
@@ -103,10 +108,10 @@ function allows(text: string): (made: MergeBench) => void {
   return made => recordDecision(made.db, { ts: made.clock.now().toISOString(), decisionId: 2145, text, cards: [CARD] })
 }
 
-function askedAndClosed(text: string): (made: MergeBench) => void {
+function askedAndClosed(text: string, card = CARD): (made: MergeBench) => void {
   return (made) => {
     const ts = made.clock.now().toISOString()
-    const id = openOwnerWait(made.db, ts, 'worker:shift:test', { need: 'decision', text, card: CARD, pr: PR })
+    const id = openOwnerWait(made.db, ts, 'worker:shift:test', { need: 'decision', text, card, pr: card === CARD ? PR : PR + 1 })
     closeOwnerWait(made.db, ts, 'owner', id, 'answered', 1)
   }
 }
@@ -137,6 +142,49 @@ function answerOutside(from: number, to: number, allowances: readonly string[]):
   return answerFollowed(baseGit(from), treeGrownTo(to), [RATCHET], CARD, cardText(CARD), new TestCoverage(() => [], () => null), undefined, reproduces, allowances).outside
 }
 
+function gitIn(cwd: string, args: string[]): string {
+  return execFileSync('git', ['-C', cwd, '-c', 'user.name=bus', '-c', 'user.email=bus@example.invalid', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+}
+
+function writeIn(tree: string, file: string, text: string): void {
+  mkdirSync(path.join(tree, path.dirname(file)), { recursive: true })
+  writeFileSync(path.join(tree, file), text)
+}
+
+function launchedTree(from: number, to: number): string {
+  const home = mkdtempSync(path.join(tmpdir(), 'growth-asked-once-launch-'))
+  roots.push(home)
+  const tree = path.join(home, `mc-${CARD}`)
+  writeIn(tree, 'construct.json', json({ harness: { command: 'pnpm run quality' }, shift: { prepush: [] } }))
+  writeIn(tree, TOUCHED, 'export const lease = 1\n')
+  writeIn(tree, RATCHET, ratchet(from))
+  execFileSync('git', ['init', '-q', '-b', 'main', tree])
+  gitIn(tree, ['add', '-A'])
+  gitIn(tree, ['commit', '-q', '-m', 'base'])
+  const origin = path.join(home, 'origin.git')
+  execFileSync('git', ['init', '-q', '--bare', origin])
+  gitIn(tree, ['remote', 'add', 'origin', origin])
+  gitIn(tree, ['push', '-q', 'origin', 'HEAD:refs/heads/main'])
+  gitIn(tree, ['fetch', '-q', 'origin'])
+  gitIn(tree, ['checkout', '-q', '-b', `feat/card-${CARD}`])
+  writeIn(tree, TOUCHED, 'export const lease = 2\n')
+  writeIn(tree, RATCHET, ratchet(to))
+  return tree
+}
+
+function launchedWaits(from: number, to: number, decide: (made: MergeBench) => void): string[] {
+  const made = mergeBench()
+  benches.push(made)
+  decide(made)
+  made.tick()
+  const tree = launchedTree(from, to)
+  const card: TreeCard = { branch: `feat/card-${CARD}`, title: `growth-asked-once (#${CARD})`, commitMessage: `growth-asked-once (#${CARD})`, cardLine: cardText(CARD).split('\n')[0]!, contour: 'cheap', touches: [TOUCHED], runs: [], namedPathReason: null, cardId: CARD }
+  const opened: string[] = []
+  const launched = treePr({ git: gitIn, rebuild: reproduces, gh: args => args[1] === 'list' ? '[]' : `https://github.com/o/r/pull/${PR}\n`, ownerWait: (_card, text) => String(opened.push(text)), allowances: () => [], closedWaitTexts: busClosedWaitTexts(made.busPath) }, card, tree, null)
+  expect(launched).toMatchObject({ kind: 'pr', number: String(PR) })
+  return opened
+}
+
 describe('the owner is asked about a derived growth once per card, row and value (F-owner-growth-answer-lost-on-update-loop)', () => {
   it('every node that asks the owner about a growth reads the card allowances first', () => {
     const named = new Set(Object.values(NODES_THAT_ASK_ABOUT_GROWTH).flatMap(node => node.files))
@@ -144,6 +192,7 @@ describe('the owner is asked about a derived growth once per card, row and value
     expect(judging.sort()).toEqual([...named].sort())
     for (const [node, { files, readsTheCard }] of Object.entries(NODES_THAT_ASK_ABOUT_GROWTH))
       expect(files.some(file => readsTheCard.test(readFileSync(file, 'utf8'))), node).toBe(true)
+    expect(readFileSync(LAUNCH_PORTS.file, 'utf8')).toMatch(LAUNCH_PORTS.readsTheBus)
 
     expect(ownerHeardOn({ allowances: card => card === CARD ? [ALLOWS_3] : [], closedWaitTexts: card => card === CARD ? ['asked'] : [] }, CARD)).toEqual({ allowances: [ALLOWS_3], closedWaitTexts: ['asked'] })
     expect(ownerHeardOn({ allowances: () => [ALLOWS_3] }, undefined)).toEqual({ allowances: [], closedWaitTexts: [] })
@@ -160,6 +209,8 @@ describe('the owner is asked about a derived growth once per card, row and value
     expect(growthAskedBefore(derivedGrowthLine(growth(1, 3)), [asked])).toBe(true)
     expect(growthToAsk(growth(1, 3), [], [asked])).toEqual([])
     expect(launchGrown(1, 3, [], [asked])).toEqual([])
+    expect(launchedWaits(1, 3, askedAndClosed(asked))).toEqual([])
+    expect(launchedWaits(1, 3, askedAndClosed(asked, CARD + 1))).toEqual([expect.stringContaining(`${ROW} (1 → 3)`)])
 
     const updated = update(1, 3, askedAndClosed(asked))
     expect(closedWaitTextsOf(updated.made.db, CARD)).toEqual([asked])
@@ -187,7 +238,9 @@ describe('the owner is asked about a derived growth once per card, row and value
     expect(waitTexts(askedLower.made)).toHaveLength(2)
 
     const anotherCard = `card #${CARD + 1}: ${derivedGrowthLine(growth(2, 3))}`
-    const otherCardAsked = update(2, 3, made => openOwnerWait(made.db, made.clock.now().toISOString(), 'worker:shift:test', { need: 'decision', text: anotherCard, card: CARD + 1, pr: PR + 1 }))
+    const otherCardAsked = update(2, 3, askedAndClosed(anotherCard, CARD + 1))
+    expect(closedWaitTextsOf(otherCardAsked.made.db, CARD + 1)).toEqual([anotherCard])
+    expect(closedWaitTextsOf(otherCardAsked.made.db, CARD)).toEqual([])
     expect(otherCardAsked.outcome).toMatchObject({ kind: 'stopped', reason: 'question.owner' })
   })
 })
