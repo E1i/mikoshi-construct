@@ -8,7 +8,6 @@ import { DatabaseSync } from 'node:sqlite'
 import { pathToFileURL } from 'node:url'
 import { build } from 'tsup'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { BOARD_RESTART_CAP_MS, restartDelayMs } from '../scripts/supervisor/run.js'
 import { copyFactoryAssets, factoryBuild, OUT_DIR, productBuild } from '../tsup.config.js'
 
 const REPOSITORY = path.resolve(import.meta.dirname, '..')
@@ -46,6 +45,8 @@ interface Shipped {
   BOARD_PERIOD_MS: number
   BOARD_THREAD: string
   WORKER_DOWN: string
+  BOARD_RESTART_CAP_MS: number
+  restartDelayMs: (periodMs: number, failures: number) => number
 }
 
 interface Consumer {
@@ -265,12 +266,10 @@ describe('the board thread of bus:run started from the packed package in an empt
     expect(run.projectedAfterRestore, run.output).toBeGreaterThan(0)
     expect(run.rewritten, run.output).toBe(true)
   }, PACK_TIMEOUT_MS)
-})
 
-describe('the restart delay of the board thread bus:run keeps', () => {
-  it('a board period longer than the restart cap restarts after one period, not after the cap', () => {
-    const periodMs = 2 * BOARD_RESTART_CAP_MS
-    expect(restartDelayMs(periodMs, 1)).toBe(periodMs)
-    expect(restartDelayMs(periodMs, 4)).toBe(periodMs)
+  it('a board period longer than the restart cap restarts the thread after one period, not after the cap', () => {
+    const periodMs = 2 * shipped.BOARD_RESTART_CAP_MS
+    expect(shipped.restartDelayMs(periodMs, 1)).toBe(periodMs)
+    expect(shipped.restartDelayMs(periodMs, 4)).toBe(periodMs)
   })
 })
