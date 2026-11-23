@@ -3,6 +3,7 @@ import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { excludedCommandsWritten, PROCESS_TABLE_COMMAND } from '../../../src/commands/attach/settings.js'
 import { psPgid } from '../../nodes/launch/launch-starter.js'
 import { commandLineOf } from '../../nodes/restart/chain-process.js'
 import { InMemoryProcessTable, OsProcessTable, parseListing, rowOf } from '../../ports/process-table.js'
@@ -34,7 +35,24 @@ function pathWithBusyListing(): string {
   return `${dir}${path.delimiter}${process.env.PATH}`
 }
 
+function pathWhereTheSandboxRefusesAllButTheExcludedLine(): string {
+  const dir = mkdtempSync(path.join(tmpdir(), 'process-table-sandboxed-'))
+  writeFileSync(path.join(dir, 'ps'), `#!/bin/sh\nif [ "ps $*" = "${PROCESS_TABLE_COMMAND}" ]; then echo '${BUSY_LINE}'; exit 0; fi\necho "ps: Operation not permitted" >&2\nexit 1\n`)
+  chmodSync(path.join(dir, 'ps'), 0o755)
+  return `${dir}${path.delimiter}${process.env.PATH}`
+}
+
 describe('the process table port', () => {
+  it('the process table is read where the sandbox refuses to spawn ps', () => {
+    const home = mkdtempSync(path.join(tmpdir(), 'process-table-home-'))
+    expect(PROCESS_TABLE_COMMAND).toBe('ps -Ao pid=,ppid=,pgid=,lstart=,args=')
+    expect(excludedCommandsWritten(home)).toContain(PROCESS_TABLE_COMMAND)
+    vi.stubEnv('PATH', pathWhereTheSandboxRefusesAllButTheExcludedLine())
+    const snapshot = new OsProcessTable().snapshot()
+
+    expect(snapshot).toEqual({ readable: true, rows: parseListing(`${BUSY_LINE}\n`) })
+  })
+
   it('the ps listing is read with a buffer larger than the default', () => {
     expect((BUSY_LINE.length + 1) * BUSY_TABLE_ROWS).toBeGreaterThan(DEFAULT_MAX_BUFFER)
     vi.stubEnv('PATH', pathWithBusyListing())

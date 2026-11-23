@@ -4703,7 +4703,11 @@
         }
       },
       "src/commands/attach/settings.ts": {
-        "constants": [],
+        "constants": [
+          "PROCESS_TABLE_ARGUMENTS: readonly string[]",
+          "PROCESS_TABLE_COMMAND",
+          "PROCESS_TABLE_PROGRAM"
+        ],
         "functions": {
           "browserLabInstalledScript": "(home: string = homedir()): string",
           "cardTreeGitWrites": "(gitDir: string, commonDir: string): string[]"

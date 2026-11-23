@@ -10,7 +10,7 @@ import { FACTORY_MANIFEST } from '../../../scripts/policy/touch-scope.js'
 import { readManifest, recordedShas } from '../../manifest.js'
 import { MIKOSHI_PNPM, pinnedPnpm } from '../../presets/index.js'
 import { allowRule, daemonProgram, shippedDaemonCommands } from '../attach/daemon-commands.js'
-import { browserLabInstalledScript, cardTreeGitWrites, GITHUB_API_DOMAIN, HOME_PREFIX } from '../attach/settings.js'
+import { browserLabInstalledScript, cardTreeGitWrites, excludedCommandsWritten, GITHUB_API_DOMAIN, HOME_PREFIX, PROCESS_TABLE_COMMAND } from '../attach/settings.js'
 import { factoryLiveness } from '../liveness.js'
 import { FileReadings } from './readings.js'
 
@@ -238,7 +238,7 @@ export function roleSituations(readings: FileReadings, root: string, home: strin
   const gitDir = path.join(commonDir, 'worktrees', CARD_TREE_NAME)
   const labInstalled = installed(browserLabInstalledScript(home))
   const leftOut = daemonCommands.filter(command => installedDaemonProgram(command) && (excludes(project, command) || excludes(local, command)))
-  const flag = { sandbox: { enabled: true, filesystem: { allowWrite: cardTreeGitWrites(gitDir, commonDir) }, ...(leftOut.length > 0 ? { excludedCommands: leftOut } : {}) } }
+  const flag = { sandbox: { enabled: true, filesystem: { allowWrite: cardTreeGitWrites(gitDir, commonDir) }, excludedCommands: [...leftOut, PROCESS_TABLE_COMMAND] } }
   return {
     window: { cwd: root, home, layers: [{ settings: project, base: root }, { settings: local, base: root }] },
     card: { cwd: tree, home, layers: [{ settings: project, base: tree }, { settings: flag, base: tree }] },
@@ -334,7 +334,7 @@ function widensCardSessions(readings: FileReadings, home: string): boolean {
   if (!plainObject(permissions))
     return true
   const commands = shippedDaemonCommands(home)
-  const widensSandbox = local.sandbox !== undefined && !sandboxOnlyExcludesDaemons(local.sandbox, commands)
+  const widensSandbox = local.sandbox !== undefined && !sandboxOnlyExcludesDaemons(local.sandbox, excludedCommandsWritten(home))
   return widensSandbox || widensPermissions(permissions, commands)
 }
 

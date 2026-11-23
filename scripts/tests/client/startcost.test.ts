@@ -4,6 +4,7 @@ import os, { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cardToolsOf, parseParkingFile } from '../../../src/card/parking.js'
+import { PROCESS_TABLE_COMMAND } from '../../../src/commands/attach/settings.js'
 import { openBus } from '../../core/db.js'
 import { windowCommand } from '../../ports/client/claude/adapter.js'
 import { clientAdapter } from '../../ports/client/index.js'
@@ -89,7 +90,7 @@ describe('the invocation of a card session', () => {
     for (const role of CARD_ROLES) {
       const { args } = clientInvocation(specOf({ role }))
       expect(args[args.indexOf('--setting-sources') + 1], role).toBe('project,local')
-      expect(settingsOf(clientInvocation(specOf({ role }))).sandbox, role).toEqual(CARD_SESSION_SANDBOX)
+      expect(settingsOf(clientInvocation(specOf({ role }))).sandbox, role).toEqual({ ...CARD_SESSION_SANDBOX, excludedCommands: [PROCESS_TABLE_COMMAND] })
     }
     expect(clientInvocation(specOf({ role: 'review', policy: CLIENT_DEFAULT })).args).not.toContain('--setting-sources')
   })

@@ -3,6 +3,7 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { PROCESS_TABLE_COMMAND } from '../../../src/commands/attach/settings.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_PERMISSION_MODE } from '../../nodes/launch/launch-starter.js'
 import { busCardStopped, busPrOpened, claudeResume, PREFIX, runTreePr } from '../../nodes/launch/tree-pr-cli.js'
@@ -399,7 +400,7 @@ describe('the session a refusal returns the card to', () => {
 
     const argv = readFileSync(seen, 'utf8').trim().split('\n')
     expect(JSON.parse(argv[argv.indexOf('--settings') + 1]!)).toEqual({
-      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY], allowMachLookup: ['com.apple.trustd*'] } },
+      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY], allowMachLookup: ['com.apple.trustd*'] }, excludedCommands: [PROCESS_TABLE_COMMAND] },
       permissions: { allow: [`Bash(${TREE_GATE})`, `Edit(/${tree}/**)`] },
       env: SESSION_BASH_CAP,
       hooks: WIDE_VITEST_HOOKS,

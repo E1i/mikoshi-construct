@@ -70,6 +70,14 @@ export interface SandboxExclusion {
 
 export const RECORDED_BY_AN_EARLIER_ATTACH = 'node scripts/construct/browser-lab.mjs *'
 
+export const PROCESS_TABLE_PROGRAM = 'ps'
+export const PROCESS_TABLE_ARGUMENTS: readonly string[] = ['-Ao', 'pid=,ppid=,pgid=,lstart=,args=']
+export const PROCESS_TABLE_COMMAND = [PROCESS_TABLE_PROGRAM, ...PROCESS_TABLE_ARGUMENTS].join(' ')
+
+export function excludedCommandsWritten(home: string = homedir()): string[] {
+  return [...shippedDaemonCommands(home), PROCESS_TABLE_COMMAND]
+}
+
 export function browserLabInstalledScript(home: string = homedir()): string {
   return path.join(home, '.construct', 'browser-lab', 'bin', 'browser-lab.mjs')
 }
@@ -520,7 +528,7 @@ export function excludeBrowserLabInLocalSettings(root: string, home: string = ho
   const commands = shippedDaemonCommands(home)
   const settings = reading.kind === 'read' ? structuredClone(reading.settings) : {}
   const allow = allowEngram(settings, commands.map(allowRule))
-  const exclusion = excludeCommands(settings, commands)
+  const exclusion = excludeCommands(settings, excludedCommandsWritten(home))
   const beforeSha256 = reading.kind === 'read' ? sha256OfBytes(reading.bytes) : null
   const createdFile = reading.kind === 'absent'
   const initial = reading.kind === 'read' ? reading.bytes.toString('utf8') : '{}\n'
@@ -576,7 +584,7 @@ export function withExclusionRecorded(hook: SettingsHook, exclusion: LocalExclus
 }
 
 function isSandboxRecord(value: unknown): boolean {
-  return value === undefined || (isJsonObject(value) && Array.isArray(value.added) && value.added.every(command => command === RECORDED_BY_AN_EARLIER_ATTACH || command === browserLabExcludedCommand() || shippedDaemonCommands().includes(command as string)) && typeof value.createdSandbox === 'boolean' && typeof value.createdExcluded === 'boolean')
+  return value === undefined || (isJsonObject(value) && Array.isArray(value.added) && value.added.every(command => command === RECORDED_BY_AN_EARLIER_ATTACH || command === browserLabExcludedCommand() || excludedCommandsWritten().includes(command as string)) && typeof value.createdSandbox === 'boolean' && typeof value.createdExcluded === 'boolean')
 }
 
 function isEngramRecord(value: unknown): boolean {
@@ -604,7 +612,7 @@ export function installHookEntries(root: string, reading: SettingsReading, home:
   })
   settings.hooks = hooks
   const engram = allowEngram(settings, [...engramRules(root, home), ...daemonAllowRules(home)])
-  const sandbox = excludeCommands(settings, shippedDaemonCommands(home))
+  const sandbox = excludeCommands(settings, excludedCommandsWritten(home))
   const afterSha256 = sha256OfBytes(writeSettings(root, settings))
   return { kind: 'installed', hook: { file: SETTINGS_FILE, created, entry, window, engram, sandbox }, afterSha256 }
 }
