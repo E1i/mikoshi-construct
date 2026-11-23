@@ -1,4 +1,4 @@
-import type { BusEvent, CardActivity, WatchDeps } from '../../window/watch.js'
+import type { BusEvent, CardActivity, WatchDeps, WatchSignal } from '../../window/watch.js'
 import type { WindowPr } from '../../window/window-prs.js'
 import { Buffer } from 'node:buffer'
 import { spawn } from 'node:child_process'
@@ -20,7 +20,7 @@ import { WINDOW_MARK, WINDOW_VARIABLE } from '../../ports/session.js'
 import { recordJudged, recordWorkerDown } from '../../supervisor/supervisor.js'
 import { ReleaseLoops } from '../../window/release-loop.js'
 import { ANOTHER_CONSUMER, ONCE_STORE, OnceStore } from '../../window/watch-store.js'
-import { BUS_ALIVE_MS, cardOfEvent, deliverOnce, LEGACY_CURSOR, ONCE, parseWatchArgs, parseWokenStalls, productionDeps, selectOnce, skippedLine, STALL_MS, stalledOf, STOP_EVENT, stuckOf, tick, USER_SETTINGS, wakesTheWindow, WATCHING, WATCHING_FROM_CURSOR, watchState, withWoken, WOKEN_STALLS } from '../../window/watch.js'
+import { BOARD_STALE, boardStaleOf, BUS_ALIVE_MS, cardOfEvent, deliverOnce, LEGACY_CURSOR, ONCE, parseWatchArgs, parseWokenStalls, productionDeps, selectOnce, skippedLine, STALL_MS, stalledOf, STOP_EVENT, stuckOf, tick, USER_SETTINGS, wakesTheWindow, WATCHING, WATCHING_FROM_CURSOR, watchState, withWoken, withWokenSignals, WOKEN_SIGNALS, WOKEN_STALLS } from '../../window/watch.js'
 import { requestActor } from '../../window/window-requests.js'
 import { waitFor } from '../wait-for.js'
 
@@ -64,6 +64,7 @@ function latestPerPr(events: BusEvent[], type: string, id: number): BusEvent[] {
 
 function fileDeps(file: string, events: BusEvent[] = [], stalls: CardActivity[] = [], windowPrs: ReadonlySet<number> = new Set(), ownRequests: ReadonlySet<number> = new Set()): WatchDeps {
   let woken = new Map<number, number>()
+  let wokenSignals = new Map<string, string>()
   return {
     bus: file,
     observedUpTo: id => latestPerPr(events, PR_OBSERVED, id),
@@ -86,6 +87,10 @@ function fileDeps(file: string, events: BusEvent[] = [], stalls: CardActivity[] 
     wokenStalls: () => woken,
     rememberStalls: (stalls) => {
       woken = withWoken(woken, stalls)
+    },
+    wokenSignals: () => wokenSignals,
+    rememberSignals: (signals) => {
+      wokenSignals = withWokenSignals(wokenSignals, signals)
     },
   }
 }
@@ -1291,5 +1296,91 @@ describe('pnpm miko:watch wakes the window where the bus is stuck, not only on a
       'stuck PR #929 card 1074: red CI, priority p0; the window moves it before it takes a new card',
       'stuck PR #926 card 1079: red CI, priority -; the window moves it before it takes a new card',
     ].join('\n')])
+  })
+})
+
+describe('miko:watch wakes the window once per unchanged signal, whatever its kind', () => {
+  const NOW = Date.parse('2026-11-24T08:00:00.000Z')
+  const beatAt = (minutesAgo: number): string => new Date(NOW - minutesAgo * 60_000).toISOString()
+  const OTHER_KIND: WatchSignal = { kind: 'any kind', subject: 'any subject', facts: 'fact 1', line: 'any kind: fact 1' }
+
+  interface Reading { emitted: string[], run: () => Promise<void>, fenceLine: () => string | undefined }
+
+  function onceWatch(reading: () => WatchSignal[]): Reading {
+    const events: BusEvent[] = []
+    let cursor = { offset: 0, busId: 0 }
+    const store = {
+      cursor: () => cursor,
+      write: (next: typeof cursor) => {
+        cursor = next
+      },
+      commit: () => {},
+    } as unknown as OnceStore
+    const emitted: string[] = []
+    let beats = 0
+    let fence: BusEvent | undefined
+    const deps: WatchDeps = {
+      ...fileDeps(journal(), events),
+      lastBusId: () => events.at(-1)?.id ?? 0,
+      signals: () => reading(),
+      emit: async (line) => {
+        emitted.push(line)
+      },
+      beat: () => {
+        if (++beats === 3) {
+          fence = { id: events.length + 1, type: MERGE_DONE, cardId: null, pr: 1, head: null, payload: JSON.stringify({ fence: events.length + 1 }) }
+          events.push(fence)
+        }
+      },
+    }
+    return {
+      emitted,
+      run: async () => {
+        beats = 0
+        await deliverOnce(store, deps, undefined, () => NOW)
+      },
+      fenceLine: () => fence === undefined ? undefined : `bus ${MERGE_DONE} card - pr 1 ${fence.payload}`,
+    }
+  }
+
+  it('a second unchanged signal of the same kind and subject does not wake the window', async () => {
+    for (const signal of [boardStaleOf(beatAt(5), NOW)[0]!, OTHER_KIND]) {
+      const watch = onceWatch(() => [signal])
+      await watch.run()
+      expect(watch.emitted).toEqual([signal.line])
+      await watch.run()
+      expect(watch.emitted.slice(1), signal.kind).toEqual([watch.fenceLine()])
+    }
+  }, 10_000)
+
+  it('a signal with a new fact wakes the window again', async () => {
+    let reading = [boardStaleOf(beatAt(5), NOW)[0]!, OTHER_KIND]
+    const watch = onceWatch(() => reading)
+    await watch.run()
+    expect(watch.emitted).toEqual([reading.map(signal => signal.line).join('\n')])
+    reading = [boardStaleOf(beatAt(2), NOW)[0]!, { ...OTHER_KIND, facts: 'fact 2', line: 'any kind: fact 2' }]
+    await watch.run()
+    expect(watch.emitted.slice(1)).toEqual([reading.map(signal => signal.line).join('\n')])
+    expect(reading[0]!.kind).toBe(BOARD_STALE)
+  }, 10_000)
+
+  it('a signal of the same kind about another subject is not the same signal', () => {
+    const deps = fileDeps(journal())
+    const state = watchState(deps)
+    const other = { ...OTHER_KIND, subject: 'another subject', line: 'any kind: another subject' }
+    expect(tick(state, { ...deps, signals: () => [OTHER_KIND] }, NOW)).toEqual([OTHER_KIND.line])
+    expect(tick(state, { ...deps, signals: () => [OTHER_KIND, other] }, NOW)).toEqual([other.line])
+    expect(tick(state, { ...deps, signals: () => [OTHER_KIND, other] }, NOW)).toEqual([])
+  })
+
+  it('the signals a --once woke on live beside the cursor, so a later process does not wake on them again', () => {
+    const handoff = mkdtempSync(path.join(tmpdir(), 'miko-watch-signals-'))
+    roots.push(handoff)
+    const deps = productionDeps(handoff, path.join(handoff, 'bus.db'))
+    expect(deps.wokenSignals()).toEqual(new Map())
+    deps.rememberSignals([boardStaleOf(beatAt(5), NOW)[0]!, OTHER_KIND])
+    deps.rememberSignals([{ ...OTHER_KIND, facts: 'fact 2' }])
+    expect(productionDeps(handoff, path.join(handoff, 'bus.db')).wokenSignals()).toEqual(new Map([[`${BOARD_STALE} · board timer`, beatAt(5)], ['any kind · any subject', 'fact 2']]))
+    expect(existsSync(path.join(handoff, WOKEN_SIGNALS))).toBe(true)
   })
 })
