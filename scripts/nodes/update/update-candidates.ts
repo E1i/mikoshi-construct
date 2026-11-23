@@ -48,12 +48,12 @@ function updateDue(order: RecordedOrder, mayMerge: Admits, decided: Admits): Adm
 
 export function updateCandidates(db: DatabaseSync, ts: string, parts: UpdateSourceParts): QueuedTask[] {
   const { rules } = parts
-  return openCandidates(db, ts, 'update', withTheHeadsARerunIsDueOn(db, all(db), candidateRows(db, openPrsWithTheirUpdateCauses(parts.topPriority), updateDue(recordedOrder(db), aMergeCandidate(db, ts, rules), decidedPastRoundLimit(db, ts, rules)))), rules)
+  return openCandidates(db, ts, 'update', withTheHeadsARerunIsDueOn(db, all(db), candidateRows(db, openPrsWithTheirUpdateCauses(parts.topPriority), updateDue(recordedOrder(db), aMergeCandidate(db, ts, rules), decidedPastRoundLimit(db, ts, rules)), rules.mergedCards(db))), rules)
 }
 
 function updatesSpentBeforeAMergeSentThem(db: DatabaseSync, ts: string, parts: UpdateSourceParts): RequeueRow[] {
   const { rules } = parts
-  return (candidateRows(db, aMergeSentToUpdate(parts.topPriority), aMergeCandidate(db, ts, rules)) as (Candidate & { sent_at: number })[]).flatMap((row) => {
+  return (candidateRows(db, aMergeSentToUpdate(parts.topPriority), aMergeCandidate(db, ts, rules), rules.mergedCards(db)) as (Candidate & { sent_at: number })[]).flatMap((row) => {
     const spent: RequeueRow = { task_key: keyOf({ queue: 'update', cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined, decision: cardDecisionKeyOf('update', row.card_id, () => rules.decisionsAt(db, ts)) }), queue: 'update', card_id: row.card_id, pr: row.pr, head: row.head, failure: Number(row.sent_at) }
     const task = taskRow(db, spent.task_key)
     return task?.state === COMPLETED && Number(task.event_id) < spent.failure ? [spent] : []

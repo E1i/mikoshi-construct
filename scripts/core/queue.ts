@@ -4,7 +4,7 @@ import type { BoundDecision, Queue, TaskIdentity } from './identifiers.js'
 import type { Fold, StoredEvent } from './stored.js'
 import type { IncrementalProjection } from './watermark.js'
 import { appendEvent, inTransaction, OPEN_WAIT, OWNER_WAITS } from './db.js'
-import { dependencyWaitOf, MERGED_CARDS, mergedCardsBinding } from './dependency-wait.js'
+import { dependencyWaitOf, mergedCardsBinding } from './dependency-wait.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, declaredPart, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_GROUPS, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, WITNESS_DOWNGRADE } from './events.js'
 import { A_CARD_DECISION_REOPENS, answerDecisionOfKey, BACKFILL_SOURCE, cardDecisionKeyOf, decidedTaskDecisionOfKey, decisionSegment, generationOfKey, isFullSha, MAIN_BRANCH, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
 import { payloadOf, reject } from './stored.js'
@@ -43,6 +43,7 @@ export interface CandidateRules {
   mergeDecided: (db: DatabaseSync, ts: string, pr: number | null, head: string | null) => number | null
   outOfRounds: (db: DatabaseSync, queue: Queue, pr: number | null) => boolean
   reviewedUnderTheCardDecision: (db: DatabaseSync, ts: string) => (row: { card_id: number, pr: number | null }) => boolean
+  mergedCards: (db: DatabaseSync) => readonly number[]
 }
 
 export type QuestionAnswered = (stop: string) => string
@@ -119,13 +120,7 @@ const DEPENDENCY_WAIT = dependencyWaitOf({ admitted: CARD_ADMITTED, backfillSour
 
 export const { unmerged: A_DEPENDENCY_UNMERGED, updateDue: A_DEPENDENCY_UPDATE_DUE, held: HELD_BY_A_DEPENDENCY } = DEPENDENCY_WAIT
 
-function mergedCardsOf(db: DatabaseSync): number[] {
-  return (db.prepare(`SELECT card_id FROM prs WHERE state = 'merged' AND card_id IS NOT NULL ORDER BY card_id`).all() as { card_id: number }[]).map(row => Number(row.card_id))
-}
-
-export const unmergedDependenciesOf = (db: DatabaseSync, cardId: number): number[] => DEPENDENCY_WAIT.unmergedDependenciesOf(db, mergedCardsOf(db), cardId)
-
-export const dependencyUpdateDueOn = (db: DatabaseSync, head: { card: number, pr: number, head: string }): boolean => DEPENDENCY_WAIT.updateDueOn(db, mergedCardsOf(db), head)
+export const { unmergedDependenciesOf, updateDueOn: dependencyUpdateDueOn } = DEPENDENCY_WAIT
 
 function tasksInFlight(columns: string, queue: string, match: string): string {
   return `SELECT ${columns} FROM tasks AS live WHERE live.queue = '${queue}' AND ${match}
@@ -368,9 +363,10 @@ export function aMergeCandidate(db: DatabaseSync, ts: string, rules: CandidateRu
   return row => (row.verdict_on_head === 'pass' || decided(row)) && rules.mayRequeue(db, ts, { queue: 'merge', pr: row.pr, head: row.head })
 }
 
-export function candidateRows(db: DatabaseSync, query: string, admits: Admits): Candidate[] {
+export function candidateRows(db: DatabaseSync, query: string, admits: Admits, mergedCards: readonly number[]): Candidate[] {
   const statement = db.prepare(query)
-  return ((query.includes(`:${MERGED_CARDS}`) ? statement.all(mergedCardsBinding(mergedCardsOf(db))) : statement.all()) as unknown as Candidate[]).filter(admits)
+  statement.setAllowUnknownNamedParameters(true)
+  return (statement.all(mergedCardsBinding(mergedCards)) as unknown as Candidate[]).filter(admits)
 }
 
 export interface TaskRow {
@@ -475,11 +471,12 @@ export function openCandidates(db: DatabaseSync, ts: string, queue: Queue, rows:
 
 export function reviewCandidates(db: DatabaseSync, ts: string, rules: CandidateRules): QueuedTask[] {
   const reviewed = rules.reviewedUnderTheCardDecision(db, ts)
-  return [...openCandidates(db, ts, 'review', candidateRows(db, REVIEW_CANDIDATES, everyRow), rules), ...openCandidates(db, ts, 'review', candidateRows(db, MERGE_CANDIDATES, everyRow).filter(row => !reviewed(row)), rules)]
+  const merged = rules.mergedCards(db)
+  return [...openCandidates(db, ts, 'review', candidateRows(db, REVIEW_CANDIDATES, everyRow, merged), rules), ...openCandidates(db, ts, 'review', candidateRows(db, MERGE_CANDIDATES, everyRow, merged).filter(row => !reviewed(row)), rules)]
 }
 
 export function closeCandidates(db: DatabaseSync, ts: string, rules: CandidateRules): QueuedTask[] {
-  return openCandidates(db, ts, 'close', candidateRows(db, CLOSE_CANDIDATES, everyRow), rules)
+  return openCandidates(db, ts, 'close', candidateRows(db, CLOSE_CANDIDATES, everyRow, rules.mergedCards(db)), rules)
 }
 
 export interface Derived {

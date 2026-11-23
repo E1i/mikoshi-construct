@@ -94,7 +94,8 @@ export function answerCandidates(db: DatabaseSync, ts: string, parts: AnswerPart
   const leased = db.prepare(ANSWERS_LEASED_NOW).all() as { card_id: number, task_key: string }[]
   const answering = new Set(leased.map(row => Number(row.card_id)))
   const leasedKeys = new Set(leased.map(row => row.task_key))
-  const rows = [...answerQueries(parts).map(query => candidateRows(db, query, everyRow)), strandedAnswerCandidates(db, parts.windowWho)]
+  const merged = rules.mergedCards(db)
+  const rows = [...answerQueries(parts).map(query => candidateRows(db, query, everyRow, merged)), strandedAnswerCandidates(db, parts.windowWho)]
   const planned = rows.flatMap(found => openCandidates(db, ts, 'answer', found, rules)).filter(task => !answering.has(task.cardId) || leasedKeys.has(keyOf(task)))
   return parts.continuations(db, planned, { decisions: rules.decisionsAt(db, ts), sql: { cardBody: cardBodyShaOf, latestTurn: latestTurnOf, notAWindowCard: notAWindowCardOf(parts.windowWho), downgradeWaitOpenOn: aDowngradeWaitOpenOn }, pastTheLimit: (pr, head) => rules.outOfRounds(db, 'answer', pr) && rules.mergeDecided(db, ts, pr, head) === null, cardBodyOf: answerCardBodyOf })
 }

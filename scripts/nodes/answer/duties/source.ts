@@ -7,6 +7,7 @@ import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../../../core/card-autom
 import { closedWaitIds, openOwnerWaits } from '../../../core/card-readings.js'
 import { closeOwnerWait, inTransaction, openBusWait } from '../../../core/db.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_DROPPED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, WITNESS_RECORDED } from '../../../core/events.js'
+import { mergedCards } from '../../../core/pr-readings.js'
 import { openDecisionWaitsOf, unmergedDependenciesOf } from '../../../core/queue.js'
 import { cardDecisionCommand, decisionsInForceAt } from '../../../policy/shards.js'
 import { BusRead } from '../../../ports/bus-read.js'
@@ -205,7 +206,7 @@ export class AnswerSources {
   }
 
   heldByADependency(lease: Lease): boolean {
-    return lease.pr !== null && unmergedDependenciesOf(this.parts.db, lease.cardId).length > 0
+    return lease.pr !== null && unmergedDependenciesOf(this.parts.db, mergedCards(this.parts.db), lease.cardId).length > 0
   }
 
   dirtyOnHead(lease: Lease): boolean {

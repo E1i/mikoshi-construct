@@ -201,6 +201,25 @@ describe('the merge executor', () => {
     bench.close()
   })
 
+  it.each([
+    { recorded: 'behind', uncounted: true },
+    { recorded: 'blocked', uncounted: false },
+  ])('the merge executor reads the recorded $recorded state of the head for a not_mergeable failure while an update holds the head', ({ recorded, uncounted }) => {
+    const bench = liveBench()
+    bench.gitHub.open({ number: 992, review: 'success', mergeable_state: recorded })
+    bench.tick()
+    const ts = bench.clock.now().toISOString()
+    queueTask(bench.db, ts, { queue: 'update', cardId: 1092, pr: 992, head: sha('a') })
+    queueTask(bench.db, ts, { queue: 'merge', cardId: 1092, pr: 992, head: sha('a'), prBody: prBodySha(cardBody(992)) })
+    bench.gitHub.open({ number: 992, review: 'success', mergeable_state: 'dirty' })
+
+    expect(bench.merge(leaseQueued(bench.db, ts, merge(992), 'worker:merge:worker-1')!)).toMatchObject({ kind: 'denied', denial: { kind: 'technical', reason: 'not_mergeable' } })
+    expect(eventsOf(bench.db, 'task.failed').filter(event => event.task_key === merge(992))).toEqual([expect.objectContaining({ reason: 'not_mergeable', ...(uncounted ? { uncounted: true } : {}) })])
+    if (!uncounted)
+      expect(eventsOf(bench.db, 'task.failed').filter(event => event.task_key === merge(992))[0]).not.toHaveProperty('uncounted')
+    bench.close()
+  })
+
   it('a fault other than not_mergeable on a behind pull request with its update derived counts and stops the card', () => {
     const bench = liveBench()
     bench.gitHub.open({ number: 985, review: 'success', mergeable_state: 'behind' })

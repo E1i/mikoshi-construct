@@ -5,6 +5,7 @@ import type { MergeBench } from './merge-bench.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED } from '../../core/events.js'
+import { mergedCards } from '../../core/pr-readings.js'
 import { unmergedDependenciesOf } from '../../core/queue.js'
 import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
 import { mergeCandidates } from '../../nodes/merge/merge-candidates.js'
@@ -59,7 +60,7 @@ describe('an unmerged dependency holds the merge and the update, never the answe
   it('a red-CI PR whose dependency is not merged gets an answer task on its head', () => {
     const bench = aDependentPrOnAnOpenDependency({ mergeable_state: 'blocked', required: 'failure' })
 
-    expect(unmergedDependenciesOf(bench.db, CARD)).toEqual([DEPENDENCY])
+    expect(unmergedDependenciesOf(bench.db, mergedCards(bench.db), CARD)).toEqual([DEPENDENCY])
     expect(tasksOfTheDependent(bench, OF_THE_BUS.answer)).toEqual([{ pr: PR, head: HEAD }])
     expect(tasksOfTheDependent(bench, OF_THE_BUS.merge)).toEqual([])
     expect(tasksOfTheDependent(bench, OF_THE_BUS.update)).toEqual([])
@@ -68,7 +69,7 @@ describe('an unmerged dependency holds the merge and the update, never the answe
   it('a green-CI PR whose dependency is not merged still gets no answer task', () => {
     const bench = aDependentPrOnAnOpenDependency({ mergeable_state: 'clean', review: 'success', required: 'success' })
 
-    expect(unmergedDependenciesOf(bench.db, CARD)).toEqual([DEPENDENCY])
+    expect(unmergedDependenciesOf(bench.db, mergedCards(bench.db), CARD)).toEqual([DEPENDENCY])
     expect(tasksOfTheDependent(bench, OF_THE_BUS.answer)).toEqual([])
     expect(tasksOfTheDependent(bench, OF_THE_BUS.merge)).toEqual([])
     expect(tasksOfTheDependent(bench, OF_THE_BUS.update)).toEqual([])

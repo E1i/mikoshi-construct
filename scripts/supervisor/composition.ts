@@ -312,6 +312,7 @@ export function candidateRules(): CandidateRules {
     mergeDecided: mergeDecidedPastRoundLimit,
     outOfRounds,
     reviewedUnderTheCardDecision: (db, ts) => reviewedUnderTheCardDecision(cardDecisionReads(db, decisionsAt(db, ts), REVIEWS_OF_A_PR, storedByKey)),
+    mergedCards: prs.mergedCards,
   }
 }
 
