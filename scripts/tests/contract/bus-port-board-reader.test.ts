@@ -13,6 +13,9 @@ const FILE_OPENERS = ['node:fs', 'src/commands/cost/bus.ts']
 const SQLITE = 'node:sqlite'
 const PRODUCT_BUS_READER = 'src/commands/cost/bus.ts'
 const PORT = 'BoardBus'
+const BUS_CONTRACT_BUILDER = 'scripts/core/bus-adapter.ts'
+const BUS_WRITER = 'scripts/core/db.ts'
+const OWNED_SHAPES = ['OwnerWait', 'OwnerWaitNeed', 'BusDb']
 const READER = 'BusReader'
 
 interface Imported {
@@ -30,6 +33,10 @@ function importsOf(file: string): Imported[] {
     const target = specifier.startsWith('.') ? path.posix.join(path.posix.dirname(file), specifier).replace(/\.js$/, '.ts') : specifier
     return { target, typeOnly: declaration.importClause?.isTypeOnly === true }
   })
+}
+
+function declaredShapes(file: string): string[] {
+  return sourceOf(file).statements.flatMap(statement => ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement) ? [statement.name.text] : [])
 }
 
 function readerParameterTypes(file: string): string[] {
@@ -57,5 +64,20 @@ describe('the board reader takes the bus contract and opens no bus file', () => 
     expect(imports.filter(each => BUS_READING_FILES.has(each.target)).length).toBeGreaterThan(0)
     expect(imports.some(each => each.target === PRODUCT_BUS_READER && !each.typeOnly)).toBe(true)
     expect(imports.filter(each => each.target === SQLITE && !each.typeOnly)).toEqual([])
+  })
+
+  it('the reader takes from its root nothing but types, so at run time it reaches the bus only through the contract it is handed', () => {
+    const fromRoot = importsOf(BOARD_READER).filter(each => each.target === BOARD_ROOT)
+    expect(fromRoot.length).toBeGreaterThan(0)
+    expect(fromRoot.filter(each => !each.typeOnly)).toEqual([])
+  })
+
+  it('the board port is its own and not BUS_CONTRACT: the product build carries no bus writer, and BUS_CONTRACT is built on it', () => {
+    expect(importsOf(BUS_CONTRACT_BUILDER).map(each => each.target)).toContain(BUS_WRITER)
+    expect(importsOf(BOARD_ROOT).filter(each => each.target === BUS_CONTRACT_BUILDER || each.target === BUS_WRITER)).toEqual([])
+  })
+
+  it('the reader declares no copy of a shape its owner holds: the owner wait and the bus handle come from their owners through the root', () => {
+    expect(declaredShapes(BOARD_READER).filter(name => OWNED_SHAPES.includes(name))).toEqual([])
   })
 })

@@ -6,7 +6,6 @@ import type { BoardBus, BusFacts, BusReader, BusReading, LastReducedRows } from 
 import type { BoardGateRuns } from './gate-runs.js'
 import type { BoardHeal } from './heal.js'
 import type { PrsReading } from './prs.js'
-import type { TranscriptReader } from './sessions.js'
 import type { BoardView } from './view.js'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
@@ -24,6 +23,8 @@ import { screenLines } from './screens.js'
 import { tableLines } from './table.js'
 import { buildView, FINISHED_SHOWN_HOURS, STALE_HOURS } from './view.js'
 
+export type { OwnerWait, OwnerWaitNeed } from '../../../scripts/core/bus-readings.js'
+export type { BusDb } from '../cost/bus.js'
 export { CARD_STAGES, latestCardEvents, openTasks } from './bus.js'
 export { PRS_FROM_STDIN } from './prs.js'
 export { STALE_HOURS }
@@ -84,8 +85,8 @@ export const BOARD_BUS: BoardBus = {
   currentLane,
 }
 
-export function busFacts(db: BusDb, now: Date, transcripts?: TranscriptReader): BusFacts {
-  return boardFacts(BOARD_BUS, db, now, transcripts)
+export function busFacts(db: BusDb, now: Date): BusFacts {
+  return boardFacts(BOARD_BUS, db, now)
 }
 
 export function readBoard(dir: string, options: BoardOptions): BoardReading {

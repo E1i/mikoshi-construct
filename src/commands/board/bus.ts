@@ -1,8 +1,7 @@
-import type { DatabaseSync } from 'node:sqlite'
-import type { WaitLifter } from '../../../scripts/core/events.js'
 import type { BusPanelFacts, PanelRow } from './bus-panel.js'
 import type { GateRunRow } from './gate-runs.js'
 import type { Goal } from './goal.js'
+import type { BusDb, OwnerWait } from './index.js'
 import type { QueuedStanding, TranscriptReader } from './sessions.js'
 import { BOARD_ALARM, BOARD_ALARM_CLEARED, BUS_PULSE, CARD_ADMITTED, CARD_CONTINUED, CARD_FELL, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, GATE_RUN, LANE_HELD, NETWATCH_SKIPPED, PR_GROUPS, PROCESS_HEARTBEAT, REVIEW_DRIP, SESSION_HEARTBEAT, SLICE_PARENTS_BACKFILLED, TASK_RENEWED, TERMINAL_LANES, WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
 import { PLAIN_LORE } from '../../ui/lore.js'
@@ -11,22 +10,6 @@ import { gateRunFacts } from './gate-runs.js'
 import { goalOf } from './goal.js'
 import { clientTranscriptReader, sessionRowTime } from './sessions.js'
 
-type BusDb = DatabaseSync
-
-export type OwnerWaitNeed = 'decision' | 'merge' | 'command'
-
-export interface OwnerWait {
-  id: string
-  need: OwnerWaitNeed
-  text: string
-  command: string | null
-  card: number | null
-  pr: number | null
-  since: string
-  lifter: Extract<WaitLifter, 'owner' | 'window'>
-  decision: string | null
-}
-
 export interface LastReducedRows<T> {
   rows: T
   behind: string | null
@@ -34,11 +17,11 @@ export interface LastReducedRows<T> {
 
 export interface BoardBus {
   exists: (file: string) => boolean
-  readOnly: <T>(file: string, read: (db: DatabaseSync) => T) => T
+  readOnly: <T>(file: string, read: (db: BusDb) => T) => T
   inOrderMark: string
-  lastReducedCards: <T>(db: DatabaseSync, read: () => T) => LastReducedRows<T>
-  lastReducedOwnerWaits: (db: DatabaseSync) => LastReducedRows<OwnerWait[]>
-  currentLane: (db: DatabaseSync, card: number) => string | null
+  lastReducedCards: <T>(db: BusDb, read: () => T) => LastReducedRows<T>
+  lastReducedOwnerWaits: (db: BusDb) => LastReducedRows<OwnerWait[]>
+  currentLane: (db: BusDb, card: number) => string | null
 }
 
 export const SESSION_DEATH_KEY = `${CARD_STOPPED}:session-end:`
@@ -99,6 +82,7 @@ export interface CardsAtStage {
 }
 
 export type { BusPanelFacts } from './bus-panel.js'
+export type { OwnerWait, OwnerWaitNeed } from './index.js'
 
 export interface ServiceGauges {
   context: number | null

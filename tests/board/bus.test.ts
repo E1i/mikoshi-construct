@@ -385,6 +385,12 @@ describe('the board bus reader', () => {
     expect(busReaderAt(empty)(BOARD_BUS)).toMatchObject({ status: 'unreadable', file: empty })
   })
 
+  it('the in-order mark the root hands the reader finds the bus watermark, so a bus reduced through its last event shows no reducer lag', () => {
+    const reduced = facts({ events: [{ ts: ago(HOUR), type: 'card.fell', card: 7, payload: '{}' }] })
+    expect(reduced.panel?.lastEvent).not.toBeNull()
+    expect(reduced.panel?.reducerLag).toBe(0)
+  })
+
   it('reaches the bus only through the contract it is handed: an absent bus is never opened, a present one is read once through the contract', () => {
     const nowhere = path.join(scratch(), 'nowhere', 'bus.db')
     const opened: string[] = []

@@ -4715,7 +4715,8 @@
         "constants": [],
         "functions": {},
         "reexports": [
-          "BusPanelFacts"
+          "BusPanelFacts",
+          "OwnerWait"
         ],
         "types": {
           "BusCard": "interface BusCard { id: number; state: string | null; stage: CardStage; lane: string | null; line: string | null; since: string | null; body: boolean; closed: boolean; closedAt: string | null; parent?: SliceParent; }",
@@ -4726,7 +4727,6 @@
           "CardStage": "type CardStage = typeof CARD_STAGES[number]",
           "CardsAtStage": "interface CardsAtStage { stage: CardStage; cards: number[]; }",
           "CrawlerReading": "interface CrawlerReading { id: string; kind: string; description: string | null; startedAt: string | null; state: string; context: number | null; spent: number | null; }",
-          "OwnerWait": "interface OwnerWait { id: string; need: OwnerWaitNeed; text: string; command: string | null; card: number | null; pr: number | null; since: string; lifter: Extract<WaitLifter, 'owner' | 'window'>; decision: string | null; }",
           "SubagentReading": "interface SubagentReading { name: string; context: number | null; spent: number | null; at: string | null; }"
         }
       },
@@ -4753,7 +4753,7 @@
           "BOARD_EXIT"
         ],
         "functions": {
-          "busFacts": "(db: BusDb, now: Date, transcripts?: TranscriptReader): BusFacts"
+          "busFacts": "(db: BusDb, now: Date): BusFacts"
         },
         "reexports": [
           "CARD_STAGES",
