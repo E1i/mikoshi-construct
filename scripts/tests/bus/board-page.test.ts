@@ -1,6 +1,7 @@
 import type { BusFacts } from '../../../src/commands/board/bus.js'
 import type { BusSeed, SeedBeat, SeedEvent } from '../../../tests/board/bus-fixture.js'
 import type { BoardData, BoardFiles } from '../../cli/board-page.js'
+import { EventEmitter } from 'node:events'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os, { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -23,10 +24,11 @@ import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, FLOW_META, print
 import { filterRule } from '../../cli/board-page/live-cards.js'
 import { BUS_VERSION } from '../../core/bus-version.js'
 import { TICK_MS } from '../../core/cadence.js'
-import { defaultBusPath } from '../../core/db.js'
+import { defaultBusPath, HEARTBEATS, lastBoardBeat } from '../../core/db.js'
 import { BOARD_ALARM, BOARD_ALARM_CLEARED, PROCESS_HEARTBEAT, REVIEW_RECORDED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT, WITNESS_FIELDS_BACKFILLED, WITNESS_RECORDED } from '../../core/events.js'
 import { nodeProcess } from '../../core/node.js'
 import { witnessFieldsBackfillOf } from '../../intake/witness-fields-backfill.js'
+import { BOARD_THREAD, startBoardThread } from '../../supervisor/run.js'
 import { slotsOf as slotsOfKind, slotsVariable } from '../../supervisor/scheduler.js'
 import { BOARD_FILE, FRESH_MS } from '../../window/board.js'
 
@@ -1242,6 +1244,48 @@ describe('board.html', () => {
     vm.runInNewContext(data, { window })
     return window.BOARD!
   }
+
+  class BoardTimerWorker extends EventEmitter {
+    async terminate(): Promise<number> {
+      return 0
+    }
+  }
+
+  it('the board timer records a beat in the heartbeats table after each page write', async () => {
+    const busPath = seededBus()
+    writeFileSync(handoffBeside(busPath), HANDOFF_TEXT)
+    const written: string[] = []
+    const reader = new DatabaseSync(busPath, { readOnly: true })
+    try {
+      boardProjection(reader, busPath, TICK_MS, DISK_FILES, handoffBeside(busPath), undefined, () => written.push('page')).project(NOW)
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const fullDisk = { write: (): void => {
+        throw new Error('no space left on device')
+      }, rename: (): void => {} }
+      boardProjection(reader, busPath, TICK_MS, fullDisk, handoffBeside(busPath), undefined, () => written.push('unwritten page')).project(NOW)
+    }
+    finally {
+      reader.close()
+    }
+    expect(written).toEqual(['page'])
+    const worker = new BoardTimerWorker()
+    const db = new DatabaseSync(busPath)
+    try {
+      const board = startBoardThread(db, busPath, 1234, () => worker)
+      expect(lastBoardBeat(db)).toBeUndefined()
+      worker.emit('message', minutesAgo(2))
+      expect(lastBoardBeat(db)).toBe(minutesAgo(2))
+      worker.emit('message', minutesAgo(1))
+      worker.emit('message', { not: 'a write time' })
+      expect(lastBoardBeat(db)).toBe(minutesAgo(1))
+      const rows = db.prepare(`SELECT ts, payload FROM ${HEARTBEATS} WHERE process = ? AND type = ?`).all(BOARD_THREAD, PROCESS_HEARTBEAT)
+      expect(rows).toEqual([{ ts: minutesAgo(1), payload: JSON.stringify({ process: BOARD_THREAD }) }])
+      await board.stop()
+    }
+    finally {
+      db.close()
+    }
+  })
 
   function busGoneDown(waits: Parameters<typeof withOwnerWaits>[1], handoff: string): string {
     const busPath = withOwnerWaits(seededBus(), waits)

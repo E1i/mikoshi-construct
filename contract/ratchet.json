@@ -278,7 +278,7 @@
   "law-gaps:Z9:answer": 1,
   "law-gaps:Z9:launch": 1,
   "lines-scope:non-test-code-in-scripts-and-src": 1,
-  "lines:scripts/cli/board-page.ts": 1220,
+  "lines:scripts/cli/board-page.ts": 1218,
   "lines:scripts/construct/browser-lab.mjs": 809,
   "lines:scripts/supervisor/supervisor.ts": 1141,
   "lines:src/ui/lore.ts": 1329,
