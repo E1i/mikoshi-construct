@@ -34,7 +34,7 @@ export interface LastReducedRows<T> {
 
 export interface BoardBus {
   exists: (file: string) => boolean
-  openReadOnly: (file: string) => DatabaseSync
+  readOnly: <T>(file: string, read: (db: DatabaseSync) => T) => T
   inOrderMark: string
   lastReducedCards: <T>(db: DatabaseSync, read: () => T) => LastReducedRows<T>
   lastReducedOwnerWaits: (db: DatabaseSync) => LastReducedRows<OwnerWait[]>
@@ -748,22 +748,12 @@ export function boardFacts(bus: BoardBus, db: BusDb, now: Date, transcripts: Tra
   }
 }
 
-function readOnce<T>(bus: BoardBus, file: string, read: (db: BusDb) => T): T {
-  const db = bus.openReadOnly(file)
-  try {
-    return read(db)
-  }
-  finally {
-    db.close()
-  }
-}
-
 export function busReaderAt(file: string, clock: () => Date = () => new Date(), transcripts: TranscriptReader = clientTranscriptReader): BusReader {
   return (bus) => {
     if (!bus.exists(file))
       return { status: 'absent', file }
     try {
-      return readOnce(bus, file, (db) => {
+      return bus.readOnly(file, (db) => {
         const now = clock()
         return { status: 'read', file, facts: boardFacts(bus, db, now, transcripts), ...gateRunFacts(boardEvents(db).of(GATE_RUN), now) }
       })

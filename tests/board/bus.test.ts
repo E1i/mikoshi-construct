@@ -385,25 +385,27 @@ describe('the board bus reader', () => {
     expect(busReaderAt(empty)(BOARD_BUS)).toMatchObject({ status: 'unreadable', file: empty })
   })
 
-  it('reaches the bus only through the contract it is handed: an absent bus is never opened, a present one is opened once and closed', () => {
+  it('reaches the bus only through the contract it is handed: an absent bus is never opened, a present one is read once through the contract', () => {
     const nowhere = path.join(scratch(), 'nowhere', 'bus.db')
     const opened: string[] = []
-    const databases: DatabaseSync[] = []
     const handed = (exists: boolean): BoardBus => ({
       ...BOARD_BUS,
       exists: () => exists,
-      openReadOnly: (file) => {
+      readOnly: (file, read) => {
         opened.push(file)
         const db = new DatabaseSync(':memory:')
-        databases.push(db)
-        return db
+        try {
+          return read(db)
+        }
+        finally {
+          db.close()
+        }
       },
     })
     expect(busReaderAt(nowhere)(handed(false))).toEqual({ status: 'absent', file: nowhere })
     expect(opened).toEqual([])
     expect(busReaderAt(nowhere)(handed(true))).toMatchObject({ status: 'unreadable', file: nowhere })
     expect(opened).toEqual([nowhere])
-    expect(() => databases[0]!.exec('SELECT 1')).toThrow()
   })
 
   it('lists the queued and leased tasks only, and the latest events of each card up to the limit, oldest first', () => {

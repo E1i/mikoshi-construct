@@ -4751,7 +4751,7 @@
           "BOARD_EXIT"
         ],
         "functions": {
-          "busFacts": "(db: DatabaseSync, now: Date, transcripts?: TranscriptReader): BusFacts"
+          "busFacts": "(db: BusDb, now: Date, transcripts?: TranscriptReader): BusFacts"
         },
         "reexports": [
           "CARD_STAGES",

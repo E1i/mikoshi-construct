@@ -5,7 +5,7 @@
   "boundary:atlas->ui": 2,
   "boundary:board->bus": 5,
   "boundary:board->card-record": 4,
-  "boundary:board->cost": 5,
+  "boundary:board->cost": 6,
   "boundary:board->decisions": 1,
   "boundary:board->events": 5,
   "boundary:board->layout": 1,

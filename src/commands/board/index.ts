@@ -1,5 +1,6 @@
 import type { LastReduced } from '../../../scripts/core/bus-readings.js'
 import type { Ui } from '../../ui/console.js'
+import type { BusDb } from '../cost/bus.js'
 import type { LedgerReading } from '../cost/ledger.js'
 import type { BoardBus, BusFacts, BusReader, BusReading, LastReducedRows } from './bus.js'
 import type { BoardGateRuns } from './gate-runs.js'
@@ -9,9 +10,9 @@ import type { TranscriptReader } from './sessions.js'
 import type { BoardView } from './view.js'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
 import { behindLine, CARDS, currentLane, IN_ORDER_MARK, readLastReduced } from '../../../scripts/core/bus-readings.js'
 import { lastReducedOwnerWaits } from '../../../scripts/core/card-readings.js'
+import { withReadOnlyBus } from '../cost/bus.js'
 import { LEDGER_FILE, readLedger } from '../cost/ledger.js'
 import { boardFacts } from './bus.js'
 import { drainLines, drainsAt } from './drain.js'
@@ -76,14 +77,14 @@ function behindAsLine<T>(reading: LastReduced<T>): LastReducedRows<T> {
 
 export const BOARD_BUS: BoardBus = {
   exists: existsSync,
-  openReadOnly: file => new DatabaseSync(file, { readOnly: true }),
+  readOnly: withReadOnlyBus,
   inOrderMark: IN_ORDER_MARK,
   lastReducedCards: (db, read) => behindAsLine(readLastReduced(db, [CARDS], read)),
   lastReducedOwnerWaits: db => behindAsLine(lastReducedOwnerWaits(db)),
   currentLane,
 }
 
-export function busFacts(db: DatabaseSync, now: Date, transcripts?: TranscriptReader): BusFacts {
+export function busFacts(db: BusDb, now: Date, transcripts?: TranscriptReader): BusFacts {
   return boardFacts(BOARD_BUS, db, now, transcripts)
 }
 
