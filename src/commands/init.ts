@@ -20,7 +20,7 @@ import { ownedSha } from '../sync/ownership.js'
 import { isValidProjectName, parseLaneCount } from '../ui/prompts.js'
 import { VERSION } from '../version.js'
 import { shippedDaemonCommands } from './attach/daemon-commands.js'
-import { excludedBrowserLabWithTheEnvironment, settledProjectSettings, writeOwnerDecisionsBeside } from './attach/index.js'
+import { excludedBrowserLabInTheConstruct, settledProjectSettings, writeOwnerDecisionsBeside } from './attach/index.js'
 import { ATTACH_RECORD_FILE } from './attach/record.js'
 import { PROJECT_SETTINGS_FILE } from './attach/settings.js'
 import { printDetectReport } from './soulkill.js'
@@ -413,7 +413,7 @@ export async function runInit(ui: Ui, options: InitOptions, prompter?: Prompter)
   if (plan.ops.some(op => op.target === PROJECT_SETTINGS_FILE)) {
     const home = options.home ?? homedir()
     const command = shippedDaemonCommands(home).join(', ')
-    if (excludedBrowserLabWithTheEnvironment(root, home) != null)
+    if (excludedBrowserLabInTheConstruct(root, home) != null)
       ui.line(ui.theme.dim(`  ${ui.lore.initBrowserLabExcluded(command)}`))
     else
       ui.glitch(ui.lore.initSettingsSkippedNoExclusion(command))

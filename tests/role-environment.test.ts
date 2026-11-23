@@ -4,19 +4,22 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeF
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { repoIdOf } from '../scripts/core/bus-path.js'
+import { OWNER_AGENT_FILE, repoIdOf } from '../scripts/core/bus-path.js'
 import { openBus } from '../scripts/core/db.js'
 import { HANDOFF_DIR_VARIABLE } from '../scripts/core/handoff-dir.js'
 import { OWNER_CHANNEL_HOME } from '../scripts/owner/channel.js'
 import { windowCommand } from '../scripts/ports/client/claude/adapter.js'
 import { shiftSettings } from '../scripts/ports/shift-settings.js'
 import { allowRule } from '../src/commands/attach/daemon-commands.js'
-import { browserLabExcludedCommand, browserLabInstalledScript, cardTreeGitWrites, OWNER_CHANNEL_ENTRY, RECORDED_BY_AN_EARLIER_ATTACH, ROLE_DOMAINS, SETTINGS_FILE } from '../src/commands/attach/settings.js'
+import { excludedBrowserLabInTheConstruct, settledProjectSettings } from '../src/commands/attach/index.js'
+import { browserLabExcludedCommand, browserLabInstalledScript, cardTreeGitWrites, GITHUB_API_DOMAIN, OWNER_CHANNEL_ENTRY, RECORDED_BY_AN_EARLIER_ATTACH, ROLE_DOMAINS, SETTINGS_FILE } from '../src/commands/attach/settings.js'
 import { browserLabStep, cardFirstSteps, factoryChecklist, LAB_ROLES, readStep, roleSituations, windowFirstSteps } from '../src/commands/doctor/factory.js'
 import { FileReadings } from '../src/commands/doctor/readings.js'
 import { printFactoryChecklist } from '../src/commands/doctor/report.js'
 import { runInit } from '../src/commands/init.js'
-import { applySync } from '../src/commands/sync/index.js'
+import { applySync, runSync } from '../src/commands/sync/index.js'
+import { readManifest } from '../src/manifest.js'
+import { ownedSha } from '../src/sync/ownership.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
 import { PLAIN_LORE } from '../src/ui/lore.js'
 import { resolveTheme } from '../src/ui/theme.js'
@@ -173,6 +176,10 @@ describe('the environment of every role comes from the product, not from the own
       for (const entry of allowWrite)
         expect(inside(channel, resolved(entry, made.dir, made.home)), `${file} ${entry}`).toBe(false)
     }
+    const deniedWrites = (json(made.dir, PROJECT_SETTINGS).sandbox.filesystem.denyWrite as string[]).map(entry => resolved(entry, made.dir, made.home))
+    expect(deniedWrites).toContain(path.join(made.home, OWNER_CHANNEL_HOME))
+    const widened: RoleSituation = { ...windowOf(made), layers: [...windowOf(made).layers, { settings: { sandbox: { filesystem: { allowWrite: ['~/'] } } }, base: made.dir }] }
+    expect(readStep(widened, { role: 'window', step: 'write the owner channel', command: 'touch word.md', writes: [channel], domains: [] }).refused).toBe(`the sandbox refuses the write to ${channel}`)
   })
 
   it('doctor names the role whose first step its environment refuses', async () => {
@@ -220,7 +227,7 @@ describe('browser-lab is called only at its installed path, and starts where a r
     expect(itemOf(made, 'browser-lab-roles')).toMatchObject({ goes: true })
 
     writeJson(made.dir, SETTINGS_FILE, {})
-    expect(itemOf(made, 'browser-lab-roles')).toMatchObject({ goes: false, refused: [...LAB_ROLES] })
+    expect(itemOf(made, 'browser-lab-roles')).toMatchObject({ goes: false, refused: ['window', 'launch', 'answer'] })
 
     const situations = roleSituations(new FileReadings(made.dir), made.dir, made.home)
     expect(readStep(situations.window, browserLabStep('window', made.home)).outsideTheSandbox).toBe(false)
@@ -281,5 +288,66 @@ describe('browser-lab steps of the roles that need it', () => {
   it('names the installed lab in every lab step', () => {
     for (const role of LAB_ROLES)
       expect(browserLabStep(role, '/h').command.startsWith(`node ${browserLabInstalledScript('/h')} `)).toBe(true)
+  })
+})
+
+describe('the role environment is a planned write of sync and init, never a side effect', () => {
+  it('sync reports, writes and records the environment a kept construct settings file lacks', async () => {
+    const made = await consumer()
+    const settings = json(made.dir, PROJECT_SETTINGS)
+    const { sandbox: _sandbox, ...rest } = settings
+    writeJson(made.dir, PROJECT_SETTINGS, { ...rest, model: 'opus' })
+
+    const applied = applySync(made.dir, VERSION, made.home)!
+
+    expect(applied.written).toContain(PROJECT_SETTINGS)
+    expect(applied.report.classifications.find(entry => entry.target === PROJECT_SETTINGS)?.class).toBe('update')
+    const text = readFileSync(path.join(made.dir, PROJECT_SETTINGS), 'utf8')
+    expect(readManifest(made.dir)!.sync?.files[PROJECT_SETTINGS]).toBe(ownedSha(PROJECT_SETTINGS, text))
+    expect(JSON.parse(text)).toMatchObject({ model: 'opus', sandbox: settings.sandbox })
+    expect(runSync(made.dir, VERSION)!.classifications.find(entry => entry.target === PROJECT_SETTINGS)?.class).toBe('keep')
+  })
+
+  it('the browser lab exclusion never writes the project settings', async () => {
+    const made = await consumer()
+    withoutTheEnvironment(made.dir)
+    const before = readFileSync(path.join(made.dir, PROJECT_SETTINGS), 'utf8')
+    excludedBrowserLabInTheConstruct(made.dir, made.home)
+    expect(readFileSync(path.join(made.dir, PROJECT_SETTINGS), 'utf8')).toBe(before)
+  })
+
+  it('leaves a settings file the construct did not write untouched', async () => {
+    const made = await consumer()
+    const foreign = `${JSON.stringify({ permissions: { allow: ['Bash(ls)'] }, hooks: { PreToolUse: [{ matcher: '*', hooks: [{ type: 'command', command: 'echo own' }] }] } }, null, 2)}\n`
+    expect(settledProjectSettings(made.dir, foreign)).toBeNull()
+    expect(settledProjectSettings(made.dir, readFileSync(path.join(made.dir, PROJECT_SETTINGS), 'utf8'))).not.toBeNull()
+  })
+
+  it('never rewrites the project settings of the owner checkout', async () => {
+    const made = await consumer()
+    const text = readFileSync(path.join(made.dir, PROJECT_SETTINGS), 'utf8')
+    withoutTheEnvironment(made.dir)
+    const bare = readFileSync(path.join(made.dir, PROJECT_SETTINGS), 'utf8')
+    expect(settledProjectSettings(made.dir, bare)).toBe(text)
+    mkdirSync(path.dirname(path.join(made.dir, OWNER_AGENT_FILE)), { recursive: true })
+    writeFileSync(path.join(made.dir, OWNER_AGENT_FILE), '')
+    expect(settledProjectSettings(made.dir, bare)).toBeNull()
+  })
+})
+
+describe('doctor reads every refusal a role environment can carry', () => {
+  it('names the step a deny rule refuses', async () => {
+    const made = await consumer()
+    const settings = json(made.dir, PROJECT_SETTINGS)
+    writeJson(made.dir, PROJECT_SETTINGS, { ...settings, permissions: { ...settings.permissions, deny: ['Bash(miko watch:*)'] } })
+    expect(itemOf(made, 'role-environment')).toMatchObject({ goes: false, refused: ['window: miko watch --once'] })
+  })
+
+  it('names the role whose sandbox does not reach the GitHub API', async () => {
+    const made = await consumer()
+    const settings = json(made.dir, PROJECT_SETTINGS)
+    const allowedDomains = (settings.sandbox.network.allowedDomains as string[]).filter(domain => domain !== GITHUB_API_DOMAIN)
+    writeJson(made.dir, PROJECT_SETTINGS, { ...settings, sandbox: { ...settings.sandbox, network: { ...settings.sandbox.network, allowedDomains } } })
+    expect(itemOf(made, 'role-environment')).toMatchObject({ goes: false, refused: ['window: miko watch --once'] })
   })
 })

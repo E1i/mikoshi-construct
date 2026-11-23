@@ -323,35 +323,22 @@ export function settledProjectSettings(root: string, text: string): string | nul
   return isOwnerCheckout(root) ? null : settledSettingsText(text, roleEnvironment(root))
 }
 
-export type EnvironmentWrite = 'written' | 'held' | 'refused' | 'owner-checkout'
-
-export function writeRoleEnvironment(root: string): EnvironmentWrite {
-  if (isOwnerCheckout(root))
-    return 'owner-checkout'
-  const file = path.join(root, PROJECT_SETTINGS_FILE)
+function constructOwnsProjectSettings(root: string): boolean {
   try {
-    const text = readFileSync(file, 'utf8')
-    const settled = settledProjectSettings(root, text)
-    if (settled === null)
-      return 'refused'
-    if (settled === text)
-      return 'held'
-    writeFileSync(file, settled)
-    return 'written'
+    return settledProjectSettings(root, readFileSync(path.join(root, PROJECT_SETTINGS_FILE), 'utf8')) !== null
   }
   catch {
-    return 'refused'
+    return false
   }
 }
 
-export function excludedBrowserLabWithTheEnvironment(root: string, home: string = homedir()): LocalExclusion | null {
-  const constructOwnsProjectSettings = ['written', 'held'].includes(writeRoleEnvironment(root))
-  return excludedBrowserLabLocally(root, home, constructOwnsProjectSettings)
+export function excludedBrowserLabInTheConstruct(root: string, home: string = homedir()): LocalExclusion | null {
+  return excludedBrowserLabLocally(root, home, constructOwnsProjectSettings(root))
 }
 
 function upgradedSettingsHook(ui: Ui, root: string, hook: SettingsHook | undefined): SettingsHook | undefined {
   const recordable = isSettingsHook(hook) ? hook : null
-  const exclusion = recordable == null ? null : excludedBrowserLabWithTheEnvironment(root)
+  const exclusion = recordable == null ? null : excludedBrowserLabInTheConstruct(root)
   if (recordable == null || exclusion == null) {
     ui.glitch(ui.lore.initSettingsSkippedNoExclusion(browserLabExcludedCommand()))
     return hook
