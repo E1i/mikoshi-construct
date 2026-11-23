@@ -9,10 +9,11 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { AMEND_SOURCE } from '../../../src/commands/intake/admit.js'
-import { openOwnerWaits } from '../../core/bus-readings.js'
+import { openOwnerWaits } from '../../core/card-readings.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { AnswerSources } from '../../nodes/answer/duties/source.js'
@@ -74,7 +75,7 @@ function cardStoppedOnAQuestion(reason: string): Card {
     executor: new AnswerExecutor(parts),
     sources: new AnswerSources(parts),
     sessions: () => count,
-    lease: () => leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!,
+    lease: () => leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!,
   }
 }
 

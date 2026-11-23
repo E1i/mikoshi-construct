@@ -13,6 +13,7 @@ import { LIVE_SESSION_IN_THE_TREE } from '../../core/card-hold.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_HELD, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, QUESTION_AGENT, QUESTION_OWNER, WITNESS_DOWNGRADE } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { DOWNGRADE_WAIT_OPEN, queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
@@ -65,7 +66,7 @@ function stoppedCard(admittedBody = true, widen: string[] = []): Card {
   made.tick()
   const stop = Number((made.db.prepare('SELECT max(id) AS id FROM events WHERE type = ?').get(CARD_STOPPED) as { id: number }).id)
   queueTask(made.db, ts, { queue: 'answer', cardId: CARD, stop })
-  return { made, trees, lease: () => leaseNext(made.db, ts, 'answer', 'worker:answer:worker-1')! }
+  return { made, trees, lease: () => leaseNext(made.db, pullRequests(made.db), ts, 'answer', 'worker:answer:worker-1')! }
 }
 
 function sessionEnded(made: MergeBench): void {
@@ -233,7 +234,7 @@ function stopAgain(made: MergeBench): void {
 }
 
 function nextAnswer(made: MergeBench): Lease | null {
-  return leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')
+  return leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')
 }
 
 function answerTasks(made: MergeBench): { state: string }[] {

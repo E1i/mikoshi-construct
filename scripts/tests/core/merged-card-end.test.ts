@@ -11,7 +11,7 @@ import { CARD_ADMITTED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, PR_CLOSED } fro
 import { reduce } from '../../core/reducer.js'
 import { prClosed, prObserved } from '../../ports/netwatch.js'
 import { mergesLinkedOnlyThroughThePr } from '../../release/evidence.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, pullRequests } from '../../supervisor/composition.js'
 import { NO_PROGRESS_MS, readBoard } from '../../window/board.js'
 import { sha } from '../bus/github-fake.js'
 
@@ -83,7 +83,7 @@ function stopLate(bench: Bench): void {
 }
 
 function board(bench: Bench): ReturnType<typeof readBoard> {
-  return readBoard({ db: bench.db, now: BOARD_READ_AT, watched: [], leaseOrders: {}, projections: busProjections() })
+  return readBoard({ db: bench.db, now: BOARD_READ_AT, watched: [], leaseOrders: {}, projections: busProjections(), pulls: pullRequests(bench.db) })
 }
 
 function closedEvent(bench: Bench): number {

@@ -20,6 +20,7 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, GHOST_ROW } from '../../core/events.js'
 import { taskKey } from '../../core/identifiers.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { FAILURES_TO_STOP } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { parkingLane } from '../../intake/admissions.js'
@@ -113,7 +114,7 @@ function launchBench(starter: CardStarter = new FakeStarter(), intake?: Paramete
       bench.gitHub.close(pr, true)
       bench.tick()
     },
-    leaseLaunch: (actor = 'worker:launch:worker-1'): Lease | null => leaseNext(bench.db, ts(), 'launch', actor),
+    leaseLaunch: (actor = 'worker:launch:worker-1'): Lease | null => leaseNext(bench.db, pullRequests(bench.db), ts(), 'launch', actor),
     launch: (lease: Lease): LaunchOutcome => executor.launch(lease),
   }
 }

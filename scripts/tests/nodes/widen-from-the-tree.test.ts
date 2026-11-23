@@ -9,6 +9,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, OUTSIDE_TOUCHES, QUESTION_AGENT } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor, changedInTheTreeOf } from '../../nodes/answer/answer-executor.js'
 import { cardTransitions } from '../../supervisor/composition.js'
@@ -70,7 +71,7 @@ function bench(changed: readonly string[], replies: readonly Answered[]): Bench 
 }
 
 async function answerOnce(run: Bench): Promise<void> {
-  await run.executor.answer(leaseNext(run.made.db, run.made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') as Lease)
+  await run.executor.answer(leaseNext(run.made.db, pullRequests(run.made.db), run.made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') as Lease)
   run.made.tick()
 }
 

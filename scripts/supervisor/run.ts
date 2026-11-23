@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url'
 import { BOARD_PERIOD_MS, startBoardTimer } from '../cli/board-page.js'
 import { busDirOf } from '../core/bus-path.js'
 import { CHECK_MS, TICK_MS } from '../core/cadence.js'
+import { closedWaitIds } from '../core/card-readings.js'
 import { defaultBusPath, inTransaction, openBus, openBusWait } from '../core/db.js'
 import { WINDOW_REQUEST } from '../core/events.js'
 import { DATABASE_LOCKED, isDatabaseLocked } from '../core/node.js'
@@ -74,7 +75,7 @@ function askOwnerOfUnprovenHolder(busPath: string, question: string, lock: strin
     return null
   const db = openBus(busPath)
   try {
-    return openBusWait(db, new Date(nowMs).toISOString(), QUEUE_ACTOR, { need: 'command', text: question, command: `rm ${lock}` })
+    return openBusWait(db, closedWaitIds(db), new Date(nowMs).toISOString(), QUEUE_ACTOR, { need: 'command', text: question, command: `rm ${lock}` })
   }
   finally {
     db.close()

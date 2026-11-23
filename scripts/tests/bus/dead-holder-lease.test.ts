@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { openBus } from '../../core/db.js'
 import { BOARD_ALARM, TASK_EXPIRED, WORKER_STARTED } from '../../core/events.js'
 import { completeTask, HOLDER_DEAD, HOLDER_UNPROVEN, judgeHolders, LEASE_MS, leaseNext, leaseQueued, leaseWhileFree, recordWorkerStarted, releaseTask, renewLease, SAME_START_MS, StaleLease, WORKER_HUNG } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
 import { launchName, PREFIX } from '../../supervisor/bg.js'
 import { cardTransitions, reviewLaunch } from '../../supervisor/composition.js'
@@ -165,7 +166,7 @@ describe('a lease whose holder process is dead is freed at once', () => {
 
     expect(stateOf(b.db, lease.taskKey)).toEqual({ state: 'leased', lease_gen: lease.leaseGen })
     expect(leaseQueued(b.db, b.ts(), lease.taskKey, NEW_HOLDER)).toBeNull()
-    expect(leaseNext(b.db, b.ts(), 'merge', NEW_HOLDER)).toBeNull()
+    expect(leaseNext(b.db, pullRequests(b.db), b.ts(), 'merge', NEW_HOLDER)).toBeNull()
     expect(payloadsOf(b.db, TASK_EXPIRED)).toEqual([])
   })
 

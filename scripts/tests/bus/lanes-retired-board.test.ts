@@ -8,7 +8,7 @@ import { screenLines } from '../../../src/commands/board/screens.js'
 import { PLAIN_LORE } from '../../../src/ui/lore.js'
 import { renderBoard } from '../../cli/board-page.js'
 import { openBus } from '../../core/db.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, pullRequests } from '../../supervisor/composition.js'
 import { readBoard } from '../../window/board.js'
 import { stateLines } from '../../window/handoff-write.js'
 
@@ -72,7 +72,8 @@ describe('the board prints no lane', () => {
   it('the board read from the bus carries no lane block', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'lanes-retired-board-'))
     roots.push(root)
-    const board = readBoard({ db: openBus(path.join(root, 'bus.db')), now: new Date(AT), watched: [], leaseOrders: {}, projections: busProjections() })
+    const db = openBus(path.join(root, 'bus.db'))
+    const board = readBoard({ db, now: new Date(AT), watched: [], leaseOrders: {}, projections: busProjections(), pulls: pullRequests(db) })
     expect(Object.keys(board)).not.toContain('lanes')
   })
 

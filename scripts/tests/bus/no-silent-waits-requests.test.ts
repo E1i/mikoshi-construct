@@ -8,10 +8,12 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { cardHoldOf } from '../../core/card-hold.js'
+import { closedWaitIds } from '../../core/card-readings.js'
 import { appendEvent, BUS_DB_VARIABLE, openBusWait, openOwnerWait } from '../../core/db.js'
 import { CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, QUESTION_AGENT, QUESTION_OWNER, REQUEST_DONE, REQUEST_REFUSED } from '../../core/events.js'
 import { ANSWER_SOURCE, OPEN_OWNER_STOP_OF_CARD } from '../../core/inbox.js'
 import { completeTask, failTask, leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardAdmissions, busCardEvents, busHeldCards } from '../../intake/intake.js'
@@ -111,9 +113,9 @@ function amendWorld(): AmendWorld {
 function stoppedOutsideTouches(w: AmendWorld): void {
   const ts = NOW.toISOString()
   queueTask(w.db, ts, { queue: 'answer', cardId: CARD })
-  const lease = leaseNext(w.db, ts, 'answer', 'worker:answer:a1')!
+  const lease = leaseNext(w.db, pullRequests(w.db), ts, 'answer', 'worker:answer:a1')!
   completeTask(w.db, cardTransitions(), ts, lease, [])
-  openBusWait(w.db, ts, 'worker:answer:a1', { need: 'decision', text: `card #${CARD} asks: may the answer touch ${REFUSED}?`, command: cardDecisionCommand(CARD), card: CARD })
+  openBusWait(w.db, closedWaitIds(w.db), ts, 'worker:answer:a1', { need: 'decision', text: `card #${CARD} asks: may the answer touch ${REFUSED}?`, command: cardDecisionCommand(CARD), card: CARD })
   appendEvent(w.db, { ts, type: CARD_STOPPED, actor: 'worker:answer:a1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${CARD}:outside`, payload: { reason: QUESTION_OWNER, detail: `the answer left changes to ${REFUSED}`, widen: [REFUSED] }, legacy: false })
   reduce(w.db, 'pending', busProjections())
 }
@@ -151,7 +153,7 @@ describe('no silent waits: window requests, the owner channel, the answer node a
   it('a held card can be taken over and release does not restart an answer while the owner holds the tree', () => {
     const made = cardWithAQueuedAnswer()
     expect(request(made, ['hold', '--card', String(CARD), '--reason', HOLD_REASON]).kind).toBe('done')
-    const lease = leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
+    const lease = leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
     failTask(made.db, cardTransitions(), made.clock.now().toISOString(), lease, { reason: 'held_for_owner', withdraw: true }, SILENT_MS)
 
     const takenOver = request(made, ['takeover', '--card', String(CARD), '--reason', TAKEOVER_REASON])

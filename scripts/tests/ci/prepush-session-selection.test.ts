@@ -15,6 +15,7 @@ import { CENTRAL_REACH, centralFiles, gateRecorder, gateSelection, SESSION_SLOW_
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, GATE_RUN, REVIEW_RECORDED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { ANSWER_TREE_GATE_RUN_SPOOL, AnswerExecutor, drainAnswerTreeGateRuns } from '../../nodes/answer/answer-executor.js'
 import { collectReport, TREE_GATE_RUN_SPOOL } from '../../nodes/launch/report-collect.js'
 import { cardTransitions } from '../../supervisor/composition.js'
@@ -189,7 +190,7 @@ describe('the card session prepush leaves out what only CI can afford', () => {
     made.gitHub.open({ number: ANSWERED_PR, head: HEAD, review: 'failure' })
     appendEvent(made.db, { ts, type: REVIEW_RECORDED, actor: 'worker:review:reviewer-1', cardId: ANSWERED_CARD, pr: ANSWERED_PR, head: HEAD, dedupeKey: `${REVIEW_RECORDED}:${ANSWERED_PR}`, payload: { head: HEAD, verdict: 'changes', reviewer_session: 'reviewer-1', findings: ['name the reader'] }, legacy: false })
     made.tick()
-    const lease = leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
+    const lease = leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
     expect(lease).toMatchObject({ cardId: ANSWERED_CARD, pr: ANSWERED_PR })
     const answerer: Answerer = async (request) => {
       busFilesMode(spoolBusRoot, 0o444)

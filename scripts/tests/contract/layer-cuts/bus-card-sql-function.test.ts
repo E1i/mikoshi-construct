@@ -7,6 +7,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { repositoryReport } from '../../../contract/module-graph/report.js'
+import { closedWaitIds } from '../../../core/card-readings.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus, openBusWait } from '../../../core/db.js'
 import { CARD_STOPPED, QUESTION_OWNER, REQUEST_DONE, REQUEST_REFUSED } from '../../../core/events.js'
 import { CARD_BLOCKS } from '../../../core/inbox.js'
@@ -86,7 +87,7 @@ describe('the bus opens the database and the card owner registers its own SQL fu
     const setup = openComposedBus(file)
     opened.push(setup)
     const ts = NOW.toISOString()
-    const wait = openBusWait(setup, ts, 'worker:answer:s1', { need: 'decision', text: `card #${STOPPED_CARD} asks: which path?`, command: cardDecisionCommand(STOPPED_CARD), card: STOPPED_CARD })
+    const wait = openBusWait(setup, closedWaitIds(setup), ts, 'worker:answer:s1', { need: 'decision', text: `card #${STOPPED_CARD} asks: which path?`, command: cardDecisionCommand(STOPPED_CARD), card: STOPPED_CARD })
     appendEvent(setup, { ts, type: CARD_STOPPED, actor: 'worker:answer:s1', cardId: STOPPED_CARD, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${STOPPED_CARD}`, payload: { reason: QUESTION_OWNER, detail: 'which path?' }, legacy: false })
     reduce(setup, 'pending', busProjections())
     expect(runRequest(['owner.wait.close', '--id', wait, '--answer', 'go'], setup, NOW, 'test', () => {})).toBe(0)

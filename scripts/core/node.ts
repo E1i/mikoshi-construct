@@ -3,7 +3,7 @@ import type { Understood } from './bus-version.js'
 import type { BusEvent } from './db.js'
 import type { EventsOf } from './handover.js'
 import type { Queue } from './identifiers.js'
-import type { CardTransitions, HolderStart, Lease, LeaseOrder } from './lease.js'
+import type { CardTransitions, HolderStart, Lease, LeaseOrder, PullHead } from './lease.js'
 import type { QueuedTask } from './queue.js'
 import type { StoredEvent } from './stored.js'
 import { setImmediate as nextTurn } from 'node:timers/promises'
@@ -137,6 +137,7 @@ export interface NodeSupply {
   identityOf?: IdentityReader
   refuses: CardRefusal
   cards: CardTransitions
+  pullRequests: (db: DatabaseSync) => readonly PullHead[]
 }
 
 export interface NodeContext {
@@ -644,7 +645,7 @@ export abstract class Node<S extends NodeStep> {
     expireLeases(this.db, this.supply.cards, ts, this.parts.silentMs)
     if (drainOpen(this.db, ts, this.kind, this.codeSha))
       return null
-    const lease = leaseHandedOver(this.db, eventsIn(this.db), ts, this.kind, this.actor, this.leaseOrder(), aliveBy(this.supply.identityOf))
+    const lease = leaseHandedOver(this.db, this.supply.pullRequests(this.db), eventsIn(this.db), ts, this.kind, this.actor, this.leaseOrder(), aliveBy(this.supply.identityOf))
     return lease !== null && this.refusedForeignCard(ts, lease) ? null : lease
   }
 

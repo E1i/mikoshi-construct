@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Goal } from '../../src/commands/board/goal.js'
 import type { WaitKind, WaitLifter } from '../core/events.js'
 import type { Queue } from '../core/identifiers.js'
-import type { LeaseOrder } from '../core/lease.js'
+import type { LeaseOrder, PullHead } from '../core/lease.js'
 import type { WindowShard } from '../policy/shards.js'
 import { goalOf } from '../../src/commands/board/goal.js'
 import { isLaneName } from '../../src/commands/intake/admit.js'
@@ -46,6 +46,7 @@ export interface BoardSources {
   watched: readonly Watched[]
   leaseOrders: LeaseOrders
   projections: Projections
+  pulls: readonly PullHead[]
 }
 
 export type LeaseOrders = Partial<Record<Queue, LeaseOrder>>
@@ -524,12 +525,12 @@ export function shardDecisions(db: DatabaseSync): ShardDecision[] {
   return stopped.map(row => ({ card: row.card!, shard: String(row.fields.shard), wait: String(row.fields.wait), answer: String(row.fields.answer), ts: row.ts! }))
 }
 
-function taskQueues(db: DatabaseSync, orders: LeaseOrders): TaskQueue[] {
+function taskQueues(db: DatabaseSync, pulls: readonly PullHead[], orders: LeaseOrders): TaskQueue[] {
   return QUEUES.map(queue => ({
     queue,
     leased: (db.prepare(LEASED_TASKS).all(queue) as { task_key: string, card_id: number, lease_gen: number, actor: string | null, ts: string | null }[])
       .map(row => ({ taskKey: row.task_key, card: row.card_id, holder: row.actor, leaseGen: row.lease_gen, since: row.ts })),
-    waiting: grantOrder(db, queue, orders[queue]).map(task => ({ taskKey: task.taskKey, card: task.cardId })),
+    waiting: grantOrder(db, pulls, queue, orders[queue]).map(task => ({ taskKey: task.taskKey, card: task.cardId })),
   })).filter(queue => queue.leased.length + queue.waiting.length > 0)
 }
 
@@ -577,7 +578,7 @@ export function readBoard(sources: BoardSources): Board {
     health,
     progress: progressOf(db, now, health, queue.blocked, queue.ready),
     contract: contractRow(db, sources.projections),
-    queues: taskQueues(db, sources.leaseOrders),
+    queues: taskQueues(db, sources.pulls, sources.leaseOrders),
     gauges: cardGauges(db),
     windowGauges: windowGauges(db),
   }

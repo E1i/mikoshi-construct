@@ -66,6 +66,7 @@
   "coreFilesSrcMayImport": [
     "core/bus-path.js",
     "core/bus-readings.js",
+    "core/card-readings.js",
     "core/eddies.js",
     "core/events.js",
     "core/factory-paths.js",
@@ -87,6 +88,7 @@
     "src/commands": [
       "core/bus-path.js",
       "core/bus-readings.js",
+      "core/card-readings.js",
       "core/eddies.js",
       "core/events.js",
       "core/factory-paths.js",
@@ -100,6 +102,7 @@
     "src/commands/doctor": [
       "core/bus-path.js",
       "core/bus-readings.js",
+      "core/card-readings.js",
       "core/eddies.js",
       "core/events.js",
       "core/factory-paths.js",
@@ -116,6 +119,7 @@
     "src/commands/intake": [
       "core/bus-path.js",
       "core/bus-readings.js",
+      "core/card-readings.js",
       "core/eddies.js",
       "core/events.js",
       "core/factory-paths.js",

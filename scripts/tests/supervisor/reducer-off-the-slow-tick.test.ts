@@ -8,6 +8,7 @@ import path from 'node:path'
 import { Worker } from 'node:worker_threads'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { factoryGraph } from '../../../tsup.config.js'
+import { closedWaitIds } from '../../core/card-readings.js'
 import { appendEvent, openBus, openBusWait } from '../../core/db.js'
 import { CARD_FELL, REDUCED, REQUEST_DONE, REQUEST_REFUSED } from '../../core/events.js'
 import { OWNER_WAITS } from '../../core/projection-types.js'
@@ -106,7 +107,7 @@ describe('the reducer runs in its own thread, off the slow bus tick', () => {
   it('an appended event is reduced within 5 s while the tick takes 60 s', async () => {
     const { busPath, home, db } = scratchBus()
     await startedLoop(busPath, home, db)
-    const wait = openBusWait(db, new Date().toISOString(), 'worker:test:reducer', { need: 'command', text: 'a wait the reducer folds', command: 'true' })
+    const wait = openBusWait(db, closedWaitIds(db), new Date().toISOString(), 'worker:test:reducer', { need: 'command', text: 'a wait the reducer folds', command: 'true' })
     const appended = Number((db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }).id)
     expect(lagOf(db)).toBeGreaterThan(0)
 
@@ -143,7 +144,7 @@ describe('the reducer pass and its loop', () => {
     clock.advance(QUIET_MS / 2)
     pass.run()
     expect(reducedCount()).toBe(1)
-    openBusWait(db, clock.now().toISOString(), 'worker:test:reducer', { need: 'command', text: 'folded', command: 'true' })
+    openBusWait(db, closedWaitIds(db), clock.now().toISOString(), 'worker:test:reducer', { need: 'command', text: 'folded', command: 'true' })
     expect(pass.run().applied).toBeGreaterThan(0)
     expect(reducedCount()).toBe(2)
     clock.advance(QUIET_MS)

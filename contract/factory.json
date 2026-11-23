@@ -3558,7 +3558,8 @@
           "scripts/cli/card.ts",
           "scripts/core/card-automaton.ts",
           "scripts/core/card-hold.ts",
-          "scripts/supervisor/card-waits.ts"
+          "scripts/supervisor/card-waits.ts",
+          "scripts/core/card-readings.ts"
         ],
         "may_use": [
           "bus",
@@ -3578,7 +3579,8 @@
           "scripts/cli/card.ts",
           "scripts/core/card-automaton.ts",
           "scripts/core/card-hold.ts",
-          "scripts/supervisor/card-waits.ts"
+          "scripts/supervisor/card-waits.ts",
+          "scripts/core/card-readings.ts"
         ],
         "status": "decided"
       },
@@ -4377,7 +4379,7 @@
       "scripts/cli/card-chain.ts": 3,
       "scripts/cli/card.ts": 1,
       "scripts/cli/check-catalog.ts": 1,
-      "scripts/core/bus-readings.ts": 4,
+      "scripts/core/bus-readings.ts": 3,
       "scripts/core/card-automaton.ts": 3,
       "scripts/core/card-decisions.ts": 5,
       "scripts/core/chain.ts": 3,
@@ -4389,9 +4391,9 @@
       "scripts/core/lease.ts": 17,
       "scripts/core/legacy-history.ts": 1,
       "scripts/core/node.ts": 4,
-      "scripts/core/observations.ts": 6,
+      "scripts/core/observations.ts": 4,
       "scripts/core/pr-folds.ts": 3,
-      "scripts/core/pr-readings.ts": 1,
+      "scripts/core/pr-readings.ts": 2,
       "scripts/core/pr-status.ts": 6,
       "scripts/core/queue.ts": 23,
       "scripts/core/reducer.ts": 2,

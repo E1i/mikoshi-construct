@@ -59,6 +59,7 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/core/card-automaton.ts`,
     `${FACTORY_ROOT}/core/card-hold.ts`,
     `${FACTORY_ROOT}/supervisor/card-waits.ts`,
+    `${FACTORY_ROOT}/core/card-readings.ts`,
   ],
   'command-registry': [
     `${FACTORY_ROOT}/core/owner-commands.ts`,

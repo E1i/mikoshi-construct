@@ -30,7 +30,7 @@ import { treeMergeOf } from '../../nodes/answer/duties/index.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { cardDecisionCommand, cardDecisionLines } from '../../policy/shards.js'
 import { transcriptFile } from '../../ports/client/claude/adapter.js'
-import { busProjections, cardTransitions } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions, pullRequests } from '../../supervisor/composition.js'
 import { admitCommandOf } from '../../supervisor/derive-queues.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { readBoard } from '../../window/board.js'
@@ -111,7 +111,7 @@ function answerBench(storesPrompts = false) {
       const { stop } = bench.db.prepare(`SELECT max(id) AS stop FROM events WHERE type = '${CARD_STOPPED}' AND card_id = ?`).get(cardId) as { stop: number }
       return `${answer(cardId, pr, head)}:stop-${stop}`
     },
-    leaseAnswer: (actor = 'worker:answer:worker-1'): Lease | null => leaseNext(bench.db, ts(), 'answer', actor),
+    leaseAnswer: (actor = 'worker:answer:worker-1'): Lease | null => leaseNext(bench.db, pullRequests(bench.db), ts(), 'answer', actor),
     answer: (lease: Lease): Promise<AnswerOutcome> => executor.answer(lease),
     started: (cardId: number, session = CARD_SESSION): void => {
       mkdirSync(treeOf(cardId), { recursive: true })
@@ -922,7 +922,7 @@ describe('the answer queue', () => {
     expect(eventsOf(bench.db, CARD_STOPPED)).toEqual([])
     bench.tick()
 
-    const row = readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {}, projections: busProjections() }).execution.find(each => each.card === 1171)
+    const row = readBoard({ db: bench.db, now: bench.clock.now(), watched: [], leaseOrders: {}, projections: busProjections(), pulls: pullRequests(bench.db) }).execution.find(each => each.card === 1171)
     expect(row).toMatchObject({ pr: 1071, stage: 'fixes', markers: [] })
     bench.close()
   })
@@ -936,7 +936,7 @@ describe('the answer queue', () => {
     const ts = bench.clock.now().toISOString()
     queueTask(bench.db, ts, { queue: 'review', cardId: 1171, pr: 1071, head: sha('a') })
     const completed = (queue: Queue): Lease => {
-      const lease = leaseNext(bench.db, ts, queue, `worker:${queue}:worker-1`)!
+      const lease = leaseNext(bench.db, pullRequests(bench.db), ts, queue, `worker:${queue}:worker-1`)!
       completeTask(bench.db, cardTransitions(), ts, lease, [])
       return lease
     }

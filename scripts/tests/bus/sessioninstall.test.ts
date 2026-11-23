@@ -11,6 +11,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { realStarterPorts } from '../../nodes/launch/launch-root.js'
@@ -158,7 +159,7 @@ describe('the answer executor', () => {
     const order: string[] = []
     const card = answeringCard(tree => order.push(`prepare ${tree}`), order)
 
-    const outcome = await card.executor.answer(leaseNext(card.made.db, card.made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!)
+    const outcome = await card.executor.answer(leaseNext(card.made.db, pullRequests(card.made.db), card.made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!)
 
     expect(outcome).toMatchObject({ kind: 'answered' })
     expect(order).toEqual([`prepare ${card.tree}`, 'session'])
@@ -172,7 +173,7 @@ describe('the answer executor', () => {
       throw new Error('ERR_PNPM_LOCKFILE_BREAKING_CHANGE')
     }, order)
 
-    const outcome = await card.executor.answer(leaseNext(card.made.db, card.made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!)
+    const outcome = await card.executor.answer(leaseNext(card.made.db, pullRequests(card.made.db), card.made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!)
 
     expect(outcome).toMatchObject({ kind: 'answered' })
     expect(order).toEqual(['prepare', 'session'])

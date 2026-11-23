@@ -12,6 +12,7 @@ import { STOPPED_CARD } from '../../core/card-automaton.js'
 import { appendEvent } from '../../core/db.js'
 import { ARTIFACT_REMOVED, CARD_ADMITTED, CARD_CLOSED, CARD_STARTED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { reduce } from '../../core/reducer.js'
 import { CloseExecutor, gitTreeRemover, treeMayBeReused } from '../../nodes/close/close-executor.js'
 import { EndedCardTrees, gitWorktrees, recordEndedTrees } from '../../nodes/close/ended-card-trees.js'
@@ -250,7 +251,7 @@ describe('the close that frees and the start that takes are one lifecycle', () =
     bench.gitHub.close(PR, true)
     bench.tick()
     detectClose(bench.db, bench.clock.now)
-    const lease = leaseNext(bench.db, bench.clock.now().toISOString(), 'close', 'worker:close:lifecycle')!
+    const lease = leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'close', 'worker:close:lifecycle')!
     const executor = new CloseExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, reported: () => 'run', clock: bench.clock.now, parking: path.join(root, 'parking'), trees: gitTreeRemover(repo, FREE_TREE_CAPACITY), cwds: NO_SESSION })
 
     expect(executor.close(lease)).toMatchObject({ kind: 'closed' })

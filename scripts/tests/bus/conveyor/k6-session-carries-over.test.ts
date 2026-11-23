@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent } from '../../../core/db.js'
 import { CARD_ANSWERED, CARD_CONTINUED, CARD_STARTED, CARD_STOPPED } from '../../../core/events.js'
 import { leaseNext } from '../../../core/lease.js'
+import { all as pullRequests } from '../../../core/pr-readings.js'
 import { queueTask } from '../../../core/queue.js'
 import { AnswerExecutor } from '../../../nodes/answer/answer-executor.js'
 import { cardSessionOf } from '../../../nodes/answer/answer-source.js'
@@ -69,7 +70,7 @@ function questionLease(card: Card): Lease {
   const stop = card.record(CARD_STOPPED, { reason: 'question.agent', detail: `a question on card #${CARD}` })
   const ts = card.made.clock.now().toISOString()
   queueTask(card.made.db, ts, { queue: 'answer', cardId: CARD, stop })
-  return leaseNext(card.made.db, ts, 'answer', 'worker:answer:worker-1')!
+  return leaseNext(card.made.db, pullRequests(card.made.db), ts, 'answer', 'worker:answer:worker-1')!
 }
 
 const KNOWN_SESSIONS = [LAUNCH_SESSION, ANSWER_SESSION, FRESH_SESSION]

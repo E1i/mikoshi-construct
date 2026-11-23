@@ -13,11 +13,13 @@ import { changedFiles, changedPaths, mainFilesSince, REFUSED_NOT_UP_TO_DATE } fr
 import { loadCompositionModels } from '../../composition/files.js'
 import { NOT_MINE, notMine } from '../../core/card-automaton.js'
 import { cardHoldOf, HOLD_RECHECK_MS } from '../../core/card-hold.js'
+import { closedWaitIds } from '../../core/card-readings.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { BOARD_ALARM, COMMAND_EXECUTED, MERGE_DONE, POLICY_ALLOWED, POLICY_DENIED, SHARD_USED } from '../../core/events.js'
 import { isFullSha } from '../../core/identifiers.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease, waitTask } from '../../core/lease.js'
+import { ofPr } from '../../core/pr-readings.js'
 import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
 import { keyOf, NEEDS_UPDATE, openDecisionWaitsOfCard, QUESTION_OPEN, QUEUE_ACTOR, reviewsInFlightOn, widenedOnTheAdmission } from '../../core/queue.js'
 import { cardContract } from '../../intake/card-contract.js'
@@ -220,7 +222,7 @@ export class MergeExecutor {
   private askForAllowLive(): void {
     if (liveDecisionOf(decisionsInForceAt(this.parts.db, this.parts.clock()), MERGE_QUEUE) !== null || this.underTheOwnersWindowShard())
       return
-    openBusWait(this.parts.db, this.ts(), QUEUE_ACTOR, { need: 'command', text: `the ${MERGE_QUEUE} queue merges with no owner decision in force naming it live`, command: allowLiveCommand(MERGE_QUEUE) })
+    openBusWait(this.parts.db, closedWaitIds(this.parts.db), this.ts(), QUEUE_ACTOR, { need: 'command', text: `the ${MERGE_QUEUE} queue merges with no owner decision in force naming it live`, command: allowLiveCommand(MERGE_QUEUE) })
   }
 
   private underTheOwnersWindowShard(): boolean {
@@ -230,7 +232,7 @@ export class MergeExecutor {
   private askTheOwnerToMerge(lease: Lease, denial: MergeDenial): void {
     if (denial.kind !== 'authority' || !OWNER_MERGES_RULES.has(denial.rule) || lease.pr === null)
       return
-    openBusWait(this.parts.db, this.ts(), QUEUE_ACTOR, { need: 'merge', text: denial.detail, card: lease.cardId, pr: lease.pr })
+    openBusWait(this.parts.db, closedWaitIds(this.parts.db), this.ts(), QUEUE_ACTOR, { need: 'merge', text: denial.detail, card: lease.cardId, pr: lease.pr })
   }
 
   private heldInsteadOfAWait(lease: Lease, denial: MergeDenial): MergeDenial {
@@ -459,7 +461,7 @@ export class MergeExecutor {
     const waits = denial.kind === 'technical' && WAIT_REASONS.has(denial.reason)
     const event: BusEvent = { ts, type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'merge', ...denial, ...(waits || parked ? {} : { refused: true }) }, legacy: false }
     if (parked)
-      return { kind: 'denied', taskKey: lease.taskKey, denial, next: failTask(this.parts.db, this.parts.cards, ts, lease, { reason, withdraw: true }, this.parts.silentMs, [event]) }
+      return { kind: 'denied', taskKey: lease.taskKey, denial, next: failTask(this.parts.db, this.parts.cards, ts, lease, { reason, withdraw: true, ...this.behindOnTheHead(lease) }, this.parts.silentMs, [event]) }
     if (waits) {
       const until = reason === HELD_FOR_OWNER || reason === HEAD_OUTSIDE_TOUCHES ? new Date(this.parts.clock().getTime() + HOLD_RECHECK_MS).toISOString() : null
       if (until === null)
@@ -468,10 +470,15 @@ export class MergeExecutor {
         waitTask(this.parts.db, this.parts.cards, ts, lease, { reason, until }, [event])
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: 'queued' }
     }
-    const next = failTask(this.parts.db, this.parts.cards, ts, lease, { reason, withdraw: denial.kind === 'authority' || reason === 'not_mine' || reason === WITNESS_REASON || reason === KEPT_BY_PUSH_POLICY }, this.parts.silentMs, [event])
+    const next = failTask(this.parts.db, this.parts.cards, ts, lease, { reason, withdraw: denial.kind === 'authority' || reason === 'not_mine' || reason === WITNESS_REASON || reason === KEPT_BY_PUSH_POLICY, ...this.behindOnTheHead(lease) }, this.parts.silentMs, [event])
     this.askTheOwnerToMerge(lease, denial)
     this.alarmOnTheBody(lease, denial)
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
+  }
+
+  private behindOnTheHead(lease: Lease): { behind?: true } {
+    const recorded = lease.pr === null ? null : ofPr(this.parts.db, lease.pr)
+    return recorded !== null && recorded.head === lease.head && recorded.mergeable === 'behind' ? { behind: true } : {}
   }
 
   private alarmOnTheBody(lease: Lease, denial: MergeDenial): void {

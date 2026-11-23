@@ -14,6 +14,7 @@ import { TICK_MS } from '../../core/cadence.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { gitTreeRemover } from '../../nodes/close/close-executor.js'
 import { LaunchExecutor } from '../../nodes/launch/launch-executor.js'
 import { CutTreeOrigins } from '../../nodes/launch/launch-root.js'
@@ -78,7 +79,7 @@ function cardStartedPayload(worktree: string, origin: TreeOrigin): Record<string
   const ts = bench.clock.now().toISOString()
   appendEvent(bench.db, { ts, type: CARD_ADMITTED, actor: 'policy', cardId: FIRST, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${FIRST}`, payload: { lane: 'lane-1', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${FIRST}` }, legacy: false })
   bench.tick()
-  const lease = leaseNext(bench.db, bench.clock.now().toISOString(), 'launch', 'worker:launch:worker-1')!
+  const lease = leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'launch', 'worker:launch:worker-1')!
   new LaunchExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, disk: roomy, isolation: sandboxed, treeOrigin: origins.take }).launch(lease)
   const [started] = eventsOf(bench.db, CARD_STARTED)
   bench.close()

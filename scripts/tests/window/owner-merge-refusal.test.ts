@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
+import { closedWaitIds } from '../../core/card-readings.js'
 import { openBusWait } from '../../core/db.js'
 import { ANSWER_SOURCE } from '../../core/inbox.js'
 import { reduce } from '../../core/reducer.js'
@@ -65,7 +66,7 @@ function tools(at: Room): RequestTools {
 }
 
 function mergeWait(at: Room): string {
-  const wait = openBusWait(at.bench.db, at.bench.clock.now().toISOString(), 'worker:merge:s1', { need: 'merge', text: 'policy.denied: a new node:child_process import', card: CARD, pr: PR })
+  const wait = openBusWait(at.bench.db, closedWaitIds(at.bench.db), at.bench.clock.now().toISOString(), 'worker:merge:s1', { need: 'merge', text: 'policy.denied: a new node:child_process import', card: CARD, pr: PR })
   reduce(at.bench.db, 'pending', busProjections())
   return wait
 }
@@ -135,7 +136,7 @@ describe('an owner\'s refusal of a merge reaches an answer round', () => {
 
   it('a decision wait on the same card queues no answer round of its own', () => {
     const at = room()
-    const wait = openBusWait(at.bench.db, at.bench.clock.now().toISOString(), 'policy', { need: 'decision', text: 'which path?', card: CARD, pr: PR })
+    const wait = openBusWait(at.bench.db, closedWaitIds(at.bench.db), at.bench.clock.now().toISOString(), 'policy', { need: 'decision', text: 'which path?', card: CARD, pr: PR })
     reduce(at.bench.db, 'pending', busProjections())
 
     expect(ownerCloses(at, wait, 'take the second path').kind).toBe('done')

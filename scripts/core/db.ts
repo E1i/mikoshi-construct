@@ -303,9 +303,8 @@ const UNCLOSED_WAIT_OF = `
   SELECT json_extract(opened.payload, '$.id') AS id FROM events AS opened
   WHERE opened.type = '${OWNER_WAIT_OPENED}' AND opened.legacy = 0
     AND json_extract(opened.payload, '$.need') = ? AND json_extract(opened.payload, '$.command') IS ? AND json_extract(opened.payload, '$.pr') IS ?
-    AND NOT EXISTS (SELECT 1 FROM ${OWNER_WAITS} AS wait WHERE wait.id = json_extract(opened.payload, '$.id') AND wait.state = '${CLOSED_WAIT}')
     AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${OWNER_WAIT_CLOSED}' AND json_extract(closed.payload, '$.id') = json_extract(opened.payload, '$.id'))
-  ORDER BY opened.id LIMIT 1
+  ORDER BY opened.id
 `
 
 function nextWaitId(db: DatabaseSync): string {
@@ -321,9 +320,9 @@ export function openOwnerWait(db: DatabaseSync, ts: string, actor: string, ask: 
   return id
 }
 
-export function openBusWait(db: DatabaseSync, ts: string, actor: string, ask: OwnerWaitAsk): string {
-  const open = db.prepare(UNCLOSED_WAIT_OF).get(ask.need, ask.command ?? null, ask.pr ?? null) as { id: string } | undefined
-  return open?.id ?? openOwnerWait(db, ts, actor, ask)
+export function openBusWait(db: DatabaseSync, closedWaits: readonly string[], ts: string, actor: string, ask: OwnerWaitAsk): string {
+  const unclosed = db.prepare(UNCLOSED_WAIT_OF).all(ask.need, ask.command ?? null, ask.pr ?? null) as { id: string }[]
+  return unclosed.find(wait => !closedWaits.includes(wait.id))?.id ?? openOwnerWait(db, ts, actor, ask)
 }
 
 const UNREDUCED_CLOSE_OF = `

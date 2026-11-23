@@ -38,7 +38,8 @@ function mergeRows(db: DatabaseSync, ts: string, rules: CandidateRules): Candida
   const order = recordedOrder(db)
   const inTurn: Admits = row => holdsTheTurn(order, row.pr) && !order.needUpdate.has(row.pr!)
   const decided = decidedPastRoundLimit(db, ts, rules)
-  return [...candidateRows(db, MERGE_CANDIDATES, inTurn).filter(rules.reviewedUnderTheCardDecision(db, ts)), ...candidateRows(db, MERGE_CANDIDATES_WITHOUT_PASS, row => decided(row) && (inTurn(row) || noTurnHeldBeside(order, row.pr)))]
+  const merged = rules.mergedCards(db)
+  return [...candidateRows(db, MERGE_CANDIDATES, inTurn, merged).filter(rules.reviewedUnderTheCardDecision(db, ts)), ...candidateRows(db, MERGE_CANDIDATES_WITHOUT_PASS, row => decided(row) && (inTurn(row) || noTurnHeldBeside(order, row.pr)), merged)]
 }
 
 export function mergeCandidates(db: DatabaseSync, ts: string, rules: CandidateRules): QueuedTask[] {

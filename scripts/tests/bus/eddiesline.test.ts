@@ -13,6 +13,7 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CONTINUED, CARD_STARTED, CARD_STOPPED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { eddiesJournalPath } from '../../core/places.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask } from '../../core/queue.js'
 import { ANSWER_RESTARTS, AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { answerHandoffPath, claudeAnswerer } from '../../nodes/answer/answerer.js'
@@ -102,7 +103,7 @@ function questionOn(made: MergeBench, cardId: number, worktree: string): () => L
   appendEvent(made.db, { ts, type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${cardId}`, payload: { reason: 'question.agent', detail: 'a question' }, legacy: false })
   const stop = made.db.prepare(`SELECT max(id) AS id FROM events WHERE type = '${CARD_STOPPED}'`).get() as { id: number }
   queueTask(made.db, ts, { queue: 'answer', cardId, stop: Number(stop.id) })
-  return () => leaseNext(made.db, ts, 'answer', 'worker:answer:worker-1')!
+  return () => leaseNext(made.db, pullRequests(made.db), ts, 'answer', 'worker:answer:worker-1')!
 }
 
 function treesOf(root: string): CardTreeTools {

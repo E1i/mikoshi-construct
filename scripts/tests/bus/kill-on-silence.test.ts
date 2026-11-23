@@ -14,6 +14,7 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_STOPPED, COMMAND_EXECUTED, SESSION_HEARTBEAT, SESSION_STALLED, TASK_FAILED } from '../../core/events.js'
 import { failTask, leaseNext, leaseQueued } from '../../core/lease.js'
 import { ownerMoveCommand } from '../../core/owner-commands.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { keyOf, queueTask } from '../../core/queue.js'
 import { LaunchExecutor } from '../../nodes/launch/launch-executor.js'
 import { LAUNCH_LIMIT_MINUTES, LaunchNode, NO_HEARTBEAT_CAUSE, TIME_LIMIT_CAUSE } from '../../nodes/launch/launch-worker.js'
@@ -58,7 +59,7 @@ function runningLaunch(cardId: number) {
   appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}` }, legacy: false })
   bench.tick()
   const executor = new LaunchExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, disk: roomy, isolation: sandboxed })
-  expect(executor.launch(leaseNext(bench.db, bench.clock.now().toISOString(), 'launch', 'worker:launch:worker-1')!).kind).toBe('started')
+  expect(executor.launch(leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'launch', 'worker:launch:worker-1')!).kind).toBe('started')
   bench.tick()
   const node = new LaunchNode({ silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, session: 'w1', mode: 'live', env: {}, processes, disk: roomy, isolation: sandboxed })
   const beat = (): void => {
