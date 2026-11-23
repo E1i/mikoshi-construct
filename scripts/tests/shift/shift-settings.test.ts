@@ -216,7 +216,7 @@ describe('the browser lab exclusion a card session takes from the settings of it
     holdSettings('settings.json', [entry])
     const [grant] = CARD_GRANTS
     const built = shiftSettings(tree, GATE, [], home, grant!.card)
-    expect({ excluded: built.sandbox.excludedCommands, domains: built.sandbox.network.allowedDomains, allow: built.permissions.allow.slice(-grant!.allow.length), deny: built.permissions.deny?.length, filesystem: built.sandbox.filesystem }).toEqual({ excluded: [entry], domains: [...grant!.domains], allow: [...grant!.allow], deny: 2, filesystem: { allowWrite: [path.join(home, '.codex')], denyWrite: [path.join(tree, 'scripts', 'construct', 'browser-lab.mjs'), path.join(home, '.construct', 'browser-lab')] } })
+    expect({ excluded: built.sandbox.excludedCommands, domains: built.sandbox.network.allowedDomains, allow: built.permissions.allow.slice(-grant!.allow.length), deny: built.permissions.deny?.length, filesystem: built.sandbox.filesystem }).toEqual({ excluded: [entry, ...grant!.excludedCommands], domains: [...grant!.domains], allow: [...grant!.allow], deny: 2, filesystem: { allowWrite: [path.join(home, '.codex')], denyWrite: [path.join(tree, 'scripts', 'construct', 'browser-lab.mjs'), path.join(home, '.construct', 'browser-lab')] } })
   })
 })
 
@@ -245,7 +245,7 @@ describe('a card granted by an owner decision gets exactly its grant and no othe
     const resolved = `/private/tmp/claude-${uid}/codex-live-hooks`
     expect(GRANT_SCRATCH_DIRECTORY).toBe(probe)
     expect(shiftSettings(tree, GATE, [], home)).toStrictEqual({
-      sandbox: { ...CARD_SESSION_SANDBOX, network: { ...CARD_SESSION_SANDBOX.network, allowedDomains: CODEX_HOSTS }, filesystem: { allowWrite: [path.join(home, '.codex')] } },
+      sandbox: { ...CARD_SESSION_SANDBOX, network: { ...CARD_SESSION_SANDBOX.network, allowedDomains: CODEX_HOSTS }, excludedCommands: ['codex exec *'], filesystem: { allowWrite: [path.join(home, '.codex')] } },
       permissions: { allow: ['Bash(pnpm run quality)', `Edit(/${tree}/**)`, 'Bash(codex *)', `Bash(mkdir -p ${probe})`, `Bash(mkdir ${probe})`, `Bash(git init ${probe})`, `Write(/${probe}/**)`, `Edit(/${probe}/**)`, `Write(/${resolved}/**)`, `Edit(/${resolved}/**)`] },
       env: SESSION_BASH_CAP,
       hooks: WIDE_VITEST_HOOKS,
@@ -259,6 +259,29 @@ describe('a card granted by an owner decision gets exactly its grant and no othe
     const forced = path.join(scratch, String(GRANTED))
     expect(built.map(({ got }) => got)).toStrictEqual(built.map(({ plain }) => plain))
     expect(shiftSettings(forced, GATE, [], home, null)).toStrictEqual(plainOf(forced))
+  })
+
+  it('card #2156 runs codex exec outside the sandbox by D-765 and no other card excludes anything', () => {
+    const granted = shiftSettings(path.join(scratch, String(GRANTED)), GATE, [], home)
+    const others = [GRANTED - 1, GRANTED + 1, null].map(card => shiftSettings(path.join(scratch, String(GRANTED)), GATE, [], home, card))
+    expect(granted.sandbox.excludedCommands).toEqual(['codex exec *'])
+    expect(JSON.parse(settingsFlag(granted).at(-1)!).sandbox.excludedCommands).toEqual(['codex exec *'])
+    expect(granted.sandbox).toMatchObject({ allowUnsandboxedCommands: false })
+    expect(others.map(built => built.sandbox.excludedCommands)).toEqual([undefined, undefined, undefined])
+    expect(CARD_GRANTS.filter(grant => grant.excludedCommands.length > 0).map(grant => ({ card: grant.card, excluded: grant.excludedCommands }))).toEqual([{ card: GRANTED, excluded: ['codex exec *'] }])
+  })
+
+  it('a granted exclusion and an installed daemon both reach excludedCommands', () => {
+    const tree = path.join(scratch, 'worktrees', String(GRANTED))
+    const entry = browserLabExcludedCommand(home)
+    mkdirSync(path.join(tree, '.claude'), { recursive: true })
+    writeFileSync(path.join(tree, '.claude', 'settings.local.json'), JSON.stringify({ sandbox: { excludedCommands: [entry, 'codex exec *'] } }))
+    mkdirSync(path.dirname(browserLabInstalledScript(home)), { recursive: true })
+    writeFileSync(browserLabInstalledScript(home), '')
+    const built = shiftSettings(tree, GATE, [], home)
+    const other = shiftSettings(tree, GATE, [], home, GRANTED + 1)
+    expect({ granted: built.sandbox.excludedCommands, other: other.sandbox.excludedCommands }).toEqual({ granted: [entry, 'codex exec *'], other: [entry] })
+    expect(built.permissions.allow).toContain(allowRule(entry))
   })
 
   it('the card is read from the tree name the bus gives it, in either home', () => {
@@ -293,9 +316,10 @@ describe('a card granted by an owner decision gets exactly its grant and no othe
       rules: grant.allow.every(rule => /^Bash\(.+\)$/.test(rule) || confined(rule)),
       hosts: grant.domains.every(host => /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(host)),
       homeWrites: grant.homeWrites.every(entry => entry !== '' && !path.isAbsolute(entry) && !entry.split('/').includes('..')),
+      excluded: grant.excludedCommands.every(command => command.trim() === command && command !== ''),
     }))
     expect(new Set(cards).size).toBe(cards.length)
-    expect(rows.every(row => row.decision && row.rules && row.hosts && row.homeWrites)).toBe(true)
+    expect(rows.every(row => row.decision && row.rules && row.hosts && row.homeWrites && row.excluded)).toBe(true)
   })
 })
 
