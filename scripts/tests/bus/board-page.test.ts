@@ -1,3 +1,4 @@
+import type * as WorkerThreads from 'node:worker_threads'
 import type { BusFacts } from '../../../src/commands/board/bus.js'
 import type { BusSeed, SeedBeat, SeedEvent } from '../../../tests/board/bus-fixture.js'
 import type { BoardData, BoardFiles } from '../../cli/board-page.js'
@@ -20,17 +21,24 @@ import { BANNER, LORE } from '../../../src/ui/lore.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
 import { interfaceVersion } from '../../../src/version.js'
 import { checkMatrix, subagent, writeBus } from '../../../tests/board/bus-fixture.js'
-import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, FLOW_META, printBoard, PROGRESS_ORDER, readEddiesLimits, readModelVersion, RELEASE_PROGRESS_ORDER, renderShell, VIEW_KEY, writeBoardPage } from '../../cli/board-page.js'
+import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, FLOW_META, printBoard, PROGRESS_ORDER, readEddiesLimits, readModelVersion, readOnlyBoardProjection, RELEASE_PROGRESS_ORDER, renderShell, VIEW_KEY, writeBoardPage } from '../../cli/board-page.js'
 import { filterRule } from '../../cli/board-page/live-cards.js'
 import { BUS_VERSION } from '../../core/bus-version.js'
 import { TICK_MS } from '../../core/cadence.js'
-import { defaultBusPath, HEARTBEATS, lastBoardBeat } from '../../core/db.js'
+import { BOARD_STALE_TICKS, defaultBusPath, HEARTBEATS, lastBoardBeat } from '../../core/db.js'
 import { BOARD_ALARM, BOARD_ALARM_CLEARED, PROCESS_HEARTBEAT, REVIEW_RECORDED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT, WITNESS_FIELDS_BACKFILLED, WITNESS_RECORDED } from '../../core/events.js'
 import { nodeProcess } from '../../core/node.js'
 import { witnessFieldsBackfillOf } from '../../intake/witness-fields-backfill.js'
-import { BOARD_THREAD, startBoardThread } from '../../supervisor/run.js'
+import { BOARD_THREAD, boardBeatRecorder, boardBeatUnrecordedLine, startBoardThread } from '../../supervisor/run.js'
 import { slotsOf as slotsOfKind, slotsVariable } from '../../supervisor/scheduler.js'
 import { BOARD_FILE, FRESH_MS } from '../../window/board.js'
+
+const workerPort = vi.hoisted(() => ({ posted: [] as unknown[] }))
+
+vi.mock('node:worker_threads', async (importOriginal) => {
+  const real = await importOriginal<typeof WorkerThreads>()
+  return { ...real, parentPort: { postMessage: (message: unknown) => workerPort.posted.push(message) } }
+})
 
 const roots: string[] = []
 
@@ -1285,6 +1293,42 @@ describe('board.html', () => {
     finally {
       db.close()
     }
+  })
+
+  it('the board timer worker posts the time of its page write to the bus thread', () => {
+    const busPath = seededBus()
+    workerPort.posted.length = 0
+    const board = readOnlyBoardProjection(busPath, TICK_MS)
+    try {
+      const before = Date.now()
+      board.projection.project(NOW)
+      const after = Date.now()
+      expect(existsSync(board.projection.dataFile)).toBe(true)
+      expect(workerPort.posted).toHaveLength(1)
+      const writtenAt = workerPort.posted[0] as string
+      expect(new Date(writtenAt).toISOString()).toBe(writtenAt)
+      expect(Date.parse(writtenAt)).toBeGreaterThanOrEqual(before)
+      expect(Date.parse(writtenAt)).toBeLessThanOrEqual(after)
+    }
+    finally {
+      board.close()
+    }
+  })
+
+  it('a board beat the bus cannot record is reported, not dropped', () => {
+    expect(boardBeatUnrecordedLine(new Error('disk I/O error\nat step 2'))).toBe(`[bus:run] recording the board timer's beat failed: disk I/O error; miko watch reads the board as stale once ${BOARD_STALE_TICKS} beats are missing`)
+    expect(boardBeatUnrecordedLine('locked')).toContain('failed: locked;')
+    const busPath = seededBus()
+    const reader = new DatabaseSync(busPath, { readOnly: true })
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      boardBeatRecorder(reader)(minutesAgo(1))
+    }
+    finally {
+      reader.close()
+    }
+    expect(errors).toHaveBeenCalledTimes(1)
+    expect(errors.mock.calls[0]![0]).toMatch(/^\[bus:run\] recording the board timer's beat failed: .*readonly database; miko watch reads the board as stale/)
   })
 
   function busGoneDown(waits: Parameters<typeof withOwnerWaits>[1], handoff: string): string {
