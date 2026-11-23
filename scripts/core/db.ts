@@ -193,6 +193,22 @@ export function recordBeat(db: DatabaseSync, beat: Beat): boolean {
   return Number(result.changes) === 1
 }
 
+export const BOARD_TIMER_PROCESS = 'bus:board-timer'
+export const BOARD_TIMER_PERIOD_MS = 10_000
+export const BOARD_STALE_TICKS = 3
+
+export function recordBoardBeat(db: DatabaseSync, ts: string): boolean {
+  return recordBeat(db, { process: BOARD_TIMER_PROCESS, type: PROCESS_HEARTBEAT, ts, payload: { process: BOARD_TIMER_PROCESS } })
+}
+
+export function openBoardBeatWriter(file: string): DatabaseSync {
+  return openDatabase(file, { timeout: BUSY_TIMEOUT_MS })
+}
+
+export function lastBoardBeat(db: DatabaseSync): string | undefined {
+  return (db.prepare(`SELECT ts FROM ${HEARTBEATS} WHERE process = ? AND type = ?`).get(BOARD_TIMER_PROCESS, PROCESS_HEARTBEAT) as { ts: string } | undefined)?.ts
+}
+
 export const RETIRED_FIELD = 'retired'
 
 const PREVIOUS_GENERATION_BEATS = `

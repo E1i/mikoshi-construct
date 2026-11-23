@@ -88,6 +88,7 @@ const CARRIERS: readonly Carrier[] = [
   { path: 'scripts/tests/ghosts/fixtures/world.sh', reason: 'the fake client a ghost fixture runs in place of the binary' },
   { path: 'scripts/tests/ghosts/watch-fixtures/world.sh', reason: 'the fake client a watch fixture runs in place of the binary' },
   { path: 'scripts/ports/shift-settings.ts', reason: 'the settings a card session runs under, with their flags; called by the adapter' },
+  { path: 'scripts/ports/card-grants.ts', reason: 'the grants table names the client command the owner runs outside the sandbox for a card (D-705, D-765); the entry stays literal so unsandboxed_command reads it in the diff', literal: /\bcodex exec\b/ },
   { path: 'scripts/ports/isolation.ts', reason: 'reads which settings the client would load, to refuse a card session without isolation' },
   { path: 'scripts/nodes/launch/launch-starter.ts', reason: 'the card argv launchArgv spawns, pinned against the adapter by the contract goldens' },
   { path: 'scripts/window/eddies-measure.ts', reason: 'the window side of the hook that the client calls with its project variable' },
@@ -128,9 +129,20 @@ function isScanned(file: string): boolean {
   return SCANNED.some(root => file.startsWith(root)) && !file.startsWith(ADAPTERS)
 }
 
+function withoutLiteral(text: string, literal: RegExp): string {
+  return text.replace(new RegExp(literal.source, literal.flags.includes('g') ? literal.flags : `${literal.flags}g`), '')
+}
+
+function holdsUncarriedLiteral(file: string, text: string, carriers: readonly Carrier[]): boolean {
+  const rows = carriers.filter(carrier => covers(carrier.path, file))
+  if (rows.some(carrier => carrier.literal === undefined))
+    return false
+  return holdsLiteral(rows.reduce((rest, carrier) => withoutLiteral(rest, carrier.literal!), text))
+}
+
 function sealOf(tree: ReadonlyMap<string, string>, carriers: readonly Carrier[]): { outside: string[], stale: string[] } {
   const files = [...tree]
-  const outside = files.filter(([file, text]) => isScanned(file) && holdsLiteral(text) && !carriers.some(carrier => covers(carrier.path, file))).map(([file]) => file)
+  const outside = files.filter(([file, text]) => isScanned(file) && holdsUncarriedLiteral(file, text, carriers)).map(([file]) => file)
   const stale = carriers.filter(carrier => !files.some(([file, text]) => covers(carrier.path, file) && (carrier.literal?.test(text) ?? holdsLiteral(text)))).map(carrier => carrier.path)
   return { outside, stale }
 }
@@ -150,6 +162,16 @@ describe('the client seal', () => {
       expect(sealOf(new Map([['scripts/tests/bus/planted.test.ts', line]]), CARRIERS).outside, line).toEqual(['scripts/tests/bus/planted.test.ts'])
     }
     expect(sealOf(realTree(), CARRIERS).outside).toEqual([])
+  })
+
+  it('a carrier that names its literal exempts that literal only, so any other client literal in card-grants.ts fails', () => {
+    const grants = 'scripts/ports/card-grants.ts'
+    const table = 'allow: [\'Bash(codex *)\'],\n    homeWrites: [\'.codex\'],\n    excludedCommands: [\'codex exec *\'],\n'
+    const grown = ['homeWrites: [\'.codex\', \'.claude\'],', 'env: \'CLAUDE_CONFIG_DIR\',', 'allow: [\'Bash(claude --resume *)\'],', 'spawn: \'codex\',']
+    expect(sealOf(new Map([[grants, table]]), CARRIERS).outside).toEqual([])
+    for (const line of grown)
+      expect(sealOf(new Map([[grants, `${table}${line}\n`]]), CARRIERS).outside, line).toEqual([grants])
+    expect(sealOf(new Map([[grants, `${table}spawn: 'codex',\n`]]), [...CARRIERS, { path: grants, reason: 'a whole-file sample' }]).outside).toEqual([])
   })
 
   it('a table row with no literal left fails', () => {

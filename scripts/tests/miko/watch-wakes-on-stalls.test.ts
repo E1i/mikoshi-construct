@@ -3,12 +3,12 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { appendEvent, openBus } from '../../core/db.js'
+import { appendEvent, BOARD_STALE_TICKS, BOARD_TIMER_PERIOD_MS, openBus, recordBoardBeat } from '../../core/db.js'
 import { SESSION_HEARTBEAT, SESSION_STALLED, TASK_COMPLETED, TASK_RELEASED, WINDOW_HEARTBEAT } from '../../core/events.js'
 import { recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
 import { RELEASES_IN_A_ROW } from '../../window/release-loop.js'
 import { ONCE_STORE, OnceStore } from '../../window/watch-store.js'
-import { CATCHUP_LAG, caughtUpLine, deliverOnce, FACTORY_DOWN, FACTORY_DOWN_MS, FACTORY_START, productionDeps, selectOnce, tick, watchState } from '../../window/watch.js'
+import { BOARD_STALE, CATCHUP_LAG, caughtUpLine, deliverOnce, FACTORY_DOWN, FACTORY_DOWN_MS, FACTORY_START, productionDeps, selectOnce, tick, watchState } from '../../window/watch.js'
 import { LOOP_PROCESS } from '../../window/window-heartbeat.js'
 
 const OUTSIDE_TOUCHES = 'outside-touches'
@@ -173,6 +173,51 @@ describe('miko:watch wakes the window on a factory that stopped', () => {
     beat(past, WORKER, NOW - FACTORY_DOWN_MS - 1)
     const pastDeps = depsOf(past)
     expect(downLines(tick(watchState(pastDeps), pastDeps, NOW), FACTORY_DOWN)).toHaveLength(1)
+  })
+})
+
+function boardBeat(bus: Bus, at: number): void {
+  const db = openBus(bus.file)
+  try {
+    recordBoardBeat(db, new Date(at).toISOString())
+  }
+  finally {
+    db.close()
+  }
+}
+
+describe('miko:watch wakes the window on a board timer that stopped beating', () => {
+  it('a board page not rewritten for 3 board ticks wakes the window with board stale', async () => {
+    expect(BOARD_STALE_TICKS).toBe(3)
+    const fresh = aBus()
+    boardBeat(fresh, NOW - BOARD_STALE_TICKS * BOARD_TIMER_PERIOD_MS)
+    const freshDeps = depsOf(fresh)
+    expect(downLines(tick(watchState(freshDeps), freshDeps, NOW), BOARD_STALE)).toEqual([])
+    const stale = aBus()
+    beat(stale, WORKER, NOW)
+    boardBeat(stale, NOW - BOARD_STALE_TICKS * BOARD_TIMER_PERIOD_MS - 1)
+    const deps = depsOf(stale)
+    const state = watchState(deps)
+    const woken = downLines(tick(state, deps, NOW), BOARD_STALE)
+    expect(woken).toHaveLength(1)
+    expect(woken[0]).toContain(`no beat for ${BOARD_STALE_TICKS} board ticks of 10 s, the last at ${new Date(NOW - BOARD_STALE_TICKS * BOARD_TIMER_PERIOD_MS - 1).toISOString()}`)
+    expect(downLines(tick(state, deps, NOW), FACTORY_DOWN)).toEqual([])
+    expect(downLines(tick(state, deps, NOW), BOARD_STALE)).toEqual([])
+    expect(downLines(await onceLines(stale), BOARD_STALE)).toHaveLength(1)
+  })
+
+  it('a board timer that beat again and stopped again wakes the window again, and a bus with no board beat does not', () => {
+    const bus = aBus()
+    boardBeat(bus, NOW - MINUTE_MS)
+    const deps = depsOf(bus)
+    const state = watchState(deps)
+    expect(downLines(tick(state, deps, NOW), BOARD_STALE)).toHaveLength(1)
+    const later = NOW + 30 * MINUTE_MS
+    boardBeat(bus, later - MINUTE_MS)
+    expect(downLines(tick(state, deps, later), BOARD_STALE)).toHaveLength(1)
+    const never = aBus()
+    const neverDeps = depsOf(never)
+    expect(downLines(tick(watchState(neverDeps), neverDeps, NOW), BOARD_STALE)).toEqual([])
   })
 })
 

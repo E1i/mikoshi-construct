@@ -974,6 +974,7 @@
           "items[].command",
           "items[].goes",
           "items[].item",
+          "items[].refused",
           "items[].slice",
           "schemaVersion"
         ],
@@ -2077,6 +2078,26 @@
     "composition:render": {
       "entries": [
         "scripts/composition/sync-docs.ts"
+      ],
+      "exits": [],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "contract:actions": {
+      "entries": [
+        "scripts/contract/action-inputs.ts"
+      ],
+      "exits": [
+        1
+      ],
+      "flags": [],
+      "json": false,
+      "unknownFlag": "not read"
+    },
+    "contract:actions:fetch": {
+      "entries": [
+        "scripts/contract/action-inputs-fetch.ts"
       ],
       "exits": [],
       "flags": [],

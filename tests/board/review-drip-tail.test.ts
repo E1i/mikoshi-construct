@@ -6,6 +6,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { REVIEW_DRIP } from '../../scripts/core/events.js'
 import { busReaderAt } from '../../src/commands/board/bus.js'
+import { BOARD_BUS } from '../../src/commands/board/index.js'
 import { boardScreens, tailLines } from '../../src/commands/board/screens.js'
 import { PLAIN_LORE } from '../../src/ui/lore.js'
 import { writeBus } from './bus-fixture.js'
@@ -31,7 +32,7 @@ function facts(events: SeedEvent[]): BusFacts {
     ],
     events,
   })
-  const reading = busReaderAt(file, () => NOW)()
+  const reading = busReaderAt(file, () => NOW)(BOARD_BUS)
   if (reading.status !== 'read')
     throw new Error(`the bus was not read: ${reading.status}`)
   return reading.facts

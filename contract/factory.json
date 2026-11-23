@@ -2272,6 +2272,7 @@
           "scripts/ports/prepare-tree.ts",
           "src/commands/attach/index.ts",
           "src/commands/attach/settings.ts",
+          "src/commands/doctor/factory.ts",
           "src/commands/sync/index.ts"
         ],
         "owner": "scripts/ports/prepare-tree.ts",
@@ -4704,7 +4705,8 @@
       "src/commands/attach/settings.ts": {
         "constants": [],
         "functions": {
-          "browserLabInstalledScript": "(home: string = homedir()): string"
+          "browserLabInstalledScript": "(home: string = homedir()): string",
+          "cardTreeGitWrites": "(gitDir: string, commonDir: string): string[]"
         },
         "reexports": [],
         "types": {}
@@ -4714,7 +4716,6 @@
           "CARD_STAGES"
         ],
         "functions": {
-          "busFacts": "(db: BusDb, now: Date, transcripts: TranscriptReader = clientTranscriptReader): BusFacts",
           "latestCardEvents": "(db: BusDb, perCard: number): Map<number, BusCardEvent[]>",
           "openTasks": "(db: BusDb): BusTask[]"
         },
@@ -4756,7 +4757,9 @@
         "constants": [
           "BOARD_EXIT"
         ],
-        "functions": {},
+        "functions": {
+          "busFacts": "(db: BusDb, now: Date): BusFacts"
+        },
         "reexports": [],
         "types": {}
       },
@@ -5392,7 +5395,7 @@
         "reexports": [],
         "technologyWords": [],
         "types": {
-          "CardGrant": "interface CardGrant { card: number; decision: string; allow: readonly string[]; domains: readonly string[]; homeWrites: readonly string[]; }"
+          "CardGrant": "interface CardGrant { card: number; decision: string; allow: readonly string[]; domains: readonly string[]; homeWrites: readonly string[]; excludedCommands: readonly string[]; }"
         }
       },
       "scripts/ports/card-tree.ts": {

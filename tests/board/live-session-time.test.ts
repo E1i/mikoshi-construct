@@ -5,6 +5,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CARD_STARTED, SESSION_HEARTBEAT } from '../../scripts/core/events.js'
 import { busReaderAt } from '../../src/commands/board/bus.js'
+import { BOARD_BUS } from '../../src/commands/board/index.js'
 import { screenLines } from '../../src/commands/board/screens.js'
 import { queuedLine } from '../../src/commands/board/sessions.js'
 import { readTranscript, sessionTimeLine } from '../../src/commands/liveness.js'
@@ -62,7 +63,7 @@ function facts(): BusFacts {
       beat(SILENT, 's-silent', '2026-11-15T10:58:00.000Z'),
     ],
   })
-  const reading = busReaderAt(file, () => NOW, (tree, session) => tree.startsWith('/trees/mc-') ? TRANSCRIPTS[session] ?? null : null)()
+  const reading = busReaderAt(file, () => NOW, (tree, session) => tree.startsWith('/trees/mc-') ? TRANSCRIPTS[session] ?? null : null)(BOARD_BUS)
   if (reading.status !== 'read')
     throw new Error(`the bus was not read: ${reading.status}`)
   return reading.facts

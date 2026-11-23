@@ -3,7 +3,10 @@ title: construct init composition
 description: >-
   `runInit(ui, options, prompter)` in `src/commands/init.ts` is the composition root: the four
   phases run in this order, every module is called from there, and nothing else writes to the
-  target directory. Dotted edges are wiring, solid edges are the flow.
+  target directory. The `.claude/settings.json` op leaves the plan with the role environment
+  settled into it by `settledProjectSettings`, so `applyPlan` writes it and `construct.json` records
+  it with the rest; the browser lab exclusion after it only reads that file. Dotted edges are
+  wiring, solid edges are the flow.
 doc: architecture/init.md
 boundaries:
   - id: entry
@@ -63,6 +66,10 @@ nodes:
     label: Claude rules → Cursor rules
     path: src/materialize/rules.ts
     boundary: materialize
+  - id: environment
+    label: settledProjectSettings · the role environment in the settings op
+    path: src/commands/attach/index.ts
+    boundary: materialize
   - id: apply
     label: applyPlan
     path: src/materialize/apply.ts
@@ -87,7 +94,8 @@ edges:
   - {from: plan, to: templates, kind: wires}
   - {from: plan, to: strategies, kind: wires}
   - {from: plan, to: rules, kind: wires}
-  - {from: plan, to: apply, kind: sequence, label: 'FileOp[] after confirm'}
+  - {from: plan, to: environment, kind: sequence, label: 'FileOp[] after confirm'}
+  - {from: environment, to: apply, kind: sequence, label: the settings op settled}
   - {from: run, to: model, kind: sequence, label: 'readModel: validated before anything is written'}
   - {from: run, to: manifest, kind: sequence, label: 'readManifest: the record already here'}
   - {from: apply, to: manifest, kind: sequence, label: written files}

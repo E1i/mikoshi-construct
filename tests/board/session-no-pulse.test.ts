@@ -6,6 +6,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, SESSION_HEARTBEAT } from '../../scripts/core/events.js'
 import { busReaderAt } from '../../src/commands/board/bus.js'
+import { BOARD_BUS } from '../../src/commands/board/index.js'
 import { screenLines } from '../../src/commands/board/screens.js'
 import { LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 import { writeBus } from './bus-fixture.js'
@@ -32,7 +33,7 @@ function factsOf(events: SeedEvent[], state = 'running'): BusFacts {
   const dir = mkdtempSync(path.join(tmpdir(), 'session-no-pulse-'))
   dirs.push(dir)
   const file = writeBus(path.join(dir, 'bus.db'), { cards: [{ id: CARD, state, lane: 'lane-a', line: `card: #${CARD} long command` }], events })
-  const reading = busReaderAt(file, () => NOW, () => null)()
+  const reading = busReaderAt(file, () => NOW, () => null)(BOARD_BUS)
   if (reading.status !== 'read')
     throw new Error(`the bus was not read: ${reading.status}`)
   return reading.facts

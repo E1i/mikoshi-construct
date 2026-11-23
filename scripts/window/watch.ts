@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { PRIORITIES } from '../../src/card/parking.js'
 import { IN_REVIEW_CARD, RUNNING_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { cardHoldOf } from '../core/card-hold.js'
-import { defaultBusPath, openBus } from '../core/db.js'
+import { BOARD_STALE_TICKS, BOARD_TIMER_PERIOD_MS, defaultBusPath, lastBoardBeat, openBus } from '../core/db.js'
 import { BOARD_ALARM, BUS_PULSE, CARD_CLOSED, CARD_CONTINUED, CARD_DROPPED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, DECISION_RECORDED, GHOST_LINE, MERGE_DONE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_DONE, REQUEST_REFUSED, REVIEW_RECORDED, SESSION_STALLED, TASK_COMPLETED, TASK_EXPIRED, TASK_RELEASED, WINDOW_REQUEST, WITNESS_RECORDED, WORKER_DOWN } from '../core/events.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { HEARTBEAT_QUEUES } from '../core/lease.js'
@@ -58,10 +58,11 @@ export const WATCHING = 'miko:watch: what is already there is read; watching for
 export const WATCHING_FROM_CURSOR = 'miko:watch: reading from the --once cursor; watching'
 export const LEGACY_CURSOR = 'miko-watch.json'
 export const WOKEN_STALLS = 'miko-watch-stalls.json'
-export const WOKEN_DOWNS = 'miko-watch-downs.json'
+export const WOKEN_SIGNALS = 'miko-watch-signals.json'
 export const FACTORY_DOWN_MS = 10 * 60_000
 export const FACTORY_START = 'miko start'
 export const FACTORY_DOWN = 'factory down'
+export const BOARD_STALE = 'board stale'
 const DOWNS_READ_MS = 30_000
 const NOT_A_BUS_WORKER = [CARD_PROCESS, WINDOW_PROCESS, LOOP_PROCESS]
 
@@ -73,7 +74,14 @@ export function downsOf(lastBeat: string | undefined, now: number): WatchSignal[
   const silentMs = lastBeat === undefined ? 0 : now - Date.parse(lastBeat)
   if (lastBeat === undefined || silentMs <= FACTORY_DOWN_MS)
     return []
-  return [{ kind: FACTORY_DOWN, key: lastBeat, line: `${FACTORY_DOWN}: no bus worker wrote a heartbeat for ${Math.floor(silentMs / 60_000)} minutes, the last at ${lastBeat}; the factory does not start by itself, the window raises it with ${FACTORY_START}` }]
+  return [{ kind: FACTORY_DOWN, subject: 'bus workers', facts: lastBeat, line: `${FACTORY_DOWN}: no bus worker wrote a heartbeat for ${Math.floor(silentMs / 60_000)} minutes, the last at ${lastBeat}; the factory does not start by itself, the window raises it with ${FACTORY_START}` }]
+}
+
+export function boardStaleOf(lastBeat: string | undefined, now: number): WatchSignal[] {
+  const silentMs = lastBeat === undefined ? 0 : now - Date.parse(lastBeat)
+  if (lastBeat === undefined || silentMs <= BOARD_STALE_TICKS * BOARD_TIMER_PERIOD_MS)
+    return []
+  return [{ kind: BOARD_STALE, subject: 'board timer', facts: lastBeat, line: `${BOARD_STALE}: the board timer wrote no beat for ${Math.floor(silentMs / BOARD_TIMER_PERIOD_MS)} board ticks of ${BOARD_TIMER_PERIOD_MS / 1000} s, the last at ${lastBeat}; the board page is not being rewritten, and what it shows is as old as that beat` }]
 }
 
 export function parentGoneLine(parent: number): string {
@@ -96,10 +104,10 @@ export interface WatchState {
   ownRequest: (request: number) => boolean
   stalls: Set<string>
   stuck: Set<string>
-  downs: Map<string, string>
+  signals: Map<string, string>
 }
 
-export interface WatchSignal { kind: string, key: string, line: string }
+export interface WatchSignal { kind: string, subject: string, facts: string, line: string }
 
 export interface CardActivity {
   cardId: number
@@ -141,9 +149,9 @@ export interface WatchDeps {
   stuck: () => StuckPr[]
   wokenStalls: () => ReadonlyMap<number, number>
   rememberStalls: (woken: readonly CardActivity[]) => void
-  downs?: (now: number) => WatchSignal[]
-  wokenDowns?: () => ReadonlyMap<string, string>
-  rememberDowns?: (woken: readonly WatchSignal[]) => void
+  signals?: (now: number) => WatchSignal[]
+  wokenSignals: () => ReadonlyMap<string, string>
+  rememberSignals: (woken: readonly WatchSignal[]) => void
   emit: (line: string) => Promise<void>
   beforeCommit: () => Promise<void>
   beat: () => void
@@ -278,7 +286,7 @@ export function wakingEvent(line: string): string | undefined {
 
 export function watchState(deps: WatchDeps): WatchState {
   const busId = deps.lastBusId()
-  return { busId, ciByPr: new Map(), witnessByPr: new Map(), deniedByTask: denialsUpTo(deps, busId), releaseLoops: ReleaseLoops.upTo(RELEASE_TYPES, deps.releasedUpTo(busId)), windowPrs: deps.windowPrs(), ownRequest: deps.ownRequest, stalls: new Set(deps.stalls().map(stallKey)), stuck: new Set(deps.stuck().map(stuckKey)), downs: new Map(deps.wokenDowns?.() ?? []) }
+  return { busId, ciByPr: new Map(), witnessByPr: new Map(), deniedByTask: denialsUpTo(deps, busId), releaseLoops: ReleaseLoops.upTo(RELEASE_TYPES, deps.releasedUpTo(busId)), windowPrs: deps.windowPrs(), ownRequest: deps.ownRequest, stalls: new Set(deps.stalls().map(stallKey)), stuck: new Set(deps.stuck().map(stuckKey)), signals: new Map(deps.wokenSignals()) }
 }
 
 function ciInPayload(payload: string): CiReading | null {
@@ -395,17 +403,24 @@ function newStuck(known: Set<string>, deps: WatchDeps): StuckPr[] {
   return fresh
 }
 
-export function newDowns(woken: ReadonlyMap<string, string>, downs: readonly WatchSignal[]): WatchSignal[] {
-  return downs.filter(down => woken.get(down.kind) !== down.key)
+export function signalIdentity(signal: Pick<WatchSignal, 'kind' | 'subject'>): string {
+  return `${signal.kind} · ${signal.subject}`
+}
+
+export function newSignals(woken: ReadonlyMap<string, string>, signals: readonly WatchSignal[]): WatchSignal[] {
+  return signals.filter(signal => woken.get(signalIdentity(signal)) !== signal.facts)
+}
+
+export function withWokenSignals(woken: ReadonlyMap<string, string>, signals: readonly WatchSignal[]): Map<string, string> {
+  return new Map([...woken, ...signals.map(signal => [signalIdentity(signal), signal.facts] as const)])
 }
 
 export function tick(state: WatchState, deps: WatchDeps, now = Date.now()): string[] {
   const stuck = newStuck(state.stuck, deps).map(stuckLine)
   const stalls = newStalls(state.stalls, deps).map(stall => stallLine(stall, now))
-  const downs = newDowns(state.downs, deps.downs?.(now) ?? [])
-  for (const down of downs)
-    state.downs.set(down.kind, down.key)
-  return [...busLines(state, deps), ...downs.map(down => down.line), ...stuck, ...stalls]
+  const signals = newSignals(state.signals, deps.signals?.(now) ?? [])
+  state.signals = withWokenSignals(state.signals, signals)
+  return [...busLines(state, deps), ...signals.map(signal => signal.line), ...stuck, ...stalls]
 }
 
 export function cardOfEvent(event: BusEvent): number | null {
@@ -472,18 +487,18 @@ function wokenBefore(woken: ReadonlyMap<number, number>, stall: CardActivity): b
   return stall.lastEventId <= (woken.get(stall.cardId) ?? 0)
 }
 
-interface StuckLines { text: string, stalled: CardActivity[], downs: WatchSignal[] }
+interface StuckLines { text: string, stalled: CardActivity[], signals: WatchSignal[] }
 
 function stuckLines(known: Set<string>, deps: WatchDeps, card: number | undefined, now: number): StuckLines | undefined {
   const ofCard = (cardId: number): boolean => card === undefined || cardId === card
   const stuck = deps.stuck().filter(each => !known.has(stuckKey(each)) && ofCard(each.cardId))
   const woken = deps.wokenStalls()
   const stalled = deps.stalls().filter(stall => !wokenBefore(woken, stall) && ofCard(stall.cardId))
-  const downs = newDowns(deps.wokenDowns?.() ?? new Map(), deps.downs?.(now) ?? [])
+  const signals = newSignals(deps.wokenSignals(), deps.signals?.(now) ?? [])
   for (const each of stuck)
     known.add(stuckKey(each))
-  const lines = [...downs.map(down => down.line), ...stuck.map(stuckLine), ...stalled.map(stall => stallLine(stall, now))]
-  return lines.length === 0 ? undefined : { text: lines.join('\n'), stalled, downs }
+  const lines = [...signals.map(signal => signal.line), ...stuck.map(stuckLine), ...stalled.map(stall => stallLine(stall, now))]
+  return lines.length === 0 ? undefined : { text: lines.join('\n'), stalled, signals }
 }
 
 export async function deliverOnce(store: OnceStore, deps: WatchDeps, card?: number, now: () => number = Date.now, orphaned: () => string | undefined = () => undefined): Promise<void> {
@@ -512,13 +527,13 @@ export async function deliverOnce(store: OnceStore, deps: WatchDeps, card?: numb
     catch (error) {
       throw new WatchRefusal(`miko:watch: the line could not be written to stdout (${(error as Error).message}); the cursor stays where it was`)
     }
+    if (stuck !== undefined && stuck.signals.length > 0)
+      deps.rememberSignals(stuck.signals)
     store.write(delivery.cursor)
     await deps.beforeCommit()
     store.commit()
     if (stuck !== undefined && stuck.stalled.length > 0)
       deps.rememberStalls(stuck.stalled)
-    if (stuck !== undefined && stuck.downs.length > 0)
-      deps.rememberDowns?.(stuck.downs)
     return
   }
 }
@@ -586,12 +601,12 @@ function observedHeads(bus: string, pr: number, beforeId: number): string[] {
   return readBus(bus, db => (db.prepare('SELECT head FROM events WHERE type = ? AND pr = ? AND id < ? AND head IS NOT NULL GROUP BY head ORDER BY MAX(id)').all(PR_OBSERVED, pr, beforeId) as unknown as Array<{ head: string }>).map(row => row.head))
 }
 
-function downsReader(bus: string): (now: number) => WatchSignal[] {
-  let read: { at: number, beat: string | undefined } | undefined
+function signalsReader(bus: string): (now: number) => WatchSignal[] {
+  let read: { at: number, beat: string | undefined, board: string | undefined } | undefined
   return (now) => {
     if (read === undefined || Math.abs(now - read.at) >= DOWNS_READ_MS)
-      read = { at: now, beat: readBus(bus, db => lastWorkerBeat(lastProcessBeats(db))) }
-    return downsOf(read.beat, now)
+      read = { at: now, ...readBus(bus, db => ({ beat: lastWorkerBeat(lastProcessBeats(db)), board: lastBoardBeat(db) })) }
+    return [...downsOf(read.beat, now), ...boardStaleOf(read.board, now)]
   }
 }
 
@@ -670,21 +685,17 @@ function rememberStalls(file: string, stalls: readonly CardActivity[]): void {
   writeWhole(file, Object.fromEntries([...withWoken(readWokenStalls(file), stalls)].sort((a, b) => a[0] - b[0])))
 }
 
-function readWokenDowns(file: string): Map<string, string> {
+function readWokenSignals(file: string): Map<string, string> {
   const woken = existsSync(file) ? Object.entries(payloadOf(readFileSync(file, 'utf8'))) : []
   return new Map(woken.filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
 }
 
-function rememberDowns(file: string, downs: readonly WatchSignal[]): void {
-  const next = readWokenDowns(file)
-  for (const down of downs)
-    next.set(down.kind, down.key)
-  writeWhole(file, Object.fromEntries(next))
+function rememberSignals(file: string, signals: readonly WatchSignal[]): void {
+  writeWhole(file, Object.fromEntries(withWokenSignals(readWokenSignals(file), signals)))
 }
 
 export function productionDeps(handoff: string, bus: string): WatchDeps {
   const woken = path.join(handoff, WOKEN_STALLS)
-  const wokenDowns = path.join(handoff, WOKEN_DOWNS)
   const actor = requestActor(process.env)
   return {
     bus,
@@ -701,9 +712,9 @@ export function productionDeps(handoff: string, bus: string): WatchDeps {
     stuck: () => stuckPrs(bus),
     wokenStalls: () => readWokenStalls(woken),
     rememberStalls: stalls => rememberStalls(woken, stalls),
-    downs: downsReader(bus),
-    wokenDowns: () => readWokenDowns(wokenDowns),
-    rememberDowns: downs => rememberDowns(wokenDowns, downs),
+    signals: signalsReader(bus),
+    wokenSignals: () => readWokenSignals(path.join(handoff, WOKEN_SIGNALS)),
+    rememberSignals: signals => rememberSignals(path.join(handoff, WOKEN_SIGNALS), signals),
     emit: emitLine,
     beforeCommit: async () => {},
     beat: windowBeat(bus, windowOf(process.env), Date.now),

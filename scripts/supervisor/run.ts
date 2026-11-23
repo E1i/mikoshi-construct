@@ -16,7 +16,7 @@ import { BOARD_PERIOD_MS, startBoardTimer } from '../cli/board-page.js'
 import { busDirOf } from '../core/bus-path.js'
 import { CHECK_MS, TICK_MS } from '../core/cadence.js'
 import { closedWaitIds } from '../core/card-readings.js'
-import { appendEvent, defaultBusPath, inTransaction, openBus, openBusWait } from '../core/db.js'
+import { appendEvent, BOARD_TIMER_PROCESS, defaultBusPath, inTransaction, openBus, openBusWait } from '../core/db.js'
 import { WINDOW_REQUEST, WORKER_DOWN } from '../core/events.js'
 import { DATABASE_LOCKED, isDatabaseLocked } from '../core/node.js'
 import { setStepStatuses, STATUS_CONTEXT, STATUS_OFF_FILE, statusesSwitchedOff, statusFailureLine, statusLine } from '../core/pr-status.js'
@@ -310,7 +310,7 @@ async function main(): Promise<number> {
 type BoardTimerSpawn = NonNullable<Parameters<typeof startBoardTimer>[2]>
 type StartedBoardTimer = ReturnType<typeof startBoardTimer>
 
-export const BOARD_THREAD = 'bus:board-timer'
+export const BOARD_THREAD = BOARD_TIMER_PROCESS
 export const BOARD_RESTART_CAP_MS = 300_000
 const PERIODS_THAT_CLEAR_THE_FAILURES = 2
 

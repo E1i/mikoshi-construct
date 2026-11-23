@@ -3,6 +3,7 @@
   "layer": "contract",
   "paths": [
     "scripts/contract/",
+    "contract/action-inputs.json",
     "contract/surface.json",
     "contract/factory.json"
   ],

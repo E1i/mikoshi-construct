@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
+import { roleEnvironment } from '../src/commands/attach/index.js'
 import { runDoctor } from '../src/commands/doctor/index.js'
 import { runInit } from '../src/commands/init.js'
 import { readManifest } from '../src/manifest.js'
@@ -471,7 +472,7 @@ describe('construct init and the tab-window hooks', () => {
     expect(result.written).toContain(SETTINGS)
     expect(result.skipped).not.toContain(SETTINGS)
     const settings = readSettingsOf(dir) as HookSettings & { permissions: unknown }
-    expect(settings.permissions).toEqual({ allow: ['Bash(ls)', 'WebFetch', 'WebSearch', 'mcp__context7'] })
+    expect(settings.permissions).toEqual({ allow: ['Bash(ls)', 'WebFetch', 'WebSearch', 'mcp__context7', ...roleEnvironment(dir).allow] })
     expect(commandsOf(settings, 'Stop')).toEqual(['echo own-stop', windowCommand('stop')])
     expect(commandsOf(settings, 'PostToolUse')).toEqual(['echo own-post', 'node "$CLAUDE_PROJECT_DIR"/scripts/construct/window-heartbeat.mjs'])
     expect(commandsOf(settings, 'PreCompact')).toEqual([windowCommand('pre-compact')])
