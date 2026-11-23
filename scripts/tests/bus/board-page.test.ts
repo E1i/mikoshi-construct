@@ -19,12 +19,12 @@ import { BANNER, LORE } from '../../../src/ui/lore.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
 import { interfaceVersion } from '../../../src/version.js'
 import { checkMatrix, subagent, writeBus } from '../../../tests/board/bus-fixture.js'
-import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, FLOW_META, printBoard, PROGRESS_ORDER, readEddiesLimits, readModelVersion, RELEASE_PROGRESS_ORDER, VIEW_KEY, writeBoardPage } from '../../cli/board-page.js'
+import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, FLOW_META, printBoard, PROGRESS_ORDER, readEddiesLimits, readModelVersion, RELEASE_PROGRESS_ORDER, renderShell, VIEW_KEY, writeBoardPage } from '../../cli/board-page.js'
 import { filterRule } from '../../cli/board-page/live-cards.js'
 import { BUS_VERSION } from '../../core/bus-version.js'
 import { TICK_MS } from '../../core/cadence.js'
 import { defaultBusPath } from '../../core/db.js'
-import { PROCESS_HEARTBEAT, REVIEW_RECORDED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT, WITNESS_FIELDS_BACKFILLED, WITNESS_RECORDED } from '../../core/events.js'
+import { BOARD_ALARM, BOARD_ALARM_CLEARED, PROCESS_HEARTBEAT, REVIEW_RECORDED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT, WITNESS_FIELDS_BACKFILLED, WITNESS_RECORDED } from '../../core/events.js'
 import { nodeProcess } from '../../core/node.js'
 import { witnessFieldsBackfillOf } from '../../intake/witness-fields-backfill.js'
 import { slotsOf as slotsOfKind, slotsVariable } from '../../supervisor/scheduler.js'
@@ -1429,5 +1429,35 @@ describe('board.html', () => {
     expect(board.content.innerHTML).toBe(board.templates.get('dialog-card-861'))
     board.key('Escape')
     expect(board.dialog.open).toBe(false)
+  })
+
+  it('favicon: the head carries an inline SVG enso, and the alarm icon swaps its ground and ink', () => {
+    const shell = renderShell('0.0.0', 10_000)
+    const names = JSON.parse(/window\.BOARD_NAMES = (\{.*\});\n/.exec(shell)![1]!) as { icon: { id: string, calm: string, alarm: string } }
+    const link = /<head>.*<link rel="icon" type="image\/svg\+xml" id="([\w-]+)" href="([^"]+)">.*<\/head>/s.exec(shell)
+    expect(link?.slice(1)).toEqual([names.icon.id, names.icon.calm])
+    const svgOf = (uri: string): string => {
+      const prefix = 'data:image/svg+xml,'
+      expect(uri.startsWith(prefix)).toBe(true)
+      return decodeURIComponent(uri.slice(prefix.length))
+    }
+    const calm = svgOf(names.icon.calm)
+    const alarm = svgOf(names.icon.alarm)
+    expect(calm).toMatch(/^<svg [^>]*>.*<\/svg>$/)
+    const ground = (svg: string): string => /<rect [^>]*fill='([^']+)'/.exec(svg)![1]!
+    const ink = (svg: string): string => [...svg.matchAll(/stroke='([^']+)'/g)].at(-1)![1]!
+    expect([ground(alarm), ink(alarm)]).toEqual([ink(calm), ground(calm)])
+  })
+
+  it('favicon: an open board.alarm reaches the page head and the board data as the alarm icon, a cleared one as the calm icon', () => {
+    const names = JSON.parse(/window\.BOARD_NAMES = (\{.*\});\n/.exec(renderShell('0.0.0', 10_000))![1]!) as { icon: { calm: string, alarm: string } }
+    const headIcon = (html: string): string => /<head>.*<link rel="icon" [^>]*href="([^"]+)">.*<\/head>/s.exec(html)![1]!
+    const alarm = { ts: minutesAgo(1), type: BOARD_ALARM, card: null, dedupe: 'alarm-disk', payload: JSON.stringify({ reason: 'disk' }) }
+    const open = seededBus([alarm])
+    expect(headIcon(pageText(open))).toBe(names.icon.alarm)
+    expect(boardOf(projected(open, NOW).data).alarms).toEqual(['disk'])
+    const cleared = seededBus([alarm, { ts: minutesAgo(0), type: BOARD_ALARM_CLEARED, card: null, payload: JSON.stringify({ alarm: 'alarm-disk' }) }])
+    expect(headIcon(pageText(cleared))).toBe(names.icon.calm)
+    expect(boardOf(projected(cleared, NOW).data).alarms).toEqual([])
   })
 })
