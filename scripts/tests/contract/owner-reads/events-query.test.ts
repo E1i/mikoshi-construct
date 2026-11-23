@@ -1,7 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
+import { bodyAdmittedAfter, waitClosedBefore } from '../../../core/card-readings.js'
 import { appendEvent, openBus } from '../../../core/db.js'
-import { all, byId, EITHER_JOURNAL, events, latest, ofCard, ofPr, perCard } from '../../../core/events-query.js'
+import { all, byId, EITHER_JOURNAL, events, latest, latestOfCardWhere, ofCard, ofPr, perCard } from '../../../core/events-query.js'
 import { CARD_ADMITTED, CARD_HELD, CARD_STOPPED, TASK_FAILED } from '../../../core/events.js'
 import * as prs from '../../../core/pr-readings.js'
 import * as tasks from '../../../core/tasks-query.js'
@@ -114,6 +115,20 @@ describe('events query', () => {
     expect(idsOf(grouped.get(CARD)!)).toEqual([ids.stopped, ids.onPr])
   })
 
+  it('mentions matches the LIKE the inbox found the blockers of a card by', () => {
+    const { db } = seeded()
+    append(db, { type: CARD_ADMITTED, card: OTHER_CARD, key: 'm2', payload: { text: `#${OTHER_CARD} · blocks #${CARD}` } })
+    append(db, { type: CARD_ADMITTED, key: 'm3', payload: { text: `#${CARD}` } })
+    expect(idsOf(events(db, { mentions: `#${CARD}`, legacy: EITHER_JOURNAL }))).toEqual(sqlIds(db, 'SELECT id FROM events WHERE payload LIKE ? ORDER BY id', `%#${CARD}%`))
+  })
+
+  it('latestOfCardWhere reads the latest live event of a card that meets the condition', () => {
+    const { db, ids } = seeded()
+    const query = latestOfCardWhere('stop', `stop.type = '${CARD_STOPPED}'`)
+    expect((db.prepare(query).get(CARD) as { id: number }).id).toBe(ids.onPr)
+    expect(db.prepare(query).get(99)).toBeUndefined()
+  })
+
   it('answers an empty list of types, ids or keys with no events', () => {
     const { db } = seeded()
     expect(events(db, { types: [] })).toEqual([])
@@ -174,6 +189,14 @@ describe('the card domain reads tasks and prs through their owners, not through 
     expect(tasks.ofCard(db, 1)).toEqual([])
   })
 
+  it('tasks.byKey and tasks.ofQueue give the rows card-decisions read by its own SQL', () => {
+    const db = withTasks()
+    expect(tasks.byKey(db, 'launch:0')).toEqual(tasks.ofCard(db, CARD, { queue: 'launch' }).at(-1))
+    expect(tasks.byKey(db, 'answer:none')).toBeNull()
+    const before = (db.prepare('SELECT task_key FROM tasks WHERE queue = \'launch\' ORDER BY event_id, id').all() as { task_key: string }[]).map(row => row.task_key)
+    expect(tasks.ofQueue(db, 'launch').map(task => task.task_key)).toEqual(before)
+  })
+
   it('prs.ofPr and prs.ofCard give the rows of prs as values', () => {
     const db = bus()
     const event = append(db, { type: CARD_STOPPED, card: CARD, key: 'p0' })
@@ -187,5 +210,19 @@ describe('the card domain reads tasks and prs through their owners, not through 
     expect(prs.ofCard(db, OTHER_CARD)).toEqual([])
     expect(prs.all(db)).toEqual(plain(db.prepare('SELECT * FROM prs ORDER BY pr').all() as Record<string, unknown>[]))
     expect(prs.all(db).map(row => row.pr)).toEqual([51, 52, 53])
+  })
+})
+
+describe('the decisions domain reads owner_waits and card_bodies through card-record', () => {
+  it('waitClosedBefore and bodyAdmittedAfter give what the inbox read by its own SQL', () => {
+    const db = bus()
+    const event = append(db, { type: CARD_STOPPED, card: CARD, key: 'w0' })
+    db.prepare('INSERT INTO owner_waits (id, need, text, state, opened_at, event_id) VALUES (\'Q1\', \'decision\', \'which?\', \'closed\', ?, ?)').run(TS, event)
+    expect(waitClosedBefore(db, 'Q1', event + 1)).toBe(true)
+    expect(waitClosedBefore(db, 'Q1', event)).toBe(false)
+    expect(waitClosedBefore(db, 'Q2', event + 1)).toBe(false)
+    db.prepare('INSERT INTO card_bodies (card_id, admission_event_id, text, text_sha, touches, creates) VALUES (?, ?, \'body\', \'sha\', \'["scripts/core/**"]\', \'["a.ts (new)"]\')').run(CARD, event)
+    expect(bodyAdmittedAfter(db, CARD, event - 1)).toEqual({ admission_event_id: event, touches: ['scripts/core/**'], creates: ['a.ts (new)'] })
+    expect(bodyAdmittedAfter(db, CARD, event)).toBeNull()
   })
 })

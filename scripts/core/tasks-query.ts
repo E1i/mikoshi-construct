@@ -46,21 +46,37 @@ function taskOf(row: StoredTask): TaskRow {
   }
 }
 
-export function ofCard(db: DatabaseSync, cardId: number, filter: CardTasks = {}): TaskRow[] {
-  const where = ['card_id = ?']
-  const values: SQLInputValue[] = [cardId]
-  if (filter.queue !== undefined) {
-    where.push('queue = ?')
-    values.push(filter.queue)
+interface TaskFilter extends CardTasks {
+  key?: string
+  card?: number
+}
+
+function selected(db: DatabaseSync, filter: TaskFilter): TaskRow[] {
+  const where: string[] = []
+  const values: SQLInputValue[] = []
+  const add = (clause: string, value: SQLInputValue | undefined): void => {
+    if (value === undefined)
+      return
+    where.push(clause)
+    values.push(value)
   }
-  if (filter.state !== undefined) {
-    where.push('state = ?')
-    values.push(filter.state)
-  }
-  if (filter.after !== undefined) {
-    where.push('event_id > ?')
-    values.push(filter.after)
-  }
+  add('task_key = ?', filter.key)
+  add('card_id = ?', filter.card)
+  add('queue = ?', filter.queue)
+  add('state = ?', filter.state)
+  add('event_id > ?', filter.after)
   const rows = db.prepare(`SELECT id, task_key, queue, card_id, pr, head, state, lease_gen, lease_until, failures, event_id FROM tasks WHERE ${where.join(' AND ')} ORDER BY event_id, id`).all(...values) as StoredTask[]
   return rows.map(taskOf)
+}
+
+export function byKey(db: DatabaseSync, taskKey: string): TaskRow | null {
+  return selected(db, { key: taskKey })[0] ?? null
+}
+
+export function ofQueue(db: DatabaseSync, queue: string): TaskRow[] {
+  return selected(db, { queue })
+}
+
+export function ofCard(db: DatabaseSync, cardId: number, filter: CardTasks = {}): TaskRow[] {
+  return selected(db, { ...filter, card: cardId })
 }
