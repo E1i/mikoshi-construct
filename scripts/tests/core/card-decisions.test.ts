@@ -5,13 +5,13 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { busCardDecisions, CARD_DECISIONS_HEADING, cardDecisionBlock, cardDecisionTurnQuery, continuesTheCard, oneContinuationPerCard, withCardDecisions } from '../../core/card-decisions.js'
+import { busCardDecisions, CARD_DECISIONS_HEADING, cardDecisionBlock, cardFragmentsQuery, continuesTheCard, oneContinuationPerCard, withCardDecisions } from '../../core/card-decisions.js'
 import { openBus } from '../../core/db.js'
 import { answerDecisionOfKey, decisionOfKey, decisionSegment } from '../../core/identifiers.js'
 import { reduce } from '../../core/reducer.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { cardDecisionLines } from '../../policy/shards.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, CONTINUATION_READS } from '../../supervisor/composition.js'
 
 const NOW = new Date('2026-11-08T10:00:00Z')
 const CARD = 1719
@@ -99,11 +99,13 @@ describe('a card decision continues the card', () => {
     expect(continuesTheCard(turn({ pr: null }), pastTheLimit)).toBe(false)
   })
 
-  it('the turn query reads the card through the fragments the queue passes', () => {
-    const query = cardDecisionTurnQuery({ cardBody: card => `BODY(${card})`, latestTurn: card => `TURN(${card})`, notAWindowCard: card => `NOT_WINDOW(${card})`, downgradeWaitOpenOn: card => `WAIT(${card})` })
-    expect(query).toContain('BODY(named.card_id) AS card_body')
-    expect(query).toContain('stop.id = TURN(named.card_id)')
-    expect(query).toContain('WHERE NOT_WINDOW(named.card_id) AND NOT WAIT(named.card_id)')
+  it('the turn reads the card through the fragments the queue passes, in a query that names no table', () => {
+    const query = cardFragmentsQuery({ cardBody: card => `BODY(${card})`, latestTurn: card => `TURN(${card})`, notAWindowCard: card => `NOT_WINDOW(${card})`, downgradeWaitOpenOn: card => `WAIT(${card})` })
+    expect(query).toContain('BODY(:card) AS card_body')
+    expect(query).toContain('TURN(:card) AS turn')
+    expect(query).toContain('NOT_WINDOW(:card) AS not_a_window_card')
+    expect(query).toContain('WAIT(:card) AS downgrade_wait_open')
+    expect(query).not.toMatch(/\bFROM\b/)
   })
 
   it('a card gets one continuation, and none while another answer of it is planned', () => {
@@ -111,8 +113,8 @@ describe('a card decision continues the card', () => {
     roots.push(root)
     const db = openBus(path.join(root, 'bus.db'))
     const decided = [answerTask(CARD, 2), answerTask(CARD, 4), answerTask(OTHER_CARD, 3)]
-    expect(oneContinuationPerCard(db, [], decided)).toEqual([answerTask(CARD, 2), answerTask(OTHER_CARD, 3)])
-    expect(oneContinuationPerCard(db, [answerTask(OTHER_CARD)], decided)).toEqual([answerTask(CARD, 2)])
+    expect(oneContinuationPerCard(db, [], decided, CONTINUATION_READS)).toEqual([answerTask(CARD, 2), answerTask(OTHER_CARD, 3)])
+    expect(oneContinuationPerCard(db, [answerTask(OTHER_CARD)], decided, CONTINUATION_READS)).toEqual([answerTask(CARD, 2)])
     db.close()
   })
 })

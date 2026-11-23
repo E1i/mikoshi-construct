@@ -4,9 +4,10 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent } from '../../core/db.js'
-import { runInbox } from '../../core/inbox.js'
+import { OPEN_OWNER_STOP_OF_CARD, ownerInbox, ownerQuestionAnsweredAt, runInbox } from '../../core/inbox.js'
 import { reduce } from '../../core/reducer.js'
-import { busProjections, openComposedBus } from '../../supervisor/composition.js'
+import { lastEventId } from '../../core/watermark.js'
+import { busProjections, INBOX_PR_READINGS, openComposedBus } from '../../supervisor/composition.js'
 
 const HEAD = '0123456789abcdef0123456789abcdef01234567'
 const TS = '2026-10-10T08:00:00.000Z'
@@ -86,5 +87,44 @@ describe('pnpm bus:inbox, the owner inbox', () => {
 
   it('an owner question stays in the inbox when the reducer rejects its answer', () => {
     expect(inbox(stopped(807, 'question.owner'), answered([807], 'owner', 'agent'))).toEqual(['[bus:inbox] card.stopped question.owner · card #807 · which way for #807'])
+  })
+})
+
+describe('an owner question is answered by values, on a bus the composition opened', () => {
+  const CARD = 2124
+  const BLOCKER = 2123
+
+  function openStopOf(db: ReturnType<typeof openComposedBus>): number | null {
+    return (db.prepare(OPEN_OWNER_STOP_OF_CARD).get(CARD) as { id: number } | undefined)?.id ?? null
+  }
+
+  function appended(db: ReturnType<typeof openComposedBus>, each: BusEvent): number {
+    appendEvent(db, each)
+    return lastEventId(db)
+  }
+
+  it('a question stays open until the window lifts its stop', () => {
+    const db = newBus()
+    const stop = appended(db, stopped(CARD, 'question.owner'))
+    expect(ownerQuestionAnsweredAt(db, stop, INBOX_PR_READINGS)).toBe(false)
+    expect(openStopOf(db)).toBe(stop)
+    expect(ownerInbox(db).map(line => line.id)).toEqual([stop])
+    appended(db, event('shard.decided', { cardId: CARD, payload: { stop } }))
+    expect(ownerQuestionAnsweredAt(db, stop, INBOX_PR_READINGS)).toBe(true)
+    expect(openStopOf(db)).toBeNull()
+    expect(ownerInbox(db)).toEqual([])
+  })
+
+  it('a question waits on its blocker until the blocker merges after the stop, read from the injected pull requests', () => {
+    const db = newBus()
+    appended(db, event('card.admitted', { cardId: BLOCKER, payload: { card: { blocks: [CARD] }, text: `#${BLOCKER} x · blocks #${CARD}` } }))
+    const stop = appended(db, stopped(CARD, 'question.owner'))
+    expect(ownerQuestionAnsweredAt(db, stop, { mergedAt: () => [] })).toBe(false)
+    expect(ownerQuestionAnsweredAt(db, stop, { mergedAt: () => [stop - 1] })).toBe(false)
+    expect(ownerQuestionAnsweredAt(db, stop, { mergedAt: (_db, cardId) => cardId === BLOCKER ? [stop + 1] : [] })).toBe(true)
+  })
+
+  it('a stop that is no event is not answered', () => {
+    expect(ownerQuestionAnsweredAt(newBus(), 99_999, INBOX_PR_READINGS)).toBe(false)
   })
 })
