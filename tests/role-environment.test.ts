@@ -308,6 +308,24 @@ describe('the role environment is a planned write of sync and init, never a side
     expect(runSync(made.dir, VERSION)!.classifications.find(entry => entry.target === PROJECT_SETTINGS)?.class).toBe('keep')
   })
 
+  it('sync writes the environment into a construct settings file whose template hooks moved on', async () => {
+    const made = await consumer()
+    const settings = json(made.dir, PROJECT_SETTINGS)
+    const { sandbox: _sandbox, hooks, ...rest } = settings
+    const allow = (settings.permissions.allow as string[]).filter(rule => !rule.startsWith('Read(~/'))
+    writeJson(made.dir, PROJECT_SETTINGS, { ...rest, permissions: { ...settings.permissions, allow }, hooks: { PreToolUse: hooks.PreToolUse } })
+    expect(runSync(made.dir, VERSION)!.classifications.find(entry => entry.target === PROJECT_SETTINGS)?.class).toBe('update')
+
+    const applied = applySync(made.dir, VERSION, made.home)!
+
+    expect(applied.written).toContain(PROJECT_SETTINGS)
+    const written = json(made.dir, PROJECT_SETTINGS)
+    expect(written.hooks).toEqual(hooks)
+    expect(written.sandbox).toEqual(settings.sandbox)
+    expect(written.permissions.allow).toEqual(expect.arrayContaining(settings.permissions.allow as string[]))
+    expect(readManifest(made.dir)!.sync?.files[PROJECT_SETTINGS]).toBe(ownedSha(PROJECT_SETTINGS, readFileSync(path.join(made.dir, PROJECT_SETTINGS), 'utf8')))
+  })
+
   it('the browser lab exclusion never writes the project settings', async () => {
     const made = await consumer()
     withoutTheEnvironment(made.dir)
