@@ -11,7 +11,7 @@ import { ownedSha } from '../../sync/ownership.js'
 import { replay } from '../../sync/replay.js'
 import { planWrites } from '../../sync/write.js'
 import { excludedBrowserLabWithTheEnvironment, settledProjectSettings } from '../attach/index.js'
-import { browserLabExcludedCommand, PROJECT_SETTINGS_FILE } from '../attach/settings.js'
+import { browserLabExcludedCommand, PROJECT_SETTINGS_FILE, wroteLocally } from '../attach/settings.js'
 
 export interface SyncReport {
   fromVersion: string
@@ -54,7 +54,7 @@ function excludeInstalledLab(root: string, home: string): BrowserLabExclusion {
   const command = browserLabExcludedCommand(home)
   if (exclusion == null)
     return { command, state: 'refused' }
-  return { command, state: exclusion.added.length === 0 ? 'held' : 'added' }
+  return { command, state: wroteLocally(exclusion) ? 'added' : 'held' }
 }
 
 function withTheRoleEnvironment(root: string, write: PlannedWrite): PlannedWrite {

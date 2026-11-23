@@ -9,6 +9,7 @@ import { appendEvent } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_RELEASED, CARD_STARTED, POLICY_DENIED } from '../../core/events.js'
 import { taskKey } from '../../core/identifiers.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
@@ -44,7 +45,7 @@ function heldCard() {
     answerer,
     executor,
     key: taskKey({ queue: 'answer', cardId: CARD, pr: PR, head: sha('a') }),
-    lease: () => leaseNext(made.db, ts(), 'answer', ACTOR),
+    lease: () => leaseNext(made.db, pullRequests(made.db), ts(), 'answer', ACTOR),
     sessionEnds: () => {
       live = null
     },

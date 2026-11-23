@@ -1,7 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { PrGroup, PrPaths } from './group.js'
 import type { OverlapDeclarations } from './overlap.js'
-import { openOwnerWaits } from '../bus-readings.js'
 import { appendEvent } from '../db.js'
 import { CARD_HELD, CARD_RELEASED, CONTENTION_SUSPENDED, declaredPayload, MAIN_ADVANCED, PR_CLOSED, PR_GROUPS, PR_OBSERVED, PR_OPENED, PR_ORDERED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN } from '../events.js'
 import { groupsOf } from './group.js'
@@ -464,16 +463,23 @@ export function groupsWithTurn(order: PrOrder, declarations: OverlapDeclarations
   return orderGroups(order, declarations, touchesOfPr(order, readings.touchesOf)).map(group => ({ ...group, turn: turnOf(order, group, state) }))
 }
 
-function cardsWithOpenOwnerWait(db: DatabaseSync, need: string): Set<number> {
-  return new Set(openOwnerWaits(db).flatMap(wait => wait.card === null || wait.need !== need ? [] : [wait.card]))
+export interface OpenWaitOfACard {
+  card: number | null
+  need: string
 }
 
-export function waitingCardsOf(db: DatabaseSync): Set<number> {
-  return cardsWithOpenOwnerWait(db, OWNER_QUESTION)
+export type OpenWaits = () => readonly OpenWaitOfACard[]
+
+function cardsWithOpenOwnerWait(waits: readonly OpenWaitOfACard[], need: string): Set<number> {
+  return new Set(waits.flatMap(wait => wait.card === null || wait.need !== need ? [] : [wait.card]))
 }
 
-export function yieldingCardsOf(db: DatabaseSync): Set<number> {
-  return cardsWithOpenOwnerWait(db, OWNER_MERGE)
+export function waitingCardsOf(waits: readonly OpenWaitOfACard[]): Set<number> {
+  return cardsWithOpenOwnerWait(waits, OWNER_QUESTION)
+}
+
+export function yieldingCardsOf(waits: readonly OpenWaitOfACard[]): Set<number> {
+  return cardsWithOpenOwnerWait(waits, OWNER_MERGE)
 }
 
 export function recordGroups(db: DatabaseSync, ts: string, order: PrOrder, groups: readonly GroupWithTurn[]): boolean {
@@ -553,9 +559,8 @@ export class PrOrderTick {
     private readonly now: () => string,
     private readonly declarations: () => OverlapDeclarations,
     private readonly prefix: string,
+    private readonly openWaits: OpenWaits,
     private readonly touchesOf: TouchesOf = () => null,
-    private readonly waitingCards: () => ReadonlySet<number> = () => waitingCardsOf(db),
-    private readonly yieldingCards: () => ReadonlySet<number> = () => yieldingCardsOf(db),
   ) {}
 
   step(): string[] {
@@ -576,7 +581,8 @@ export class PrOrderTick {
   }
 
   private recordGroups(declarations: OverlapDeclarations): void {
-    const groups = groupsWithTurn(this.order, declarations, { waitingCards: this.waitingCards(), touchesOf: this.touchesOf, yieldingCards: this.yieldingCards() })
+    const waits = this.openWaits()
+    const groups = groupsWithTurn(this.order, declarations, { waitingCards: waitingCardsOf(waits), touchesOf: this.touchesOf, yieldingCards: yieldingCardsOf(waits) })
     const reading = JSON.stringify({ groups, counted: this.order.counted, needUpdate: [...this.order.needsUpdate].sort((a, b) => a - b) })
     if (reading === this.recorded)
       return
@@ -593,6 +599,6 @@ export class PrOrderTick {
   }
 }
 
-export function prOrderTickAt(db: DatabaseSync, root: string, prefix: string, events: OrderEventSource, touchesOf: TouchesOf): PrOrderTick {
-  return new PrOrderTick(db, events, () => new Date().toISOString(), () => orderDeclarationsAt(root), prefix, touchesOf)
+export function prOrderTickAt(db: DatabaseSync, root: string, prefix: string, events: OrderEventSource, openWaits: OpenWaits, touchesOf: TouchesOf): PrOrderTick {
+  return new PrOrderTick(db, events, () => new Date().toISOString(), () => orderDeclarationsAt(root), prefix, openWaits, touchesOf)
 }

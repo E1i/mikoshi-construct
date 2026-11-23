@@ -77,7 +77,8 @@ const WITHDRAWN_ON_A_WITNESS_NOW_GREEN = `
 `
 
 export function witnessCandidates(db: DatabaseSync, ts: string, parts: WitnessParts): QueuedTask[] {
-  const rows = [...candidateRows(db, WITNESS_CANDIDATES_ON_NO_RECORD, everyRow), ...candidateRows(db, WITNESS_CANDIDATES_ON_A_DENIED_BASE, everyRow), ...candidateRows(db, WITNESS_CANDIDATES_ON_MAIN, parts.namesWitnesses)]
+  const merged = parts.rules.mergedCards(db)
+  const rows = [...candidateRows(db, WITNESS_CANDIDATES_ON_NO_RECORD, everyRow, merged), ...candidateRows(db, WITNESS_CANDIDATES_ON_A_DENIED_BASE, everyRow, merged), ...candidateRows(db, WITNESS_CANDIDATES_ON_MAIN, parts.namesWitnesses, merged)]
   return openCandidates(db, ts, 'witness', rows, parts.rules)
 }
 

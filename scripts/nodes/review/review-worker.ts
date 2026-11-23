@@ -25,6 +25,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { textSha } from '../../../src/card/text-sha.js'
 import { defaultBusDir } from '../../core/bus-path.js'
+import { closedWaitIds } from '../../core/card-readings.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../../core/db.js'
 import { CARD_ADMITTED, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../../core/events.js'
 import { cardIdOfDescription, isFullSha, prBodySha, prOf, reviewInputOf, reviewInputOfKey, taskKey } from '../../core/identifiers.js'
@@ -48,7 +49,7 @@ import { realIsolationReader } from '../../ports/isolation.js'
 import { promptsDirOf } from '../../ports/prompt-store.js'
 import { plannerProcess, REVIEW_PLAN_FLAG } from '../../ports/review-planner.js'
 import { spawnReviewSession } from '../../ports/session.js'
-import { busProjections, candidateRules, cardSessionPulse, cardTransitions, nodeLiveness, nodeSupply, requiredCheckAt, withSlots } from '../../supervisor/composition.js'
+import { busProjections, candidateRules, cardSessionPulse, cardTransitions, nodeLiveness, nodeSupply, pullRequests, requiredCheckAt, withSlots } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { busUnstartedTails, gitReviewPlanner } from './depth-sources.js'
 import { recordForeignDivergences } from './divergence-alarm.js'
@@ -230,7 +231,7 @@ export class ReviewWorker {
 
   async step(): Promise<Step> {
     expireLeases(this.parts.db, this.cards, this.ts(), this.parts.silentMs)
-    const lease = leaseNext(this.parts.db, this.ts(), 'review', this.actor)
+    const lease = leaseNext(this.parts.db, pullRequests(this.parts.db), this.ts(), 'review', this.actor)
     return lease === null ? { kind: 'idle' } : this.executor.review(lease)
   }
 
@@ -517,7 +518,7 @@ async function main(): Promise<number> {
     notePr: ghNotePr(cwd, PROCESS_GH_PORT, () => pushPolicyOf(readThroughPort, cwd)),
     isolation: realIsolationReader(process.env, cwd, reviewIsolationCommand()),
     keepDryRun: keepDryRun(trees.dir),
-    recut: db => new RoundLimitRecutter({ db, gitHub: ghApi(cwd), post: ghApiPost(cwd), patch: ghApiPatch(cwd), clock: () => new Date(), cardStates: () => busHeldCards(db), pushPolicy: () => pushPolicyOf(readThroughPort, cwd) }),
+    recut: db => new RoundLimitRecutter({ db, gitHub: ghApi(cwd), post: ghApiPost(cwd), patch: ghApiPatch(cwd), clock: () => new Date(), cardStates: () => busHeldCards(db), closedWaits: () => closedWaitIds(db), pushPolicy: () => pushPolicyOf(readThroughPort, cwd) }),
     tail: db => new BusTailIntake({ db, gitHub: ghApi(cwd), clock: () => new Date(), cardStates: () => busHeldCards(db), unstartedTails: busUnstartedTails(db) }),
   })
 }

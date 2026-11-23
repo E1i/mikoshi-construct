@@ -13,7 +13,8 @@
     "scripts/cli/card.ts",
     "scripts/core/card-automaton.ts",
     "scripts/core/card-hold.ts",
-    "scripts/supervisor/card-waits.ts"
+    "scripts/supervisor/card-waits.ts",
+    "scripts/core/card-readings.ts"
   ],
   "exclude": [],
   "shared": []

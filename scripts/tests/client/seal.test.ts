@@ -96,6 +96,7 @@ const CARRIERS: readonly Carrier[] = [
   { path: 'scripts/policy/touch-scope.ts', reason: 'the .claude directory never follows a card, and the settings file is a path of the factory manifest' },
   { path: 'scripts/harness-command/render.ts', reason: 'renders the template group of the claude AI target, a template choice and not a session' },
   { path: 'src/commands/attach/carriers.ts', reason: 'C12: ai claude in the attach plan; moves to clientconfig in 0.47, record 0060' },
+  { path: 'src/commands/attach/daemon-commands.ts', reason: 'names the settings files a daemon command is granted in, beside the daemon-command key (D-717)' },
   { path: 'src/commands/attach/settings.ts', reason: 'writes the guard into the settings file attach owns, with the project variable' },
   { path: 'src/commands/cost/claude-code.ts', reason: 'the CostSource of this runtime reads its session files' },
   { path: 'src/commands/cost/runtime.ts', reason: 'the variables that name the runtime a cost report reads' },

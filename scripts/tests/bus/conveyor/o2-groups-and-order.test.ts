@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { busFacts } from '../../../../src/commands/board/bus.js'
 import { screenLines } from '../../../../src/commands/board/screens.js'
 import { PLAIN_LORE } from '../../../../src/ui/lore.js'
+import { openOwnerWaits } from '../../../core/card-readings.js'
 import { appendEvent, openBus } from '../../../core/db.js'
 import { readDeclarations } from '../../../core/declarations.js'
 import { declaredPayload, MAIN_ADVANCED, PR_OBSERVED, PR_OPENED, PR_ORDERED, TASK_ENQUEUED, TASK_LEASED, WINDOW_REQUEST } from '../../../core/events.js'
@@ -16,7 +17,8 @@ import { groupOf } from '../../../core/order/group.js'
 import { overlapDeclarationsOf, overlaps } from '../../../core/order/overlap.js'
 import { BUS_ORDERS, ORDER_ACTOR, orderEventsFrom, orderGroups, PrOrderTick, readOrder, turnOf } from '../../../core/order/turn.js'
 import { BusRead } from '../../../ports/bus-read.js'
-import { busOrderTick, superviseUntilReplaced } from '../../../supervisor/supervisor.js'
+import { busOrderTick } from '../../../supervisor/composition.js'
+import { superviseUntilReplaced } from '../../../supervisor/supervisor.js'
 import { dispatchRequest } from '../../../window/requests/index.js'
 import { requestOf } from '../../../window/window-requests.js'
 import { Clock, FakeGitHub, sha } from '../github-fake.js'
@@ -135,7 +137,7 @@ describe('conveyor O2: the order runs in the bus, on the board and through the w
       { number: 1003, files: ['templates/base/a-new-template.md'] },
     ])
     order(db, 1002)
-    new PrOrderTick(db, busEvents(db), () => '2026-11-14T00:00:30Z', () => declarations, '').step()
+    new PrOrderTick(db, busEvents(db), () => '2026-11-14T00:00:30Z', () => declarations, '', () => openOwnerWaits(db)).step()
     const facts = busFacts(db, new Date('2026-11-14T00:01:00Z'))
     expect(facts.groups).toEqual([
       { prs: [1001], modules: ['docs'], turn: null },
@@ -164,7 +166,7 @@ describe('conveyor O2: the order runs in the bus, on the board and through the w
     appendEvent(db, { ts: '2026-11-14T00:00:03Z', type: TASK_ENQUEUED, actor: 'policy', cardId: 32, pr: 3002, head: null, dedupeKey: 'o2:merge:enqueued', payload: { task_key: 'merge:32:3002:x', queue: 'merge' }, legacy: false })
     appendEvent(db, { ts: '2026-11-14T00:00:04Z', type: TASK_LEASED, actor: 'policy', cardId: 32, pr: 3002, head: null, dedupeKey: 'o2:merge:leased', payload: { task_key: 'merge:32:3002:x', queue: 'merge', lease_gen: 1 }, legacy: false })
     const touches = (card: number): readonly string[] | null => card === 33 ? ['docs/guide/shared.md'] : null
-    new PrOrderTick(db, busEvents(db), () => '2026-11-14T00:00:30Z', () => declarations, '', touches).step()
+    new PrOrderTick(db, busEvents(db), () => '2026-11-14T00:00:30Z', () => declarations, '', () => openOwnerWaits(db), touches).step()
     expect(busFacts(db, new Date('2026-11-14T00:01:00Z')).groups).toEqual([{ prs: [3001, 3002, 3003], modules: ['docs'], turn: 3002 }])
     db.close()
   })

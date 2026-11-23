@@ -9,10 +9,11 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
-import { openOwnerWaits } from '../../core/bus-readings.js'
+import { closedWaitIds, openOwnerWaits } from '../../core/card-readings.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, PR_OBSERVED, PR_OPENED, QUESTION_OWNER } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask } from '../../core/queue.js'
 import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
@@ -67,7 +68,7 @@ function answeredCardWithNoPullRequest(condition: Condition = () => {}): Strande
   const candidates = (): number[] => answerCandidates(made.db, made.clock.now().toISOString(), answerParts()).map(task => task.cardId)
   const liveTasks = (): string[] => liveTasksOf(made.db)
   const answer = async (publish: () => void, dirty = false): Promise<AnswerOutcome> => {
-    const lease: Lease = leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
+    const lease: Lease = leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
     const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty: () => dirty, liveSession: () => null, publishing: { committed: () => true, publish } })
     return executor.answer(lease)
   }
@@ -93,7 +94,7 @@ const anOpenPullRequest: Condition = (made) => {
 }
 
 const anOpenOwnerWait: Condition = (made) => {
-  openBusWait(made.db, made.clock.now().toISOString(), 'worker:answer:worker-1', { need: 'decision', text: `card #${CARD} asks: which way`, card: CARD })
+  openBusWait(made.db, closedWaitIds(made.db), made.clock.now().toISOString(), 'worker:answer:worker-1', { need: 'decision', text: `card #${CARD} asks: which way`, card: CARD })
 }
 
 const aLiveTask: Condition = (made) => {

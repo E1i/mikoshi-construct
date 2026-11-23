@@ -15,6 +15,7 @@ import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_CONTINUED, CARD_STARTED, CARD_STOPPED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { eddiesJournalPath } from '../../core/places.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { answerHandoffPath, claudeAnswerer, contextWarnOfEddies } from '../../nodes/answer/answerer.js'
@@ -211,7 +212,7 @@ describe('the 150k line of an answer session', () => {
     appendEvent(made.db, { ts, type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId: 1820, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:1820`, payload: { reason: 'question.agent', detail: 'a question' }, legacy: false })
     const stop = made.db.prepare(`SELECT max(id) AS id FROM events WHERE type = '${CARD_STOPPED}'`).get() as { id: number }
     queueTask(made.db, ts, { queue: 'answer', cardId: 1820, stop: Number(stop.id) })
-    const lease = leaseNext(made.db, ts, 'answer', 'worker:answer:worker-1')!
+    const lease = leaseNext(made.db, pullRequests(made.db), ts, 'answer', 'worker:answer:worker-1')!
     const contexts = new Map<string, number>()
     const prompts: string[] = []
     const pushedAfter: string[] = []

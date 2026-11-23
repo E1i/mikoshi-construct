@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent } from '../../core/db.js'
 import { CARD_HELD, CARD_RELEASED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, QUESTION_AGENT, TASK_FAILED, WINDOW_REQUEST } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
@@ -74,7 +75,7 @@ function executor({ made, trees }: HeldCard, clock: () => Date = made.clock.now)
 }
 
 async function answerRound(card: HeldCard): Promise<AnswerOutcome | null> {
-  const lease = leaseNext(card.made.db, card.made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')
+  const lease = leaseNext(card.made.db, pullRequests(card.made.db), card.made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')
   return lease === null ? null : executor(card).answer(lease)
 }
 
@@ -159,7 +160,7 @@ describe('a release that lands between the answer node reading the hold and with
     requested(card.made, ['hold', '--card', String(CARD), '--reason', HOLD_REASON])
     requestsApplied(card.made)
     card.made.tick()
-    const lease = leaseNext(card.made.db, card.made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
+    const lease = leaseNext(card.made.db, pullRequests(card.made.db), card.made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
 
     expect(await executor(card, aClockThatReleasesOnceTheHoldIsRead(card)).answer(lease)).toMatchObject({ kind: 'denied', denial: { reason: 'held_for_owner' } })
     expect(idOf(card.made, TASK_FAILED)).toBeGreaterThan(idOf(card.made, CARD_RELEASED))

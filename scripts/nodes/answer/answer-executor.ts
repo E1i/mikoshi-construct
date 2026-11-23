@@ -16,6 +16,7 @@ import path from 'node:path'
 import { riskOf } from '../../../src/card/risk.js'
 import { pathsOutsideTheBody } from '../../core/card-bodies.js'
 import { answersWithdrawnByAClosedHold, holdRecheckAt, LIVE_SESSION_IN_THE_TREE, queueAgain, sessionStopOf } from '../../core/card-hold.js'
+import { closedWaitIds } from '../../core/card-readings.js'
 import { appendEvent, inTransaction, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { ANSWER_STEP, CARD_ANSWERED, CARD_RELEASED, OUTSIDE_TOUCHES, OWNER_WAIT_CLOSED, POLICY_DENIED, QUESTION_AGENT, SCOPE_WIDENED } from '../../core/events.js'
@@ -346,7 +347,7 @@ export class AnswerExecutor {
   private waiting(lease: Lease, card: CardSession, why: string): AnswerOutcome {
     const detail = `pull request #${lease.pr} conflicts with ${MAIN_BRANCH} at ${lease.head}, and the tree ${card.worktree} of card #${lease.cardId} cannot be read to answer it: ${why}`
     completeTask(this.parts.db, this.parts.cards, this.ts(), lease, [])
-    const wait = openBusWait(this.parts.db, this.ts(), lease.actor, { need: 'decision', text: detail, card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) })
+    const wait = openBusWait(this.parts.db, closedWaitIds(this.parts.db), this.ts(), lease.actor, { need: 'decision', text: detail, card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) })
     return { kind: 'waiting', taskKey: lease.taskKey, wait, detail }
   }
 

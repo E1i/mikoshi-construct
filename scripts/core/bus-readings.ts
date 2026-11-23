@@ -1,8 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { EventType, WaitLifter } from './events.js'
 import type { ReadProjection } from './projection-types.js'
-import { CARD_CLOSED, CARD_DROPPED, LANE_ASSIGNED, MERGE_DONE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED } from './events.js'
-import { CARDS, FOLDED_ON_APPEND, OWNER_WAITS, PROJECTION_TYPES } from './projection-types.js'
+import { CARD_CLOSED, CARD_DROPPED, LANE_ASSIGNED, MERGE_DONE } from './events.js'
+import { CARDS, FOLDED_ON_APPEND, PROJECTION_TYPES } from './projection-types.js'
 
 export { CARDS, DECISIONS, OWNER_WAITS, PROJECTION_TYPES, REDUCED_IN_ORDER } from './projection-types.js'
 export type { ReadProjection } from './projection-types.js'
@@ -126,27 +126,6 @@ export interface OwnerWait {
   since: string
   lifter: Extract<WaitLifter, 'owner' | 'window'>
   decision: string | null
-}
-
-const OPEN_OWNER_WAITS = `
-  SELECT wait.id, wait.need, wait.text, wait.command, wait.card_id AS card, wait.pr, wait.opened_at AS since,
-    (SELECT json_extract(opened.payload, '$.decision') FROM events AS opened WHERE opened.dedupe_key = '${OWNER_WAIT_OPENED}:' || wait.id AND opened.type = '${OWNER_WAIT_OPENED}' AND json_valid(opened.payload)) AS decision
-  FROM ${OWNER_WAITS} AS wait
-  WHERE wait.state = '${OPEN_WAIT}'
-    AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${OWNER_WAIT_CLOSED}' AND closed.legacy = 0 AND json_valid(closed.payload) AND json_extract(closed.payload, '$.id') = wait.id)
-  ORDER BY CAST(substr(wait.id, 2) AS INTEGER), wait.id
-`
-
-function liftedBy(decision: string | null): OwnerWait['lifter'] {
-  return decision === null ? 'owner' : 'window'
-}
-
-export function openOwnerWaits(db: DatabaseSync): OwnerWait[] {
-  return (db.prepare(OPEN_OWNER_WAITS).all() as unknown as Omit<OwnerWait, 'lifter'>[]).map(row => ({ ...row, lifter: liftedBy(row.decision) }))
-}
-
-export function lastReducedOwnerWaits(db: DatabaseSync): LastReduced<OwnerWait[]> {
-  return readLastReduced(db, [OWNER_WAITS], () => openOwnerWaits(db))
 }
 
 const LATEST_ASSIGNMENT = `SELECT id, json_extract(payload, '$.lane') AS lane, json_extract(payload, '$.reason') AS reason, json_extract(payload, '$.after') AS after FROM events WHERE legacy = 0 AND type = '${LANE_ASSIGNED}' AND card_id = ? ORDER BY id DESC LIMIT 1`

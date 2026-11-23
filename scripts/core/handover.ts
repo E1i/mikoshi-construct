@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Handover } from './executor-holds.js'
-import type { HeldLease, HolderStart, Lease, LeaseOrder } from './lease.js'
+import type { HeldLease, HolderStart, Lease, LeaseOrder, PullHead } from './lease.js'
 import type { ChildEnd, ChildStart, InstanceOf, ProcessIdentity, WorkerIdentity } from './node.js'
 import type { StoredEvent } from './stored.js'
 import { appendEvent } from './db.js'
@@ -14,7 +14,7 @@ export const INSTANCE_VARIABLE = 'BUS_INSTANCE'
 export const GENERATION_VARIABLE = 'BUS_GENERATION'
 export const UNHANDED = 'unhanded'
 
-type LeasedQueue = Parameters<typeof leaseNext>[2]
+type LeasedQueue = Parameters<typeof leaseNext>[3]
 
 export type EventsOf = (pattern: readonly string[]) => readonly StoredEvent[]
 
@@ -119,8 +119,8 @@ export function prTree(pr: number | null): string | null {
   return pr === null ? null : `pr:${pr}`
 }
 
-export function leaseHandedOver(db: DatabaseSync, events: EventsOf, ts: string, queue: LeasedQueue, actor: string, order: LeaseOrder | undefined, alive: ExecutorAlive | undefined): Lease | null {
-  return leaseNext(db, ts, queue, actor, order, heldByLiveExecutors(events, alive))
+export function leaseHandedOver(db: DatabaseSync, pulls: readonly PullHead[], events: EventsOf, ts: string, queue: LeasedQueue, actor: string, order: LeaseOrder | undefined, alive: ExecutorAlive | undefined): Lease | null {
+  return leaseNext(db, pulls, ts, queue, actor, order, heldByLiveExecutors(events, alive))
 }
 
 export function unstartedOf(held: readonly HeldLease[], started: readonly StoredEvent[]): string[] {

@@ -1,6 +1,7 @@
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { cardTransitions, deriveQueuesOfTheBus, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
@@ -34,7 +35,7 @@ function updatedPullRequest(): MergeBench {
   mainMovesPastEveryPr(bench)
   detectUpdate(bench)
   bench.gitHub.updatedHead = UPDATED_HEAD
-  executor.update(leaseNext(bench.db, bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')!)
+  executor.update(leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')!)
   return bench
 }
 

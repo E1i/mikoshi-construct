@@ -1,3 +1,4 @@
+import os from 'node:os'
 import path from 'node:path'
 
 export interface CardGrant {
@@ -8,11 +9,19 @@ export interface CardGrant {
   homeWrites: readonly string[]
 }
 
+const SANDBOX_UID = os.userInfo().uid
+
+export const GRANT_SCRATCH_DIRECTORY = `/tmp/claude-${SANDBOX_UID}/codex-live-hooks`
+
+export const GRANT_SCRATCH_SPELLINGS = [GRANT_SCRATCH_DIRECTORY, `/private${GRANT_SCRATCH_DIRECTORY}`] as const
+
+const scratchFileRules = GRANT_SCRATCH_SPELLINGS.flatMap(scratch => [`Write(/${scratch}/**)`, `Edit(/${scratch}/**)`])
+
 export const CARD_GRANTS: readonly CardGrant[] = [
   {
     card: 2156,
     decision: 'D-705',
-    allow: ['Bash(codex *)', 'Bash(git init $TMPDIR/*)', 'Bash(mkdir $TMPDIR/*)', 'Bash(mkdir -p $TMPDIR/*)'],
+    allow: ['Bash(codex *)', `Bash(mkdir -p ${GRANT_SCRATCH_DIRECTORY})`, `Bash(mkdir ${GRANT_SCRATCH_DIRECTORY})`, `Bash(git init ${GRANT_SCRATCH_DIRECTORY})`, ...scratchFileRules],
     domains: ['api.openai.com', 'chatgpt.com', 'auth.openai.com'],
     homeWrites: ['.codex'],
   },

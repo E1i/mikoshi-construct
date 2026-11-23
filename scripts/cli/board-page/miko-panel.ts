@@ -1,9 +1,9 @@
 import type { BusService, CrawlerReading } from '../../../src/commands/board/bus.js'
-import type { Daemon } from './daemon-catalog.js'
+import type { Daemon, WindowGrants } from './daemon-catalog.js'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
-import { DAEMON_READER, daemonCatalog, installedDaemons, LOADED_SOURCE } from './daemon-catalog.js'
+import { DAEMON_READER, daemonCatalog, DISK_CATALOG, installedDaemons, LOADED_SOURCE, windowGrants } from './daemon-catalog.js'
 import { compact, escaped, minutesBetween } from './session-card.js'
 
 export interface MikoWords {
@@ -83,8 +83,8 @@ export function mikoMode(root: string, exists: (file: string) => boolean, home: 
   return { hijacked: exists(path.join(root, ATTACH_RECORD)), path: homeShort(root, home) }
 }
 
-export function mikoBay(root: string, loadedSkills: readonly string[], lore: DaemonWords, exists: (file: string) => boolean = existsSync, home: string = homedir()): MikoBay {
-  return { mode: mikoMode(root, exists, home), daemons: { daemons: installedDaemons(daemonCatalog(root), loadedSkills), reader: DAEMON_READER, loadedIn: LOADED_SOURCE }, lore }
+export function mikoBay(root: string, loadedSkills: readonly string[], lore: DaemonWords, exists: (file: string) => boolean = existsSync, home: string = homedir(), grants: WindowGrants = windowGrants(root, home)): MikoBay {
+  return { mode: mikoMode(root, exists, home), daemons: { daemons: installedDaemons(daemonCatalog(root, DISK_CATALOG, home), loadedSkills, grants), reader: DAEMON_READER, loadedIn: LOADED_SOURCE }, lore }
 }
 
 function modeLine(mode: MikoMode, lore: DaemonWords): string {
@@ -92,8 +92,16 @@ function modeLine(mode: MikoMode, lore: DaemonWords): string {
   return `<div class="svc-line miko-where">${chip}<span>${escaped(lore.boardMikoWhere(mode.hijacked, mode.path))}</span></div>`
 }
 
+function runs(daemon: Daemon): boolean {
+  return daemon.installed && daemon.loaded
+}
+
 function daemonState(daemon: Daemon): string {
-  return daemon.loaded ? 'loaded' : 'sleep'
+  return runs(daemon) ? 'loaded' : 'sleep'
+}
+
+function installedMark(daemon: Daemon): string {
+  return daemon.installed ? '' : ' data-installed="false"'
 }
 
 export function sdCard(daemon: Daemon): string {
@@ -106,20 +114,20 @@ export function longestName(daemons: readonly Daemon[]): number {
 }
 
 function daemonSlot(daemon: Daemon, index: number, lore: DaemonWords): string {
-  return `<li class="daemon-slot" data-daemon-slot="${escaped(daemon.daemon)}" data-state="${daemonState(daemon)}" tabindex="0"><span class="slot-bay">${sdCard(daemon)}</span><span class="slot-foot"><i class="slot-led"></i>${escaped(lore.boardDaemonSlot(index + 1))}</span></li>`
+  return `<li class="daemon-slot" data-daemon-slot="${escaped(daemon.daemon)}" data-state="${daemonState(daemon)}"${installedMark(daemon)} tabindex="0"><span class="slot-bay">${sdCard(daemon)}</span><span class="slot-foot"><i class="slot-led"></i>${escaped(lore.boardDaemonSlot(index + 1))}</span></li>`
 }
 
 function daemonPane(daemon: Daemon, shown: boolean, lore: DaemonWords): string {
   const mutations = daemon.mutations.map(mutation => `<li>${escaped(mutation)}</li>`).join('')
-  return `<div class="daemon-pane" data-daemon-pane="${escaped(daemon.daemon)}" data-state="${daemonState(daemon)}"${shown ? ' data-default data-shown' : ''}><span class="pane-name">${escaped(daemon.daemon)}</span><span class="pane-tag">${escaped(lore.boardDaemonState(daemon.loaded))}</span><span class="pane-head">${escaped(lore.boardDaemonMutations(daemon.mutations.length))}</span><ul class="pane-mutations">${mutations}</ul></div>`
+  return `<div class="daemon-pane" data-daemon-pane="${escaped(daemon.daemon)}" data-state="${daemonState(daemon)}"${installedMark(daemon)}${shown ? ' data-default data-shown' : ''}><span class="pane-name">${escaped(daemon.daemon)}</span><span class="pane-tag">${escaped(lore.boardDaemonState(runs(daemon)))}</span><span class="pane-head">${escaped(lore.boardDaemonMutations(daemon.mutations.length))}</span><ul class="pane-mutations">${mutations}</ul></div>`
 }
 
 export function daemonsCell(reading: DaemonsReading, lore: DaemonWords): string {
   const { daemons } = reading
-  const head = `<div class="daemons-head"><span class="daemons-title">${escaped(lore.boardDaemonsHead.title)}</span><span class="daemons-chip">${escaped(lore.boardDaemonsHead.installed(daemons.length))}</span></div>`
+  const head = `<div class="daemons-head"><span class="daemons-title">${escaped(lore.boardDaemonsHead.title)}</span><span class="daemons-chip">${escaped(lore.boardDaemonsHead.installed(daemons.filter(daemon => daemon.installed).length))}</span></div>`
   if (daemons.length === 0)
     return `<div class="miko-daemons bevel">${head}<div class="svc-line daemons-unread">${escaped(lore.boardDaemonsUnread(reading.reader, reading.loadedIn))}</div></div>`
-  const shown = daemons.find(daemon => daemon.loaded) ?? daemons[0]!
+  const shown = daemons.find(runs) ?? daemons[0]!
   return `<div class="miko-daemons bevel">${head}<div class="daemons-bay"><ol class="daemon-slots" style="--_chars: ${longestName(daemons)}">${daemons.map((daemon, index) => daemonSlot(daemon, index, lore)).join('')}</ol><div class="daemon-status">${daemons.map(daemon => daemonPane(daemon, daemon === shown, lore)).join('')}</div></div></div>`
 }
 

@@ -2,11 +2,12 @@ import type { Lease } from '../../core/lease.js'
 import type { FakePull } from './github-fake.js'
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { openOwnerWaits } from '../../core/bus-readings.js'
+import { openOwnerWaits } from '../../core/card-readings.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, QUESTION_AGENT } from '../../core/events.js'
 import { taskKey } from '../../core/identifiers.js'
 import { completeTask, leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask } from '../../core/queue.js'
 import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
 import { AnswerSources } from '../../nodes/answer/duties/source.js'
@@ -140,7 +141,7 @@ describe('a dependency merge returns the dependent card (owner s631)', () => {
     expect(card.answersOfTheCard()).toEqual([])
 
     const executor = updateExecutor(card.bench)
-    const lease = leaseNext(card.bench.db, card.bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')
+    const lease = leaseNext(card.bench.db, pullRequests(card.bench.db), card.bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')
     expect(lease).toMatchObject({ taskKey: update })
     expect(executor.update(lease!)).toMatchObject({ kind: 'updated', from: OLD_HEAD, to: UPDATED_HEAD })
     card.bench.tick()
@@ -206,7 +207,7 @@ describe('a dependency merge returns the dependent card (owner s631)', () => {
     vi.spyOn(console, 'log').mockImplementation(() => {})
     const ts = card.bench.clock.now().toISOString()
     queueTask(card.bench.db, ts, { queue: 'update', cardId: CARD, pr: PR, head: OLD_HEAD })
-    completeTask(card.bench.db, cardTransitions(), ts, leaseNext(card.bench.db, ts, 'update', 'worker:update:worker-1')!, [])
+    completeTask(card.bench.db, cardTransitions(), ts, leaseNext(card.bench.db, pullRequests(card.bench.db), ts, 'update', 'worker:update:worker-1')!, [])
     expect(taskState(card.bench.db, taskKey({ queue: 'update', cardId: CARD, pr: PR, head: OLD_HEAD }))).toMatchObject({ state: 'completed' })
 
     mergeTheDependency(card.bench)
@@ -229,7 +230,7 @@ describe('a dependency merge returns the dependent card (owner s631)', () => {
     expect(updatesOfThePr(card.bench)).toEqual([OLD_HEAD])
 
     card.bench.gitHub.updatedHead = OLD_HEAD
-    updateExecutor(card.bench).update(leaseNext(card.bench.db, card.bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')!)
+    updateExecutor(card.bench).update(leaseNext(card.bench.db, pullRequests(card.bench.db), card.bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')!)
     card.bench.tick()
     card.bench.tick()
     detectUpdate(card.bench)
@@ -274,7 +275,7 @@ describe('a dependency merge returns the dependent card (owner s631)', () => {
     expect(updatesOfThePr(card.bench)).toEqual([OLD_HEAD])
 
     admitted(card.bench, [DEPENDENCY, OTHER_DEPENDENCY], 'admission-2')
-    const lease = leaseNext(card.bench.db, card.bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')
+    const lease = leaseNext(card.bench.db, pullRequests(card.bench.db), card.bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')
 
     expect(updateExecutor(card.bench).update(lease!)).toMatchObject({ kind: 'denied' })
     expect(card.bench.gitHub.pulls.get(PR)!.head).toBe(OLD_HEAD)
@@ -287,7 +288,7 @@ describe('a dependency merge returns the dependent card (owner s631)', () => {
     expect(updatesOfThePr(card.bench)).toEqual([OLD_HEAD])
 
     card.bench.gitHub.pulls.get(PR)!.mergeable_state = 'dirty'
-    const lease = leaseNext(card.bench.db, card.bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')
+    const lease = leaseNext(card.bench.db, pullRequests(card.bench.db), card.bench.clock.now().toISOString(), 'update', 'worker:update:worker-1')
 
     expect(updateExecutor(card.bench).update(lease!)).toMatchObject({ kind: 'denied' })
     expect(card.bench.gitHub.pulls.get(PR)!.head).toBe(OLD_HEAD)

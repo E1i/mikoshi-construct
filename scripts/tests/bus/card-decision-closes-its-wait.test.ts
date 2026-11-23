@@ -9,6 +9,7 @@ import { appendEvent, closeOwnerWait, openOwnerWait } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OPEN_QUESTION, OUTSIDE_TOUCHES, OWNER_WAIT_CLOSED, QUESTION_AGENT } from '../../core/events.js'
 import { ANSWER_SOURCE } from '../../core/inbox.js'
 import { completeTask, leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { QUEUE_ACTOR } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { heldSessionStop } from '../../nodes/launch/launch-worker.js'
@@ -60,7 +61,7 @@ function stoppedByItsAgent(stop: Record<string, unknown> = { reason: QUESTION_AG
   made.tick()
   appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_STOPPED, actor: 'worker:launch:launch-1', cardId: CARD, pr: withAPr ? PR : null, head: withAPr ? sha('a') : null, dedupeKey: `${CARD_STOPPED}:${CARD}`, payload: stop, legacy: false })
   made.tick()
-  const round = leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')
+  const round = leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')
   if (round !== null)
     completeTask(made.db, cardTransitions(), made.clock.now().toISOString(), round, [])
   const wait = openOwnerWait(made.db, made.clock.now().toISOString(), 'worker:answer:worker-1', { need: 'decision', text: `card #${CARD} waits for the owner: an answer round after its ${QUESTION_AGENT} stop left nothing`, command: cardDecisionCommand(CARD), card: CARD, ...(withAPr ? { pr: PR } : {}) })

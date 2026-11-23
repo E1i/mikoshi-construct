@@ -11,6 +11,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_OPENED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer, KNOWN_VIOLATIONS, ownerQuestionPath } from '../../nodes/answer/answerer.js'
@@ -118,7 +119,7 @@ async function answerWith(rounds: Round[], moves: boolean): Promise<Answering> {
   made.tick()
   const stop = Number((made.db.prepare('SELECT max(id) AS id FROM events WHERE type = ?').get(CARD_STOPPED) as { id: number }).id)
   queueTask(made.db, made.clock.now().toISOString(), { queue: 'answer', cardId: CARD, stop })
-  const lease = leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') as Lease
+  const lease = leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') as Lease
   const dir = path.join(home, 'answers')
   const heads = moves ? [sha('a'), sha('e')] : [sha('a'), sha('a')]
   const prompts: string[] = []

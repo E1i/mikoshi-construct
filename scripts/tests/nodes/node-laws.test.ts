@@ -35,6 +35,7 @@ import { completeTask, leaseNext, recordWorkerStarted } from '../../core/lease.j
 import { MachineSessions } from '../../core/machine-sessions.js'
 import { Node } from '../../core/node.js'
 import { ownerMoveCommand } from '../../core/owner-commands.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { keyOf, queueTask, queueTaskWithin } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
@@ -359,7 +360,7 @@ function abandonedRunIsRerun(): void {
       throw new Error('a required red only from abandoned jobs queued an answer')
     for (const task of updateCandidates(db, ts, updateParts()).filter(each => each.pr === 1493))
       queueTaskWithin(db, ts, task)
-    const lease = leaseNext(db, ts, 'update', 'worker:update:worker-1')
+    const lease = leaseNext(db, pullRequests(db), ts, 'update', 'worker:update:worker-1')
     if (lease === null)
       throw new Error('a required red only from abandoned jobs queued no rerun')
     new UpdateNodeUnderWitness({ silentMs: SILENT_MS, db, gitHub: client, put: gitHub.put, post: gitHub.post, publish: gitHub.publish, clock: clock.now, settle: () => {}, session: 'update-node-1', mode: 'live', env: {} }).handleUnderWitness(lease)

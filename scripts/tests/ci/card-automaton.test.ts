@@ -8,6 +8,7 @@ import * as cards from '../../core/card-automaton.js'
 import { appendEvent, openOwnerWait } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_DEFERRED, CARD_FELL, CARD_STARTED, CARD_STOPPED, GHOST_ROW, QUESTION_OWNER, REVIEW_RECORDED } from '../../core/events.js'
 import { completeTask, leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { cardBodyShaOfCard, queueTask, reviewCandidates } from '../../core/queue.js'
 import { candidateRules, cardAutomaton, cardTransitions, namedQueueSources, nodeCandidates, queuePass, queueSources } from '../../supervisor/composition.js'
 import { cardBody } from '../bus/github-fake.js'
@@ -44,7 +45,7 @@ function admitted(bench: MergeBench, cardId = CARD, contour = 'cheap'): number {
 function launched(bench: MergeBench, outcome: (actor: string) => BusEvent[]): void {
   const ts = bench.clock.now().toISOString()
   const actor = 'worker:launch:fixture'
-  const lease = leaseNext(bench.db, ts, 'launch', actor)!
+  const lease = leaseNext(bench.db, pullRequests(bench.db), ts, 'launch', actor)!
   completeTask(bench.db, cardTransitions(), ts, lease, outcome(actor))
   bench.tick()
 }
@@ -64,7 +65,7 @@ function started(bench: MergeBench, contour = 'cheap'): number {
 function launchLeasedWithItsSessionLive(bench: MergeBench): number {
   admitted(bench)
   const ts = bench.clock.now().toISOString()
-  const lease = leaseNext(bench.db, ts, 'launch', 'worker:launch:fixture')!
+  const lease = leaseNext(bench.db, pullRequests(bench.db), ts, 'launch', 'worker:launch:fixture')!
   appendEvent(bench.db, startEvent(bench, lease.actor, SESSION_PID))
   bench.tick()
   return CARD
@@ -90,7 +91,7 @@ function verdict(bench: MergeBench, said: 'pass' | 'changes'): void {
   for (const task of reviewCandidates(bench.db, ts, candidateRules()).filter(task => task.cardId === CARD))
     queueTask(bench.db, ts, task)
   const actor = 'worker:review:fixture'
-  const lease = leaseNext(bench.db, ts, 'review', actor)!
+  const lease = leaseNext(bench.db, pullRequests(bench.db), ts, 'review', actor)!
   completeTask(bench.db, cardTransitions(), ts, lease, [{ ts, type: REVIEW_RECORDED, actor, cardId: CARD, pr: PR, head: lease.head, dedupeKey: `${REVIEW_RECORDED}:fixture:${said}`, payload: { head: lease.head, verdict: said, card_body: cardBodyShaOfCard(bench.db, CARD), reviewer_session: 'fixture', findings: said === 'pass' ? [] : ['a defect'] }, legacy: false }])
   bench.gitHub.open({ ...bench.gitHub.pulls.get(PR)!, review: said === 'pass' ? 'success' : 'failure' })
   bench.tick()

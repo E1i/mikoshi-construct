@@ -11,6 +11,7 @@ import { appendEvent, closeOwnerWait } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_CONTINUED, CARD_STARTED, CARD_STOPPED, OPEN_QUESTION, OUTSIDE_TOUCHES, OWNER_WAIT_OPENED, QUESTION_AGENT, TASK_RELEASED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { MachineSessions } from '../../core/machine-sessions.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
@@ -191,7 +192,7 @@ describe('z8: a session stop is recorded in the bus and decides the continuation
       return { session: `answer-${sessions}`, resumed: false, atContextWarn: true, before: sha('a'), after: sha('a'), owner: OUTSIDE_QUESTION }
     }, ownerMerges: () => '', clock: made.clock.now, trees: { home: trees, exists: () => true, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null, prepare: () => {}, changedInTheTree: () => [TOUCHED, READER] })
 
-    const outcome = await executor.answer(leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') as Lease)
+    const outcome = await executor.answer(leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') as Lease)
 
     expect(sessions).toBe(1)
     expect(outcome).toMatchObject({ kind: 'stopped', reason: QUESTION_AGENT })

@@ -14,6 +14,7 @@ import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, POLICY_DENIED, PR_OBSERVED, PR_OPENED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { reportPath, treeReportPath } from '../../core/places.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask } from '../../core/queue.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { treePublishing } from '../../nodes/answer/answer-worker.js'
@@ -67,7 +68,7 @@ function stoppedCardWithoutAPullRequest(after = sha('a')): Bench {
   queueTask(made.db, ts, { queue: 'answer', cardId: CARD, stop })
   const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
   const answerer: Answerer = async () => ({ session: SESSION, resumed: true, before: sha('a'), after, owner: null })
-  const lease = (): Lease => leaseNext(made.db, made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
+  const lease = (): Lease => leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
   const answer = async (publish: () => void, committed = true, dirty = false): Promise<AnswerOutcome> => {
     const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, trees: cardTrees, dirty: () => dirty, liveSession: () => null, publishing: { committed: () => committed, publish } })
     return executor.answer(lease())

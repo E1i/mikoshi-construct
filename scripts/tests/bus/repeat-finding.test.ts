@@ -6,6 +6,7 @@ import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
 import { AMEND_SOURCE } from '../../../src/commands/intake/admit.js'
 import { admittedRecord } from '../../../src/commands/intake/index.js'
 import { appendCardEvent } from '../../core/card-bodies.js'
+import { closedWaitIds } from '../../core/card-readings.js'
 import { REVIEW_RECORDED } from '../../core/events.js'
 import { REVIEW_ROUNDS } from '../../core/identifiers.js'
 import { busHeldCards } from '../../intake/intake.js'
@@ -76,7 +77,7 @@ function fixture(decision = 'owner'): Fixture {
     return { status: 201, headers: {}, body: { number } }
   }
   const gitHub: GitHub = endpoint => endpoint.startsWith(ISSUES) ? { status: 200, headers: {}, body: [{ number: Math.max(...bench.gitHub.pulls.keys()) }] } : bench.gitHub.client(endpoint)
-  const recutter = new RoundLimitRecutter({ db: bench.db, gitHub, post, patch: bench.gitHub.patch, clock: bench.clock.now, cardStates: () => busHeldCards(bench.db) })
+  const recutter = new RoundLimitRecutter({ db: bench.db, gitHub, post, patch: bench.gitHub.patch, clock: bench.clock.now, cardStates: () => busHeldCards(bench.db), closedWaits: () => closedWaitIds(bench.db) })
   const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, reviewer: async () => ({ verdict: 'changes', findings: reviewer.findings, session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: bench.clock.now, session: 'worker-1', notePr: (pr, line) => notes.push([pr, line]), recut: { recut: (at) => {
     const outcome = recutter.recut(at)
     recuts.push(outcome)

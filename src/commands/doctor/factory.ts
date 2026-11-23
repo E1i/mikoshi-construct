@@ -9,6 +9,7 @@ import { namesQueueLive } from '../../../scripts/policy/live-decision.js'
 import { FACTORY_MANIFEST } from '../../../scripts/policy/touch-scope.js'
 import { readManifest, recordedShas } from '../../manifest.js'
 import { MIKOSHI_PNPM, pinnedPnpm } from '../../presets/index.js'
+import { allowRule, shippedDaemonCommands } from '../attach/daemon-commands.js'
 import { browserLabExcludedCommand, browserLabInstalledScript, cardTreeGitWrites, HOME_PREFIX } from '../attach/settings.js'
 import { factoryLiveness } from '../liveness.js'
 import { FileReadings } from './readings.js'
@@ -301,8 +302,18 @@ function plainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function sandboxOnlyExcludesTheLab(sandbox: unknown, home: string): boolean {
-  return plainObject(sandbox) && Object.keys(sandbox).length === 1 && Array.isArray(sandbox.excludedCommands) && sandbox.excludedCommands.length === 1 && sandbox.excludedCommands[0] === browserLabExcludedCommand(home)
+function holdsOnly(list: unknown, granted: readonly string[]): boolean {
+  return Array.isArray(list) && list.length > 0 && list.every(entry => typeof entry === 'string' && granted.includes(entry))
+}
+
+function sandboxOnlyExcludesDaemons(sandbox: unknown, commands: readonly string[]): boolean {
+  return plainObject(sandbox) && Object.keys(sandbox).length === 1 && holdsOnly(sandbox.excludedCommands, commands)
+}
+
+function widensPermissions(permissions: Record<string, unknown>, commands: readonly string[]): boolean {
+  if (present(permissions.allow) && !holdsOnly(permissions.allow, commands.map(allowRule)))
+    return true
+  return WIDENING_PERMISSIONS.some(key => key !== 'allow' && present(permissions[key]))
 }
 
 function widensCardSessions(readings: FileReadings, home: string): boolean {
@@ -314,8 +325,9 @@ function widensCardSessions(readings: FileReadings, home: string): boolean {
   const permissions = local.permissions ?? {}
   if (!plainObject(permissions))
     return true
-  const widensSandbox = local.sandbox !== undefined && !sandboxOnlyExcludesTheLab(local.sandbox, home)
-  return widensSandbox || WIDENING_PERMISSIONS.some(key => present(permissions[key]))
+  const commands = shippedDaemonCommands(home)
+  const widensSandbox = local.sandbox !== undefined && !sandboxOnlyExcludesDaemons(local.sandbox, commands)
+  return widensSandbox || widensPermissions(permissions, commands)
 }
 
 function named(env: NodeJS.ProcessEnv, variable: string): string | null {

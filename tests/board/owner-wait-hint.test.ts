@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { openOwnerWaits } from '../../scripts/core/bus-readings.js'
+import { closedWaitIds, openOwnerWaits } from '../../scripts/core/card-readings.js'
 import { openBus, openBusWait } from '../../scripts/core/db.js'
 import { reduce } from '../../scripts/core/reducer.js'
 import { allowLiveCommand } from '../../scripts/policy/live-decision.js'
@@ -74,10 +74,10 @@ describe('the owner wait hint is owner:answer', () => {
     roots.push(root)
     const db = openBus(path.join(root, 'bus.db'))
     try {
-      const decision = openBusWait(db, SINCE, 'policy', { need: 'decision', text: 'which path?', card: 1937, pr: 671 })
-      const merge = openBusWait(db, SINCE, 'policy', { need: 'merge', text: 'changes security invariants', card: 1937, pr: 669 })
-      const roundLimit = openBusWait(db, SINCE, 'policy', { need: 'decision', text: 'past the round limit', card: 1938, pr: 670 })
-      const live = openBusWait(db, SINCE, 'policy', { need: 'command', text: 'the merge queue merges unswitched', command: allowLiveCommand('merge') })
+      const decision = openBusWait(db, closedWaitIds(db), SINCE, 'policy', { need: 'decision', text: 'which path?', card: 1937, pr: 671 })
+      const merge = openBusWait(db, closedWaitIds(db), SINCE, 'policy', { need: 'merge', text: 'changes security invariants', card: 1937, pr: 669 })
+      const roundLimit = openBusWait(db, closedWaitIds(db), SINCE, 'policy', { need: 'decision', text: 'past the round limit', card: 1938, pr: 670 })
+      const live = openBusWait(db, closedWaitIds(db), SINCE, 'policy', { need: 'command', text: 'the merge queue merges unswitched', command: allowLiveCommand('merge') })
       reduce(db, 'pending', busProjections())
       const recorded = openOwnerWaits(db).map(wait => [wait.id, wait.command])
       expect(recorded).toEqual([[decision, answers(decision)], [merge, merges(669)], [roundLimit, answers(roundLimit)], [live, answers(live)]])

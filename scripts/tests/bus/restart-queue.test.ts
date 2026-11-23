@@ -12,6 +12,7 @@ import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_STARTED } from '../../core/events.js'
 import { taskKey } from '../../core/identifiers.js'
 import { expireLeases, LEASE_MS, leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { RestartExecutor } from '../../nodes/restart/restart-executor.js'
 import { launchSwitchedOn, restartStepLine, RestartWorker, runRestartWorker } from '../../nodes/restart/restart-worker.js'
@@ -71,7 +72,7 @@ function restartBench() {
       bench.gitHub.mainFiles = { [MAIN_2]: files }
       bench.gitHub.main = MAIN_2
     },
-    leaseRestart: (actor = 'worker:restart:worker-1'): Lease | null => leaseNext(bench.db, bench.clock.now().toISOString(), 'restart', actor),
+    leaseRestart: (actor = 'worker:restart:worker-1'): Lease | null => leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'restart', actor),
     restart: (lease: Lease) => executor.restart(lease),
   }
 }

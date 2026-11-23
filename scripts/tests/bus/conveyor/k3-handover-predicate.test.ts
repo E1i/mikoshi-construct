@@ -13,6 +13,7 @@ import { aliveBy, heldByLiveExecutors, leaseHandedOver, prTree, releaseUnstarted
 import { taskKey } from '../../../core/identifiers.js'
 import { expireLeases, leaseNext, retireHolders } from '../../../core/lease.js'
 import { eventsIn, GENERATION_VARIABLE, INSTANCE_VARIABLE, recordChildEnded, recordChildStarted, recordWorkerIdentity } from '../../../core/node.js'
+import { all as pullRequests } from '../../../core/pr-readings.js'
 import { queueTask } from '../../../core/queue.js'
 import { reduce } from '../../../core/reducer.js'
 import { BusRead } from '../../../ports/bus-read.js'
@@ -41,6 +42,7 @@ import { assertHeld, completeTask, StaleLease } from '${ROOT}/scripts/core/lease
 import { busWriteAt, ChildLog, Node } from '${ROOT}/scripts/core/node.ts'
 import { cardTransitions } from '${ROOT}/scripts/supervisor/composition.ts'
 import { ownIdentity, tableIdentity } from '${ROOT}/scripts/supervisor/recorded-worker.ts'
+import { all as pullRequests } from '${ROOT}/scripts/core/pr-readings.ts'
 
 const config = JSON.parse(process.env.K3_WORKER)
 
@@ -112,6 +114,7 @@ const supply = {
   ownIdentity: () => ownIdentity(),
   identityOf: tableIdentity(),
   refuses: () => null,
+  pullRequests,
 }
 const node = new StandInNode(config.kind, { db: openBus(config.bus), clock: () => new Date(), session: config.session, mode: 'live', env: process.env, silentMs: 600000, supply })
 await node.run({ pause: ms => sleep(ms), supply })
@@ -335,9 +338,9 @@ describe('k3: the handover predicate over the recorded executors', () => {
     const key = taskKey({ queue: 'answer', cardId: 1 })
     queueTask(db, ts(), { queue: 'answer', cardId: 1 })
     register(db, { mode: 'child', kind: 'answer', taskKey: key, pid: 11, tree: '/trees/1' })
-    expect(leaseHandedOver(db, eventsIn(db), ts(), 'answer', NEW_ACTOR, undefined, living(11))).toBeNull()
+    expect(leaseHandedOver(db, pullRequests(db), eventsIn(db), ts(), 'answer', NEW_ACTOR, undefined, living(11))).toBeNull()
     ended(db, key, 11)
-    expect(leaseHandedOver(db, eventsIn(db), ts(), 'answer', NEW_ACTOR, undefined, living(11))?.taskKey).toBe(key)
+    expect(leaseHandedOver(db, pullRequests(db), eventsIn(db), ts(), 'answer', NEW_ACTOR, undefined, living(11))?.taskKey).toBe(key)
   })
 
   it('an executor whose pid is gone or runs another start holds nothing; without a reader every registered executor holds its task', () => {
@@ -347,7 +350,7 @@ describe('k3: the handover predicate over the recorded executors', () => {
     register(db, { mode: 'child', kind: 'answer', taskKey: key, pid: 11, tree: '/trees/1' })
     expect(heldByLiveExecutors(eventsIn(db), undefined).tasks).toEqual([key])
     expect(heldByLiveExecutors(eventsIn(db), aliveBy(() => ({ lstart: '2026-11-16T11:00:00.000Z' }))).tasks).toEqual([])
-    expect(leaseHandedOver(db, eventsIn(db), ts(), 'answer', NEW_ACTOR, undefined, living())?.taskKey).toBe(key)
+    expect(leaseHandedOver(db, pullRequests(db), eventsIn(db), ts(), 'answer', NEW_ACTOR, undefined, living())?.taskKey).toBe(key)
   })
 
   it('a live witness command keeps its own task, which holds no card tree, and the task is leased once its child.ended is recorded', () => {
@@ -356,22 +359,22 @@ describe('k3: the handover predicate over the recorded executors', () => {
     queueTask(db, ts(), { queue: 'witness', cardId: 1 })
     register(db, { mode: 'child', kind: 'witness', taskKey: key, pid: 11, tree: '/trees/1' })
     expect(heldByLiveExecutors(eventsIn(db), living(11))).toEqual({ tasks: [key], cards: [], prs: [] })
-    expect(leaseHandedOver(db, eventsIn(db), ts(), 'witness', NEW_ACTOR, undefined, living(11))).toBeNull()
+    expect(leaseHandedOver(db, pullRequests(db), eventsIn(db), ts(), 'witness', NEW_ACTOR, undefined, living(11))).toBeNull()
     ended(db, key, 11)
-    expect(leaseHandedOver(db, eventsIn(db), ts(), 'witness', NEW_ACTOR, undefined, living(11))?.taskKey).toBe(key)
+    expect(leaseHandedOver(db, pullRequests(db), eventsIn(db), ts(), 'witness', NEW_ACTOR, undefined, living(11))?.taskKey).toBe(key)
   })
 
   it('a live answer session keeps the answer and launch tasks of its card, and a task of another card is leased', () => {
     const db = bus()
     const answer = taskKey({ queue: 'answer', cardId: 1 })
     queueTask(db, ts(), { queue: 'answer', cardId: 1 })
-    leaseNext(db, ts(), 'answer', OLD_ACTOR)
+    leaseNext(db, pullRequests(db), ts(), 'answer', OLD_ACTOR)
     register(db, { mode: 'child', kind: 'answer', taskKey: answer, pid: 11, tree: '/trees/1' })
     queueTask(db, ts(), { queue: 'launch', cardId: 1, generation: 'next' })
     queueTask(db, ts(), { queue: 'launch', cardId: 2 })
     expect(heldByLiveExecutors(eventsIn(db), living(11)).cards).toEqual([1])
-    expect(leaseHandedOver(db, eventsIn(db), ts(), 'launch', NEW_ACTOR, undefined, living(11))?.cardId).toBe(2)
-    expect(leaseHandedOver(db, eventsIn(db), ts(), 'launch', NEW_ACTOR, undefined, living(11))).toBeNull()
+    expect(leaseHandedOver(db, pullRequests(db), eventsIn(db), ts(), 'launch', NEW_ACTOR, undefined, living(11))?.cardId).toBe(2)
+    expect(leaseHandedOver(db, pullRequests(db), eventsIn(db), ts(), 'launch', NEW_ACTOR, undefined, living(11))).toBeNull()
   })
 
   it('a live inline executor keeps its pull request from every update, merge and close task, and another pull request is leased', () => {
@@ -382,13 +385,13 @@ describe('k3: the handover predicate over the recorded executors', () => {
     reduce(db, 'pending', busProjections())
     const update = { queue: 'update', cardId: 1, pr: 17, head } as const
     queueTask(db, ts(), update)
-    leaseNext(db, ts(), 'update', 'worker:update:old')
+    leaseNext(db, pullRequests(db), ts(), 'update', 'worker:update:old')
     register(db, { mode: 'inline', kind: 'update', taskKey: taskKey(update), pid: 11, tree: prTree(17) })
     queueTask(db, ts(), { queue: 'merge', cardId: 1, pr: 17, head })
     queueTask(db, ts(), { queue: 'merge', cardId: 2, pr: 18, head: other })
     expect(heldByLiveExecutors(eventsIn(db), living(11)).prs).toEqual([17])
-    expect(leaseHandedOver(db, eventsIn(db), ts(), 'merge', 'worker:merge:new', undefined, living(11))?.pr).toBe(18)
-    expect(leaseHandedOver(db, eventsIn(db), ts(), 'merge', 'worker:merge:new', undefined, living(11))).toBeNull()
+    expect(leaseHandedOver(db, pullRequests(db), eventsIn(db), ts(), 'merge', 'worker:merge:new', undefined, living(11))?.pr).toBe(18)
+    expect(leaseHandedOver(db, pullRequests(db), eventsIn(db), ts(), 'merge', 'worker:merge:new', undefined, living(11))).toBeNull()
   })
 
   it('a retiring worker releases retired_unstarted only its own leases with no child.started since they were leased', () => {
@@ -396,29 +399,29 @@ describe('k3: the handover predicate over the recorded executors', () => {
     queueTask(db, ts(), { queue: 'answer', cardId: 1 })
     queueTask(db, ts(), { queue: 'answer', cardId: 2 })
     queueTask(db, ts(), { queue: 'answer', cardId: 3 })
-    const started = leaseNext(db, ts(), 'answer', OLD_ACTOR)!
-    const deferred = leaseNext(db, ts(), 'answer', OLD_ACTOR)!
-    leaseNext(db, ts(), 'answer', NEW_ACTOR)
+    const started = leaseNext(db, pullRequests(db), ts(), 'answer', OLD_ACTOR)!
+    const deferred = leaseNext(db, pullRequests(db), ts(), 'answer', OLD_ACTOR)!
+    leaseNext(db, pullRequests(db), ts(), 'answer', NEW_ACTOR)
     register(db, { mode: 'child', kind: 'answer', taskKey: started.taskKey, pid: 11, tree: '/trees/1' })
     expect(releaseUnstarted(db, eventsIn(db), ts(), OLD_ACTOR)).toEqual([deferred.taskKey])
     expect(new BusRead(db).slice(TASK_RELEASED, ['task_key', 'reason']).map(each => ({ actor: each.actor, ...each.fields }))).toEqual([{ actor: OLD_ACTOR, task_key: deferred.taskKey, reason: RETIRED_UNSTARTED }])
     expect(releaseUnstarted(db, eventsIn(db), ts(), OLD_ACTOR)).toEqual([])
-    expect(leaseHandedOver(db, eventsIn(db), ts(), 'answer', NEW_ACTOR, undefined, living(11))?.taskKey).toBe(deferred.taskKey)
+    expect(leaseHandedOver(db, pullRequests(db), eventsIn(db), ts(), 'answer', NEW_ACTOR, undefined, living(11))?.taskKey).toBe(deferred.taskKey)
   })
 
   it('the new generation takes the later task while the retiring worker holds its lease-loop pass', () => {
     const db = bus()
     queueTask(db, ts(), { queue: 'answer', cardId: 1 })
     recordWorkerIdentity(db, ts(), { worker: OLD_ACTOR, pid: 21, started: STARTED, instance: 'old', generation: OLD_GENERATION, pgid: 21, lstart: STARTED })
-    const first = leaseNext(db, ts(), 'answer', OLD_ACTOR)!
+    const first = leaseNext(db, pullRequests(db), ts(), 'answer', OLD_ACTOR)!
     register(db, { mode: 'child', kind: 'answer', taskKey: first.taskKey, pid: 11, tree: '/trees/1' })
     const retiredMidPass = aliveBy((pid) => {
       if (retireHolders(db, ts(), { node: 'answer', pids: [21], sha: NEW_GENERATION, from: OLD_GENERATION }).length > 0)
         queueTask(db, ts(), { queue: 'answer', cardId: 2 })
       return pid === 11 ? { lstart: STARTED } : null
     })
-    expect(leaseHandedOver(db, eventsIn(db), ts(), 'answer', OLD_ACTOR, undefined, retiredMidPass)).toBeNull()
-    expect(leaseHandedOver(db, eventsIn(db), ts(), 'answer', NEW_ACTOR, undefined, living(11))?.cardId).toBe(2)
+    expect(leaseHandedOver(db, pullRequests(db), eventsIn(db), ts(), 'answer', OLD_ACTOR, undefined, retiredMidPass)).toBeNull()
+    expect(leaseHandedOver(db, pullRequests(db), eventsIn(db), ts(), 'answer', NEW_ACTOR, undefined, living(11))?.cardId).toBe(2)
   })
 
   it('generation.ended is recorded once, after the last process registered under the leaving generation has ended, and never for the current one', () => {

@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent } from '../../core/db.js'
 import { prBodySha, taskKey } from '../../core/identifiers.js'
 import { completeTask, leaseNext } from '../../core/lease.js'
+import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask, reviewCandidates, reviewKeysOfAnOldInput, reviewKeysOfTheCurrentInputAgain } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { busProjections, candidateRules, cardTransitions, deriveQueuesOfTheBus, openComposedBus } from '../../supervisor/composition.js'
@@ -126,10 +127,10 @@ describe('replay determinism', () => {
     reduce(source, 'pending', busProjections())
     const oldKeys = prs.map(pr => taskKey({ queue: 'review', cardId: pr - 100, pr, head: HEADS[0]! }))
     queueTask(source, '2026-10-09T12:00:30.000Z', { queue: 'review', cardId: 832, pr: 932, head: HEADS[0]! })
-    completeTask(source, cardTransitions(), '2026-10-09T12:00:40.000Z', leaseNext(source, '2026-10-09T12:00:35.000Z', 'review', 'worker:review:s0')!, [])
+    completeTask(source, cardTransitions(), '2026-10-09T12:00:40.000Z', leaseNext(source, pullRequests(source), '2026-10-09T12:00:35.000Z', 'review', 'worker:review:s0')!, [])
     for (const pr of [930, 931])
       queueTask(source, '2026-10-09T12:01:00.000Z', { queue: 'review', cardId: pr - 100, pr, head: HEADS[0]! })
-    expect(leaseNext(source, '2026-10-09T12:02:00.000Z', 'review', 'worker:review:s1')?.taskKey).toBe(oldKeys[0])
+    expect(leaseNext(source, pullRequests(source), '2026-10-09T12:02:00.000Z', 'review', 'worker:review:s1')?.taskKey).toBe(oldKeys[0])
     source.exec('ALTER TABLE prs DROP COLUMN body_sha')
     source.close()
     const copyFile = path.join(root, 'bus-copy.db')

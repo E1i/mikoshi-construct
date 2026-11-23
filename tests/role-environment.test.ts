@@ -10,6 +10,7 @@ import { HANDOFF_DIR_VARIABLE } from '../scripts/core/handoff-dir.js'
 import { OWNER_CHANNEL_HOME } from '../scripts/owner/channel.js'
 import { windowCommand } from '../scripts/ports/client/claude/adapter.js'
 import { shiftSettings } from '../scripts/ports/shift-settings.js'
+import { allowRule } from '../src/commands/attach/daemon-commands.js'
 import { browserLabExcludedCommand, browserLabInstalledScript, OWNER_CHANNEL_ENTRY, RECORDED_BY_AN_EARLIER_ATTACH, ROLE_DOMAINS, SETTINGS_FILE } from '../src/commands/attach/settings.js'
 import { browserLabStep, cardFirstSteps, factoryChecklist, LAB_ROLES, readStep, roleSituations, windowFirstSteps } from '../src/commands/doctor/factory.js'
 import { FileReadings } from '../src/commands/doctor/readings.js'
@@ -209,7 +210,7 @@ describe('browser-lab is called only at its installed path, and starts where a r
 
     applySync(made.dir, VERSION, made.home)
 
-    expect(readFileSync(path.join(made.dir, SETTINGS_FILE), 'utf8')).toBe(`{\n  "sandbox": {\n    "excludedCommands": [\n      "${entry}"\n    ]\n  },\n  "model": "opus"\n}\n`)
+    expect(readFileSync(path.join(made.dir, SETTINGS_FILE), 'utf8')).toBe(`{\n  "sandbox": {\n    "excludedCommands": [\n      "${entry}"\n    ]\n  },\n  "model": "opus",\n  "permissions": {\n    "allow": [\n      "${allowRule(entry)}"\n    ]\n  }\n}\n`)
     expect(json(made.dir, PROJECT_SETTINGS).sandbox.excludedCommands).toBeUndefined()
   })
 
