@@ -3679,6 +3679,7 @@
         "contract": [],
         "may_use": [],
         "owns": [
+          "scripts/core/built-entry.ts",
           "scripts/core/factory-paths.ts",
           "scripts/core/generated-files.ts",
           "scripts/core/declarations.ts",

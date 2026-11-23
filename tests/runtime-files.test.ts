@@ -6,6 +6,7 @@ import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { build } from 'tsup'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { builtEntry } from '../scripts/core/built-entry.js'
 import { FACTORY_RUNTIME, FACTORY_WORKERS } from '../scripts/core/factory-paths.js'
 import { readLayerMap } from '../scripts/core/layer-map.js'
 import { PLANNER_ARGUMENTS, REVIEW_PLANNER_SCRIPT } from '../scripts/ports/review-planner.js'
@@ -25,6 +26,13 @@ const SOURCE_LOADER = 'tsx'
 const REVIEW_PLANNER_PORT = 'scripts/ports/review-planner.ts'
 const LAYER_MAP_READER = 'scripts/core/layer-map.ts'
 const DAEMON_COMMANDS_READER = 'src/commands/attach/daemon-commands.ts'
+const ENTRY_FROM_A_TS_URL = /new URL\(\s*['`](\.{1,2}\/[^'`]*\.ts)['`],\s*[\w.]+\s*\)/g
+const THROUGH_BUILT_ENTRY = 'builtEntry('
+const WORKER_START = 'new Worker('
+const IMPORTS_BUILT_ENTRY = /^import \{[^}]*\bbuiltEntry\b[^}]*\} from '[./]+\/core\/built-entry\.js'$/m
+const BOARD_PAGE = 'scripts/cli/board-page.ts'
+const REDUCER_LOOP = 'scripts/supervisor/reducer-loop.ts'
+const REDUCER_THREAD = 'scripts/supervisor/reducer-thread.ts'
 
 function twinOf(source: string): string {
   return source.replace(SOURCE_MODULE, BUILT_MODULE)
@@ -107,6 +115,23 @@ describe('every runtime file and worker path resolves the same from the sources 
     const fromTheSources = readLayerMap()
     expect(built.globals).toEqual(fromTheSources.globals)
     expect(built.folders).toEqual(fromTheSources.folders)
+  })
+
+  it('every Worker or child entry built from a .ts URL resolves through built-entry and its .js twin ships in dist', () => {
+    const sources = factoryGraph().map(source => ({ source, text: readFileSync(path.join(ROOT, source), 'utf8') }))
+    const sites = sources.flatMap(({ source, text }) => [...text.matchAll(ENTRY_FROM_A_TS_URL)]
+      .map(match => ({ source, relative: match[1]!, resolved: text.slice(0, match.index).endsWith(THROUGH_BUILT_ENTRY) })))
+    expect(sites.filter(site => site.source === BOARD_PAGE).map(site => site.relative)).toEqual(['./board-page/timer.ts'])
+    expect(sites.filter(site => !site.resolved).map(site => `${site.source}: ${site.relative}`)).toEqual([])
+    expect(sources.filter(({ text }) => text.includes(WORKER_START) && !IMPORTS_BUILT_ENTRY.test(text)).map(({ source }) => source)).toEqual([])
+
+    const shipped = sites.map(({ source, relative }) => {
+      const module = pathToFileURL(path.join(dist, twinOf(source))).href
+      return builtEntry(new URL(relative, module), module)
+    })
+    expect(shipped.filter(entry => !entry.file.endsWith(BUILT_MODULE) || entry.loader.length > 0 || !existsSync(entry.file)).map(entry => entry.file)).toEqual([])
+    expect(readFileSync(path.join(ROOT, REDUCER_LOOP), 'utf8')).toMatch(IMPORTS_BUILT_ENTRY)
+    expect(existsSync(path.join(dist, twinOf(REDUCER_THREAD)))).toBe(true)
   })
 
   it('the factory build finds the shipped templates and reads the same daemon commands as the sources', () => {
