@@ -744,6 +744,7 @@
     "scripts/tests/contract/owner-reads/bus-domain.test.ts",
     "scripts/tests/contract/owner-reads/card-domain.test.ts",
     "scripts/tests/contract/owner-reads/card-reads-events-through-bus.test.ts",
+    "scripts/tests/contract/owner-reads/decisions-inbox.test.ts",
     "scripts/tests/contract/owner-reads/events-query.test.ts",
     "scripts/tests/contract/owner-reads/plan.test.ts",
     "scripts/tests/contract/permanent-suite-holds-on-any-base.test.ts",

@@ -1,7 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
-import { DECISIONS, readCurrent, staleLine } from './bus-readings.js'
-import { CARD_BODIES } from './card-bodies.js'
-import { CLOSED_WAIT, OWNER_WAITS } from './db.js'
+import type { EventRow } from './events-query.js'
+import { DECISIONS, OWNER_WAITS, readCurrent, staleLine } from './bus-readings.js'
+import { bodyAdmittedAfter, waitClosedBefore } from './card-readings.js'
+import { byId, EITHER_JOURNAL, events, latestOfCardWhere } from './events-query.js'
 import { CARD_ADMITTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, QUESTION_OWNER, SHARD_DECIDED, WINDOW_REQUEST } from './events.js'
 
 export { RESTART_MISSED } from './events.js'
@@ -9,140 +10,176 @@ export const OWNER = 'owner'
 export const ANSWER_SOURCE = 'answer'
 export const PREFIX = '[bus:inbox] '
 export const CARD_BLOCKS = 'card_blocks'
+export const OWNER_QUESTION_ANSWERED = 'owner_question_answered'
 
-function blocksIn(event: string): string {
-  return `coalesce(json_extract(${event}.payload, '$.card.blocks'), ${CARD_BLOCKS}(json_extract(${event}.payload, '$.card')))`
+export interface InboxPrReadings {
+  mergedAt: (db: DatabaseSync, cardId: number) => readonly number[]
 }
 
-function latestBlocksOf(card: string): string {
-  return `(SELECT ${blocksIn('line')} FROM events AS line
-      WHERE line.card_id = ${card} AND ${blocksIn('line')} IS NOT NULL ORDER BY line.id DESC LIMIT 1)`
+interface Stop {
+  id: number
+  card_id: number | null
+  pr: number | null
+  data: Record<string, unknown> | null
 }
 
-function blockersOf(stop: string): string {
-  return `SELECT DISTINCT named.card_id FROM events AS named
-      WHERE named.card_id IS NOT NULL AND named.payload LIKE '%#' || ${stop}.card_id || '%'
-        AND EXISTS (SELECT 1 FROM json_each(${latestBlocksOf('named.card_id')}) AS blocked WHERE blocked.value = ${stop}.card_id)`
+const A_NUMBER_LITERAL = /^\s*[+-]?\d+(?:\.\d+)?\s*$/
+
+function sameNumber(value: unknown, wanted: number): boolean {
+  if (typeof value === 'number')
+    return value === wanted
+  return typeof value === 'string' && A_NUMBER_LITERAL.test(value) && Number(value) === wanted
 }
 
-function everyBlockerMergedAfter(stop: string): string {
-  return `(EXISTS (
-      SELECT 1 FROM (${blockersOf(stop)}) AS blocking
-      JOIN prs AS blocker ON blocker.card_id = blocking.card_id AND blocker.state = 'merged' AND blocker.event_id > ${stop}.id
-    ) AND NOT EXISTS (
-      SELECT 1 FROM (${blockersOf(stop)}) AS waiting
-      WHERE NOT EXISTS (SELECT 1 FROM prs AS merged WHERE merged.card_id = waiting.card_id AND merged.state = 'merged')
-    ))`
+function sameOrBothAbsent(value: unknown, wanted: number | null): boolean {
+  return wanted === null ? value === undefined || value === null : sameNumber(value, wanted)
+}
+
+function blocksOfCardLine(db: DatabaseSync, card: unknown): unknown[] | null {
+  if (typeof card !== 'string')
+    return null
+  const blocks = (db.prepare(`SELECT ${CARD_BLOCKS}(?) AS blocks`).get(card) as { blocks: string | null }).blocks
+  return blocks === null ? null : JSON.parse(blocks) as unknown[]
+}
+
+function blocksIn(db: DatabaseSync, event: EventRow): unknown[] | null {
+  const card = event.data?.card
+  const written = typeof card === 'object' && card !== null ? (card as Record<string, unknown>).blocks : undefined
+  if (written !== undefined && written !== null)
+    return Array.isArray(written) ? written : [written]
+  return blocksOfCardLine(db, card)
+}
+
+function latestBlocksOf(db: DatabaseSync, cardId: number): unknown[] {
+  for (const line of events(db, { card: cardId, legacy: EITHER_JOURNAL, newestFirst: true })) {
+    const blocks = blocksIn(db, line)
+    if (blocks !== null)
+      return blocks
+  }
+  return []
+}
+
+function blockersOf(db: DatabaseSync, cardId: number): number[] {
+  const named = new Set(events(db, { mentions: `#${cardId}`, legacy: EITHER_JOURNAL }).flatMap(event => event.card_id === null ? [] : [event.card_id]))
+  return [...named].filter(blocker => latestBlocksOf(db, blocker).some(blocked => sameNumber(blocked, cardId)))
+}
+
+function everyBlockerMergedAfter(db: DatabaseSync, stop: Stop, prs: InboxPrReadings): boolean {
+  if (stop.card_id === null)
+    return false
+  const merged = blockersOf(db, stop.card_id).map(blocker => prs.mergedAt(db, blocker))
+  return merged.some(at => at.some(eventId => eventId > stop.id)) && merged.every(at => at.length > 0)
 }
 
 const TOUCHES_PREFIX_SUFFIX = '/**'
 const PREFIX_KEPT = TOUCHES_PREFIX_SUFFIX.length - 1
 
-function withinAmendedTouches(amended: string, wanted: string): string {
-  return `EXISTS (SELECT 1 FROM json_each(coalesce(${amended}.touches, '[]')) AS touched
-      WHERE touched.value = ${wanted}.value
-        OR (substr(touched.value, -${TOUCHES_PREFIX_SUFFIX.length}) = '${TOUCHES_PREFIX_SUFFIX}'
-          AND substr(${wanted}.value, 1, length(touched.value) - ${PREFIX_KEPT}) = substr(touched.value, 1, length(touched.value) - ${PREFIX_KEPT})))`
+function withinTouches(touched: unknown, wanted: string): boolean {
+  if (touched === wanted)
+    return true
+  if (typeof touched !== 'string' || !touched.endsWith(TOUCHES_PREFIX_SUFFIX))
+    return false
+  const kept = touched.length - PREFIX_KEPT
+  return wanted.slice(0, kept) === touched.slice(0, kept)
 }
 
-function createdByTheAmend(amended: string, wanted: string): string {
-  return `EXISTS (SELECT 1 FROM json_each(coalesce(${amended}.creates, '[]')) AS created
-      WHERE trim(created.value) = ${wanted}.value OR substr(trim(created.value), 1, length(${wanted}.value) + 2) = ${wanted}.value || ' (')`
+const SPACES_AROUND = /^ +| +$/g
+
+function createdAs(created: unknown, wanted: string): boolean {
+  const trimmed = String(created).replace(SPACES_AROUND, '')
+  return trimmed === wanted || trimmed.slice(0, wanted.length + 2) === `${wanted} (`
 }
 
-function widenedByAnAmend(stop: string): string {
-  return `(coalesce(json_array_length(${stop}.payload, '$.widen'), 0) > 0
-    AND EXISTS (
-      SELECT 1 FROM ${CARD_BODIES} AS amended
-      WHERE amended.card_id = ${stop}.card_id AND amended.admission_event_id > ${stop}.id
-        AND NOT EXISTS (
-          SELECT 1 FROM json_each(${stop}.payload, '$.widen') AS wanted
-          WHERE NOT ${withinAmendedTouches('amended', 'wanted')} AND NOT ${createdByTheAmend('amended', 'wanted')}
-        )
-    ))`
+function widenedByAnAmend(db: DatabaseSync, stop: Stop): boolean {
+  const widen = stop.data?.widen
+  if (stop.card_id === null || !Array.isArray(widen) || widen.length === 0)
+    return false
+  const amended = bodyAdmittedAfter(db, stop.card_id, stop.id)
+  return amended !== null && widen.every(wanted => amended.touches.some(touched => withinTouches(touched, String(wanted))) || amended.creates.some(created => createdAs(created, String(wanted))))
 }
 
-function liftedByTheWindow(stop: string): string {
-  return `EXISTS (
-      SELECT 1 FROM events AS lifted
-      WHERE lifted.type = '${SHARD_DECIDED}' AND lifted.legacy = 0 AND lifted.card_id = ${stop}.card_id AND lifted.id > ${stop}.id
-        AND json_extract(lifted.payload, '$.stop') = ${stop}.id
-    )`
+function liftedByTheWindow(db: DatabaseSync, stop: Stop): boolean {
+  return stop.card_id !== null && events(db, { types: [SHARD_DECIDED], card: stop.card_id, since: stop.id }).some(lifted => sameNumber(lifted.data?.stop, stop.id))
 }
 
-function waitOpenedForTheStop(stop: string): string {
-  return `(SELECT json_extract(opened.payload, '$.id') FROM events AS opened
-      WHERE opened.type = '${OWNER_WAIT_OPENED}' AND opened.legacy = 0 AND opened.card_id = ${stop}.card_id
-        AND json_extract(opened.payload, '$.need') = 'decision' AND json_extract(opened.payload, '$.command') IS NOT NULL
-        AND json_extract(opened.payload, '$.request') IS NULL AND json_extract(opened.payload, '$.pr') IS ${stop}.pr
-        AND NOT EXISTS (
-          SELECT 1 FROM ${OWNER_WAITS} AS earlier
-          WHERE earlier.id = json_extract(opened.payload, '$.id') AND earlier.state = '${CLOSED_WAIT}' AND earlier.event_id < ${stop}.id
-        )
-      ORDER BY opened.id LIMIT 1)`
+function opensADecisionWaitFor(opened: EventRow, stop: Stop): boolean {
+  const wait = opened.data
+  return wait !== null && wait.need === 'decision' && wait.command !== undefined && wait.command !== null
+    && (wait.request === undefined || wait.request === null) && sameOrBothAbsent(wait.pr, stop.pr)
 }
 
-function answeredThroughTheOwnerChannel(stop: string): string {
-  return `EXISTS (
-      SELECT 1 FROM events AS closed
-      JOIN events AS request ON request.id = json_extract(closed.payload, '$.request') AND request.type = '${WINDOW_REQUEST}'
-      WHERE closed.type = '${OWNER_WAIT_CLOSED}' AND closed.legacy = 0 AND closed.id > ${stop}.id
-        AND json_extract(request.payload, '$.from') = '${ANSWER_SOURCE}'
-        AND json_extract(closed.payload, '$.id') = ${waitOpenedForTheStop(stop)}
-    )`
+function waitOpenedForTheStop(db: DatabaseSync, stop: Stop): unknown {
+  if (stop.card_id === null)
+    return null
+  for (const opened of events(db, { types: [OWNER_WAIT_OPENED], card: stop.card_id })) {
+    if (!opensADecisionWaitFor(opened, stop))
+      continue
+    const id = opened.data!.id ?? null
+    if (id === null || !waitClosedBefore(db, String(id), stop.id))
+      return id
+  }
+  return null
+}
+
+function requestFromTheAnswer(db: DatabaseSync, request: unknown): boolean {
+  const id = typeof request === 'number' ? request : typeof request === 'string' && A_NUMBER_LITERAL.test(request) ? Number(request) : null
+  if (id === null)
+    return false
+  const asked = byId(db, id)
+  return asked !== null && asked.type === WINDOW_REQUEST && asked.data?.from === ANSWER_SOURCE
+}
+
+function answeredThroughTheOwnerChannel(db: DatabaseSync, stop: Stop, wait: unknown): boolean {
+  if (wait === null)
+    return false
+  return events(db, { types: [OWNER_WAIT_CLOSED], since: stop.id }).some(closed => closed.data !== null && closed.data.id === wait && requestFromTheAnswer(db, closed.data.request))
 }
 
 const NOT_PART_OF_A_NAME = '[^0-9A-Za-z_]'
+const REGEXP_SPECIAL = /[.*+?^${}()|[\]\\]/g
 
-function textNames(text: string, name: string): string {
-  return `(' ' || ${text} || ' ') GLOB '*${NOT_PART_OF_A_NAME}' || ${name} || '${NOT_PART_OF_A_NAME}*'`
+function textNames(text: string, name: string): boolean {
+  return new RegExp(`${NOT_PART_OF_A_NAME}${name.replace(REGEXP_SPECIAL, '\\$&')}${NOT_PART_OF_A_NAME}`).test(` ${text} `)
 }
 
-function admissionBefore(amend: string): string {
-  return `(SELECT json_extract(prior.payload, '$.text') FROM events AS prior
-      WHERE prior.type = '${CARD_ADMITTED}' AND prior.legacy = 0 AND prior.card_id = ${amend}.card_id AND prior.id < ${amend}.id
-        AND json_type(prior.payload, '$.text') = 'text'
-      ORDER BY prior.id DESC LIMIT 1)`
+function admissionTextBefore(db: DatabaseSync, cardId: number, amend: number): string | null {
+  const prior = events(db, { types: [CARD_ADMITTED], card: cardId, before: amend, newestFirst: true }).find(admitted => typeof admitted.data?.text === 'string')
+  return prior === undefined ? null : prior.data!.text as string
 }
 
-function namedAsTheAnswerByAnAmend(stop: string): string {
-  return `EXISTS (
-      SELECT 1 FROM events AS amend
-      WHERE amend.type = '${CARD_ADMITTED}' AND amend.legacy = 0 AND amend.card_id = ${stop}.card_id AND amend.id > ${stop}.id
-        AND EXISTS (
-          SELECT 1 FROM (
-            SELECT CAST(${stop}.id AS TEXT) AS name
-            UNION ALL
-            SELECT ${waitOpenedForTheStop(stop)}
-          ) AS answered
-          WHERE ${textNames(`coalesce(json_extract(amend.payload, '$.text'), '')`, 'answered.name')}
-            AND NOT ${textNames(admissionBefore('amend'), 'answered.name')}
-        )
-    )`
+function namedAsTheAnswerByAnAmend(db: DatabaseSync, stop: Stop, wait: unknown): boolean {
+  if (stop.card_id === null)
+    return false
+  const names = [String(stop.id), ...(wait === null ? [] : [String(wait)])]
+  return events(db, { types: [CARD_ADMITTED], card: stop.card_id, since: stop.id }).some((amend) => {
+    const before = admissionTextBefore(db, stop.card_id!, amend.id)
+    const text = String(amend.data?.text ?? '')
+    return before !== null && names.some(name => textNames(text, name) && !textNames(before, name))
+  })
+}
+
+const A_DECISION_NAMING_THE_CARD_AFTER = `SELECT 1 FROM decisions AS answer, json_each(answer.scope) AS named WHERE answer.event_id > ? AND named.value = ? LIMIT 1`
+
+function decidedAfter(db: DatabaseSync, stop: Stop): boolean {
+  return stop.card_id !== null && db.prepare(A_DECISION_NAMING_THE_CARD_AFTER).get(stop.id, stop.card_id) !== undefined
+}
+
+export function ownerQuestionAnsweredAt(db: DatabaseSync, stopId: number, prs: InboxPrReadings): boolean {
+  const event = byId(db, stopId)
+  if (event === null)
+    return false
+  const stop: Stop = { id: event.id, card_id: event.card_id, pr: event.pr, data: event.data }
+  if (decidedAfter(db, stop) || liftedByTheWindow(db, stop) || widenedByAnAmend(db, stop))
+    return true
+  const wait = waitOpenedForTheStop(db, stop)
+  return answeredThroughTheOwnerChannel(db, stop, wait) || namedAsTheAnswerByAnAmend(db, stop, wait) || everyBlockerMergedAfter(db, stop, prs)
 }
 
 export function ownerQuestionAnswered(stop: string): string {
-  return `(EXISTS (
-      SELECT 1 FROM decisions AS answer, json_each(answer.scope) AS named
-      WHERE answer.event_id > ${stop}.id AND named.value = ${stop}.card_id
-    ) OR ${everyBlockerMergedAfter(stop)} OR ${widenedByAnAmend(stop)} OR ${liftedByTheWindow(stop)} OR ${answeredThroughTheOwnerChannel(stop)} OR ${namedAsTheAnswerByAnAmend(stop)})`
+  return `(${OWNER_QUESTION_ANSWERED}(${stop}.id) = 1)`
 }
 
-export const OPEN_OWNER_STOP_OF_CARD = `
-  SELECT id, payload FROM events AS stop
-  WHERE stop.legacy = 0 AND stop.type = '${CARD_STOPPED}' AND stop.card_id = ?
-    AND json_extract(stop.payload, '$.reason') = '${QUESTION_OWNER}' AND NOT ${ownerQuestionAnswered('stop')}
-  ORDER BY id DESC LIMIT 1
-`
-
-const OWNER_INBOX = `
-  SELECT id, type, card_id, pr, head, payload FROM events AS item
-  WHERE item.legacy = 0 AND (
-    (item.type = '${POLICY_DENIED}' AND json_extract(item.payload, '$.kind') = 'authority')
-    OR (item.type = '${CARD_STOPPED}' AND json_extract(item.payload, '$.reason') = '${QUESTION_OWNER}' AND NOT ${ownerQuestionAnswered('item')})
-  )
-  ORDER BY id
-`
+export const OPEN_OWNER_STOP_OF_CARD = latestOfCardWhere('stop', `stop.type = '${CARD_STOPPED}' AND json_extract(stop.payload, '$.reason') = '${QUESTION_OWNER}' AND NOT ${ownerQuestionAnswered('stop')}`)
 
 export interface InboxLine {
   id: number
@@ -153,8 +190,20 @@ export interface InboxLine {
   payload: string
 }
 
+const ANSWERED_STOP = `SELECT ${OWNER_QUESTION_ANSWERED}(?) AS answered`
+
+function anOpenOwnerQuestion(db: DatabaseSync, item: EventRow): boolean {
+  return item.data?.reason === QUESTION_OWNER && Number((db.prepare(ANSWERED_STOP).get(item.id) as { answered: number }).answered) !== 1
+}
+
+function inTheInbox(db: DatabaseSync, item: EventRow): boolean {
+  return item.type === POLICY_DENIED ? item.data?.kind === 'authority' : anOpenOwnerQuestion(db, item)
+}
+
 export function ownerInbox(db: DatabaseSync): InboxLine[] {
-  return db.prepare(OWNER_INBOX).all() as unknown as InboxLine[]
+  return events(db, { types: [POLICY_DENIED, CARD_STOPPED] })
+    .filter(item => inTheInbox(db, item))
+    .map(item => ({ id: item.id, type: item.type, card_id: item.card_id, pr: item.pr, head: item.head, payload: item.payload }))
 }
 
 function field(payload: Record<string, unknown>, name: string): string | null {
