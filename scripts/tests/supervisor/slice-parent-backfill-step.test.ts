@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { appendCardEvent, backfillSliceParents, foldCardBody, SLICE_PARENTS_BUS_ACTOR } from '../../core/card-bodies.js'
 import { CARD_ADMITTED, SLICE_PARENTS_BACKFILLED } from '../../core/events.js'
 import { deriveQueuesOfTheBus, openComposedBus, sliceParentsOnce } from '../../supervisor/composition.js'
@@ -26,7 +27,7 @@ function bus(): DatabaseSync {
 
 function admitBeforeTheField(db: DatabaseSync, id: number, name: string): void {
   const text = `card: #${id} ${name} [implement/runner/S/cheap/owner] · depends — · blocks —\nbranch: feat/${name}\ntouches: src/a.ts\ncontinue: stop\nwho: shift\n\nDo the thing.\n`
-  appendCardEvent(db, 'worker:intake:test', { type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `${CARD_ADMITTED}:${id}`, payload: { text, textSha: textSha(text) } })
+  appendCardEvent(BUS_CONTRACT, db, 'worker:intake:test', { type: CARD_ADMITTED, cardId: id, ts: TS, dedupeKey: `${CARD_ADMITTED}:${id}`, payload: { text, textSha: textSha(text) } })
   foldCardBody(db, db.prepare('SELECT * FROM events WHERE card_id = ? ORDER BY id DESC LIMIT 1').get(id) as unknown as StoredEvent)
 }
 
@@ -60,7 +61,7 @@ describe('the bus runs the slice-parent backfill once', () => {
     try {
       admitBeforeTheField(db, 60, 'shredded-slice-1')
       admitBeforeTheField(db, 61, 'shredded-slice-2')
-      expect(backfillSliceParents(db, TS).recorded).toBe(true)
+      expect(backfillSliceParents(BUS_CONTRACT, db, TS).recorded).toBe(true)
       admitBeforeTheField(db, 62, 'later-slice-1')
       expect(sliceParentsOnce(db, LATER)).toBeNull()
       expect(backfills(db)).toHaveLength(1)

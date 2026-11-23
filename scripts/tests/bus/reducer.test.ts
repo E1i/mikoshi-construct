@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { appendedOnCard } from '../../core/card-automaton.js'
 import { closedWaitIds } from '../../core/card-readings.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus, openBusWait, openOwnerWait } from '../../core/db.js'
@@ -227,7 +228,7 @@ describe('the reducer of the prs projection', () => {
     const db = busWith(admitted(793))
     reduce(db, 'pending', busProjections())
     appendEvent(db, started(793))
-    expect(appendedOnCard(db, event('card.stopped', { actor: 'worker:answer:a1', cardId: 793, payload: { reason: 'review', detail: 'x' } }))).toBe(true)
+    expect(appendedOnCard(BUS_CONTRACT, db, event('card.stopped', { actor: 'worker:answer:a1', cardId: 793, payload: { reason: 'review', detail: 'x' } }))).toBe(true)
     appendEvent(db, admitted(794))
     expect(db.prepare(`SELECT tbl, k1 FROM ${DIRTY_ROWS}`).all()).toEqual([{ tbl: 'cards', k1: 793 }])
 

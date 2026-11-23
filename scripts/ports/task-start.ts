@@ -16,6 +16,7 @@ import { bodySha, bodyShaWithoutTouches } from '../../src/commands/intake/confir
 import { readMilestones } from '../../src/manifest.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
 import { NOT_A_BACKFILL } from '../core/backfill-source.js'
+import { BUS_CONTRACT } from '../core/bus-adapter.js'
 import { unsatisfiedDependencies } from '../core/card-automaton.js'
 import { busAdmittedBodies } from '../core/card-bodies.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
@@ -94,7 +95,7 @@ function unsatisfiedIn(bus: string, depends: readonly number[]): number[] {
     return [...depends]
   const db = openBus(bus)
   try {
-    return unsatisfiedDependencies(db, { pullRequests: () => prs.all(db), journal: () => legacyHistory(db) })(depends)
+    return unsatisfiedDependencies(BUS_CONTRACT, db, { pullRequests: () => prs.all(db), journal: () => legacyHistory(db) })(depends)
   }
   finally {
     db.close()
@@ -417,7 +418,7 @@ export function realDeps(): TaskStartDeps {
     now: () => new Date(),
     session: clientAdapter().ownSession(process.env) ?? undefined,
     treeOf: id => cardTree(process.env, defaultBusPath(), id),
-    cardBody: busAdmittedBodies(defaultBusPath()),
+    cardBody: busAdmittedBodies(BUS_CONTRACT, defaultBusPath()),
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
     windowLimit: () => slotsOf(WINDOW_LIMIT_SLOTS, process.env),
   }

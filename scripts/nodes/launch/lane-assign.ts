@@ -10,6 +10,7 @@ import process from 'node:process'
 import { parseParkingFile, PRIORITIES, WINDOW_WHO } from '../../../src/card/parking.js'
 import { ATTACH_RECORD_FILE } from '../../../src/commands/attach/record.js'
 import { DEFAULT_LANES, isLaneCount, MANIFEST_FILE } from '../../../src/manifest.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { currentLane, latestAssignment, OPEN_WAIT, OWNER_WAITS } from '../../core/bus-readings.js'
 import { DEFERRED_CARD, RUNNING_CARD, unsatisfiedDependencies } from '../../core/card-automaton.js'
 import { cardBodyText } from '../../core/card-bodies.js'
@@ -738,7 +739,7 @@ function bodyDependsOf(db: DatabaseSync, cardId: number): number[] {
 }
 
 export function launchWaitsOf(db: DatabaseSync, repository: string = process.cwd()): LaunchWaits {
-  const unsatisfied = unsatisfiedDependencies(db, dependencyReadings(db))
+  const unsatisfied = unsatisfiedDependencies(BUS_CONTRACT, db, dependencyReadings(db))
   let holds: Map<number, LaunchWait> | undefined
   return (cardId) => {
     if (unsatisfied([cardId]).length === 0)

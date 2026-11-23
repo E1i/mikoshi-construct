@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { runAmend } from '../../../src/commands/intake/amend.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { BUS_DB_VARIABLE } from '../../core/bus-path.js'
 import { admittedBodyText, busAdmittedBodies, cardBodyText } from '../../core/card-bodies.js'
 import { appendEvent, openBus } from '../../core/db.js'
@@ -96,7 +97,7 @@ function depsOf(w: World): TaskStartDeps {
 }
 
 function admittedLine(w: World): string {
-  return inBus(w, db => (admittedBodyText(db, CARD) ?? '').split('\n')[0]!.slice('card: '.length))
+  return inBus(w, db => (admittedBodyText(BUS_CONTRACT, db, CARD) ?? '').split('\n')[0]!.slice('card: '.length))
 }
 
 function starts(w: World): Record<string, unknown>[] {
@@ -119,13 +120,13 @@ describe('the card body is read from card.* events; the parking file is a projec
     const w = newWorld()
     admitThenAmend(w)
     writeFileSync(w.parked, bodyOf('A parking body nobody admitted.'))
-    const read = busAdmittedBodies(w.bus)
+    const read = busAdmittedBodies(BUS_CONTRACT, w.bus)
     expect(read(CARD)).toContain(AMENDED)
     expect(read(CARD)).not.toContain('A parking body nobody admitted.')
     inBus(w, (db) => {
       expect(cardBodyText(db, CARD)).not.toContain(AMENDED)
       reduce(db, 'pending', busProjections())
-      expect(cardBodyText(db, CARD)).toBe(admittedBodyText(db, CARD))
+      expect(cardBodyText(db, CARD)).toBe(admittedBodyText(BUS_CONTRACT, db, CARD))
     })
   })
 
@@ -139,7 +140,7 @@ describe('the card body is read from card.* events; the parking file is a projec
       appendEvent(db, { ts: AT.toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:number-text`, payload: { card: LINE, text: 42, textSha: textSha('42') }, legacy: false })
       expect(db.prepare('SELECT COUNT(*) AS n FROM events WHERE type = ? AND card_id = ?').get(CARD_ADMITTED, CARD)).toEqual({ n: 4 })
     })
-    expect(busAdmittedBodies(w.bus)(CARD)).toBeNull()
-    expect(busAdmittedBodies(path.join(w.root, 'no-bus.db'))(CARD)).toBeNull()
+    expect(busAdmittedBodies(BUS_CONTRACT, w.bus)(CARD)).toBeNull()
+    expect(busAdmittedBodies(BUS_CONTRACT, path.join(w.root, 'no-bus.db'))(CARD)).toBeNull()
   })
 })

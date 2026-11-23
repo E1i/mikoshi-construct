@@ -11,6 +11,7 @@ import process from 'node:process'
 import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { BUS_DB_VARIABLE, busDirOf } from '../../core/bus-path.js'
 import { factoryMode } from '../../core/card-bodies.js'
 import { appendEvent, openBus } from '../../core/db.js'
@@ -712,11 +713,11 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
   it('a mode request switches the factory mode once the bus answers it, and window is the mode before any', () => {
     const made = room()
     const lines: string[] = []
-    expect(factoryMode(made.bench.db)).toBe('window')
+    expect(factoryMode(BUS_CONTRACT, made.bench.db)).toBe('window')
     expect(runRequest(['mode', '--set', 'parallel'], made.bench.db, made.bench.clock.now(), SESSION, line => lines.push(line))).toBe(0)
-    expect(factoryMode(made.bench.db)).toBe('window')
+    expect(factoryMode(BUS_CONTRACT, made.bench.db)).toBe('window')
     expect(made.requests().run()).toMatchObject([{ kind: 'done', detail: 'the factory mode is parallel' }])
-    expect(factoryMode(made.bench.db)).toBe('parallel')
+    expect(factoryMode(BUS_CONTRACT, made.bench.db)).toBe('parallel')
     expect(runRequest(['mode', '--set', 'fast'], made.bench.db, made.bench.clock.now(), SESSION, line => lines.push(line))).toBe(2)
   })
 

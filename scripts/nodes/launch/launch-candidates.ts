@@ -1,7 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ParkedTask, Priority } from '../../../src/card/parking.js'
 import type { ShiftTask } from '../../../src/card/task-file.js'
-import type { DependencyReadings } from '../../core/card-automaton.js'
 import type { SessionStopCode } from '../../core/card-hold.js'
 import type { MachineHold, MachineSessions } from '../../core/machine-sessions.js'
 import type { QueuedTask, QueueSource } from '../../core/queue.js'
@@ -10,6 +9,7 @@ import { existsSync } from 'node:fs'
 import process from 'node:process'
 import { parseParkingFile, PRIORITIES, WINDOW_WHO } from '../../../src/card/parking.js'
 import { NOT_A_BACKFILL } from '../../core/backfill-source.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { CLOSED_WAIT } from '../../core/bus-readings.js'
 import { DEFERRED_CARD, unsatisfiedDependencies } from '../../core/card-automaton.js'
 import { bodyNotFoldedYet, pathsOutsideTheBody } from '../../core/card-bodies.js'
@@ -580,7 +580,7 @@ export function startHold(db: DatabaseSync, cardId: number, lanes: number, machi
   return machineHoldOf(machine)
 }
 
-export const dependencyReadings = (db: DatabaseSync): DependencyReadings => ({ pullRequests: () => prs.all(db), journal: () => legacyHistory(db) })
+export const dependencyReadings = (db: DatabaseSync) => ({ pullRequests: () => prs.all(db), journal: () => legacyHistory(db) })
 
 interface QueuedView {
   queued: CardLife[]
@@ -600,7 +600,7 @@ function queuedView(db: DatabaseSync, treeLive: TreeReader, nowMs: number, withW
   const falls = fallCounts(db)
   const queued = [...lives.values()]
     .filter(life => !noLongerCandidates.has(life.cardId) && (withWindowCards || !life.windowsToWork) && (falls.get(life.cardId) ?? 0) < FALLS_BEFORE_CUT && isQueued(life, settled) && !heldOutside(life, openPrs, trees, beating) && cardHoldOf(db, life.cardId) === null)
-  return { queued, unsatisfied: unsatisfiedDependencies(db, dependencyReadings(db)), holds: holdsOf(db, lives, merged, openPrs, beating), prNumbers: openPrNumbers(db) }
+  return { queued, unsatisfied: unsatisfiedDependencies(BUS_CONTRACT, db, dependencyReadings(db)), holds: holdsOf(db, lives, merged, openPrs, beating), prNumbers: openPrNumbers(db) }
 }
 
 export function startableCards(db: DatabaseSync, treeLive: TreeReader = existsSync, now: () => number = Date.now, shared: readonly string[] = sharedAppendFiles(), lanes: () => number = repositoryLanes(process.cwd()), machine: MachineReader = machineSessions(isAlive)): StartableCard[] {
@@ -612,7 +612,7 @@ export function startableCards(db: DatabaseSync, treeLive: TreeReader = existsSy
 
 function startableHold(db: DatabaseSync, life: CardLife, view: QueuedView, shared: readonly string[], lanes: number, machine: MachineReader): StartableHold {
   const hold = holdOf(life, view.holds, view.prNumbers, shared, lanes, machine)
-  return hold.kind === 'none' && bodyNotFoldedYet(db, life.cardId) ? { kind: 'unfolded' } : hold
+  return hold.kind === 'none' && bodyNotFoldedYet(BUS_CONTRACT, db, life.cardId) ? { kind: 'unfolded' } : hold
 }
 
 export interface LaneHeadHold {
@@ -744,7 +744,7 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
   let free = machine.free()
   const merged = cardSet(db, MERGED_CARDS)
   const settled = settledCards(db, merged)
-  const unsatisfied = unsatisfiedDependencies(db, dependencyReadings(db))
+  const unsatisfied = unsatisfiedDependencies(BUS_CONTRACT, db, dependencyReadings(db))
   const launching = cardSet(db, OPEN_LAUNCHES)
   const openPrs = cardSet(db, OPEN_PR_CARDS)
   const trees = standingTrees(db, treeLive)
@@ -770,7 +770,7 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
     }
     if (!isQueued(life, settled) || (life.lane !== null && (outsideTheLanes(life.lane, laneLimit) || busy.some(holder => holder.lane === life.lane && HOLDS.holdsAgainst(holder, life)) || heldByStall(life, (heldByStalls.get(life.lane) ?? []).filter(holder => HOLDS.holdsAgainst(holder, life)), shared))) || unsatisfied(life.depends).length > 0 || heldOutside(life, openPrs, trees, beating))
       continue
-    if (bodyNotFoldedYet(db, life.cardId))
+    if (bodyNotFoldedYet(BUS_CONTRACT, db, life.cardId))
       continue
     if (overlapsAny(life, taken, shared)) {
       onOverlap(life.cardId, life.generation)

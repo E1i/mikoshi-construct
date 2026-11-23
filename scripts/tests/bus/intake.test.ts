@@ -13,6 +13,7 @@ import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { bodySha } from '../../../src/commands/intake/confirm.js'
 import { runMove } from '../../../src/commands/intake/move.js'
 import { createMain } from '../../../src/program.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { busPathOf, ForeignBusRefused, machineBusPath, OWNER_AGENT_FILE, repoHome, repoIdOf } from '../../core/bus-path.js'
 import { appendCardEvent, laid } from '../../core/card-bodies.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../core/db.js'
@@ -417,10 +418,10 @@ describe('a card event written to the bus', () => {
     const w = world()
     const db = openBus(w.bus)
     try {
-      expect(appendCardEvent(db, 'worker:intake:test', admission(95, 'first'))).toBe(true)
-      expect(appendCardEvent(db, 'worker:intake:test', admission(95, 'second'))).toBe(true)
-      expect(appendCardEvent(db, 'worker:intake:test', admission(95, 'second'))).toBe(false)
-      expect(appendCardEvent(db, 'worker:intake:test', admission(95, undefined))).toBe(true)
+      expect(appendCardEvent(BUS_CONTRACT, db, 'worker:intake:test', admission(95, 'first'))).toBe(true)
+      expect(appendCardEvent(BUS_CONTRACT, db, 'worker:intake:test', admission(95, 'second'))).toBe(true)
+      expect(appendCardEvent(BUS_CONTRACT, db, 'worker:intake:test', admission(95, 'second'))).toBe(false)
+      expect(appendCardEvent(BUS_CONTRACT, db, 'worker:intake:test', admission(95, undefined))).toBe(true)
     }
     finally {
       db.close()
@@ -440,10 +441,10 @@ describe('a card event written to the bus', () => {
       expect(laid(db, dropped)).toBe(dropped)
       expect(laid(db, admission(96, 'body')).payload.lane).toBeUndefined()
       appendEvent(db, { ts: NOW.toISOString(), type: FACTORY_MODE, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${FACTORY_MODE}:parallel`, payload: { mode: 'parallel' }, legacy: false })
-      appendCardEvent(db, 'worker:intake:test', { ...admission(97, 'parent'), payload: { ...admission(97, 'parent').payload, lane: 'lane-4' } })
+      appendCardEvent(BUS_CONTRACT, db, 'worker:intake:test', { ...admission(97, 'parent'), payload: { ...admission(97, 'parent').payload, lane: 'lane-4' } })
       const child = admission(98, 'child', [97])
       expect(laid(db, { ...child, payload: { ...child.payload, lane: 'lane-4' } }).payload).toEqual(child.payload)
-      appendCardEvent(db, 'worker:intake:test', laid(db, { ...child, payload: { ...child.payload, lane: 'lane-4' } }))
+      appendCardEvent(BUS_CONTRACT, db, 'worker:intake:test', laid(db, { ...child, payload: { ...child.payload, lane: 'lane-4' } }))
       expect(Object.keys(JSON.parse((db.prepare(`SELECT payload FROM events WHERE type = '${CARD_ADMITTED}' AND card_id = 98`).get() as { payload: string }).payload) as object)).not.toContain('lane')
     }
     finally {

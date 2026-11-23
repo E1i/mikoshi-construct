@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
 import { witnessesOf } from '../../../src/card/witness-fields.js'
 import { admittedRecord } from '../../../src/commands/intake/index.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { appendCardEvent, cardBodyText } from '../../core/card-bodies.js'
 import { closedWaitIds } from '../../core/card-readings.js'
 import { appendEvent } from '../../core/db.js'
@@ -61,7 +62,7 @@ function admit(bench: MergeBench, id: number, text: string): void {
   const parsed = parseParkingFile(`${id}.md`, text)
   if (parsed.kind === 'refused')
     throw new Error(parsed.reason)
-  appendCardEvent(bench.db, 'worker:intake:test', admittedRecord({ id, file: `${id}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now()))
+  appendCardEvent(BUS_CONTRACT, bench.db, 'worker:intake:test', admittedRecord({ id, file: `${id}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now()))
   bench.tick()
 }
 

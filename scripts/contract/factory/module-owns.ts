@@ -37,6 +37,7 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/core/projection-writes.ts`,
     `${FACTORY_ROOT}/core/projection-writes.known.json`,
     `${FACTORY_ROOT}/core/rejection.ts`,
+    `${FACTORY_ROOT}/core/bus-adapter.ts`,
   ],
   'card-model': [
     'src/card/grammar.ts',
@@ -141,6 +142,7 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/ports/**`,
     `${FACTORY_ROOT}/core/gh-callers.ts`,
     `${FACTORY_ROOT}/core/gh-callers.known.json`,
+    `${FACTORY_ROOT}/core/bus-contract.ts`,
   ],
   'ports-adapters': [
     `${FACTORY_ROOT}/ports/git.ts`,

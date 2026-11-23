@@ -35,6 +35,7 @@ import { readAttachRecord } from '../../src/commands/attach/record.js'
 import { automatonOf, selectingNodes } from '../ci/card-automaton.js'
 import { GATE_RUN_SPOOL } from '../ci/gate-runs.js'
 import { driftOfRun } from '../ci/weights-law.js'
+import { BUS_CONTRACT } from '../core/bus-adapter.js'
 import { CHECK_MS, TICK_MS } from '../core/cadence.js'
 import { appendedOnCard, cardFolds, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION, cardsAnswered, CHANGES_CARD, CLOSED_CARD, DEFERRED_CARD, DROPPED_CARD, FALLEN_CARD, IN_REVIEW_CARD, MERGED_CARD, QUEUED_CARD, READY_CARD, RUNNING_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { admittedCardVersion, backfillPendingSliceParents, cardOfBranch } from '../core/card-bodies.js'
@@ -141,12 +142,12 @@ export function nodeLiveness(): NodeLiveness {
 export type CardSessionMeasure = SessionMeasure
 
 export function refusesForeignCard(db: DatabaseSync, lease: Lease, understands: Understood): string | null {
-  const version = admittedCardVersion(db, lease.cardId)
+  const version = admittedCardVersion(BUS_CONTRACT, db, lease.cardId)
   return version === null ? null : foreignVersion(understands, 'card', version, `card #${lease.cardId} (${lease.taskKey})`)
 }
 
 export function cardTransitions(): CardTransitions {
-  return { appendedOnCard }
+  return { appendedOnCard: (db, event) => appendedOnCard(BUS_CONTRACT, db, event) }
 }
 
 export function pullRequests(db: DatabaseSync): readonly PullHead[] {
@@ -214,7 +215,7 @@ export function derivedHolds(db: DatabaseSync, readTree: typeof cardTreeReading 
 const CARD_PR_READINGS: CardPrReadings = { stateOf: (db, pr) => prs.ofPr(db, pr)?.state ?? null }
 
 export function busCardFolds(): Record<string, Fold> {
-  return cardFolds(CARD_PR_READINGS)
+  return cardFolds(BUS_CONTRACT, CARD_PR_READINGS)
 }
 
 function cardWaitParts(): CardWaitParts {
@@ -254,13 +255,13 @@ export function busCardLinkFolds(): Record<string, Fold> {
       if (event.pr !== null)
         linkTheCardOfThePr(db, event, event.pr, cardLinkObserved)
     },
-    [PR_OPENED]: (db, event) => linkTheCardOfThePr(db, event, openedPrOf(event, PR_FIELDS), cardPrOpened),
+    [PR_OPENED]: (db, event) => linkTheCardOfThePr(db, event, openedPrOf(event, PR_FIELDS), (...link) => cardPrOpened(BUS_CONTRACT, ...link)),
   }
 }
 
 function releaseTheCardsTheDecisionsAnswer(db: DatabaseSync, event: StoredEvent): void {
   for (const answer of answersOfTheDecisions(db, event.id))
-    cardsAnswered(db, JSON.parse(answer.scope) as number[], answer.named, event.id, CARD_PR_READINGS)
+    cardsAnswered(BUS_CONTRACT, db, JSON.parse(answer.scope) as number[], answer.named, event.id, CARD_PR_READINGS)
 }
 
 export function busCardReleaseFolds(): Record<string, Fold> {
@@ -462,7 +463,7 @@ export function queuePass(): QueuePass {
 export function sliceParentsOnce(db: DatabaseSync, ts: string): SliceParentsBackfill | null {
   if (new BusRead(db).slice(SLICE_PARENTS_BACKFILLED, [], 'last').length > 0)
     return null
-  return backfillPendingSliceParents(db, ts)
+  return backfillPendingSliceParents(BUS_CONTRACT, db, ts)
 }
 
 export function deriveQueuesOfTheBus(db: DatabaseSync, ts: string): Derived {
