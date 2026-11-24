@@ -40,12 +40,13 @@ describe('the readers and writers of ghosts.jsonl outside the ladder use the bus
       expect(source(reader), reader).not.toMatch(JOURNAL_NAMES)
     expect(source('scripts/cli/check-catalog.ts')).not.toMatch(/from '\.\.\/ghosts\//)
 
-    const db = openBus(path.join(scratch(), 'bus.db'))
+    const file = path.join(scratch(), 'bus.db')
+    const db = openBus(file)
     try {
       const judged = JSON.stringify({ event: 'mutation-judged', card: '616', id: 'M1', outcome: 'named-red', matched: true })
       appendEvent(db, { ts: '2026-10-22T10:00:00.000Z', type: GHOST_LINE, actor: 'worker:test:1', cardId: 616, pr: null, head: null, dedupeKey: 'ghost.line:1', payload: judged, legacy: false })
       appendEvent(db, { ts: '2026-10-22T10:01:00.000Z', type: REVIEW_RECORDED, actor: 'worker:review:1', cardId: 616, pr: null, head: null, dedupeKey: 'review.recorded:1', payload: '{}', legacy: false })
-      expect(ghostJournalOf(db)).toBe(`${judged}\n`)
+      expect(ghostJournalOf(file)).toBe(`${judged}\n`)
     }
     finally {
       db.close()
@@ -53,13 +54,14 @@ describe('the readers and writers of ghosts.jsonl outside the ladder use the bus
   })
 
   it('check-catalog reads a mutation judged before the cutover from the legacy history ahead of the bus ghost lines', () => {
-    const db = openBus(path.join(scratch(), 'bus.db'))
+    const file = path.join(scratch(), 'bus.db')
+    const db = openBus(file)
     try {
       const before = { event: 'mutation-judged', card: '600', id: 'M0', outcome: 'named-red', matched: true, ts: '2026-10-10T10:00:00.000Z' }
       const after = JSON.stringify({ event: 'mutation-judged', card: '616', id: 'M1', outcome: 'named-red', matched: true })
       appendEvent(db, { ts: '2026-10-22T10:00:00.000Z', type: GHOST_LINE, actor: 'worker:test:1', cardId: 616, pr: null, head: null, dedupeKey: 'ghost.line:1', payload: after, legacy: false })
       appendEvent(db, { ts: before.ts, type: 'mutation-judged', actor: 'journal', cardId: 600, pr: null, head: null, dedupeKey: 'legacy:mutation-judged:600', payload: before, legacy: true })
-      expect(ghostJournalOf(db)).toBe(`${JSON.stringify(before)}\n${after}\n`)
+      expect(ghostJournalOf(file)).toBe(`${JSON.stringify(before)}\n${after}\n`)
     }
     finally {
       db.close()
