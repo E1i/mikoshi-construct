@@ -6,34 +6,27 @@ import type { Signal, SignalStyle } from '../../src/ui/signal.js'
 import type { BusEvent } from '../core/db.js'
 import type { BodyAdmission } from '../core/queue.js'
 import type { CardBodyReader } from '../intake/parking-reads.js'
-import { existsSync, realpathSync } from 'node:fs'
-import process from 'node:process'
-import { fileURLToPath } from 'node:url'
+import { existsSync } from 'node:fs'
 import { cardLine, cardTerms, parseCard } from '../../src/card/grammar.js'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { RISK_LEVELS, RISK_PREFIX } from '../../src/card/risk.js'
 import { bodySha, bodyShaWithoutTouches } from '../../src/commands/intake/confirm.js'
 import { readMilestones } from '../../src/manifest.js'
-import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../src/ui/signal.js'
+import { PLAIN_STYLE, renderSignal } from '../../src/ui/signal.js'
 import { NOT_A_BACKFILL } from '../core/backfill-source.js'
-import { BUS_CONTRACT } from '../core/bus-adapter.js'
 import { unsatisfiedDependencies } from '../core/card-automaton.js'
-import { busAdmittedBodies } from '../core/card-bodies.js'
-import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
+import { appendEvent, inTransaction, openBus } from '../core/db.js'
 import { ENTRY_RESULT, ENTRY_SCHEMA } from '../core/entry.js'
 import { CARD_ADMITTED, CARD_STARTED } from '../core/events.js'
 import { legacyHistory } from '../core/legacy-history.js'
 import { ADMIT_COMMAND, pnpmCommand } from '../core/owner-commands.js'
 import * as prs from '../core/pr-readings.js'
 import { cardBodyAdmissionOf, LEASED } from '../core/queue.js'
-import { slotsOf, slotsVariable } from '../supervisor/scheduler.js'
+import { slotsVariable } from '../supervisor/scheduler.js'
 import { STARTER_ACTOR, windowOpenPrs } from '../window/window-prs.js'
 import { SESSION_VARIABLE } from './client/claude/adapter.js'
-import { clientAdapter } from './client/index.js'
 import { processGit } from './git.js'
-import { windowModeOf } from './session.js'
-import { cardTree } from './worktree-home.js'
-import { adoptTree, cutTree, pnpmInstall, treeOriginLine } from './worktree.js'
+import { adoptTree, cutTree, treeOriginLine } from './worktree.js'
 
 export const TECHNOLOGY_WORDS = ['database'] as const
 
@@ -48,7 +41,10 @@ const WITHOUT_INTAKE_FLAG = '--without-intake'
 const SAFE_BRANCH = /^[^\s-]\S*$/
 const CARD_ID = /^#(\d+)\s/
 
+export type TaskStartContract = Parameters<typeof unsatisfiedDependencies>[0]
+
 export interface TaskStartDeps {
+  contract: TaskStartContract
   cwd: string
   git: (cwd: string, args: string[]) => string
   install: (cwd: string, args: string[]) => void
@@ -64,7 +60,7 @@ export interface TaskStartDeps {
   windowLimit?: () => number
 }
 
-const WINDOW_LIMIT_SLOTS = 'review'
+export const WINDOW_LIMIT_SLOTS = 'review'
 
 export interface TaskStartResult {
   stdout: string[]
@@ -90,12 +86,12 @@ interface AdmittedRow { ts: string, dedupe_key: string, payload: string }
 const LAUNCH_LEASE = `SELECT 1 FROM tasks WHERE queue = 'launch' AND state = '${LEASED}' AND card_id = ?`
 const STARTER_SESSION_BY_HAND = 'by-hand'
 
-function unsatisfiedIn(bus: string, depends: readonly number[]): number[] {
+function unsatisfiedIn(contract: TaskStartContract, bus: string, depends: readonly number[]): number[] {
   if (!existsSync(bus))
     return [...depends]
   const db = openBus(bus)
   try {
-    return unsatisfiedDependencies(BUS_CONTRACT, db, { pullRequests: () => prs.all(db), journal: () => legacyHistory(db) })(depends)
+    return unsatisfiedDependencies(contract, db, { pullRequests: () => prs.all(db), journal: () => legacyHistory(db) })(depends)
   }
   finally {
     db.close()
@@ -334,9 +330,9 @@ function whoAndRisk(cardFile: CardFile): { who?: string, risk?: WrittenRisk } {
   return { who: cardFile.parked.who, ...(risk === undefined ? {} : { risk }) }
 }
 
-function windowRefusal(argv: string[]): string {
+export function refusedInWindow(argv: string[]): TaskStartResult {
   const id = CARD_ID.exec(flagValue(argv, CARD_FLAG).value ?? '')?.[1] ?? '<N>'
-  return `a window does not start a task itself: the bus cuts its tree, ask it with ${pnpmCommand('bus:request', 'tree.cut', '--card', id)}; nothing written`
+  return refuse(`a window does not start a task itself: the bus cuts its tree, ask it with ${pnpmCommand('bus:request', 'tree.cut', '--card', id)}; nothing written`)
 }
 
 export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: HandedContract): TaskStartResult {
@@ -353,7 +349,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
   const id = String(card.id)
   if (!SAFE_BRANCH.test(branch))
     return refuse(`branch '${branch}' must not be empty, hold whitespace or start with '-'`)
-  const unsatisfied = unsatisfiedIn(deps.bus, card.depends)
+  const unsatisfied = unsatisfiedIn(deps.contract, deps.bus, card.depends)
   if (unsatisfied.length > 0)
     return refuse(`card #${id} depends on ${unsatisfied.map(dependency => `#${dependency}`).join(', ')}, which are not merged and not closed by a report; nothing written`)
   let admitted: Admission
@@ -406,30 +402,4 @@ export function gitIn(cwd: string, args: string[]): string {
     const stderr = String((error as { stderr?: unknown }).stderr ?? '').trim()
     throw stderr === '' ? error : new Error(stderr)
   }
-}
-
-export function realDeps(): TaskStartDeps {
-  return {
-    cwd: process.cwd(),
-    git: gitIn,
-    install: pnpmInstall,
-    exists: existsSync,
-    bus: defaultBusPath(),
-    now: () => new Date(),
-    session: clientAdapter().ownSession(process.env) ?? undefined,
-    treeOf: id => cardTree(process.env, defaultBusPath(), id),
-    cardBody: busAdmittedBodies(BUS_CONTRACT, defaultBusPath()),
-    style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
-    windowLimit: () => slotsOf(WINDOW_LIMIT_SLOTS, process.env),
-  }
-}
-
-if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const argv = process.argv.slice(2)
-  const result = windowModeOf(process.env) === null ? runTaskStart(argv, realDeps()) : refuse(windowRefusal(argv))
-  for (const line of result.stdout)
-    console.log(line)
-  for (const line of result.stderr)
-    console.error(line)
-  process.exitCode = result.exitCode
 }

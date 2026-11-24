@@ -3,6 +3,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { cardStartedLines } from '../../core/tasks.js'
 import { runTaskStart } from '../../ports/task-start.js'
 import { admitCards } from '../shift/fixtures/admitted.js'
@@ -16,6 +17,7 @@ function world(session: string | undefined): { deps: TaskStartDeps, starts: () =
   return {
     starts: () => cardStartedLines(bus),
     deps: {
+      contract: BUS_CONTRACT,
       cwd: '/repo',
       git: (_cwd, args) => {
         if (args[0] === 'show-ref')

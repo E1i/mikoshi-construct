@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { openBus } from '../../core/db.js'
 import { runTaskStart } from '../../ports/task-start.js'
 import { admitCards } from '../shift/fixtures/admitted.js'
@@ -49,6 +50,7 @@ function world(journalLines: object[]): { root: string, repo: string, deps: Task
   git(repo, ['commit', '-q', '-m', 'world'])
   git(repo, ['push', '-q', 'origin', 'main'])
   const deps: TaskStartDeps = {
+    contract: BUS_CONTRACT,
     cwd: repo,
     git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' }),
     install: () => {},

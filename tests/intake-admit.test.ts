@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { runCommand } from 'citty'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { BUS_CONTRACT } from '../scripts/core/bus-adapter.js'
 import { cardBodyText } from '../scripts/core/card-bodies.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus } from '../scripts/core/db.js'
 import { reduce } from '../scripts/core/reducer.js'
@@ -143,6 +144,7 @@ function printed(result: AdmitResult): { lines: string[], exit: number } {
 
 function taskStart(w: World, card: string): number {
   const deps: TaskStartDeps = {
+    contract: BUS_CONTRACT,
     cwd: '/repo',
     git: (_cwd, args) => {
       if (args[0] === 'show-ref')

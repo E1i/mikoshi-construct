@@ -2616,6 +2616,7 @@
   ],
   "session": [
     "scripts/cli/slot.ts",
+    "scripts/cli/task-start.ts",
     "scripts/core/cadence.ts",
     "scripts/core/chain.ts",
     "scripts/core/eddies.ts",

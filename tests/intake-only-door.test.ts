@@ -3,6 +3,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { BUS_CONTRACT } from '../scripts/core/bus-adapter.js'
 import { openBus } from '../scripts/core/db.js'
 import { CARD_ADMITTED } from '../scripts/core/events.js'
 import { cardStartedLines } from '../scripts/core/tasks.js'
@@ -42,6 +43,7 @@ function world(journal: string[], admitted?: string): World {
     starts: () => cardStartedLines(bus),
     gitCalls,
     deps: {
+      contract: BUS_CONTRACT,
       cwd: '/repo',
       git: (_cwd, args) => {
         gitCalls.push(args)

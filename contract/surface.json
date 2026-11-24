@@ -2776,17 +2776,10 @@
     },
     "task:start": {
       "entries": [
-        "scripts/ports/task-start.ts"
+        "scripts/cli/task-start.ts"
       ],
-      "exits": [
-        0,
-        1
-      ],
-      "flags": [
-        "adopt",
-        "card",
-        "without-intake"
-      ],
+      "exits": [],
+      "flags": [],
       "json": false,
       "unknownFlag": "not read"
     },

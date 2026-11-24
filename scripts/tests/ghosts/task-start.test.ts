@@ -5,10 +5,12 @@ import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { bodySha, bodyShaWithoutTouches } from '../../../src/commands/intake/confirm.js'
+import { realDeps } from '../../cli/task-start.js'
 import { BACKFILL_SOURCE } from '../../core/backfill-source.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, INTAKE_EVENT, INTAKE_MOVE_EVENT } from '../../core/events.js'
-import { realDeps, runTaskStart } from '../../ports/task-start.js'
+import { runTaskStart } from '../../ports/task-start.js'
 import { DEFAULT_WORKTREE_HOME, WORKTREE_HOME_VARIABLE, worktreeHome } from '../../ports/worktree-home.js'
 import { slotsOf } from '../../supervisor/scheduler.js'
 import { journalInBus } from './card-started-bus.js'
@@ -89,6 +91,7 @@ function newWorld(files: Record<string, string> = {}): World {
 
 function depsOf(world: World, session: string | null = SESSION, installs: [string, string[]][] = []): TaskStartDeps {
   return {
+    contract: BUS_CONTRACT,
     cwd: world.repo,
     git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' }),
     install: (cwd, args) => {

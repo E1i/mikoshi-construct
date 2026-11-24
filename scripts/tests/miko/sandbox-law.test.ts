@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { printBoard } from '../../cli/board-page.js'
+import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { openBus } from '../../core/db.js'
 import { HANDOFF_FIELDS } from '../../core/handoff-fields.js'
 import { gitIn, runTaskStart } from '../../ports/task-start.js'
@@ -137,6 +138,7 @@ describe('the window commands under the sandbox law', () => {
     const worktreeHome = path.join(world.root, 'worktrees')
     const calls: string[][] = []
     const result = runTaskStart(['feat/x', '--card', CARD, '--without-intake', 'sandbox law'], {
+      contract: BUS_CONTRACT,
       cwd: world.repo,
       git: (cwd, args) => {
         calls.push(args)

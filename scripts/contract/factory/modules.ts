@@ -57,7 +57,7 @@ const SESSION_CONTRACT = [
 
 export const COMPOSITION_MODULE = factory('supervisor/composition.ts')
 
-export const COMPOSITION_ROOTS: readonly string[] = ['src/cli.ts', 'src/program.ts', factory('window/miko.ts'), factory('intake/intake.ts'), factory('supervisor/start.ts'), factory('supervisor/netwatch-root.ts'), COMPOSITION_MODULE]
+export const COMPOSITION_ROOTS: readonly string[] = ['src/cli.ts', 'src/program.ts', factory('window/miko.ts'), factory('intake/intake.ts'), factory('supervisor/start.ts'), factory('supervisor/netwatch-root.ts'), factory('cli/task-start.ts'), COMPOSITION_MODULE]
 
 export const OWNS_ARE_THE_CONTRACT = 'owns'
 

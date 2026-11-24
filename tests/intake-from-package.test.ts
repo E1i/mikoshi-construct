@@ -244,7 +244,7 @@ describe('a factory installed from the packed package', () => {
   describe('the published factory path takes a card from intake to a session', () => {
     it('runs task:start and the pull request step through pnpm in this checkout and through built files from an installed package', () => {
       expect(taskStartCommand(null)).toEqual({ file: 'pnpm', args: ['--silent', 'task:start'] })
-      expect(taskStartCommand(REPOSITORY)).toEqual({ file: process.execPath, args: [path.join(REPOSITORY, OUT_DIR, 'scripts', 'ports', 'task-start.js')] })
+      expect(taskStartCommand(REPOSITORY)).toEqual({ file: process.execPath, args: [path.join(REPOSITORY, OUT_DIR, 'scripts', 'cli', 'task-start.js')] })
       expect(publishedTreePr('/repo', null)).toContain('pnpm')
       expect(publishedTreePr('/repo', REPOSITORY)).toBe(`'${process.execPath}' '${path.join(REPOSITORY, OUT_DIR, `${TREE_PR_ENTRY}.js`)}'`)
     })

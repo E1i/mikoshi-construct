@@ -15,7 +15,7 @@ const SESSION_READERS = [
   'window/eddies-measure.ts',
   'window/window-heartbeat.ts',
   'window/window-requests.ts',
-  'ports/task-start.ts',
+  'cli/task-start.ts',
   'intake/intake.ts',
 ]
 const IDENTITY_FILES = [...SESSION_READERS, 'window/watch.ts']
