@@ -16,6 +16,7 @@ import { RoundLimitRecutter } from '../../nodes/review/pr-close.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { REVIEW_ROUNDS_SPENT, ReviewWorker } from '../../nodes/review/review-worker.js'
 import { changesRoundsOf, RECUT_ACTOR } from '../../policy/round-limit-decision.js'
+import { planOfCard } from '../../supervisor/composition.js'
 import { RECUT_GRACE_MS } from '../../supervisor/derive-queues.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from './github-fake.js'
@@ -100,7 +101,7 @@ function fixture(text: string, options: FixtureOptions = {}): Fixture {
     return { status: 201, headers: {}, body: { number } }
   }
   const gitHub: GitHub = endpoint => endpoint.startsWith(ISSUES) ? options.latestOnGitHub ?? { status: 200, headers: {}, body: [{ number: Math.max(...bench.gitHub.pulls.keys()) }] } : bench.gitHub.client(endpoint)
-  const recutter = new RoundLimitRecutter({ db: bench.db, gitHub, post, patch: options.patch ?? bench.gitHub.patch, clock: bench.clock.now, cardStates: () => busHeldCards(bench.db), closedWaits: () => closedWaitIds(bench.db), admit: options.admit })
+  const recutter = new RoundLimitRecutter({ db: bench.db, gitHub, post, patch: options.patch ?? bench.gitHub.patch, clock: bench.clock.now, cardStates: () => busHeldCards(bench.db), closedWaits: () => closedWaitIds(bench.db), planOfCard, admit: options.admit })
   const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, reviewer: async () => ({ verdict: reviewer.verdict, findings: reviewer.findings, session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: bench.clock.now, session: 'worker-1', recut: { recut: (at) => {
     if (options.recutThrows === true)
       throw new Error('database is locked')

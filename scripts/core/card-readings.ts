@@ -99,6 +99,41 @@ export function cardStatesAmong(db: DatabaseSync, cardIds: readonly number[]): M
   return new Map(rows.map(row => [Number(row.card_id), row.state === null ? null : String(row.state)]))
 }
 
+const ENTERED_STATE_AMONG = `SELECT card_id, event_id FROM cards WHERE state = ? AND card_id IN (SELECT value FROM json_each(?))`
+
+export function stateEventsAmong(db: DatabaseSync, state: string, cardIds: readonly number[]): Map<number, number> {
+  const rows = db.prepare(ENTERED_STATE_AMONG).all(state, JSON.stringify(cardIds)) as { card_id: number, event_id: number }[]
+  return new Map(rows.map(row => [Number(row.card_id), Number(row.event_id)]))
+}
+
+const LINKED_PR = 'SELECT pr FROM cards WHERE card_id = ?'
+const CARD_OF_PR = 'SELECT card_id FROM cards WHERE pr = ?'
+
+export function linkedPrOf(db: DatabaseSync, cardId: number): number | null {
+  const pr = (db.prepare(LINKED_PR).get(cardId) as { pr: number | null } | undefined)?.pr ?? null
+  return pr === null ? null : Number(pr)
+}
+
+export function cardOfPr(db: DatabaseSync, pr: number): number | null {
+  const cardId = (db.prepare(CARD_OF_PR).get(pr) as { card_id: number } | undefined)?.card_id
+  return cardId === undefined ? null : Number(cardId)
+}
+
+export interface CardDependent {
+  id: number
+  text: string
+}
+
+const DEPENDENTS_IN_STATE = `
+  SELECT body.card_id AS id, body.text FROM ${CARD_BODIES} AS body JOIN cards ON cards.card_id = body.card_id
+  WHERE cards.state = ? AND EXISTS (SELECT 1 FROM json_each(body.depends) WHERE value = ?)
+  ORDER BY body.card_id
+`
+
+export function dependentsInStateOf(db: DatabaseSync, cardId: number, state: string): CardDependent[] {
+  return db.prepare(DEPENDENTS_IN_STATE).all(state, cardId) as unknown as CardDependent[]
+}
+
 const CARDS_WITH_A_STATE = `SELECT card_id, state FROM cards WHERE state IS NOT NULL`
 
 export function heldCardStates(db: DatabaseSync): Map<number, string | null> {

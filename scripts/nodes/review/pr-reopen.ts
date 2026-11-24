@@ -3,6 +3,7 @@ import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { BusEvent } from '../../core/db.js'
 import type { ReopenVerdict } from '../../policy/policy.js'
 import type { CommandResult, GitHub, GitHubPut } from '../../ports/github.js'
+import { cardStatesAmong } from '../../core/card-readings.js'
 import { appendEvent } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED } from '../../core/events.js'
@@ -12,7 +13,6 @@ import { readPullOf } from './pr-close.js'
 export const REOPEN_COMMAND = 'reopen'
 export const REOPEN_ACTOR = 'worker:reopen-pr:bus'
 const REPO = 'repos/{owner}/{repo}'
-const CARD_STATE = 'SELECT state FROM cards WHERE card_id = ?'
 
 export interface ReopenRequest {
   attempt: string
@@ -45,7 +45,7 @@ export class PrReopener {
   }
 
   private cardState(cardId: number): string | null {
-    return (this.db.prepare(CARD_STATE).get(cardId) as { state: string | null } | undefined)?.state ?? null
+    return cardStatesAmong(this.db, [cardId]).get(cardId) ?? null
   }
 
   private reopened(request: ReopenRequest, verdict: ReopenVerdict): ReopenOutcome {

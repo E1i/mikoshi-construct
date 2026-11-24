@@ -1,6 +1,6 @@
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite'
 import type { StoredEvent } from './stored.js'
-import { CARD_ADMITTED, MERGE_DONE, PR_CLOSED, REVIEW_RECORDED, SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, SHARD_USED } from './events.js'
+import { CARD_ADMITTED, MERGE_DONE, PR_CLOSED, PR_STATUS_SET, REVIEW_RECORDED, SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, SHARD_USED } from './events.js'
 import { payloadOf, Rejection } from './stored.js'
 
 export const EITHER_JOURNAL = 'either'
@@ -17,6 +17,7 @@ export interface EventsQuery {
   keys?: readonly string[]
   ts?: string
   actorPrefix?: string
+  exceptActor?: string
   mentions?: string
   legacy?: boolean | typeof EITHER_JOURNAL
   newestFirst?: boolean
@@ -91,6 +92,8 @@ function whereOf(query: EventsQuery): { clauses: string[], values: SQLInputValue
     add('ts = ?', query.ts)
   if (query.actorPrefix !== undefined)
     add('substr(actor, 1, ?) = ?', query.actorPrefix.length, query.actorPrefix)
+  if (query.exceptActor !== undefined)
+    add('actor != ?', query.exceptActor)
   if (query.mentions !== undefined)
     add('instr(payload, ?) > 0', query.mentions)
   return { clauses, values }
@@ -227,6 +230,23 @@ export function mergeRecordOf(db: DatabaseSync, pr: number): EventData | null {
   const ofThePr = events(db, { pr, types: [MERGE_DONE, PR_CLOSED], legacy: EITHER_JOURNAL })
   const record = ofThePr.find(row => row.type === MERGE_DONE) ?? ofThePr.find(row => row.type === PR_CLOSED && JSON_TRUE.includes(row.data?.merged))
   return record === undefined ? null : record.data ?? {}
+}
+
+export const LAST_STATUS_SET_ON_HEAD = `SELECT json_extract(payload, '$.step') AS step, json_extract(payload, '$.state') AS state FROM events WHERE type = '${PR_STATUS_SET}' AND legacy = 0 AND pr = ? AND head = ? ORDER BY id DESC LIMIT 1`
+
+export interface StatusSetRow {
+  step: unknown
+  state: unknown
+}
+
+export function lastStatusSetOnHead(db: DatabaseSync, pr: number, head: string): StatusSetRow | null {
+  return db.prepare(LAST_STATUS_SET_ON_HEAD).get(pr, head) as StatusSetRow | undefined ?? null
+}
+
+const LATEST_PR = 'SELECT max(pr) AS pr FROM events'
+
+export function latestPrInTheBus(db: DatabaseSync): number {
+  return Number((db.prepare(LATEST_PR).get() as { pr: number | null }).pr ?? 0)
 }
 
 const CARD_IDS_IN_EVENTS = `SELECT DISTINCT card_id FROM events WHERE card_id IS NOT NULL`

@@ -4196,6 +4196,7 @@
         "contract": [
           "scripts/window/plan-export.ts",
           "scripts/window/plan-folds.ts",
+          "scripts/window/plan-readings.ts",
           "scripts/cli/card-chain.ts",
           "src/card/slice-depends.ts"
         ],
@@ -4213,6 +4214,7 @@
         "owns": [
           "scripts/window/plan-export.ts",
           "scripts/window/plan-folds.ts",
+          "scripts/window/plan-readings.ts",
           "scripts/cli/card-chain.ts",
           "src/card/slice-depends.ts"
         ],
@@ -4712,7 +4714,8 @@
           "scripts/conveyor/**",
           "!scripts/window/miko.ts",
           "!scripts/window/plan-export.ts",
-          "!scripts/window/plan-folds.ts"
+          "!scripts/window/plan-folds.ts",
+          "!scripts/window/plan-readings.ts"
         ],
         "status": "decided"
       }
@@ -4928,20 +4931,20 @@
       "scripts/cli/card.ts": 1,
       "scripts/core/bus-readings.ts": 3,
       "scripts/core/card-automaton.ts": 3,
-      "scripts/core/card-readings.ts": 2,
+      "scripts/core/card-readings.ts": 6,
       "scripts/core/chain.ts": 3,
       "scripts/core/db.ts": 3,
       "scripts/core/dependency-wait.ts": 3,
-      "scripts/core/events-query.ts": 8,
+      "scripts/core/events-query.ts": 10,
       "scripts/core/inbox.ts": 1,
       "scripts/core/journal.ts": 1,
       "scripts/core/lease.ts": 17,
       "scripts/core/legacy-history.ts": 1,
       "scripts/core/node.ts": 4,
       "scripts/core/observations.ts": 4,
-      "scripts/core/pr-folds.ts": 3,
+      "scripts/core/pr-folds.ts": 1,
       "scripts/core/pr-readings.ts": 2,
-      "scripts/core/pr-status.ts": 6,
+      "scripts/core/pr-status.ts": 3,
       "scripts/core/queue.ts": 23,
       "scripts/core/reducer.ts": 2,
       "scripts/core/report.ts": 5,
@@ -4968,13 +4971,10 @@
       "scripts/nodes/launch/launch-worker.ts": 14,
       "scripts/nodes/launch/tree-pr-cli.ts": 3,
       "scripts/nodes/merge/merge-candidates.ts": 2,
-      "scripts/nodes/merge/merge-worker.ts": 1,
       "scripts/nodes/restart/restart-executor.ts": 3,
       "scripts/nodes/restart/role.ts": 6,
       "scripts/nodes/review/divergence-alarm.ts": 2,
-      "scripts/nodes/review/pr-close.ts": 6,
-      "scripts/nodes/review/pr-reopen.ts": 1,
-      "scripts/nodes/review/record-verdict.ts": 1,
+      "scripts/nodes/review/pr-close.ts": 1,
       "scripts/nodes/review/review-executor.ts": 5,
       "scripts/nodes/review/review-worker.ts": 3,
       "scripts/nodes/update/update-candidates.ts": 1,
@@ -5002,6 +5002,7 @@
       "scripts/window/handoff-write.ts": 1,
       "scripts/window/operator-work.ts": 2,
       "scripts/window/plan-folds.ts": 5,
+      "scripts/window/plan-readings.ts": 2,
       "scripts/window/requests/amend.ts": 2,
       "scripts/window/requests/context.ts": 6,
       "scripts/window/requests/drop.ts": 1,

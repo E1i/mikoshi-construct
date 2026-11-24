@@ -4,6 +4,7 @@
   "paths": [
     "scripts/window/plan-export.ts",
     "scripts/window/plan-folds.ts",
+    "scripts/window/plan-readings.ts",
     "scripts/cli/card-chain.ts",
     "src/card/slice-depends.ts"
   ],

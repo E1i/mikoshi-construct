@@ -135,6 +135,7 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
   'plan': [
     `${FACTORY_ROOT}/window/plan-export.ts`,
     `${FACTORY_ROOT}/window/plan-folds.ts`,
+    `${FACTORY_ROOT}/window/plan-readings.ts`,
     `${FACTORY_ROOT}/cli/card-chain.ts`,
     'src/card/slice-depends.ts',
   ],

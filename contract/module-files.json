@@ -750,6 +750,7 @@
     "scripts/tests/contract/owner-reads/decisions-policy.test.ts",
     "scripts/tests/contract/owner-reads/events-query.test.ts",
     "scripts/tests/contract/owner-reads/plan.test.ts",
+    "scripts/tests/contract/owner-reads/pr.test.ts",
     "scripts/tests/contract/owner-reads/quality-intake.test.ts",
     "scripts/tests/contract/owner-reads/rules.test.ts",
     "scripts/tests/contract/permanent-suite-holds-on-any-base.test.ts",
@@ -1653,6 +1654,7 @@
     "scripts/cli/card-chain.ts",
     "scripts/window/plan-export.ts",
     "scripts/window/plan-folds.ts",
+    "scripts/window/plan-readings.ts",
     "src/card/slice-depends.ts"
   ],
   "ports": [

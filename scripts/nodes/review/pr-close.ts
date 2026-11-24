@@ -11,9 +11,11 @@ import { bodySha } from '../../../src/commands/intake/confirm.js'
 import { nextCardNumbers } from '../../../src/commands/intake/numbers.js'
 import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { DROPPED_CARD, QUEUED_CARD } from '../../core/card-automaton.js'
-import { appendCardEvent, CARD_BODIES, cardBodyText, laid } from '../../core/card-bodies.js'
+import { appendCardEvent, cardBodyText, laid } from '../../core/card-bodies.js'
+import { dependentsInStateOf, stateEventsAmong } from '../../core/card-readings.js'
 import { appendEvent, inTransaction, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
+import { EITHER_JOURNAL, events, latestPrInTheBus } from '../../core/events-query.js'
 import { CARD_ADMITTED, CARD_DROPPED, CARD_PLANNED, COMMAND_EXECUTED, OPEN_PLAN, POLICY_ALLOWED, POLICY_DENIED, PR_CLOSED, PR_OPENED, ROUND_MUTATIONS_PARKED } from '../../core/events.js'
 import { leasedOn } from '../../core/lease.js'
 import { closedKey, reopeningOf } from '../../core/observations.js'
@@ -60,6 +62,13 @@ export interface RoundLimitRecut {
 
 export type CardAdmit = (event: CardEvent) => boolean
 
+export interface CardPlan {
+  plan: string
+  state: string
+}
+
+export type PlanOfCardReading = (db: DatabaseSync, cardId: number) => CardPlan | null
+
 export interface RecutParts {
   db: DatabaseSync
   gitHub: GitHub
@@ -68,6 +77,7 @@ export interface RecutParts {
   clock: () => Date
   cardStates: CardStatesPort
   closedWaits: () => readonly string[]
+  planOfCard: PlanOfCardReading
   admit?: CardAdmit
   pushPolicy?: () => PushPolicy
 }
@@ -89,31 +99,31 @@ interface Branch {
 const SUPERSEDED_LANE = 'superseded'
 const CREATED = 201
 
-const LATEST_PR_IN_THE_BUS = 'SELECT max(pr) AS pr FROM events'
 const LATEST_ISSUE_OR_PULL = `${REPO}/issues?state=all&sort=created&direction=desc&per_page=1`
 
-const OPEN_RELEASE_OF_CARD = `
-  SELECT card_releases.release FROM card_releases JOIN plans ON plans.plan_id = card_releases.release
-  WHERE card_releases.card_id = ? AND plans.state = '${OPEN_PLAN}'
-`
+const OPEN_PRS_WITH_A_CARD = `SELECT pr, card_id FROM prs WHERE state = 'open' AND card_id IS NOT NULL ORDER BY pr`
 
-const ADMITTED_TEXT = `SELECT 1 FROM events WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND card_id = ? AND json_extract(payload, '$.textSha') = ? LIMIT 1`
-
-const QUEUED_DEPENDENTS_OF_CARD = `
-  SELECT body.card_id AS id, body.text FROM ${CARD_BODIES} AS body JOIN cards ON cards.card_id = body.card_id
-  WHERE cards.state = '${QUEUED_CARD}' AND EXISTS (SELECT 1 FROM json_each(body.depends) WHERE value = ?)
-  ORDER BY body.card_id
-`
-
-const OPEN_PRS_OF_DROPPED_CARDS = `
-  SELECT prs.pr, prs.card_id, cards.event_id AS dropped FROM prs JOIN cards ON cards.card_id = prs.card_id
-  WHERE prs.state = 'open' AND cards.state = '${DROPPED_CARD}'
-    AND NOT EXISTS (SELECT 1 FROM events WHERE type = '${PR_CLOSED}' AND pr = prs.pr)
-  ORDER BY prs.pr
-`
+interface DroppedCardPr {
+  pr: number
+  cardId: number
+  dropped: number
+}
 
 export function droppedAttempt(droppedEventId: number, pr: number): string {
   return `dropped-${droppedEventId}-pr-${pr}`
+}
+
+function openPrsOfDroppedCards(db: DatabaseSync): DroppedCardPr[] {
+  const open = (db.prepare(OPEN_PRS_WITH_A_CARD).all() as { pr: number, card_id: number }[]).map(row => ({ pr: Number(row.pr), cardId: Number(row.card_id) }))
+  const drops = stateEventsAmong(db, DROPPED_CARD, [...new Set(open.map(row => row.cardId))])
+  return open.flatMap((row) => {
+    const dropped = drops.get(row.cardId)
+    return dropped === undefined || events(db, { pr: row.pr, types: [PR_CLOSED], legacy: EITHER_JOURNAL, limit: 1 }).length > 0 ? [] : [{ ...row, dropped }]
+  })
+}
+
+function isAdmittedText(db: DatabaseSync, cardId: number, sha: string): boolean {
+  return events(db, { card: cardId, types: [CARD_ADMITTED] }).some(admitted => admitted.data?.textSha === sha)
 }
 
 function cardEventOf(card: RecutCard, at: Date): CardEvent {
@@ -178,16 +188,15 @@ export class PrCloser {
   }
 
   closeDropped(): CloseOutcome[] {
-    const rows = this.db.prepare(OPEN_PRS_OF_DROPPED_CARDS).all() as { pr: number, card_id: number, dropped: number }[]
-    return rows
-      .map(row => ({ attempt: droppedAttempt(Number(row.dropped), Number(row.pr)), pr: Number(row.pr), cardId: Number(row.card_id), reason: `card #${row.card_id} was dropped`, by: 'card.dropped' as const }))
+    return openPrsOfDroppedCards(this.db)
+      .map(row => ({ attempt: droppedAttempt(row.dropped, row.pr), pr: row.pr, cardId: row.cardId, reason: `card #${row.cardId} was dropped`, by: 'card.dropped' as const }))
       .filter(request => !this.decided(request))
       .map(request => this.close(request))
   }
 
   private decided(request: CloseRequest): boolean {
-    const lookup = this.db.prepare('SELECT 1 FROM events WHERE dedupe_key = ?')
-    return CLOSE_RULES.some(rule => !RETRIED_CLOSE_RULES.has(rule) && lookup.get(this.deniedKey(request, rule)) !== undefined)
+    const keys = CLOSE_RULES.filter(rule => !RETRIED_CLOSE_RULES.has(rule)).map(rule => this.deniedKey(request, rule))
+    return events(this.db, { keys, legacy: EITHER_JOURNAL, limit: 1 }).length > 0
   }
 
   private deniedKey(request: CloseRequest, rule: CloseRule): string {
@@ -276,7 +285,7 @@ export class RoundLimitRecutter implements RoundLimitRecut {
   }
 
   private parkOrWait(at: RoundLimitAt, text: string, mutations: readonly string[]): RecutOutcome {
-    const dependents = this.parts.db.prepare(QUEUED_DEPENDENTS_OF_CARD).all(at.cardId) as unknown as RecutCard[]
+    const dependents: RecutCard[] = dependentsInStateOf(this.parts.db, at.cardId, QUEUED_CARD)
     const plan = parkPlanOf(at.cardId, text, mutations, dependents)
     if (plan.kind === 'owner_wait')
       return this.waited(at, plan.why)
@@ -294,7 +303,7 @@ export class RoundLimitRecutter implements RoundLimitRecut {
   }
 
   private admitted(at: RoundLimitAt, plan: Exclude<RecutPlan, { kind: 'owner_wait' }>, text: string, onGitHub: number): Recut {
-    const [firstId] = nextCardNumbers(this.parts.cardStates(), [this.latestPrInTheBus(), onGitHub], recutCardCount(plan))
+    const [firstId] = nextCardNumbers(this.parts.cardStates(), [latestPrInTheBus(this.parts.db), onGitHub], recutCardCount(plan))
     const recut = recutOf(plan, text, at.pr, firstId!)
     const ts = this.parts.clock()
     for (const card of recut.admitted) {
@@ -304,21 +313,17 @@ export class RoundLimitRecutter implements RoundLimitRecut {
     if (recut.dropsTheCard)
       appendCardEvent(BUS_CONTRACT, this.parts.db, RECUT_ACTOR, { type: CARD_DROPPED, cardId: at.cardId, ts: ts.toISOString(), dedupeKey: `${CARD_DROPPED}:${at.cardId}:round-limit-${at.pr}`, payload: { from: null, to: SUPERSEDED_LANE, lane: SUPERSEDED_LANE, bodySha: bodySha(text), recut: at.pr } })
     this.planIntoTheRelease(at, recut.added)
-    const unconfirmed = recut.admitted.filter(card => this.parts.db.prepare(ADMITTED_TEXT).get(card.id, textSha(card.text)) === undefined)
+    const unconfirmed = recut.admitted.filter(card => !isAdmittedText(this.parts.db, card.id, textSha(card.text)))
     if (unconfirmed.length > 0)
       throw new Error(`the bus holds no card.admitted of ${unconfirmed.map(card => `#${card.id}`).join(', ')}`)
     return recut
   }
 
-  private latestPrInTheBus(): number {
-    const row = this.parts.db.prepare(LATEST_PR_IN_THE_BUS).get() as { pr: number | null }
-    return row.pr ?? 0
-  }
-
   private planIntoTheRelease(at: RoundLimitAt, added: readonly number[]): void {
-    const release = (this.parts.db.prepare(OPEN_RELEASE_OF_CARD).get(at.cardId) as { release: string } | undefined)?.release
-    if (release === undefined)
+    const plan = this.parts.planOfCard(this.parts.db, at.cardId)
+    if (plan?.state !== OPEN_PLAN)
       return
+    const release = plan.plan
     for (const card of added)
       appendEvent(this.parts.db, { ts: this.now(), type: CARD_PLANNED, actor: RECUT_ACTOR, cardId: card, pr: null, head: null, dedupeKey: `${CARD_PLANNED}:round-limit-${at.pr}:${release}:${card}`, payload: { release, card, recut_of: at.cardId }, legacy: false })
   }
