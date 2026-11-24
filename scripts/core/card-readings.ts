@@ -44,6 +44,12 @@ export function closedWaitIds(db: DatabaseSync): string[] {
   return (db.prepare(CLOSED_WAIT_IDS).all() as { id: string }[]).map(row => String(row.id))
 }
 
+export function closedWaitTextsOf(db: DatabaseSync, cardId: number): string[] {
+  const closed = new Set(closedWaitIds(db))
+  return events(db, { types: [OWNER_WAIT_OPENED], card: cardId })
+    .flatMap(opened => closed.has(String(opened.data?.id)) && typeof opened.data?.text === 'string' ? [opened.data.text] : [])
+}
+
 const A_WAIT_CLOSED_BEFORE = `SELECT 1 FROM ${OWNER_WAITS} WHERE id = ? AND state = '${CLOSED_WAIT}' AND event_id < ? LIMIT 1`
 
 export function waitClosedBefore(db: DatabaseSync, id: string, eventId: number): boolean {
