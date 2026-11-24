@@ -43,10 +43,12 @@ function busChainsFrom(seed: string): string[] {
   return chains
 }
 
-describe('the shared fixtures build their state on the bus fake', () => {
+describe('merge-bench and bus-fixture reach no bus file', () => {
   it.each(SHARED_FIXTURES)('%s reaches no bus file, directly or through what it imports', (fixture) => {
     expect(busChainsFrom(fixture)).toEqual([])
   })
+
+  it.todo('scripts/tests/bus/merge-bench.ts reaches no bus file: cut to its own card, it waits for MergeExecutor, composition and the nodes on the bus port')
 
   it('a test that takes the real bus as its subject imports it itself, and the walk sees it', () => {
     expect(busChainsFrom(CONFORMANCE)).toContain(`${CONFORMANCE} -> scripts/core/db.ts`)
