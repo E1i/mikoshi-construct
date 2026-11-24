@@ -1,7 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../../core/lease.js'
+import { DatabaseSync as Sqlite } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
-import { bodyAdmittedAfter, waitClosedBefore } from '../../../core/card-readings.js'
+import { bodyAdmittedAfter, cardsAmong, openWaitEventsByCard, waitClosedBefore, waitStatesAmong } from '../../../core/card-readings.js'
 import { appendEvent, openBus } from '../../../core/db.js'
 import { all, byId, EITHER_JOURNAL, events, latest, latestOfCardWhere, ofCard, ofPr, perCard, unspentShardRows } from '../../../core/events-query.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_HELD, CARD_STARTED, CARD_STOPPED, DECISIONS_IMPORTED, DECISIONS_PROJECTED, PR_OBSERVED, QUESTION_AGENT, REVIEW_RECORDED, SHARD_ISSUED, TASK_COMPLETED, TASK_FAILED, TASK_RELEASED } from '../../../core/events.js'
@@ -372,5 +373,37 @@ describe('the decision and shard readings keep their order and their drops', () 
     projected(db)
     expect(decisionRows(db, DECISION_EVENT_READS)).toHaveLength(1)
     expect(decisionRows(db, { ...DECISION_EVENT_READS, tsOf: () => new Map() })).toEqual([])
+  })
+})
+
+const READING_TABLES = `
+  CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, task_key TEXT NOT NULL UNIQUE, queue TEXT NOT NULL, card_id INTEGER NOT NULL, pr INTEGER, head TEXT, state TEXT NOT NULL, lease_gen INTEGER NOT NULL DEFAULT 0, lease_until TEXT, failures INTEGER NOT NULL DEFAULT 0, event_id INTEGER NOT NULL);
+  CREATE TABLE cards (card_id INTEGER PRIMARY KEY, state TEXT, pr INTEGER);
+  CREATE TABLE owner_waits (id TEXT PRIMARY KEY, card_id INTEGER, state TEXT NOT NULL, event_id INTEGER NOT NULL);
+`
+
+function readingTables(): DatabaseSync {
+  const db = new Sqlite(':memory:')
+  opened.push(db)
+  db.exec(READING_TABLES)
+  return db
+}
+
+describe('the readings derive-queues takes from bus and card-record', () => {
+  it('bus answers every task, as the keyed reads do', () => {
+    const db = readingTables()
+    expect(tasks.all(db)).toEqual([])
+    db.prepare(`INSERT INTO tasks (task_key, queue, card_id, pr, head, state, event_id) VALUES ('answer:7', 'answer', ?, 7, 'abc', 'queued', 2), ('merge:8', 'merge', ?, NULL, NULL, 'leased', 1)`).run(CARD, OTHER_CARD)
+    expect(tasks.all(db).map(task => task.task_key)).toEqual(['merge:8', 'answer:7'])
+    expect(tasks.all(db)).toEqual([...tasks.ofQueue(db, 'merge'), ...tasks.ofQueue(db, 'answer')])
+  })
+
+  it('card-record answers cards, wait states and the openings of open waits by key', () => {
+    const db = readingTables()
+    db.prepare(`INSERT INTO cards (card_id, state, pr) VALUES (?, 'closed', 7), (?, NULL, NULL)`).run(CARD, OTHER_CARD)
+    db.prepare(`INSERT INTO owner_waits (id, card_id, state, event_id) VALUES ('Q1', ?, 'open', 5), ('Q2', ?, 'closed', 6), ('Q3', ?, 'open', 4), ('Q4', NULL, 'open', 8)`).run(CARD, CARD, OTHER_CARD)
+    expect(cardsAmong(db, [CARD, OTHER_CARD, 1])).toEqual(new Map([[CARD, { state: 'closed', pr: 7 }], [OTHER_CARD, { state: null, pr: null }]]))
+    expect(waitStatesAmong(db, ['Q1', 'Q2', 'Q9'])).toEqual(new Map([['Q1', 'open'], ['Q2', 'closed']]))
+    expect(openWaitEventsByCard(db)).toEqual(new Map([[OTHER_CARD, [4]], [CARD, [5]]]))
   })
 })
