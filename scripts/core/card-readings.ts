@@ -1,7 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { LastReduced, OwnerWait } from './bus-readings.js'
 import { CLOSED_WAIT, OPEN_WAIT, OWNER_WAITS, readLastReduced } from './bus-readings.js'
-import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from './card-automaton.js'
 import { EITHER_JOURNAL, events, latest } from './events-query.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED } from './events.js'
 
@@ -93,13 +92,7 @@ export function admittedBodyOf(db: DatabaseSync, cardId: number): AdmittedBody |
   return bodyOf(db.prepare(BODY_COLUMNS).get(cardId) as StoredBody | undefined)
 }
 
-const ENDED_CARD_STATES: readonly string[] = [MERGED_CARD, CLOSED_CARD, DROPPED_CARD]
-
 const CARD_STATES_AMONG = `SELECT card_id, state FROM cards WHERE card_id IN (SELECT value FROM json_each(?))`
-
-export function cardEnded(state: string | null): boolean {
-  return state !== null && ENDED_CARD_STATES.includes(state)
-}
 
 export function cardStatesAmong(db: DatabaseSync, cardIds: readonly number[]): Map<number, string | null> {
   const rows = db.prepare(CARD_STATES_AMONG).all(JSON.stringify(cardIds)) as { card_id: number, state: string | null }[]

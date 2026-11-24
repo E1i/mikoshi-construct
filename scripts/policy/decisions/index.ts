@@ -5,7 +5,7 @@ import type { Fold, StoredEvent } from '../../core/stored.js'
 import type { DecisionRow, DecisionsPort, OwnerWords } from './decisions.js'
 import { DECISIONS_FILE } from '../../core/bus-path.js'
 import { DECISIONS, readCurrent } from '../../core/bus-readings.js'
-import { cardEnded, cardStatesAmong, waitIdsAmong } from '../../core/card-readings.js'
+import { cardStatesAmong, waitIdsAmong } from '../../core/card-readings.js'
 import { appendEvent, DECISION_ARCHIVED, DECISION_IN_FORCE } from '../../core/db.js'
 import { DECISION_EXPIRED, DECISION_RECORDED, DECISIONS_IMPORTED, DECISIONS_PROJECTED } from '../../core/events.js'
 import { OWNER } from '../../core/inbox.js'
@@ -66,6 +66,7 @@ export interface DecisionEventReads {
   expiredDecisionIds: (db: DatabaseSync) => unknown[]
   recordedByTheOwner: (db: DatabaseSync) => StoredEvent[]
   tsOf: (db: DatabaseSync, eventIds: readonly number[]) => Map<number, string>
+  cardEnded: (state: string | null) => boolean
 }
 
 const WAIT_ID_IN_TEXT = /\b[QW]\d+\b/g
@@ -89,14 +90,14 @@ function archive(db: DatabaseSync, decisionId: number): void {
 
 const CARD_NUMBER_IN_TEXT = /#(\d+)\b/g
 
-function aCardTheTextNamesHasNotEnded(db: DatabaseSync, text: string): boolean {
+function aCardTheTextNamesHasNotEnded(db: DatabaseSync, text: string, reads: DecisionEventReads): boolean {
   const named = [...text.matchAll(CARD_NUMBER_IN_TEXT)].map(match => Number(match[1]))
-  return [...cardStatesAmong(db, named).values()].some(state => !cardEnded(state))
+  return [...cardStatesAmong(db, named).values()].some(state => !reads.cardEnded(state))
 }
 
-function everyCardEnded(db: DatabaseSync, cardIds: readonly number[]): boolean {
+function everyCardEnded(db: DatabaseSync, cardIds: readonly number[], reads: DecisionEventReads): boolean {
   const states = cardStatesAmong(db, cardIds)
-  return cardIds.every(cardId => states.has(cardId) && cardEnded(states.get(cardId) ?? null))
+  return cardIds.every(cardId => states.has(cardId) && reads.cardEnded(states.get(cardId) ?? null))
 }
 
 const SCOPED_IN_FORCE = `
@@ -104,10 +105,10 @@ const SCOPED_IN_FORCE = `
   WHERE state = '${DECISION_IN_FORCE}' AND json_array_length(coalesce(scope, '[]')) > 0
 `
 
-export function archiveSpentDecisions(db: DatabaseSync): void {
+export function archiveSpentDecisions(db: DatabaseSync, reads: DecisionEventReads): void {
   const scoped = db.prepare(SCOPED_IN_FORCE).all() as { decision_id: number, text: string, scope: string }[]
   for (const decision of scoped) {
-    if (everyCardEnded(db, JSON.parse(decision.scope) as number[]) && !aCardTheTextNamesHasNotEnded(db, decision.text))
+    if (everyCardEnded(db, JSON.parse(decision.scope) as number[], reads) && !aCardTheTextNamesHasNotEnded(db, decision.text, reads))
       archive(db, Number(decision.decision_id))
   }
 }
@@ -134,7 +135,7 @@ function foldDecisionRecorded(db: DatabaseSync, event: StoredEvent, reads: Decis
     .run(decisionId, text, JSON.stringify(cards), OWNER, event.id, termOf(text).until, JSON.stringify(supersedes))
   for (const target of supersedes)
     archive(db, target)
-  archiveSpentDecisions(db)
+  archiveSpentDecisions(db, reads)
 }
 
 function importedOf(entry: unknown): InForceDecision {
@@ -183,7 +184,7 @@ function foldDecisionsImported(db: DatabaseSync, event: StoredEvent, reads: Deci
       ON CONFLICT (decision_id) DO UPDATE SET text = excluded.text, scope = excluded.scope, source = excluded.source, event_id = excluded.event_id, until = excluded.until, state = excluded.state
     `).run(decision.decisionId, decision.text, JSON.stringify(decision.cards), DECISIONS_FILE, event.id, termOf(decision.text).until)
   }
-  archiveSpentDecisions(db)
+  archiveSpentDecisions(db, reads)
 }
 
 function foldDecisionExpired(db: DatabaseSync, event: StoredEvent, reads: DecisionEventReads): void {

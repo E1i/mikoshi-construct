@@ -221,8 +221,22 @@ export function busCardFolds(): Record<string, Fold> {
   return cardFolds(BUS_CONTRACT, CARD_PR_READINGS)
 }
 
+const PROJECTED_DECISIONS = [DECISIONS_PROJECTED]
+const EXPIRED_DECISIONS = [DECISION_EXPIRED]
+const RECORDED_DECISIONS = [DECISION_RECORDED]
+const ENDED_CARD_STATES: readonly (string | null)[] = [MERGED_CARD, CLOSED_CARD, DROPPED_CARD]
+
+export const DECISION_EVENT_READS: DecisionEventReads = {
+  actorOf: (db, eventId) => byId(db, eventId)?.actor ?? null,
+  projectedBefore: (db, eventId) => events(db, { types: PROJECTED_DECISIONS, legacy: EITHER_JOURNAL, limit: 1, ...(eventId === undefined ? {} : { before: eventId }) }).length > 0,
+  expiredDecisionIds: db => events(db, { types: EXPIRED_DECISIONS, legacy: EITHER_JOURNAL }).map(event => event.data?.decision_id),
+  recordedByTheOwner: db => events(db, { types: RECORDED_DECISIONS }).filter(event => event.actor === OWNER),
+  tsOf: (db, eventIds) => new Map(events(db, { ids: eventIds, legacy: EITHER_JOURNAL }).map(event => [event.id, event.ts])),
+  cardEnded: state => ENDED_CARD_STATES.includes(state),
+}
+
 function cardWaitParts(): CardWaitParts {
-  return { archiveSpentDecisions, prRow, prsOfCard: (db, cardId) => prs.ofCard(db, cardId).map(row => row.pr), cardFolds: busCardFolds() }
+  return { archiveSpentDecisions: db => archiveSpentDecisions(db, DECISION_EVENT_READS), prRow, prsOfCard: (db, cardId) => prs.ofCard(db, cardId).map(row => row.pr), cardFolds: busCardFolds() }
 }
 
 const PR_FIELDS = { isFullSha, prOf }
@@ -281,14 +295,6 @@ export function busPrFolds(): Record<string, Fold> {
     cardOfBranch,
     closed: closingTheWaitsOfAClosedPr(cardWaitParts()),
   }), busCardLinkFolds())
-}
-
-export const DECISION_EVENT_READS: DecisionEventReads = {
-  actorOf: (db, eventId) => byId(db, eventId)?.actor ?? null,
-  projectedBefore: (db, eventId) => events(db, { types: [DECISIONS_PROJECTED], legacy: EITHER_JOURNAL, limit: 1, ...(eventId === undefined ? {} : { before: eventId }) }).length > 0,
-  expiredDecisionIds: db => events(db, { types: [DECISION_EXPIRED], legacy: EITHER_JOURNAL }).map(event => event.data?.decision_id),
-  recordedByTheOwner: db => events(db, { types: [DECISION_RECORDED] }).filter(event => event.actor === OWNER),
-  tsOf: (db, eventIds) => new Map(events(db, { ids: eventIds, legacy: EITHER_JOURNAL }).map(event => [event.id, event.ts])),
 }
 
 export function decisionFoldsOfTheBus(): Record<string, Fold> {
