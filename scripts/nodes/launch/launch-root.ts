@@ -23,6 +23,7 @@ import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { busPathOf, machineBusPath } from '../../core/bus-path.js'
 import { cardSessionsIn } from '../../core/card-bodies.js'
 import { busCardDecisions, withCardDecisions } from '../../core/card-decisions.js'
+import { closedWaitTextsOf } from '../../core/card-readings.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath, openBus } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { FACTORY_RUNTIME } from '../../core/factory-paths.js'
@@ -276,6 +277,10 @@ export function readTreeFile(file: string): TreeFile | null {
 
 export function busAllowances(busPath: string): (cardId: number) => string[] {
   return busCardDecisions(busPath, (db, cardId) => cardAllowances(db)(cardId))
+}
+
+export function busClosedWaitTexts(busPath: string): (cardId: number) => string[] {
+  return busCardDecisions(busPath, closedWaitTextsOf)
 }
 
 export function busCardSessions(busPath: string): (cardId: number) => string[] {
