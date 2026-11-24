@@ -5,7 +5,7 @@ export type { CardAdmissionsPort, CardEventPort } from '../../../src/commands/in
 export { parseTaken } from '../../../src/commands/intake/numbers.js'
 export { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../../core/card-automaton.js'
 export { appendCardEvent, bodyNotFoldedYet, CARD_BODIES, cardBodyText, FACTORY_MODES, isFactoryMode, laid } from '../../core/card-bodies.js'
-export { answersWithdrawnByAClosedHold, holdLayersOf, holdThatStays, ownerHoldGround, queueAgain, type QueueTaskRow, tasksWithdrawnByAClosedHold, withdrawQueuedTasksOfHeldCard } from '../../core/card-hold.js'
+export { holdLayersOf, holdThatStays, ownerHoldGround, queueAgain, type QueueTaskRow, tasksWithdrawnByAClosedHold, withdrawQueuedTasksOfHeldCard } from '../../core/card-hold.js'
 export { appendEvent, CLOSED_WAIT, closeOwnerWait, defaultBusPath, inTransaction, isOwnerWaitNeed, OPEN_WAIT, openBus, openOwnerWait, OWNER_WAIT_NEEDS, OWNER_WAITS } from '../../core/db.js'
 export { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CONTINUED, CARD_DROPPED, CARD_HELD, CARD_PLANNED, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, CARD_TAKEOVER, CARD_UNPLANNED, CHILD_ENDED, CHILD_STARTED, COMMAND_EXECUTED, DECISION_RECORDED, declaredPayload, FACTORY_MODE, NUMBERS_FOREIGN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, POLICY_DENIED, PR_OBSERVED, REJECTED, REQUEST_DONE, REQUEST_REFUSED, SHARD_DECIDED, TASK_COMPLETED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED, WINDOW_REQUEST, WITNESS_RECORDED } from '../../core/events.js'
 export { cardIdOf, isFullSha, prOf, REVIEW_ROUNDS, reviewInputOf } from '../../core/identifiers.js'

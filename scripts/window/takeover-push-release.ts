@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { StoredEvent } from './requests/reach.js'
-import { answersWithdrawnByAClosedHold, appendEvent, CARD_HELD, CARD_RELEASED, holdLayersOf, PR_OBSERVED, QUEUE_ACTOR, queueAgain } from './requests/reach.js'
+import { appendEvent, CARD_HELD, CARD_RELEASED, holdLayersOf, PR_OBSERVED, QUEUE_ACTOR, queueAgain, tasksWithdrawnByAClosedHold } from './requests/reach.js'
 
 export const TAKEOVER_PUSH = 'takeover-push'
 
@@ -53,7 +53,7 @@ export function releaseTakeoverOnPush(db: DatabaseSync, read: HoldReader, event:
   const released = appendEvent(db, { ts: event.ts, type: CARD_RELEASED, actor: QUEUE_ACTOR, cardId, pr: event.pr, head: event.head, dedupeKey, payload: { ...(request === null ? {} : { request }), reason: `takeover pushed ${event.head}`, takeover: true }, legacy: false })
   if (!released)
     return []
-  const withdrawn = answersWithdrawnByAClosedHold(db, cardId, opened)
+  const withdrawn = tasksWithdrawnByAClosedHold(db, cardId, opened)
   withdrawn.forEach(task => queueAgain(db, event.ts, task, request, `${TAKEOVER_PUSH}-${heldId}`))
   return withdrawn.map(task => task.task_key)
 }

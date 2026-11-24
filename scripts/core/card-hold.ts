@@ -103,10 +103,6 @@ export function holderOf(layers: HoldLayers): string | null {
   return latest === null ? null : latest === 'owner' ? 'the owner' : 'the window'
 }
 
-export function answersWithdrawnByAClosedHold(db: DatabaseSync, cardId: number, opened: number | null): QueueTaskRow[] {
-  return opened === null || holderOf(holdLayersOf(db, cardId)) !== null ? [] : answersWithdrawnSince(db, cardId, opened)
-}
-
 function queueRowOf(row: tasks.TaskRow): QueueTaskRow {
   return { task_key: row.task_key, queue: row.queue as Queue, card_id: row.card_id, pr: row.pr, head: row.head, state: row.state }
 }
@@ -132,9 +128,7 @@ function queuedTasksWithdrawnSince(db: DatabaseSync, cardId: number, opened: num
 export function tasksWithdrawnByAClosedHold(db: DatabaseSync, cardId: number, opened: number | null): QueueTaskRow[] {
   if (opened === null || holderOf(holdLayersOf(db, cardId)) !== null)
     return []
-  const answers = answersWithdrawnSince(db, cardId, opened)
-  const keys = new Set(answers.map(task => task.task_key))
-  return [...answers, ...queuedTasksWithdrawnSince(db, cardId, opened).filter(task => !keys.has(task.task_key))]
+  return [...answersWithdrawnSince(db, cardId, opened), ...queuedTasksWithdrawnSince(db, cardId, opened)]
 }
 
 export function holdThatStays(db: DatabaseSync, cardId: number): string | null {

@@ -7,6 +7,7 @@ import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_HELD, CARD_RELEASED, CARD_STARTED, CARD_TAKEOVER, PR_OPENED } from '../../core/events.js'
 import { failTask, leaseNext } from '../../core/lease.js'
 import { all as pullRequests } from '../../core/pr-readings.js'
+import { queueTask } from '../../core/queue.js'
 import { ownerHoldOf } from '../../nodes/answer/answer-source.js'
 import { HELD_FOR_OWNER } from '../../nodes/merge/merge-executor.js'
 import { cardTransitions } from '../../supervisor/composition.js'
@@ -144,4 +145,25 @@ describe('a takeover ends at the push', () => {
     expect(eventsOf(green.db, CARD_RELEASED)).toEqual([expect.objectContaining({ request: 1, reason: `takeover pushed ${PUSHED_HEAD}` })])
     expect(green.merge(green.lease()!)).toMatchObject({ kind: 'merged' })
   })
+
+  it('a hold under a takeover withdraws the queued tasks, and the takeover push queues them again', () => {
+    const made = redCardTakenOver()
+    queueTask(made.db, made.clock.now().toISOString(), { queue: 'launch', cardId: CARD })
+    expect(request(made, ['hold', '--card', String(CARD), '--reason', 'the owner reads it first'])).toMatchObject({ kind: 'done' })
+    expect(launchStates(made)).toEqual(['withdrawn'])
+
+    expect(request(made, ['release', '--card', String(CARD)])).toMatchObject({ kind: 'done' })
+    expect(launchStates(made)).toEqual(['withdrawn'])
+
+    made.gitHub.open({ number: PR, head: PUSHED_HEAD, required: 'failure', failed: ['required'] })
+    made.tick()
+
+    expect(ownerHoldOf(made.db, CARD)).toBeNull()
+    expect(launchStates(made)).toEqual(['queued'])
+    expect(answerStates(made).filter(task => task.state === 'queued')).not.toEqual([])
+  })
 })
+
+function launchStates(made: MergeBench): string[] {
+  return (made.db.prepare(`SELECT state FROM tasks WHERE card_id = ? AND queue = 'launch'`).all(CARD) as { state: string }[]).map(row => row.state)
+}
