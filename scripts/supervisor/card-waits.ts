@@ -15,6 +15,7 @@ export interface CardWaitParts {
   prRow: (db: DatabaseSync, pr: number) => { card_id: number | null } | undefined
   prsOfCard: (db: DatabaseSync, cardId: number) => readonly number[]
   cardFolds: Readonly<Record<string, Fold>>
+  amendLeavesTheWidenOfTheWaitUncovered: (db: DatabaseSync, cardId: number, waitOpened: number, amend: number) => boolean
 }
 
 export const DOWNGRADE_WAIT_PREFIX = 'W'
@@ -217,11 +218,16 @@ function closeAmendWaitsTheAdmissionAnswers(db: DatabaseSync, event: StoredEvent
 
 const AMEND_ADMISSION = 'amend'
 
-function closeDecisionWaitsTheAmendAnswers(db: DatabaseSync, event: StoredEvent): void {
-  if (payloadOf(event).source !== AMEND_ADMISSION)
+const SINCE_THE_FIRST_EVENT = 0
+
+function closeDecisionWaitsTheAmendAnswers(db: DatabaseSync, event: StoredEvent, parts: CardWaitParts): void {
+  const cardId = event.card_id
+  if (payloadOf(event).source !== AMEND_ADMISSION || cardId === null)
+    return
+  if (parts.amendLeavesTheWidenOfTheWaitUncovered(db, cardId, SINCE_THE_FIRST_EVENT, event.id))
     return
   db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE state = '${OPEN_WAIT}' AND card_id = ? AND need = 'decision' AND event_id < ?`)
-    .run(`card #${event.card_id} amended`, event.id, event.card_id, event.id)
+    .run(`card #${cardId} amended`, event.id, cardId, event.id)
 }
 
 function foldAdmittedWithBody(db: DatabaseSync, event: StoredEvent, parts: CardWaitParts): void {
@@ -229,7 +235,7 @@ function foldAdmittedWithBody(db: DatabaseSync, event: StoredEvent, parts: CardW
   foldCardBody(db, event)
   closeDowngradeWaitsTheAdmissionAnswers(db, event)
   closeAmendWaitsTheAdmissionAnswers(db, event)
-  closeDecisionWaitsTheAmendAnswers(db, event)
+  closeDecisionWaitsTheAmendAnswers(db, event, parts)
 }
 
 export function closingTheWaitsOfAClosedPr(parts: CardWaitParts): Fold {
