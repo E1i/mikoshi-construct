@@ -99,6 +99,18 @@ export function cardStatesAmong(db: DatabaseSync, cardIds: readonly number[]): M
   return new Map(rows.map(row => [Number(row.card_id), row.state === null ? null : String(row.state)]))
 }
 
+export interface CardOfStop {
+  state: string | null
+  pr: number | null
+}
+
+const CARDS_AMONG = `SELECT card_id, state, pr FROM cards WHERE card_id IN (SELECT value FROM json_each(?))`
+
+export function cardsAmong(db: DatabaseSync, cardIds: readonly number[]): Map<number, CardOfStop> {
+  const rows = db.prepare(CARDS_AMONG).all(JSON.stringify(cardIds)) as { card_id: number, state: string | null, pr: number | null }[]
+  return new Map(rows.map(row => [Number(row.card_id), { state: row.state === null ? null : String(row.state), pr: row.pr === null ? null : Number(row.pr) }]))
+}
+
 const ENTERED_STATE_AMONG = `SELECT card_id, event_id FROM cards WHERE state = ? AND card_id IN (SELECT value FROM json_each(?))`
 
 export function stateEventsAmong(db: DatabaseSync, state: string, cardIds: readonly number[]): Map<number, number> {
@@ -162,4 +174,22 @@ const WAITS_AMONG = `SELECT id FROM ${OWNER_WAITS} WHERE id IN (SELECT value FRO
 
 export function waitIdsAmong(db: DatabaseSync, ids: readonly string[]): string[] {
   return (db.prepare(WAITS_AMONG).all(JSON.stringify(ids)) as { id: string }[]).map(wait => String(wait.id))
+}
+
+const WAIT_STATES_AMONG = `SELECT id, state FROM ${OWNER_WAITS} WHERE id IN (SELECT value FROM json_each(?))`
+
+export function waitStatesAmong(db: DatabaseSync, ids: readonly string[]): Map<string, string> {
+  const rows = db.prepare(WAIT_STATES_AMONG).all(JSON.stringify(ids)) as { id: string, state: string }[]
+  return new Map(rows.map(wait => [String(wait.id), String(wait.state)]))
+}
+
+const OPEN_WAITS_OF_CARDS = `SELECT card_id, event_id FROM ${OWNER_WAITS} WHERE state = '${OPEN_WAIT}' AND card_id IS NOT NULL ORDER BY event_id`
+
+export function openWaitEventsByCard(db: DatabaseSync): Map<number, number[]> {
+  const byCard = new Map<number, number[]>()
+  for (const row of db.prepare(OPEN_WAITS_OF_CARDS).all() as { card_id: number, event_id: number }[]) {
+    const card = Number(row.card_id)
+    byCard.set(card, [...byCard.get(card) ?? [], Number(row.event_id)])
+  }
+  return byCard
 }

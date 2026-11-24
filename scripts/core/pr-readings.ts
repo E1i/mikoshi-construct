@@ -60,6 +60,22 @@ export function all(db: DatabaseSync): PrRow[] {
   return selected(db, '')
 }
 
+export interface MainsSinceMechanics {
+  mechanics: string
+  shas: Set<string>
+}
+
+const LAST_MECHANICS_MAIN = 'SELECT sha, event_id FROM mains WHERE touches_mechanics = 1 ORDER BY event_id DESC LIMIT 1'
+const MAINS_FROM = 'SELECT sha FROM mains WHERE event_id >= ?'
+
+export function mainsSinceLastMechanics(db: DatabaseSync): MainsSinceMechanics | null {
+  const last = db.prepare(LAST_MECHANICS_MAIN).get() as { sha: string, event_id: number } | undefined
+  if (last === undefined)
+    return null
+  const shas = (db.prepare(MAINS_FROM).all(last.event_id) as { sha: string }[]).map(row => String(row.sha))
+  return { mechanics: String(last.sha), shas: new Set(shas) }
+}
+
 export function mergedCards(db: DatabaseSync): number[] {
   return (db.prepare(`SELECT DISTINCT card_id FROM prs WHERE state = 'merged' AND card_id IS NOT NULL ORDER BY card_id`).all() as { card_id: number }[]).map(row => Number(row.card_id))
 }

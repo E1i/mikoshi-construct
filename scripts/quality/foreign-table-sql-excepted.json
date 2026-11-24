@@ -44,7 +44,6 @@
   "scripts/release/evidence.ts",
   "scripts/supervisor/bus-heal.ts",
   "scripts/supervisor/bus-snapshot.ts",
-  "scripts/supervisor/derive-queues.ts",
   "scripts/supervisor/heartbeat.ts",
   "scripts/supervisor/reducer-loop.ts",
   "scripts/supervisor/stalled-sessions.ts",
