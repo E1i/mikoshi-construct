@@ -179,7 +179,6 @@ export const HAND_EVENT_READERS_EXCEPTED = [
   'scripts/nodes/launch/launch-worker.ts',
   'scripts/nodes/review/review-executor.ts',
   'scripts/nodes/update/update-executor.ts',
-  'scripts/policy/policy.ts',
   'scripts/supervisor/heartbeat.ts',
   'scripts/window/card-measure.ts',
   'scripts/window/requests/amend.ts',
