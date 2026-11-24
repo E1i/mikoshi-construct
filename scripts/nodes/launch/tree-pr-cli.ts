@@ -19,7 +19,7 @@ import { pnpmRerun, processGit } from '../../ports/git.js'
 import { clientInvocation, sessionEnv } from '../../ports/session.js'
 import { cardSessionOf } from '../answer/answer-source.js'
 import { reachedContextLine } from './continuation.js'
-import { busAllowances } from './launch-root.js'
+import { busAllowances, busClosedWaitTexts } from './launch-root.js'
 import { collectReport, missingReportDetail, REPORT_MISSING } from './report-collect.js'
 import { followedLine, refusalOf, shiftTreeCard, treePr } from './tree-pr.js'
 
@@ -225,6 +225,7 @@ const REAL_PORTS: TreePrCliPorts = {
   rebuild: pnpmRerun,
   ownerWait: busOwnerWait(REAL_BUS),
   allowances: busAllowances(REAL_BUS.busPath),
+  closedWaitTexts: busClosedWaitTexts(REAL_BUS.busPath),
   gh: stdoutOrThrow(execGh),
   pushPolicy: worktree => pushPolicyOf(REAL_GIT, worktree),
   card: busCardText(REAL_BUS.busPath),
