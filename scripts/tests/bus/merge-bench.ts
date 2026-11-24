@@ -19,7 +19,7 @@ import { all as pullRequests } from '../../core/pr-readings.js'
 import { MergeExecutor } from '../../nodes/merge/merge-executor.js'
 import { BusRead } from '../../ports/bus-read.js'
 import { MAIN_FILES_CAP } from '../../ports/snapshot.js'
-import { busProjections, candidateRules, cardTransitions, requiredCheckAt } from '../../supervisor/composition.js'
+import { busContract, busProjections, candidateRules, cardTransitions, requiredCheckAt } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
@@ -64,7 +64,7 @@ export function benchOverlaps(pr: readonly string[], main: readonly string[]): b
 
 export function benchOrderTick(db: DatabaseSync, clock: Clock): PrOrderTick {
   const events = orderEventsFrom((type, fields, after) => new BusRead(db, { from: after + 1 }).slice(type as EventType, fields as never))
-  return new PrOrderTick(db, events, () => clock.now().toISOString(), () => BENCH_DECLARATIONS, '', () => openOwnerWaits(db))
+  return new PrOrderTick(busContract(), db, events, () => clock.now().toISOString(), () => BENCH_DECLARATIONS, '', () => openOwnerWaits(db))
 }
 
 export function mergeBench(intake: Intake = () => () => {}, liveNodes: LiveNodes = NO_NODES): MergeBench {
@@ -75,7 +75,7 @@ export function mergeBench(intake: Intake = () => () => {}, liveNodes: LiveNodes
   const clock = new Clock()
   const busTick = new BusTick(db, busProjections(), benchNetWatch(db, gitHub.client, clock.now), clock.now)
   const seed = intake(db, clock)
-  const executor = new MergeExecutor({ cards: cardTransitions(), rules: candidateRules(), silentMs: SILENT_MS, db, gitHub: gitHub.client, put: gitHub.put, publish: gitHub.publish, clock: clock.now, run: RUN, overlaps: benchOverlaps, requiredCheck: () => requiredCheckAt() })
+  const executor = new MergeExecutor({ bus: busContract(), cards: cardTransitions(), rules: candidateRules(), silentMs: SILENT_MS, db, gitHub: gitHub.client, put: gitHub.put, publish: gitHub.publish, clock: clock.now, run: RUN, overlaps: benchOverlaps, requiredCheck: () => requiredCheckAt() })
   const order = benchOrderTick(db, clock)
   const tick = (): void => {
     seed()

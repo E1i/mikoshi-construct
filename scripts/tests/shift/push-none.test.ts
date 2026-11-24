@@ -16,7 +16,7 @@ import { PrCloser, RoundLimitRecutter } from '../../nodes/review/pr-close.js'
 import { ghNotePr } from '../../nodes/review/review-worker.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { GhBudgetWindow, ghPort } from '../../ports/gh.js'
-import { candidateRules, cardTransitions, requiredCheckAt, updateParts } from '../../supervisor/composition.js'
+import { busContract, candidateRules, cardTransitions, requiredCheckAt, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from '../bus/github-fake.js'
 import { benchOverlaps, liveBench, mainMovesPastEveryPr, mergeBench } from '../bus/merge-bench.js'
@@ -144,7 +144,7 @@ describe('push policy none', () => {
     try {
       made.gitHub.open({ number: 960, review: 'success' })
       made.tick()
-      const executor = new MergeExecutor({ cards: cardTransitions(), rules: candidateRules(), silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, run: null, pushPolicy: () => policy, overlaps: benchOverlaps, requiredCheck: () => requiredCheckAt() })
+      const executor = new MergeExecutor({ bus: busContract(), cards: cardTransitions(), rules: candidateRules(), silentMs: SILENT_MS, db: made.db, gitHub: made.gitHub.client, put: made.gitHub.put, publish: made.gitHub.publish, clock: made.clock.now, run: null, pushPolicy: () => policy, overlaps: benchOverlaps, requiredCheck: () => requiredCheckAt() })
       const outcome = executor.merge(leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'merge', 'worker:merge:worker-1')!)
 
       expect({ puts: made.gitHub.puts.length, kind: outcome.kind }).toEqual({ puts, kind })

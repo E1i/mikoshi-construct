@@ -24,7 +24,7 @@ import { loadedCodeSha, readThroughPort } from '../../ports/git.js'
 import { ghStatusPublisher } from '../../ports/github-status.js'
 import { ghApi, ghApiPut } from '../../ports/github.js'
 import { Meter } from '../../ports/meter.js'
-import { candidateRules, mainOverlapAt, nodeLiveness, nodeSupply, requiredCheckAt, weightsDriftWatch } from '../../supervisor/composition.js'
+import { busContract, candidateRules, mainOverlapAt, nodeLiveness, nodeSupply, requiredCheckAt, weightsDriftWatch } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { DRY_RUN_ACTOR } from '../review/review-worker.js'
 import { mergeCandidates } from './merge-candidates.js'
@@ -91,7 +91,7 @@ export class MergeNode extends Node<MergeStep> {
     this.gitHub = parts.gitHub
     this.rebuildCatalog = parts.rebuildCatalog
     this.weights = parts.weights
-    this.executor = new MergeExecutor({ db: parts.db, cards: this.suppliedCards, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, run: parts.run, silentMs: parts.silentMs, pushPolicy: parts.pushPolicy, overlaps: parts.overlaps ?? mainOverlapAt(process.cwd()), rules: candidateRules(), requiredCheck: () => requiredCheckAt() })
+    this.executor = new MergeExecutor({ bus: busContract(), db: parts.db, cards: this.suppliedCards, gitHub: parts.gitHub, put: parts.put, publish: parts.publish, clock: parts.clock, run: parts.run, silentMs: parts.silentMs, pushPolicy: parts.pushPolicy, overlaps: parts.overlaps ?? mainOverlapAt(process.cwd()), rules: candidateRules(), requiredCheck: () => requiredCheckAt() })
     this.declare(MERGE_NODE, scopeOf)
   }
 
