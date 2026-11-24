@@ -357,7 +357,6 @@
   "factory-tests": [
     "scripts/tests/attach/earlier-carriers.test.ts",
     "scripts/tests/bus/a-drop-is-not-a-lifted-stop.test.ts",
-    "scripts/tests/bus/amend-lifts-the-stop-it-answers.test.ts",
     "scripts/tests/bus/amend-of-an-ended-card-never-launches.test.ts",
     "scripts/tests/bus/answer-after-amend-moves-the-card.test.ts",
     "scripts/tests/bus/answer-ci-log.test.ts",
