@@ -3,9 +3,9 @@ import type { BusEvent } from './db.js'
 import type { Queue } from './identifiers.js'
 import { appendEvent } from './db.js'
 import { EITHER_JOURNAL, events, ofCard } from './events-query.js'
-import { CARD_HELD, CARD_RELEASED, OPEN_QUESTION, OUTSIDE_TOUCHES, TASK_FAILED, TASK_REQUEUED } from './events.js'
+import { CARD_HELD, CARD_RELEASED, OPEN_QUESTION, OUTSIDE_TOUCHES, TASK_FAILED, TASK_REQUEUED, TASK_WITHDRAWN } from './events.js'
 import { generationOfKey } from './identifiers.js'
-import { QUEUE_ACTOR, TASK_FOLDS, WITHDRAWN } from './queue.js'
+import { QUEUE_ACTOR, QUEUED, TASK_FOLDS, WITHDRAWN } from './queue.js'
 import { storedByKey } from './stored.js'
 import * as tasks from './tasks-query.js'
 
@@ -48,6 +48,7 @@ const ANSWER_QUEUE: Queue = 'answer'
 const HELD_FOR_OWNER = 'held_for_owner'
 const HOLD_EVENTS = [CARD_HELD, CARD_RELEASED]
 const NO_REASON = 'the hold names no reason'
+const WITHDRAWN_BY_A_HOLD = `${TASK_WITHDRAWN}:${CARD_HELD}:`
 
 export interface HoldLayer {
   id: number
@@ -102,8 +103,32 @@ export function holderOf(layers: HoldLayers): string | null {
   return latest === null ? null : latest === 'owner' ? 'the owner' : 'the window'
 }
 
+function queueRowOf(row: tasks.TaskRow): QueueTaskRow {
+  return { task_key: row.task_key, queue: row.queue as Queue, card_id: row.card_id, pr: row.pr, head: row.head, state: row.state }
+}
+
+export function withdrawQueuedTasksOfHeldCard(db: DatabaseSync, ts: string, cardId: number, request: number): string[] {
+  const queued = tasks.ofCard(db, cardId, { state: QUEUED })
+  for (const row of queued) {
+    const event: BusEvent = { ts, type: TASK_WITHDRAWN, actor: QUEUE_ACTOR, cardId, pr: row.pr, head: row.head, dedupeKey: `${WITHDRAWN_BY_A_HOLD}request-${request}:${row.task_key}`, payload: { task_key: row.task_key, queue: row.queue }, legacy: false }
+    if (appendEvent(db, event))
+      TASK_FOLDS[TASK_WITHDRAWN]!(db, storedByKey(db, event.dedupeKey))
+  }
+  return queued.map(row => row.task_key)
+}
+
+function queuedTasksWithdrawnSince(db: DatabaseSync, cardId: number, opened: number): QueueTaskRow[] {
+  const rows = tasks.ofCard(db, cardId, { state: WITHDRAWN, after: opened })
+  const byAHold = new Set(events(db, { types: [TASK_WITHDRAWN], ids: rows.map(row => row.event_id), legacy: EITHER_JOURNAL })
+    .filter(event => event.dedupe_key.startsWith(WITHDRAWN_BY_A_HOLD))
+    .map(event => event.id))
+  return rows.filter(row => byAHold.has(row.event_id)).map(queueRowOf)
+}
+
 export function answersWithdrawnByAClosedHold(db: DatabaseSync, cardId: number, opened: number | null): QueueTaskRow[] {
-  return opened === null || holderOf(holdLayersOf(db, cardId)) !== null ? [] : answersWithdrawnSince(db, cardId, opened)
+  if (opened === null || holderOf(holdLayersOf(db, cardId)) !== null)
+    return []
+  return [...answersWithdrawnSince(db, cardId, opened), ...queuedTasksWithdrawnSince(db, cardId, opened)]
 }
 
 export function holdThatStays(db: DatabaseSync, cardId: number): string | null {

@@ -15,12 +15,12 @@ import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { BUS_DB_VARIABLE, busDirOf } from '../../core/bus-path.js'
 import { factoryMode } from '../../core/card-bodies.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { BOARD_ALARM, BUS_PULSE, CARD_ADMITTED, CARD_DROPPED, CARD_STOPPED, OWNER_WAIT_OPENED, PR_CLOSED, PR_OPENED, REQUEST_DONE, REQUEST_REFUSED, SHARD_ISSUED, WINDOW_REQUEST } from '../../core/events.js'
+import { BOARD_ALARM, BUS_PULSE, CARD_ADMITTED, CARD_DROPPED, CARD_RELEASED, CARD_STOPPED, OWNER_WAIT_OPENED, PR_CLOSED, PR_OPENED, REQUEST_DONE, REQUEST_REFUSED, SHARD_ISSUED, WINDOW_REQUEST } from '../../core/events.js'
 import { prBodySha, taskKey } from '../../core/identifiers.js'
 import { ownerInbox } from '../../core/inbox.js'
 import { failTask, leaseNext } from '../../core/lease.js'
 import { all as pullRequests } from '../../core/pr-readings.js'
-import { FAILURES_TO_STOP, queueTask } from '../../core/queue.js'
+import { FAILURES_TO_STOP, queueTask, withdrawTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { launchableCard } from '../../nodes/launch/launch-candidates.js'
 import { LaunchExecutor, technical } from '../../nodes/launch/launch-executor.js'
@@ -954,5 +954,88 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(asked('--from', ANSWER_SOURCE, '--file', '/tmp/d.md', '[owner] x.')).toBe(2)
     expect(asked('--from', ANSWER_SOURCE, '[owner] x.', '[owner] y.')).toBe(2)
     expect(made.requests().run()).toEqual([])
+  })
+})
+
+describe('a hold withdraws every queued task of the card', () => {
+  function tasksOfCard(made: Room): { queue: string, state: string }[] {
+    return made.bench.db.prepare('SELECT queue, state FROM tasks WHERE card_id = ? ORDER BY queue').all(CARD) as { queue: string, state: string }[]
+  }
+
+  function queuedLaunchAndAnswer(made: Room): void {
+    const ts = made.bench.clock.now().toISOString()
+    queueTask(made.bench.db, ts, { queue: 'launch', cardId: CARD })
+    queueTask(made.bench.db, ts, { queue: 'answer', cardId: CARD, pr: PR, head: HEAD })
+    queueTask(made.bench.db, ts, { queue: 'launch', cardId: CARD + 1 })
+  }
+
+  it('a hold withdraws every queued task of the card', () => {
+    const made = room()
+    queuedLaunchAndAnswer(made)
+    const request = ask(made, { kind: 'hold', card: CARD, reason: 'the owner holds it' })
+    expect(made.requests().run()).toMatchObject([{ kind: 'done', request }])
+    expect(tasksOfCard(made)).toEqual([{ queue: 'answer', state: 'withdrawn' }, { queue: 'launch', state: 'withdrawn' }])
+    expect(made.bench.db.prepare(`SELECT card_id FROM tasks WHERE state = 'queued'`).all()).toEqual([{ card_id: CARD + 1 }])
+  })
+
+  function holdAndRelease(made: Room): void {
+    ask(made, { kind: 'hold', card: CARD, reason: 'the owner holds it' })
+    made.requests().run()
+    ask(made, { kind: 'release', card: CARD })
+    made.requests().run()
+  }
+
+  it('a hold names every task it withdrew', () => {
+    const made = room()
+    queuedLaunchAndAnswer(made)
+    ask(made, { kind: 'hold', card: CARD, reason: 'the owner holds it' })
+    const [outcome] = made.requests().run()
+    const named = /; withdrawn: (.+)$/.exec(outcome!.detail)?.[1]?.split(', ').sort()
+    expect(named).toEqual([taskKey({ queue: 'answer', cardId: CARD, pr: PR, head: HEAD }), taskKey({ queue: 'launch', cardId: CARD })].sort())
+  })
+
+  it('a second hold after a release withdraws the queued tasks again', () => {
+    const made = room()
+    queuedLaunchAndAnswer(made)
+    holdAndRelease(made)
+    ask(made, { kind: 'hold', card: CARD, reason: 'the owner holds it again' })
+    made.requests().run()
+    expect(tasksOfCard(made)).toEqual([{ queue: 'answer', state: 'withdrawn' }, { queue: 'launch', state: 'withdrawn' }])
+  })
+
+  it('a release leaves withdrawn a task withdrawn during the hold for another reason', () => {
+    const made = room()
+    queueTask(made.bench.db, made.bench.clock.now().toISOString(), { queue: 'answer', cardId: CARD, pr: PR, head: HEAD })
+    ask(made, { kind: 'hold', card: CARD, reason: 'the owner holds it' })
+    made.requests().run()
+    const ts = made.bench.clock.now().toISOString()
+    queueTask(made.bench.db, ts, { queue: 'launch', cardId: CARD })
+    withdrawTask(made.bench.db, ts, { queue: 'launch', cardId: CARD }, 'another reason')
+    ask(made, { kind: 'release', card: CARD })
+    made.requests().run()
+    expect(tasksOfCard(made)).toEqual([{ queue: 'answer', state: 'queued' }, { queue: 'launch', state: 'withdrawn' }])
+  })
+
+  it('a release queues again every task the hold withdrew', () => {
+    const made = room()
+    queuedLaunchAndAnswer(made)
+    ask(made, { kind: 'hold', card: CARD, reason: 'the owner holds it' })
+    made.requests().run()
+    ask(made, { kind: 'release', card: CARD })
+    made.requests().run()
+    expect(tasksOfCard(made)).toEqual([{ queue: 'answer', state: 'queued' }, { queue: 'launch', state: 'queued' }])
+  })
+
+  it('a release queues again only what its own hold withdrew', () => {
+    const made = room()
+    queuedLaunchAndAnswer(made)
+    ask(made, { kind: 'hold', card: CARD, reason: 'the owner holds it' })
+    made.requests().run()
+    appendEvent(made.bench.db, { ts: made.bench.clock.now().toISOString(), type: CARD_RELEASED, actor: 'owner', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_RELEASED}:raw`, payload: {}, legacy: false })
+    ask(made, { kind: 'hold', card: CARD, reason: 'the owner holds it again' })
+    made.requests().run()
+    ask(made, { kind: 'release', card: CARD })
+    made.requests().run()
+    expect(tasksOfCard(made)).toEqual([{ queue: 'answer', state: 'withdrawn' }, { queue: 'launch', state: 'withdrawn' }])
   })
 })
