@@ -12,6 +12,11 @@ export const DAEMON_SKILLS_GROUP = 'ai/claude'
 const SKILL_MANIFEST_TARGET = /^\.claude\/skills\/[^/]+\/SKILL\.md$/
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---/
 const FIELD = /^([\w-]+):(.*)$/
+const CARD_TREE_SHARED_GIT_DATA = ['objects', 'refs', 'logs'] as const
+
+export function cardTreeGitWrites(gitDir: string, commonDir: string): string[] {
+  return [gitDir, ...CARD_TREE_SHARED_GIT_DATA.map(entry => path.join(commonDir, entry))]
+}
 
 export function frontmatterFields(text: string): Array<readonly [string, string]> {
   const block = FRONTMATTER.exec(text)?.[1] ?? ''

@@ -46,7 +46,7 @@
   "boundary:ports->intake": 5,
   "boundary:ports->node-answer": 1,
   "boundary:ports->pr-record": 1,
-  "boundary:ports->project": 10,
+  "boundary:ports->project": 9,
   "boundary:ports->quality": 5,
   "boundary:ports->rules": 1,
   "boundary:ports->session": 5,
