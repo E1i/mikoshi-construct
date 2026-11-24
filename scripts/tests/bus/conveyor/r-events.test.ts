@@ -8,6 +8,7 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync,
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { BUS_CONTRACT } from '../../../core/bus-adapter.js'
 import { CARD_TYPES_FOLDED_ON_APPEND, CARDS, PROJECTION_TYPES, REDUCED_IN_ORDER } from '../../../core/bus-readings.js'
 import { openOwnerWaits } from '../../../core/card-readings.js'
 import { appendEvent, openBus } from '../../../core/db.js'
@@ -118,7 +119,7 @@ function observedBus(cards: readonly Card[]): { db: Bus, declarations: OverlapDe
 
 function groupsOf(cards: readonly Card[]): { prs: number[], owners: number } {
   const { db, declarations } = observedBus(cards)
-  new PrOrderTick(db, busEvents(db), () => '2026-11-17T00:00:30Z', () => declarations, '', () => openOwnerWaits(db)).step()
+  new PrOrderTick(BUS_CONTRACT, db, busEvents(db), () => '2026-11-17T00:00:30Z', () => declarations, '', () => openOwnerWaits(db)).step()
   const groups = orderGroups(readOrder(busEvents(db), declarations), declarations)
   const owners = Number((db.prepare('SELECT count(*) AS n FROM events WHERE type = ?').get(OWNER_WAIT_OPENED) as { n: number }).n)
   db.close()

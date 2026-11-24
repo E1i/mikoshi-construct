@@ -9,6 +9,8 @@ export const execute: RequestExecutor = (context, request, payload) => {
   const before = payload.before === undefined ? null : prOf(payload.before)
   if (pr === null || (payload.before !== undefined && before === null) || before === pr)
     return { done: false, why: ORDER_MOVE_USAGE }
-  const written = recordMove(context.db, context.now(), QUEUE_ACTOR, request, pr, before)
+  if (context.bus === null)
+    return { done: false, why: `order.move runs only under bus:run: this request runner was composed without the bus contract` }
+  const written = recordMove(context.bus, context.db, context.now(), QUEUE_ACTOR, request, pr, before)
   return { done: true, why: `PR #${pr} moved ${before === null ? 'to the tail of its group\'s order' : `before PR #${before}`}${written ? '' : '; this request had already moved it'}` }
 }
