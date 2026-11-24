@@ -1,5 +1,4 @@
 [
-  "scripts/cli/board-page.ts",
   "scripts/cli/board-warnings.ts",
   "scripts/cli/card-chain.ts",
   "scripts/core/journal.ts",
