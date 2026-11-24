@@ -3,7 +3,6 @@ import type { LastReduced, OwnerWait } from './bus-readings.js'
 import { CLOSED_WAIT, OPEN_WAIT, OWNER_WAITS, readLastReduced } from './bus-readings.js'
 import { cardIdsInEvents, EITHER_JOURNAL, events, eventsWhere, latest } from './events-query.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, QUESTION_AGENT, WITNESS_DOWNGRADE } from './events.js'
-import { latestTurnOf } from './queue.js'
 
 const OPEN_OWNER_WAITS = `
   SELECT id, need, text, command, card_id AS card, pr, opened_at AS since
@@ -226,7 +225,7 @@ export function aDowngradeWaitOpenOn(card: string): string {
   return `EXISTS (SELECT 1 FROM ${OWNER_WAITS} AS wait WHERE wait.card_id = ${card} AND wait.state = '${OPEN_WAIT}' AND EXISTS (${asked}))`
 }
 
-export function latestQuestionStopsWithTheirCard(): string {
+export function latestQuestionStopsWithTheirCard(latestTurnOf: (card: string) => string): string {
   const stops = eventsWhere('stop', '*', `stop.type = '${CARD_STOPPED}' AND stop.legacy = 0 AND stop.card_id IS NOT NULL
     AND json_extract(stop.payload, '$.reason') = '${QUESTION_AGENT}' AND stop.id = ${latestTurnOf('stop.card_id')}`)
   return `(${stops}) AS stop LEFT JOIN cards ON cards.card_id = stop.card_id`

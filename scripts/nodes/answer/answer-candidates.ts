@@ -39,7 +39,7 @@ function notAWindowCardOf(windowWho: string): (card: string) => string {
 
 function questionCandidates(notAWindowCard: (card: string) => string): string {
   return latestQuestionStops(
-    latestQuestionStopsWithTheirCard(),
+    latestQuestionStopsWithTheirCard(latestTurnOf),
     `stop.card_id, coalesce(stop.pr, cards.pr) AS pr, coalesce(prs.head, stop.head) AS head, stop.id AS stop, ${cardBodyShaOf('stop.card_id')} AS card_body`,
     `NOT ${THE_WINDOW_AMENDS_THE_CARD_FIRST} AND NOT ${A_LAUNCH_STOP_WITH_NO_PULL_REQUEST} AND ${notAWindowCard('stop.card_id')} AND NOT ${aDowngradeWaitOpenOn('stop.card_id')}
     AND (prs.pr IS NULL OR NOT ${HELD_BY_A_DEPENDENCY})`,
