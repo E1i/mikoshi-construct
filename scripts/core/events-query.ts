@@ -22,6 +22,7 @@ export interface EventsQuery {
   from?: string
   actorPrefix?: string
   exceptActor?: string
+  notBy?: string
   mentions?: string
   withCard?: boolean
   withPr?: boolean
@@ -104,6 +105,8 @@ function whereOf(query: EventsQuery): { clauses: string[], values: SQLInputValue
     add('substr(actor, 1, ?) = ?', query.actorPrefix.length, query.actorPrefix)
   if (query.exceptActor !== undefined)
     add('actor != ?', query.exceptActor)
+  if (query.notBy !== undefined)
+    add('actor IS NOT ?', query.notBy)
   if (query.mentions !== undefined)
     add('instr(payload, ?) > 0', query.mentions)
   if (query.withCard === true)

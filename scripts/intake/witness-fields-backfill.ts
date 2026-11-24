@@ -20,7 +20,6 @@ export const PREFIX = '[bus:witness-backfill] '
 
 const BACKFILL_ACTOR = 'worker:witness-backfill:by-hand'
 const CARD_TEXTS = `SELECT card_id, text FROM ${CARD_BODIES} ORDER BY card_id`
-const PR_HEAD = 'SELECT head FROM prs WHERE pr = ?'
 const NAMED_TEST = /^(.*\bvitest\b.*) -t '([^']+)'$/
 const BACKTICKED = /`[^`]*`/g
 const WHITESPACE_RUN = /\s+/g
@@ -142,15 +141,17 @@ export function witnessFieldsOfCard(card: Pick<CardFields, 'id' | 'witnessFields
   return entry?.source === proseSource(card.text) ? entry : null
 }
 
-function witnessRecordOnHead(db: DatabaseSync, pr: number | null): WitnessRecordOnHead | null {
-  const head = pr === null ? null : (db.prepare(PR_HEAD).get(pr) as { head: string | null } | undefined)?.head ?? null
+export type HeadOfPr = (pr: number) => string | null
+
+function witnessRecordOnHead(db: DatabaseSync, pr: number | null, headOf: HeadOfPr): WitnessRecordOnHead | null {
+  const head = pr === null ? null : headOf(pr)
   const record = pr === null || head === null ? null : latest(db, { types: [WITNESS_RECORDED], pr, head })
   return record === null ? null : { verdict: record.data?.verdict ?? null, detail: record.data?.detail ?? null } as WitnessRecordOnHead
 }
 
-export function witnessTableOf(db: DatabaseSync, card: CardFields | null, pr: number | null, backfill: WitnessFieldsBackfill | null): WitnessTable | null {
+export function witnessTableOf(db: DatabaseSync, card: CardFields | null, pr: number | null, headOf: HeadOfPr, backfill: WitnessFieldsBackfill | null): WitnessTable | null {
   const fields = card === null ? null : witnessFieldsOfCard(card, backfill)
-  return fields === null ? null : { ...fields, record: witnessRecordOnHead(db, pr) }
+  return fields === null ? null : { ...fields, record: witnessRecordOnHead(db, pr, headOf) }
 }
 
 function main(): number {

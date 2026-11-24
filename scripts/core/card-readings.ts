@@ -119,6 +119,13 @@ export function stateEventsAmong(db: DatabaseSync, state: string, cardIds: reado
 }
 
 const LINKED_PR = 'SELECT pr FROM cards WHERE card_id = ?'
+const LINKED_PRS = 'SELECT card_id, pr FROM cards WHERE pr IS NOT NULL'
+
+export function linkedPrs(db: DatabaseSync): Map<number, number> {
+  const rows = db.prepare(LINKED_PRS).all() as { card_id: number, pr: number }[]
+  return new Map(rows.map(row => [Number(row.card_id), Number(row.pr)]))
+}
+
 const CARD_OF_PR = 'SELECT card_id FROM cards WHERE pr = ?'
 
 export function linkedPrOf(db: DatabaseSync, cardId: number): number | null {

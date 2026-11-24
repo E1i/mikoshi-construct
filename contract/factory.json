@@ -4306,6 +4306,7 @@
           "scripts/core/merge-event.ts",
           "scripts/core/pr-folds.ts",
           "scripts/core/pr-readings.ts",
+          "scripts/core/cards-nobody-holds.ts",
           "scripts/core/pr-status.ts"
         ],
         "may_use": [
@@ -4336,6 +4337,7 @@
           "scripts/core/merge-event.ts",
           "scripts/core/pr-folds.ts",
           "scripts/core/pr-readings.ts",
+          "scripts/core/cards-nobody-holds.ts",
           "scripts/core/pr-status.ts"
         ],
         "status": "decided"
@@ -4925,13 +4927,12 @@
       "scripts/nodes/answer/answerer.ts": 1
     },
     "bus-read": {
-      "scripts/cli/board-page.ts": 1,
       "scripts/cli/board-warnings.ts": 2,
       "scripts/cli/card-chain.ts": 3,
       "scripts/cli/card.ts": 1,
       "scripts/core/bus-readings.ts": 3,
       "scripts/core/card-automaton.ts": 3,
-      "scripts/core/card-readings.ts": 8,
+      "scripts/core/card-readings.ts": 9,
       "scripts/core/chain.ts": 2,
       "scripts/core/db.ts": 3,
       "scripts/core/dependency-wait.ts": 3,
@@ -4943,8 +4944,8 @@
       "scripts/core/node.ts": 4,
       "scripts/core/observations.ts": 4,
       "scripts/core/pr-folds.ts": 1,
-      "scripts/core/pr-readings.ts": 5,
-      "scripts/core/pr-status.ts": 3,
+      "scripts/core/pr-readings.ts": 6,
+      "scripts/core/pr-status.ts": 2,
       "scripts/core/queue.ts": 17,
       "scripts/core/reducer.ts": 2,
       "scripts/core/stored.ts": 1,
@@ -4952,7 +4953,6 @@
       "scripts/core/watermark.ts": 2,
       "scripts/intake/card-contract.ts": 1,
       "scripts/intake/parking-reads.ts": 1,
-      "scripts/intake/witness-fields-backfill.ts": 1,
       "scripts/ladder/ledger.ts": 2,
       "scripts/nodes/answer/answer-candidates.ts": 4,
       "scripts/nodes/answer/answer-worker.ts": 2,
@@ -5897,8 +5897,7 @@
           "database"
         ],
         "types": {
-          "BusRead": "class BusRead { constructor(private readonly db: DatabaseSync, private readonly filter: SliceWhere = {}); where(filter: SliceWhere): BusRead; slice<T extends EventType, K extends PayloadKey<T>>(type: T, fields: readonly K[], take: SliceTake = 'all'): EventSlice<T, K>[]; cardsNobodyHolds(heldElsewhere: readonly string[], ignoredActor: string): CardNobodyHolds[]; current<R>(projections: readonly ReadProjection[], read: () => R): Reading<R>; stale(projection: ReadProjection): StaleProjection | null }",
-          "CardNobodyHolds": "interface CardNobodyHolds { card: number; state: string; pr: number | null; lastEvent: { id: number; type: string; ts: string; }; }",
+          "BusRead": "class BusRead { constructor(private readonly db: DatabaseSync, private readonly filter: SliceWhere = {}); where(filter: SliceWhere): BusRead; slice<T extends EventType, K extends PayloadKey<T>>(type: T, fields: readonly K[], take: SliceTake = 'all'): EventSlice<T, K>[]; current<R>(projections: readonly ReadProjection[], read: () => R): Reading<R>; stale(projection: ReadProjection): StaleProjection | null }",
           "EventSlice": "interface EventSlice<T extends EventType, K extends PayloadKey<T>> { id: number; ts: string | null; actor: string | null; card: number | null; pr: number | null; head: string | null; fields: SliceFields<T, K>; }",
           "SliceFields": "type SliceFields<T extends EventType, K extends PayloadKey<T>> = { readonly [P in K]?: unknown; }",
           "SliceTake": "type SliceTake = typeof SLICE_TAKES[number]",
