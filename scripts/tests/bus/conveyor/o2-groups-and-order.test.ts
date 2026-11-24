@@ -182,7 +182,7 @@ describe('conveyor O2: the order runs in the bus, on the board and through the w
     const payload = requestOf(['order.move', '--pr', '2002', '--before', '2001'])
     expect(payload).toEqual({ kind: 'order.move', pr: 2002, before: 2001 })
     expect(declaredPayload(WINDOW_REQUEST, payload!)).toEqual(payload)
-    const outcome = dispatchRequest({ db, now: () => '2026-11-14T00:02:00Z' } as never, 'order.move', 9001, payload!)
+    const outcome = dispatchRequest({ db, now: () => '2026-11-14T00:02:00Z', bus: BUS_CONTRACT } as never, 'order.move', 9001, payload!)
     expect(outcome.done).toBe(true)
     const moved = new BusRead(db).slice(PR_ORDERED, ['before', 'by'] as never)
     expect(moved.at(-1)).toMatchObject({ pr: 2002, fields: { before: 2001, by: 'window' } })

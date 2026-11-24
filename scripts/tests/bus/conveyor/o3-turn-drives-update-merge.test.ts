@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../../src/card/text-sha.js'
+import { BUS_CONTRACT } from '../../../core/bus-adapter.js'
 import { appendEvent } from '../../../core/db.js'
 import { readDeclarations } from '../../../core/declarations.js'
 import { CARD_ADMITTED, OWNER_WAIT_OPENED, POLICY_DENIED, PR_GROUPS, REVIEW_RECORDED } from '../../../core/events.js'
@@ -303,7 +304,7 @@ describe('conveyor O3: declarations of one kind, and the bus-restart area', () =
     open(bench, 1504, ['scripts/ports/o3-four.ts'])
     bench.tick()
     expect(latestGroups(bench)).toEqual([expect.objectContaining({ prs: [1503, 1504] })])
-    const outcome = dispatchRequest({ db: bench.db, now: () => bench.clock.now().toISOString() } as never, 'contention.suspend', 9150, { kind: 'contention.suspend', ids: [1503, 1504], area: 'bus-restart' })
+    const outcome = dispatchRequest({ db: bench.db, now: () => bench.clock.now().toISOString(), bus: BUS_CONTRACT } as never, 'contention.suspend', 9150, { kind: 'contention.suspend', ids: [1503, 1504], area: 'bus-restart' })
     expect(outcome.done).toBe(true)
     bench.tick()
     expect(latestGroups(bench)).toEqual([expect.objectContaining({ prs: [1503], turn: 1503 }), expect.objectContaining({ prs: [1504], turn: 1504 })])
