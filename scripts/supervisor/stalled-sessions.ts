@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../core/db.js'
 import type { BudgetLine } from '../core/eddies.js'
+import type { EventRow } from '../core/events-query.js'
 import type { CardTransitions, Lease } from '../core/lease.js'
 import type { GitRunner } from '../ports/git.js'
 import type { ProcessTable } from '../ports/process-table.js'
@@ -11,13 +12,15 @@ import path from 'node:path'
 import { appendEvent } from '../core/db.js'
 import { spendStopOf } from '../core/eddies.js'
 import { messageOf } from '../core/errors.js'
-import { BOARD_ALARM, CARD_SESSION_ENDED, CARD_STARTED, PR_OBSERVED, PR_OPENED, SESSION_HEARTBEAT, SESSION_STALLED, TASK_LEASED } from '../core/events.js'
+import { EITHER_JOURNAL, events } from '../core/events-query.js'
+import { BOARD_ALARM, CARD_SESSION_ENDED, CARD_STARTED, PR_OBSERVED, PR_OPENED, SESSION_STALLED, TASK_LEASED } from '../core/events.js'
 import { releaseTask } from '../core/lease.js'
 import { LEASED } from '../core/queue.js'
+import { all as allTasks } from '../core/tasks-query.js'
 import { processGit } from '../ports/git.js'
 import { OsProcessTable } from '../ports/process-table.js'
 import { firstPushAfter, firstReleaseAfter, RoundOverTime, unendedStarts } from './expected-time.js'
-import { beatsOfLease } from './heartbeat.js'
+import { beatsOfLease, heartbeatsOfLease } from './heartbeat.js'
 import { transcriptActionIn } from './session-view.js'
 import { signal } from './supervisor.js'
 
@@ -48,37 +51,46 @@ export const NO_PROGRESS_LINES: Readonly<Record<SupervisedQueue, number>> = { an
 
 const EXPECTED_TO_PUSH: readonly SupervisedQueue[] = ['answer', 'launch']
 
-const LEASED_SESSIONS = `
-  SELECT task_key, queue, card_id, pr, head, lease_gen FROM tasks
-  WHERE state = '${LEASED}' AND queue IN (${Object.keys(NO_PROGRESS_LINES).map(queue => `'${queue}'`).join(', ')})
-  ORDER BY id
-`
+const SUPERVISED_QUEUES: readonly string[] = Object.keys(NO_PROGRESS_LINES)
 
-const LEASED_AT = `SELECT id, ts, actor FROM events WHERE type = '${TASK_LEASED}' AND dedupe_key = ?`
+function leasedSessions(db: DatabaseSync): LeasedRow[] {
+  return allTasks(db).filter(task => task.state === LEASED && SUPERVISED_QUEUES.includes(task.queue)).sort((a, b) => a.id - b.id).map(task => ({ ...task, queue: task.queue as SupervisedQueue }))
+}
 
-const PUSHES_AFTER = `
-  SELECT max(first) AS ts FROM (
-    SELECT min(ts) AS first FROM events WHERE card_id = ? AND id > ? AND legacy = 0 AND type IN ('${PR_OBSERVED}', '${PR_OPENED}') GROUP BY coalesce(head, type)
-  )
-`
+function leasedAt(db: DatabaseSync, row: LeasedRow): EventRow | null {
+  return events(db, { keys: [`${TASK_LEASED}:${row.task_key}:${row.lease_gen}`], types: [TASK_LEASED], legacy: EITHER_JOURNAL })[0] ?? null
+}
 
-const TRANSCRIPT_BEATS = `
-  SELECT ts, json_extract(payload, '$.spent') AS spent, json_extract(payload, '$.subagents') AS subagents
-  FROM events WHERE type = '${SESSION_HEARTBEAT}' AND legacy = 0 AND json_valid(payload)
-    AND json_extract(payload, '$.task_key') = ? AND json_extract(payload, '$.lease_gen') = ?
-  ORDER BY id
-`
+function pushedAfter(db: DatabaseSync, cardId: number, leasedId: number): string | null {
+  const firstOfEach = new Map<string, string>()
+  for (const push of events(db, { card: cardId, since: leasedId, types: [PR_OBSERVED, PR_OPENED] })) {
+    const key = push.head ?? push.type
+    const first = firstOfEach.get(key)
+    if (first === undefined || push.ts < first)
+      firstOfEach.set(key, push.ts)
+  }
+  return [...firstOfEach.values()].reduce<string | null>((latest, ts) => latest === null || ts > latest ? ts : latest, null)
+}
 
-const REVIEW_STALLS_ON_HEAD = `
-  SELECT coalesce(sum(json_extract(payload, '$.lease_gen') IS ?), 0) AS this_run, coalesce(sum(json_extract(payload, '$.lease_gen') IS NOT ?), 0) AS earlier_runs FROM events
-  WHERE type = '${SESSION_STALLED}' AND legacy = 0 AND card_id = ? AND head IS ? AND (dedupe_key LIKE '%:${REVIEW_STALL_MARK}' OR dedupe_key LIKE '%:${REVIEW_ENDED_MARK}') AND json_valid(payload)
-`
+function asSqlValue(value: unknown): string | null {
+  if (value === undefined || value === null)
+    return null
+  return typeof value === 'object' ? JSON.stringify(value) : String(value)
+}
 
-const CARD_TREE = `
-  SELECT json_extract(payload, '$.worktree') AS worktree FROM events
-  WHERE legacy = 0 AND type = '${CARD_STARTED}' AND card_id = ? AND json_valid(payload) AND json_type(payload, '$.worktree') = 'text'
-  ORDER BY id DESC LIMIT 1
-`
+function transcriptBeatsOf(db: DatabaseSync, row: LeasedRow): TranscriptBeat[] {
+  return heartbeatsOfLease(db, { taskKey: row.task_key, leaseGen: Number(row.lease_gen) })
+    .map(beat => ({ ts: beat.ts, spent: typeof beat.data?.spent === 'number' ? beat.data.spent : null, subagents: asSqlValue(beat.data?.subagents) }))
+}
+
+const REVIEW_STALL_MARKS = [REVIEW_STALL_MARK, REVIEW_ENDED_MARK].map(mark => `:${mark}`)
+
+function reviewStallsOnHead(db: DatabaseSync, lease: Lease): { this_run: number, earlier_runs: number } {
+  const stalls = events(db, { types: [SESSION_STALLED], card: lease.cardId, valid: true })
+    .filter(stall => stall.head === lease.head && REVIEW_STALL_MARKS.some(mark => stall.dedupe_key.endsWith(mark)))
+  const thisRun = stalls.filter(stall => (stall.data?.lease_gen ?? null) === lease.leaseGen).length
+  return { this_run: thisRun, earlier_runs: stalls.length - thisRun }
+}
 
 export const UNDRIVEN_AFTER_MS = STALLED_AFTER_MS
 
@@ -261,7 +273,8 @@ export function stopSessionIn(table: ProcessTable, end: (pid: number) => void = 
 }
 
 function treeOfCard(db: DatabaseSync, cardId: number): string | null {
-  return (db.prepare(CARD_TREE).get(cardId) as { worktree: string } | undefined)?.worktree ?? null
+  const started = events(db, { types: [CARD_STARTED], card: cardId, valid: true, newestFirst: true }).find(start => typeof start.data?.worktree === 'string')
+  return (started?.data?.worktree ?? null) as string | null
 }
 
 export function overspendCommitMessage(lease: Lease, session: string): string {
@@ -361,7 +374,7 @@ export class StalledSessions {
   }
 
   private sweep(nowMs: number): string[] {
-    const rows = this.db.prepare(LEASED_SESSIONS).all() as unknown as LeasedRow[]
+    const rows = leasedSessions(this.db)
     const watched = new Set(rows.map(row => `${row.task_key}:${row.lease_gen}`))
     for (const key of this.pulses.keys()) {
       if (!watched.has(key))
@@ -397,14 +410,14 @@ export class StalledSessions {
   }
 
   private silenceOf(row: LeasedRow, nowMs: number): Silence | null {
-    const leased = this.db.prepare(LEASED_AT).get(`${TASK_LEASED}:${row.task_key}:${row.lease_gen}`) as { id: number, ts: string, actor: string } | undefined
-    if (leased === undefined)
+    const leased = leasedAt(this.db, row)
+    if (leased === null)
       return null
     const beats = beatsOfLease(this.db, { taskKey: row.task_key, leaseGen: Number(row.lease_gen) })
-    const pushed = EXPECTED_TO_PUSH.includes(row.queue) ? (this.db.prepare(PUSHES_AFTER).get(row.card_id, leased.id) as { ts: string | null }).ts : null
-    const lease: Lease = { taskKey: row.task_key, queue: row.queue, cardId: Number(row.card_id), pr: row.pr, head: row.head, leaseGen: Number(row.lease_gen), actor: leased.actor }
+    const pushed = EXPECTED_TO_PUSH.includes(row.queue) ? pushedAfter(this.db, row.card_id, leased.id) : null
+    const lease: Lease = { taskKey: row.task_key, queue: row.queue, cardId: Number(row.card_id), pr: row.pr, head: row.head, leaseGen: Number(row.lease_gen), actor: leased.actor as string }
     const session = [...beats].reverse().find(beat => beat.session !== null)?.session ?? null
-    const transcriptBeats = this.db.prepare(TRANSCRIPT_BEATS).all(row.task_key, Number(row.lease_gen)) as unknown as TranscriptBeat[]
+    const transcriptBeats = transcriptBeatsOf(this.db, row)
     const signals: Record<Signal, Moved> = {
       context: { readable: session !== null, at: lastProgress(leased.ts, beats, pushed) },
       transcript: transcriptMoved(leased.ts, transcriptBeats),
@@ -457,7 +470,7 @@ export class StalledSessions {
     const stale = this.staleSignals(signals, 'review', nowMs)
     if (stale.length < STALE_SIGNALS_TO_STOP)
       return this.raise(lease, nowMs, { session, life, since, reason: `the review session ${session} of card #${lease.cardId} is alive and only ${stale.join(', ') || 'no signal'} stood still for ${minutes} min; one stale signal stops nothing, the session runs on` }, since)
-    const stalls = this.db.prepare(REVIEW_STALLS_ON_HEAD).get(lease.leaseGen, lease.leaseGen, lease.cardId, lease.head) as { this_run: number, earlier_runs: number }
+    const stalls = reviewStallsOnHead(this.db, lease)
     if (stalls.this_run > 0)
       return []
     const stood = `${stale.join(', ')} stood still for ${minutes} min`

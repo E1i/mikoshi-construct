@@ -39,15 +39,8 @@
   "scripts/ports/task-start.ts",
   "scripts/ports/worktree-home.ts",
   "scripts/release/evidence.ts",
-  "scripts/supervisor/bus-heal.ts",
-  "scripts/supervisor/bus-snapshot.ts",
-  "scripts/supervisor/heartbeat.ts",
-  "scripts/supervisor/reducer-loop.ts",
-  "scripts/supervisor/stalled-sessions.ts",
-  "scripts/supervisor/supervisor.ts",
   "scripts/window/board.ts",
   "scripts/window/card-measure.ts",
-  "scripts/window/eddies-measure.ts",
   "scripts/window/handoff-write.ts",
   "scripts/window/operator-work.ts",
   "scripts/window/requests/amend.ts",
@@ -63,7 +56,6 @@
   "scripts/window/turn-watch.ts",
   "scripts/window/watch.ts",
   "scripts/window/window-agents.ts",
-  "scripts/window/window-heartbeat.ts",
   "scripts/window/window-prs.ts",
   "scripts/window/window-request-tools.ts",
   "scripts/window/window-requests.ts",
@@ -76,6 +68,5 @@
   "src/commands/board/goal.ts",
   "src/commands/board/heal.ts",
   "src/commands/cost/bus.ts",
-  "src/commands/cost/ledger.ts",
-  "src/commands/liveness.ts"
+  "src/commands/cost/ledger.ts"
 ]

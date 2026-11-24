@@ -1,12 +1,14 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../core/db.js'
+import type { EventRow } from '../core/events-query.js'
 import type { HolderStart, Lease } from '../core/lease.js'
 import type { SessionGauges } from '../window/eddies-measure.js'
 import { realpathSync } from 'node:fs'
 import os from 'node:os'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { appendEvent, defaultBusPath, HEARTBEATS, inTransaction, openBus, recordBeat, retirePreviousGenerationBeats } from '../core/db.js'
+import { appendEvent, defaultBusPath, inTransaction, openBus, recordBeat, retirePreviousGenerationBeats } from '../core/db.js'
+import { BY_CARD, EITHER_JOURNAL, events, lastPer, latest, processBeats } from '../core/events-query.js'
 import { PROCESS_HEARTBEAT, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../core/events.js'
 import { isFullSha, prOf } from '../core/identifiers.js'
 import { LEASE_FOLDS } from '../core/lease.js'
@@ -27,23 +29,7 @@ export const WINDOW_PROCESS = 'window:'
 const POSITIVE_NUMBER = /^[1-9]\d*$/
 const SESSION_ID = /^[^:\s]+$/
 
-const LAST_HEARTBEAT = `
-  SELECT ts, pr, head, payload FROM events WHERE type = '${SESSION_HEARTBEAT}' AND card_id = ?
-  ORDER BY id DESC LIMIT 1
-`
-
-const LAST_PROCESS_BEATS = `
-  SELECT name, max(ts) AS ts FROM (
-    SELECT process AS name, ts FROM ${HEARTBEATS} WHERE type = '${PROCESS_HEARTBEAT}'
-    UNION ALL
-    SELECT '${CARD_PROCESS}' || card_id AS name, ts FROM events WHERE type = '${SESSION_HEARTBEAT}' AND legacy = 0 AND card_id IS NOT NULL
-    UNION ALL
-    SELECT '${WINDOW_PROCESS}' || json_extract(payload, '$.session') AS name, ts FROM events WHERE type = '${WINDOW_HEARTBEAT}' AND legacy = 0 AND json_valid(payload)
-  )
-  WHERE name IS NOT NULL
-  GROUP BY name
-  ORDER BY name
-`
+const WINDOW_SESSION_KEY = '$.session'
 
 export interface ProcessBeat {
   process: string
@@ -63,8 +49,26 @@ export function recordProcessHeartbeat(db: DatabaseSync, ts: string, name: strin
   return recordBeat(db, { process: name, type: PROCESS_HEARTBEAT, ts, payload: { process: name, ...capacity } })
 }
 
+function latestOfEachProcess(beats: readonly ProcessBeat[]): ProcessBeat[] {
+  const latest = new Map<string, string>()
+  for (const beat of beats) {
+    const held = latest.get(beat.process)
+    if (held === undefined || beat.ts > held)
+      latest.set(beat.process, beat.ts)
+  }
+  return [...latest.keys()].sort().map(name => ({ process: name, ts: latest.get(name)! }))
+}
+
+function windowBeats(db: DatabaseSync): ProcessBeat[] {
+  return lastPer(db, WINDOW_SESSION_KEY, { types: [WINDOW_HEARTBEAT] }).flatMap((row) => {
+    const session = row.data?.session
+    return session === undefined || session === null ? [] : [{ process: `${WINDOW_PROCESS}${String(session)}`, ts: row.ts }]
+  })
+}
+
 export function lastProcessBeats(db: DatabaseSync): ProcessBeat[] {
-  return (db.prepare(LAST_PROCESS_BEATS).all() as { name: string, ts: string }[]).map(row => ({ process: row.name, ts: row.ts }))
+  const cards = lastPer(db, BY_CARD, { types: [SESSION_HEARTBEAT], withCard: true }).map(row => ({ process: `${CARD_PROCESS}${row.card_id}`, ts: row.ts }))
+  return latestOfEachProcess([...processBeats(db), ...cards, ...windowBeats(db)])
 }
 
 const PID_OF_PROCESS = /:([1-9]\d*)$/
@@ -186,19 +190,12 @@ function textField(payload: Record<string, unknown>, key: string): string | null
 }
 
 export function lastHeartbeat(db: DatabaseSync, card: number): LastHeartbeat | null {
-  const row = db.prepare(LAST_HEARTBEAT).get(card) as { ts: string, pr: number | null, head: string | null, payload: string } | undefined
-  if (row === undefined)
+  const row = latest(db, { types: [SESSION_HEARTBEAT], card, legacy: EITHER_JOURNAL })
+  if (row === null)
     return null
-  const payload = JSON.parse(row.payload) as Record<string, unknown>
+  const payload = row.data ?? {}
   return { ts: row.ts, pr: row.pr, head: row.head, step: textField(payload, 'step'), session: textField(payload, 'session') }
 }
-
-const BEATS_OF_LEASE = `
-  SELECT ts, json_extract(payload, '$.session') AS session, json_extract(payload, '$.context') AS context
-  FROM events WHERE type = '${SESSION_HEARTBEAT}' AND legacy = 0 AND json_valid(payload)
-    AND json_extract(payload, '$.task_key') = ? AND json_extract(payload, '$.lease_gen') = ?
-  ORDER BY id
-`
 
 export interface LeaseBeat {
   ts: string
@@ -206,8 +203,12 @@ export interface LeaseBeat {
   context: number | null
 }
 
+export function heartbeatsOfLease(db: DatabaseSync, lease: HeldLease): EventRow[] {
+  return events(db, { types: [SESSION_HEARTBEAT], task: lease.taskKey }).filter(row => row.data?.lease_gen === lease.leaseGen)
+}
+
 export function beatsOfLease(db: DatabaseSync, lease: HeldLease): LeaseBeat[] {
-  return db.prepare(BEATS_OF_LEASE).all(lease.taskKey, lease.leaseGen) as unknown as LeaseBeat[]
+  return heartbeatsOfLease(db, lease).map(row => ({ ts: row.ts, session: (row.data?.session ?? null) as string | null, context: (row.data?.context ?? null) as number | null }))
 }
 
 export function busSessionPulse(busPath: string, clock: () => Date, measure: SessionMeasure = measureCardSession): (lease: Lease, session: string) => string {

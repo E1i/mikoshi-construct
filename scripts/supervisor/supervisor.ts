@@ -16,7 +16,9 @@ import { fileURLToPath } from 'node:url'
 import { busDirOf, pinBus, snapshotPathOf } from '../core/bus-path.js'
 import { CHECK_MS } from '../core/cadence.js'
 import { RUNNING_CARD } from '../core/card-automaton.js'
+import { cardsWithAState } from '../core/card-readings.js'
 import { appendEvent, defaultBusPath, openBus } from '../core/db.js'
+import { BY_CARD, EITHER_JOURNAL, events, lastPer, latest } from '../core/events-query.js'
 import { CARD_CONTINUED, CARD_STARTED, MAIN_ADVANCED, PROCESS_JUDGED, RESTARTED, TASK_EXPIRED, WORKER_DOWN } from '../core/events.js'
 import { FACTORY_LISTS, FACTORY_RUNTIME, FACTORY_WORKERS } from '../core/factory-paths.js'
 import { importClosure } from '../core/import-closure.js'
@@ -92,14 +94,11 @@ export interface MainAdvance {
 }
 
 export function lastMainAdvance(db: DatabaseSync): number {
-  return Number((db.prepare(`SELECT coalesce(max(id), 0) AS id FROM events WHERE type = '${MAIN_ADVANCED}'`).get() as { id: number }).id)
+  return latest(db, { types: [MAIN_ADVANCED], legacy: EITHER_JOURNAL })?.id ?? 0
 }
 
 export function mainAdvancedSince(db: DatabaseSync, afterId: number): MainAdvance[] {
-  return db.prepare(`SELECT id, payload FROM events WHERE type = '${MAIN_ADVANCED}' AND id > ? ORDER BY id`).all(afterId).flatMap((row) => {
-    const sha = (JSON.parse(String(row.payload)) as { sha?: unknown }).sha
-    return typeof sha === 'string' ? [{ id: Number(row.id), sha }] : []
-  })
+  return events(db, { types: [MAIN_ADVANCED], since: afterId, legacy: EITHER_JOURNAL }).flatMap(row => typeof row.data?.sha === 'string' ? [{ id: row.id, sha: row.data.sha }] : [])
 }
 
 export interface BusCode {
@@ -718,12 +717,11 @@ export interface Judgement {
 
 export type ExpectedRunning = (name: string) => boolean
 
-const RUNNING_CARDS = `SELECT card_id FROM cards WHERE state = '${RUNNING_CARD}'`
-
 export const processName = (launch: DetachedLaunch): string => launch.script
 
 export function expectedRunning(db: DatabaseSync, wanted: readonly DetachedLaunch[]): ExpectedRunning {
-  const names = new Set([SUPERVISOR_PROCESS, ...wanted.map(processName), ...(db.prepare(RUNNING_CARDS).all() as { card_id: number }[]).map(row => `${CARD_PROCESS}${row.card_id}`)])
+  const running = [...cardsWithAState(db)].filter(([, state]) => state === RUNNING_CARD).map(([card]) => `${CARD_PROCESS}${card}`)
+  const names = new Set([SUPERVISOR_PROCESS, ...wanted.map(processName), ...running])
   return name => names.has(name)
 }
 
@@ -731,14 +729,8 @@ export function judgeSilent(beats: readonly ProcessBeat[], nowMs: number, expect
   return beats.filter(beat => expected(beat.process) && !beatsLive(beat.ts, nowMs) && nowMs - Date.parse(beat.ts) <= JUDGED_HORIZON_MS).map(beat => ({ process: beat.process, lastBeat: beat.ts, silentMs: nowMs - Date.parse(beat.ts) }))
 }
 
-const CARD_LIFE_STARTS = `
-  SELECT '${CARD_PROCESS}' || card_id AS name, max(ts) AS ts FROM events
-  WHERE type IN ('${CARD_STARTED}', '${CARD_CONTINUED}') AND legacy = 0 AND card_id IS NOT NULL
-  GROUP BY card_id
-`
-
 export function currentLifeBeats(db: DatabaseSync, beats: readonly ProcessBeat[]): ProcessBeat[] {
-  const lifeStarts = new Map((db.prepare(CARD_LIFE_STARTS).all() as { name: string, ts: string }[]).map(row => [row.name, row.ts]))
+  const lifeStarts = new Map(lastPer(db, BY_CARD, { types: [CARD_STARTED, CARD_CONTINUED], withCard: true }).map(row => [`${CARD_PROCESS}${row.card_id}`, row.ts]))
   return beats.map((beat) => {
     const lifeStart = lifeStarts.get(beat.process)
     return lifeStart !== undefined && lifeStart > beat.ts ? { process: beat.process, ts: lifeStart } : beat
@@ -754,17 +746,19 @@ export interface Judged {
   lastBeat: string
 }
 
-const LAST_JUDGED = `
-  SELECT json_extract(payload, '$.process') AS name, max(json_extract(payload, '$.last_beat')) AS last_beat FROM events
-  WHERE type = '${PROCESS_JUDGED}' AND legacy = 0 AND json_valid(payload) AND json_extract(payload, '$.process') IS NOT NULL
-  GROUP BY name ORDER BY name
-`
+function lastJudged(db: DatabaseSync): Map<string, string> {
+  const judged = new Map<string, string>()
+  for (const { data } of events(db, { types: [PROCESS_JUDGED], valid: true })) {
+    const [name, beat] = [data?.process, data?.last_beat]
+    if (typeof name === 'string' && typeof beat === 'string' && beat > (judged.get(name) ?? ''))
+      judged.set(name, beat)
+  }
+  return new Map([...judged].sort(([a], [b]) => a < b ? -1 : 1))
+}
 
 export function stillSilent(db: DatabaseSync): Judged[] {
   const beats = new Map(lastProcessBeats(db).map(beat => [beat.process, beat.ts]))
-  return (db.prepare(LAST_JUDGED).all() as { name: string, last_beat: string }[])
-    .filter(row => (beats.get(row.name) ?? row.last_beat) <= row.last_beat)
-    .map(row => ({ process: row.name, lastBeat: row.last_beat }))
+  return [...lastJudged(db)].filter(([name, lastBeat]) => (beats.get(name) ?? lastBeat) <= lastBeat).map(([name, lastBeat]) => ({ process: name, lastBeat }))
 }
 
 export const RESTART_RETRY_MS = 5 * 60_000

@@ -2,6 +2,7 @@ import type { TranscriptCounters as Counters, MeasuredSubagent } from '../ports/
 import type { StopReason } from './exit.js'
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
+import { eventsSince } from '../core/events-query.js'
 import { openDatabase } from '../core/sqlite.js'
 import { cardLineOfConfig, EDDIES_CONFIG_FILE, eddiesConfigIn, findTranscript, measuredSession, measuredSpent, measuredSubagents, spendBasis, transcriptContext, transcriptCounters, transcriptModel } from '../ports/client/claude/adapter.js'
 import { clientAdapter } from '../ports/client/index.js'
@@ -169,8 +170,8 @@ function busSince(busPath: string, startedAt: string): { cards: number, busEvent
     return null
   const db = openDatabase(busPath, { readOnly: true })
   try {
-    const row = db.prepare('SELECT count(*) AS events, count(DISTINCT card_id) AS cards FROM events WHERE ts >= ?').get(startedAt) as { events: number, cards: number }
-    return { cards: Number(row.cards), busEvents: Number(row.events) }
+    const since = eventsSince(db, startedAt)
+    return { cards: since.cards, busEvents: since.events }
   }
   finally {
     db.close()

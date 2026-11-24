@@ -12,6 +12,7 @@ import { withoutWitnessKind } from '../../src/commands/intake/draft.js'
 import { WITNESSES_HEADING } from '../../src/commands/intake/slice.js'
 import { CARD_BODIES } from '../core/card-bodies.js'
 import { appendEvent, defaultBusPath, openBus } from '../core/db.js'
+import { events, latest } from '../core/events-query.js'
 import { WITNESS_FIELDS_BACKFILLED, WITNESS_RECORDED } from '../core/events.js'
 import { cardWitnessesOf } from '../policy/policy.js'
 
@@ -19,12 +20,7 @@ export const PREFIX = '[bus:witness-backfill] '
 
 const BACKFILL_ACTOR = 'worker:witness-backfill:by-hand'
 const CARD_TEXTS = `SELECT card_id, text FROM ${CARD_BODIES} ORDER BY card_id`
-const RECORDED_BACKFILL = `SELECT payload FROM events WHERE legacy = 0 AND type = '${WITNESS_FIELDS_BACKFILLED}' ORDER BY id LIMIT 1`
-const LAST_WITNESS_ON_HEAD = `
-  SELECT json_extract(payload, '$.verdict') AS verdict, json_extract(payload, '$.detail') AS detail FROM events
-  WHERE legacy = 0 AND type = '${WITNESS_RECORDED}' AND pr = ? AND head = (SELECT head FROM prs WHERE pr = ?)
-  ORDER BY id DESC LIMIT 1
-`
+const PR_HEAD = 'SELECT head FROM prs WHERE pr = ?'
 const NAMED_TEST = /^(.*\bvitest\b.*) -t '([^']+)'$/
 const BACKTICKED = /`[^`]*`/g
 const WHITESPACE_RUN = /\s+/g
@@ -125,7 +121,7 @@ export function witnessFieldsBackfillOf(rows: readonly { card: number, text: str
 }
 
 export function recordedWitnessFieldsBackfill(db: DatabaseSync): WitnessFieldsBackfill | null {
-  const row = db.prepare(RECORDED_BACKFILL).get() as { payload: string } | undefined
+  const row = events(db, { types: [WITNESS_FIELDS_BACKFILLED], limit: 1 })[0]
   return row === undefined ? null : JSON.parse(row.payload) as WitnessFieldsBackfill
 }
 
@@ -147,7 +143,9 @@ export function witnessFieldsOfCard(card: Pick<CardFields, 'id' | 'witnessFields
 }
 
 function witnessRecordOnHead(db: DatabaseSync, pr: number | null): WitnessRecordOnHead | null {
-  return pr === null ? null : db.prepare(LAST_WITNESS_ON_HEAD).get(pr, pr) as WitnessRecordOnHead | undefined ?? null
+  const head = pr === null ? null : (db.prepare(PR_HEAD).get(pr) as { head: string | null } | undefined)?.head ?? null
+  const record = pr === null || head === null ? null : latest(db, { types: [WITNESS_RECORDED], pr, head })
+  return record === null ? null : { verdict: record.data?.verdict ?? null, detail: record.data?.detail ?? null } as WitnessRecordOnHead
 }
 
 export function witnessTableOf(db: DatabaseSync, card: CardFields | null, pr: number | null, backfill: WitnessFieldsBackfill | null): WitnessTable | null {
