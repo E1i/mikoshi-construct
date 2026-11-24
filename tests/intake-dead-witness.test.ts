@@ -10,7 +10,7 @@ import { REQUEST_DONE, REQUEST_REFUSED, WITNESS_RECORDED } from '../scripts/core
 import { reduce } from '../scripts/core/reducer.js'
 import { busIntakePorts } from '../scripts/intake/intake.js'
 import { runOnTree } from '../scripts/ports/witnesses.js'
-import { busProjections, openComposedBus } from '../scripts/supervisor/composition.js'
+import { busProjections, openComposedBus, windowRequestBus } from '../scripts/supervisor/composition.js'
 import { requestFromWindow, WindowRequests } from '../scripts/window/window-requests.js'
 import { witnessFieldsOf, witnessText } from '../src/card/witness-fields.js'
 import { deadOnTheBase, runAdmit } from '../src/commands/intake/admit.js'
@@ -79,7 +79,7 @@ function outcomeOfStatus(status: string): Outcome {
 
 function requested(w: World, request: Record<string, unknown>): Outcome {
   const id = requestFromWindow(w.db, NOW.toISOString(), 'test', { kind: 'amend', card: CARD, ...request })
-  new WindowRequests(w.db, () => new Date(NOW.getTime() + id * 1000), { closeDropped: () => [] } as unknown as RequestTools, path.join(w.root, 'channel'), () => null, w.repo, {} as never).run()
+  new WindowRequests(w.db, () => new Date(NOW.getTime() + id * 1000), { closeDropped: () => [] } as unknown as RequestTools, path.join(w.root, 'channel'), () => null, w.repo, {} as never, windowRequestBus()).run()
   reduce(w.db, 'pending', busProjections())
   const answer = w.db.prepare(`SELECT type, json_extract(payload, '$.detail') AS detail FROM events WHERE type IN (?, ?) AND json_extract(payload, '$.request') = ?`).get(REQUEST_DONE, REQUEST_REFUSED, id) as { type: string, detail: string }
   if (answer.type === REQUEST_DONE)

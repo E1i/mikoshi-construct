@@ -81,11 +81,11 @@ describe('add.ts and answer.ts take the window runner from their entry block', (
     }
   })
 
-  it('the decisions rows into window and ports stay one import each: the door and read.ts', () => {
+  it('the decisions row into window stays the one door import, and ports, a lower layer, is no violation', () => {
     expect(decisionsViolationsInto('window')).toEqual([`${DOOR} -> ${WINDOW_REQUESTS}`])
-    expect(decisionsViolationsInto('ports')).toHaveLength(1)
+    expect(decisionsViolationsInto('ports')).toEqual([])
     const ratchet = JSON.parse(readFileSync(path.join(REPO, 'contract/ratchet.json'), 'utf8')) as Record<string, number>
-    expect([ratchet['boundary:decisions->window'], ratchet['boundary:decisions->ports']]).toEqual([1, 1])
+    expect([ratchet['boundary:decisions->window'], ratchet['boundary:decisions->ports']]).toEqual([1, undefined])
   })
 
   it('requestDecision carries the decision through the runner it is given, and the bus sees nothing else', () => {

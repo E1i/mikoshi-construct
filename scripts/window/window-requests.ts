@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { CardBodiesBus } from './requests/context.js'
 import type { GitHub, StoredEvent } from './requests/reach.js'
 import type { RequestOutcome, RequestPayload, RequestTools } from './requests/request.js'
 import { randomUUID } from 'node:crypto'
@@ -73,8 +74,8 @@ export function pendingRequests(db: DatabaseSync): StoredEvent[] {
 export class WindowRequests {
   private readonly context: RequestContext
 
-  constructor(private readonly db: DatabaseSync, clock: () => Date, private readonly tools: RequestTools, ownerChannel: string = ownerChannelOf(os.homedir()), releaseVersion: () => string | null = () => readReleaseVersion(), repository: string = process.cwd(), gitHub: GitHub = ghApi(repository)) {
-    this.context = new RequestContext(db, clock, tools, ownerChannel, releaseVersion, repository, gitHub)
+  constructor(private readonly db: DatabaseSync, clock: () => Date, private readonly tools: RequestTools, ownerChannel: string = ownerChannelOf(os.homedir()), releaseVersion: () => string | null = () => readReleaseVersion(), repository: string = process.cwd(), gitHub: GitHub = ghApi(repository), bus: CardBodiesBus | null = null) {
+    this.context = new RequestContext(db, clock, tools, ownerChannel, releaseVersion, repository, gitHub, bus)
   }
 
   run(): RequestOutcome[] {

@@ -10,7 +10,7 @@ import { reduce } from '../../core/reducer.js'
 import { busCardAdmissions, busCardEvents } from '../../intake/intake.js'
 import { ARCHIVE_HEADER, requestDecision, runDecisionsAdd } from '../../policy/decisions/add.js'
 import { runDecisionsRead } from '../../policy/decisions/read.js'
-import { busProjections, openComposedBus } from '../../supervisor/composition.js'
+import { busProjections, openComposedBus, windowRequestBus } from '../../supervisor/composition.js'
 import { pendingRequests, runRequest, WindowRequests } from '../../window/window-requests.js'
 
 const FILE = '/d/owner-decisions.md'
@@ -233,7 +233,7 @@ describe('pnpm decisions:add in a window session asks the bus', () => {
       expect(requestDecision(['--from', 'answer', '--card', '#5', '--creates', 'src/new.ts', '[owner] the card writes src/new.ts.'], db, NOW, 'window-1', line => out.push(line), runRequest), out.join('\n')).toBe(0)
       expect(pendingRequests(db).map(request => (JSON.parse(request.payload) as { kind: string }).kind)).toEqual(['amend', 'decisions:add'])
       expect(JSON.parse(pendingRequests(db)[1]!.payload)).toMatchObject({ kind: 'decisions:add', text: '[owner] the card writes src/new.ts.', cards: ['#5'] })
-      new WindowRequests(db, () => NOW, { closeDropped: () => [] } as unknown as RequestTools, path.join(root, 'channel'), () => null, repo, {} as never).run()
+      new WindowRequests(db, () => NOW, { closeDropped: () => [] } as unknown as RequestTools, path.join(root, 'channel'), () => null, repo, {} as never, windowRequestBus()).run()
       reduce(db, 'pending', busProjections())
       const body = busCardAdmissions(db)(5)!.text!
       expect(body).toMatch(/^touches: src\/a\.ts, src\/new\.ts$/m)
