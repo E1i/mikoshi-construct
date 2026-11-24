@@ -45,7 +45,7 @@ function importedNamesFrom(file: string, target: string): string[] {
     .flatMap(each => each.importClause?.namedBindings !== undefined && ts.isNamedImports(each.importClause.namedBindings) ? each.importClause.namedBindings.elements.map(element => element.name.text) : [])
 }
 
-describe('merge executor, bus tick, lease and order reach the bus only through the injected contract', () => {
+describe('merge executor, bus tick, lease and order import no bus file', () => {
   it.each([MERGE_EXECUTOR, ORDER, BUS_TICK])('%s imports no bus file', (file) => {
     expect(relativeImportsOf(file).filter(each => BUS_FILES.has(each))).toEqual([])
   })
