@@ -24,8 +24,9 @@ import { resolveTheme } from '../../src/ui/theme.js'
 import { RECOMPUTE_DRIFTED_SHARE, WEIGHTS_PATH } from '../ci/weights-law.js'
 import { BUS_CONTRACT } from '../core/bus-adapter.js'
 import { BUS_DB_VARIABLE, ForeignBusRefused } from '../core/bus-path.js'
+import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.js'
 import { admittedBodyText, appendCardEvent, laid } from '../core/card-bodies.js'
-import { ENDED_CARD_STATES, heldCardStates } from '../core/card-readings.js'
+import { heldCardStates } from '../core/card-readings.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus } from '../core/db.js'
 import { createsOwnerRefusals, MODULE_FILES, MODULES_KIND, readDeclarations } from '../core/declarations.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_MOVED, CARD_PLANNED, CARD_UNPLANNED, LADDER_RUN, NUMBERS_FOREIGN, PLAN_CLOSED, PLAN_OPENED, PR_OPENED } from '../core/events.js'
@@ -261,6 +262,7 @@ export const WEIGHTS_DRIFT_ACTOR = `${INTAKE_ACTOR_PREFIX}${WEIGHTS_DRIFT_SOURCE
 export const WEIGHTS_DRIFT_UNREAD = 'weights_drift_unread'
 export const RECOMPUTE_WITNESS = pnpmCommand('exec', 'vitest', 'run', 'scripts/tests/ci/test-weights-fresh.test.ts')
 const RECOMPUTE_MILESTONE = 'construct'
+const ENDED_CARD_STATES: ReadonlySet<string> = new Set([MERGED_CARD, CLOSED_CARD, DROPPED_CARD])
 const WEIGHTS_REPO = 'repos/{owner}/{repo}'
 const LAST_TABLE_CHANGE = `${WEIGHTS_REPO}/commits?path=${WEIGHTS_PATH}&per_page=1`
 const AT_OR_AFTER_CHANGE: ReadonlySet<unknown> = new Set(['ahead', 'identical'])

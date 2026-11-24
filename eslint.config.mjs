@@ -170,7 +170,6 @@ export const HAND_EVENT_READERS_EXCEPTED = [
   'scripts/core/report.ts',
   'scripts/core/stored.ts',
   'scripts/intake/admissions.ts',
-  'scripts/intake/intake.ts',
   'scripts/intake/witness-fields-backfill.ts',
   'scripts/nodes/answer/answer-executor.ts',
   'scripts/nodes/close/close-executor.ts',
