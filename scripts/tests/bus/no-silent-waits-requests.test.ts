@@ -20,7 +20,7 @@ import { busCardAdmissions, busCardEvents, busHeldCards } from '../../intake/int
 import { sayToOwnerChannel, USED_WORD } from '../../owner/channel.js'
 import { mergePolicy } from '../../policy/policy.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
-import { busProjections, cardTransitions, openComposedBus } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions, openComposedBus, windowRequestBus } from '../../supervisor/composition.js'
 import { requestFromWindow, requestOf, WindowRequests } from '../../window/window-requests.js'
 import { cardBody, sha } from './github-fake.js'
 import { mergeBench } from './merge-bench.js'
@@ -121,7 +121,7 @@ function stoppedOutsideTouches(w: AmendWorld): void {
 
 function amended(w: AmendWorld, touches: string): { type: string, detail: string } {
   const id = requestFromWindow(w.db, NOW.toISOString(), 'window-1', { kind: 'amend', card: CARD, touches })
-  new WindowRequests(w.db, () => new Date(NOW.getTime() + 60_000), UNUSED_REQUEST_TOOLS, path.join(w.root, 'channel'), () => null, w.repo, {} as never).run()
+  new WindowRequests(w.db, () => new Date(NOW.getTime() + 60_000), UNUSED_REQUEST_TOOLS, path.join(w.root, 'channel'), () => null, w.repo, {} as never, windowRequestBus()).run()
   reduce(w.db, 'pending', busProjections())
   return w.db.prepare(`SELECT type, json_extract(payload, '$.detail') AS detail FROM events WHERE type IN (?, ?) AND json_extract(payload, '$.request') = ?`).get(REQUEST_DONE, REQUEST_REFUSED, id) as { type: string, detail: string }
 }

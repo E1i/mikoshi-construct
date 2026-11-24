@@ -103,7 +103,7 @@ function busRuns(made: Room): Executed {
     throw new Error('the owner stop calls no other tool')
   }
   const request = made.bench.db.prepare('SELECT id, payload FROM events WHERE type = ? ORDER BY id DESC LIMIT 1').get(WINDOW_REQUEST) as { id: number, payload: string }
-  const context = new RequestContext(made.bench.db, made.bench.clock.now, { treeOf: refuse, exists: existsSync, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: () => null, closePr: refuse, closeDropped: () => [] }, path.join(made.root, 'owner-answers'), () => null, made.root, made.bench.gitHub.client)
+  const context = new RequestContext(made.bench.db, made.bench.clock.now, { treeOf: refuse, exists: existsSync, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: () => null, closePr: refuse, closeDropped: () => [] }, path.join(made.root, 'owner-answers'), () => null, made.root, made.bench.gitHub.client, null)
   return ownerStopExecutor(processes(made))(context, request.id, JSON.parse(request.payload) as RequestPayload)
 }
 
