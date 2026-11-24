@@ -4,7 +4,7 @@ import type { LayerMap } from '../core/layer-map.js'
 import { existsSync } from 'node:fs'
 import { layerMasksOf, runsOf } from '../../src/card/covering-tests.js'
 import { parseParkingFile } from '../../src/card/parking.js'
-import { CARD_BODIES } from '../core/card-bodies.js'
+import { CARD_BODIES, cardBodyText, cardOfBranch } from '../core/card-bodies.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
 import { messageOf } from '../core/errors.js'
 import { globalRunReason, layersOfEntry, readLayerMap } from '../core/layer-map.js'
@@ -13,9 +13,6 @@ import { isTest, withinTouches } from '../policy/touch-scope.js'
 import { CHANGESET_READERS, declaredReadersOf, isChangesetNote } from './layers.js'
 
 export const NO_LAYER = 'none'
-
-const CARD_OF_BRANCH = `SELECT card_id, text FROM ${CARD_BODIES} WHERE branch = ? LIMIT 2`
-const CARD_OF_PR = `SELECT body.card_id, body.text FROM prs JOIN ${CARD_BODIES} body ON body.card_id = prs.card_id WHERE prs.pr = ?`
 
 type LayersByFile = ReadonlyMap<string, readonly string[]>
 
@@ -153,18 +150,14 @@ function runsSourceOf(row: CardTextRow): CardRunsSource | null {
 }
 
 function cardRowOfBranch(db: DatabaseSync, branch: string): CardTextRow | null {
-  const rows = hasTable(db, CARD_BODIES) ? db.prepare(CARD_OF_BRANCH).all(branch) as unknown as CardTextRow[] : []
-  return rows.length === 1 ? rows[0]! : null
+  const card = hasTable(db, CARD_BODIES) ? cardOfBranch(db, branch) : null
+  const text = card === null ? null : cardBodyText(db, card)
+  return card === null || text === null ? null : { card_id: card, text }
 }
 
 export function runsSourceOfBranch(db: DatabaseSync, branch: string): CardRunsSource | null {
   const row = cardRowOfBranch(db, branch)
   return row === null ? null : runsSourceOf(row)
-}
-
-export function runsSourceOfPr(db: DatabaseSync, pr: number): CardRunsSource | null {
-  const row = hasTable(db, CARD_BODIES) && hasTable(db, 'prs') ? db.prepare(CARD_OF_PR).get(pr) as unknown as CardTextRow | undefined : undefined
-  return row === undefined ? null : runsSourceOf(row)
 }
 
 export interface BusCatalog extends CheckCatalog {

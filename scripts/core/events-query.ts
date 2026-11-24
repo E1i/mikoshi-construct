@@ -188,6 +188,12 @@ export function shardUsedByRun(db: DatabaseSync, run: string): boolean {
   return db.prepare(SHARD_USED_BY_RUN).get(run) !== undefined
 }
 
+const CARD_IDS_IN_EVENTS = `SELECT DISTINCT card_id FROM events WHERE card_id IS NOT NULL`
+
+export function cardIdsInEvents(db: DatabaseSync): number[] {
+  return (db.prepare(CARD_IDS_IN_EVENTS).all() as { card_id: number }[]).map(row => Number(row.card_id))
+}
+
 export function perCard(db: DatabaseSync, query: Omit<EventsQuery, 'card'> = {}): Map<number, EventRow[]> {
   const grouped = new Map<number, EventRow[]>()
   for (const row of events(db, query)) {

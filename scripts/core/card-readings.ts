@@ -1,7 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { LastReduced, OwnerWait } from './bus-readings.js'
 import { CLOSED_WAIT, OPEN_WAIT, OWNER_WAITS, readLastReduced } from './bus-readings.js'
-import { EITHER_JOURNAL, events, latest } from './events-query.js'
+import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from './card-automaton.js'
+import { cardIdsInEvents, EITHER_JOURNAL, events, latest } from './events-query.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED } from './events.js'
 
 const OPEN_OWNER_WAITS = `
@@ -97,6 +98,20 @@ const CARD_STATES_AMONG = `SELECT card_id, state FROM cards WHERE card_id IN (SE
 export function cardStatesAmong(db: DatabaseSync, cardIds: readonly number[]): Map<number, string | null> {
   const rows = db.prepare(CARD_STATES_AMONG).all(JSON.stringify(cardIds)) as { card_id: number, state: string | null }[]
   return new Map(rows.map(row => [Number(row.card_id), row.state === null ? null : String(row.state)]))
+}
+
+export const ENDED_CARD_STATES: ReadonlySet<string> = new Set([MERGED_CARD, CLOSED_CARD, DROPPED_CARD])
+
+const CARDS_WITH_A_STATE = `SELECT card_id, state FROM cards WHERE state IS NOT NULL`
+
+export function heldCardStates(db: DatabaseSync): Map<number, string | null> {
+  const rows = db.prepare(CARDS_WITH_A_STATE).all() as { card_id: number, state: string }[]
+  const held = new Map<number, string | null>(rows.map(row => [Number(row.card_id), String(row.state)]))
+  for (const card of cardIdsInEvents(db)) {
+    if (!held.has(card))
+      held.set(card, null)
+  }
+  return held
 }
 
 const CARD_TURNS = [CARD_STOPPED, CARD_ANSWERED, CARD_STARTED]

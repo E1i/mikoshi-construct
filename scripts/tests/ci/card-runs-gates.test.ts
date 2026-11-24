@@ -10,7 +10,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { runsLine } from '../../../src/card/covering-tests.js'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
-import { branchCardRuns, cardRunsOf, runsSourceOfBranch, runsSourceOfPr, sessionCardRunsOf } from '../../ci/card-runs.js'
+import { branchCardRuns, cardRunsOf, runsSourceOfBranch, sessionCardRunsOf } from '../../ci/card-runs.js'
 import { CHANGESET_READERS, selectRun, sessionRun } from '../../ci/layers.js'
 import { sessionSelection, withCardRuns } from '../../ci/prepush.js'
 import { writeCatalog } from '../../cli/check-catalog.js'
@@ -40,7 +40,6 @@ const WORKER_TEST = 'scripts/tests/bus/merge-node.test.ts'
 const CLI = 'src/cli.ts'
 const CLI_TEST = 'tests/cli.test.ts'
 const CARD_ID = 1070
-const PR = 970
 const BRANCH = 'feat/a-card'
 const CARD_LINE = `#${CARD_ID} a-card [implement/netwatch/S/cheap/auto] · depends — · blocks —`
 
@@ -228,7 +227,6 @@ it('the card of a branch is read from the bus, and a missing card, bus or databa
 
   expect(runsSourceOfBranch(db, BRANCH)).toEqual({ touches: [CORE], runs: [], masks: ['core'] })
   expect(runsSourceOfBranch(db, 'feat/no-card')).toBeNull()
-  expect(runsSourceOfPr(db, PR)).toBeNull()
   db.close()
 
   expect(branchCardRuns(BRANCH, file)).toMatchObject({ kind: 'card', reading: { layers: ['core'], tests: [CORE_TEST] } })
