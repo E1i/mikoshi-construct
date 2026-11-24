@@ -1,4 +1,6 @@
+import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../core/lease.js'
+import type { MachineReader } from '../../nodes/launch/launch-candidates.js'
 import type { CardStart, CardStarter, QueuedCard, StartedCard } from '../../nodes/launch/launch-executor.js'
 import type { SessionContinuer } from '../../nodes/launch/launch-starter.js'
 import type { MergeBench } from './merge-bench.js'
@@ -7,15 +9,18 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
-import { appendEvent, closeOwnerWait } from '../../core/db.js'
+import { appendEvent, closeOwnerWait, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_CONTINUED, CARD_STARTED, CARD_STOPPED, OPEN_QUESTION, OUTSIDE_TOUCHES, OWNER_WAIT_OPENED, QUESTION_AGENT, TASK_RELEASED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { MachineSessions } from '../../core/machine-sessions.js'
 import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask } from '../../core/queue.js'
+import { reduce } from '../../core/reducer.js'
+import { busCardEvents } from '../../intake/intake.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
+import { launchCandidates } from '../../nodes/launch/launch-candidates.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
-import { cardTransitions, nodeSupply } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions, nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -204,5 +209,60 @@ describe('z8: a session stop is recorded in the bus and decides the continuation
     expect(outcome).toMatchObject({ kind: 'stopped', reason: QUESTION_AGENT })
     expect(eventsOf(made.db, CARD_STOPPED).at(-1)).toEqual(expect.objectContaining({ code: OUTSIDE_TOUCHES, blocker: OUTSIDE_QUESTION, paths: expect.arrayContaining([READER]) }))
     expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([])
+  })
+})
+
+const STOPPED = 2156
+const NEXT = 2236
+const NEXT_TOUCH = 'scripts/b.ts'
+const SLOT_TS = '2026-11-24T09:00:00.000Z'
+const SLOT_LANE = 'lane-1'
+const ONE_FREE_SLOT: MachineReader = { free: () => 1, held: () => null, waiting: () => [] }
+
+class SlotBench {
+  readonly db: DatabaseSync = openBus(path.join(scratch('z8-slot-'), 'bus.db'))
+
+  admit(id: number, key: string, touches: readonly string[]): this {
+    const text = body(touches).replaceAll(`#${CARD}`, `#${id}`).replaceAll(`card-${CARD}`, `card-${id}`)
+    busCardEvents(this.db, 's1')({ type: CARD_ADMITTED, cardId: id, ts: SLOT_TS, dedupeKey: key, payload: { card: text.split('\n')[0]!.slice('card: '.length), lane: SLOT_LANE, depends: [], decision: 'auto', contour: 'cheap', text, textSha: textSha(text) } })
+    return this.reduced()
+  }
+
+  start(id: number): this {
+    appendEvent(this.db, { ts: SLOT_TS, type: CARD_STARTED, actor: 'worker:launch:node-1', cardId: id, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${id}`, payload: {}, legacy: false })
+    return this.reduced()
+  }
+
+  stopOutsideTouches(id: number): this {
+    appendEvent(this.db, { ts: SLOT_TS, type: CARD_STOPPED, actor: 'worker:launch:node-1', cardId: id, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${id}`, payload: { reason: QUESTION_AGENT, code: OUTSIDE_TOUCHES, paths: [READER], widen: [READER] }, legacy: false })
+    return this.reduced()
+  }
+
+  candidates(): number[] {
+    return launchCandidates(this.db, () => false, () => Date.parse(SLOT_TS), () => {}, [], () => 3, ONE_FREE_SLOT).map(candidate => candidate.cardId)
+  }
+
+  private reduced(): this {
+    reduce(this.db, 'pending', busProjections())
+    return this
+  }
+}
+
+function stoppedThenReadmitted(touches: readonly string[]): SlotBench {
+  return new SlotBench()
+    .admit(STOPPED, 'admit-stopped-1', [TOUCHED])
+    .start(STOPPED)
+    .stopOutsideTouches(STOPPED)
+    .admit(STOPPED, 'admit-stopped-2', touches)
+    .admit(NEXT, 'admit-next-1', [NEXT_TOUCH])
+}
+
+describe('a card stopped on outside-touches and the launch slots', () => {
+  it('a card stopped on outside-touches takes no launch slot and the next card starts', () => {
+    expect(stoppedThenReadmitted([TOUCHED]).candidates()).toEqual([NEXT])
+  })
+
+  it('a card whose outside-touches stop is answered by widened touches is chosen again', () => {
+    expect(stoppedThenReadmitted([TOUCHED, READER]).candidates()).toEqual([STOPPED])
   })
 })

@@ -600,7 +600,6 @@
     "scripts/tests/bus/start-order.test.ts",
     "scripts/tests/bus/stop-lift.test.ts",
     "scripts/tests/bus/stopped-card-holds-no-touches.test.ts",
-    "scripts/tests/bus/stopped-card-takes-no-launch-slot.test.ts",
     "scripts/tests/bus/supervisor-liveness.test.ts",
     "scripts/tests/bus/supervisor.test.ts",
     "scripts/tests/bus/takeover-push-releases.test.ts",
