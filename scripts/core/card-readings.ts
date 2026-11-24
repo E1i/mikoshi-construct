@@ -148,9 +148,13 @@ export function dependentsInStateOf(db: DatabaseSync, cardId: number, state: str
 
 const CARDS_WITH_A_STATE = `SELECT card_id, state FROM cards WHERE state IS NOT NULL`
 
-export function heldCardStates(db: DatabaseSync): Map<number, string | null> {
+export function cardsWithAState(db: DatabaseSync): Map<number, string> {
   const rows = db.prepare(CARDS_WITH_A_STATE).all() as { card_id: number, state: string }[]
-  const held = new Map<number, string | null>(rows.map(row => [Number(row.card_id), String(row.state)]))
+  return new Map(rows.map(row => [Number(row.card_id), String(row.state)]))
+}
+
+export function heldCardStates(db: DatabaseSync): Map<number, string | null> {
+  const held = new Map<number, string | null>(cardsWithAState(db))
   for (const card of cardIdsInEvents(db)) {
     if (!held.has(card))
       held.set(card, null)

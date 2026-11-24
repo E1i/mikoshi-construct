@@ -2,7 +2,6 @@
   "scripts/cli/board-page.ts",
   "scripts/cli/board-warnings.ts",
   "scripts/cli/card-chain.ts",
-  "scripts/core/chain.ts",
   "scripts/core/journal.ts",
   "scripts/core/legacy-history.ts",
   "scripts/core/queue.ts",

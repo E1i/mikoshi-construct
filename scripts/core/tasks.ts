@@ -2,7 +2,9 @@ import type { BusCardStates } from '../../src/card/closed.js'
 import type { Card } from '../../src/card/grammar.js'
 import { existsSync, readFileSync } from 'node:fs'
 import { parseCard } from '../../src/card/grammar.js'
+import { cardsWithAState } from './card-readings.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from './db.js'
+import { events } from './events-query.js'
 import { CARD_STARTED } from './events.js'
 import { openDatabase } from './sqlite.js'
 
@@ -101,8 +103,6 @@ export function readTasksFile(filePath: string): TasksFile {
 
 export type StartRecord = Record<string, unknown> & { event: 'path', task: string }
 
-const CARD_STARTED_ROWS = `SELECT card_id, ts, payload FROM events WHERE type = '${CARD_STARTED}' AND legacy = 0 AND card_id IS NOT NULL ORDER BY id`
-
 function jsonObject(text: string): Record<string, unknown> | undefined {
   try {
     const value: unknown = JSON.parse(text)
@@ -131,11 +131,8 @@ export function cardStartedLines(busPath: string): StartRecord[] {
     return []
   const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
   try {
-    const rows = db.prepare(CARD_STARTED_ROWS).all() as unknown as { card_id: number, ts: string | null, payload: string }[]
-    return rows.flatMap((row) => {
-      const payload = jsonObject(row.payload)
-      return payload === undefined ? [] : [{ ...payload, event: 'path' as const, task: String(row.card_id), ...(row.ts === null ? {} : { ts: row.ts }) }]
-    })
+    return events(db, { types: [CARD_STARTED] }).flatMap(row =>
+      row.card_id === null || row.data === null ? [] : [{ ...row.data, event: 'path' as const, task: String(row.card_id), ts: row.ts }])
   }
   finally {
     db.close()
@@ -147,8 +144,7 @@ export function busCardStates(busPath: string): BusCardStates {
     return new Map()
   const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
   try {
-    const rows = db.prepare('SELECT card_id, state FROM cards WHERE state IS NOT NULL').all() as unknown as { card_id: number, state: string }[]
-    return new Map(rows.map(row => [String(row.card_id), row.state]))
+    return new Map([...cardsWithAState(db)].map(([card, state]) => [String(card), state]))
   }
   finally {
     db.close()
