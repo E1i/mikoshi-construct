@@ -14,10 +14,9 @@ import { isTest, selectRun } from '../ci/layers.js'
 import { cruise } from '../ci/select.js'
 import { walksATree } from '../ci/tree-scanners.js'
 import { BUS_DB_VARIABLE, BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
-import { GHOST_LINE } from '../core/events.js'
 import { FACTORY_FOLDERS } from '../core/factory-paths.js'
+import { busHistory, ghostLinesText } from '../core/journal.js'
 import { DOCS_LAYER, LAYER_MAP, layerOf, layersOf, readLayerMap, recordsOf } from '../core/layer-map.js'
-import { legacyHistory } from '../core/legacy-history.js'
 import { openDatabase } from '../core/sqlite.js'
 import { cardBodies } from '../intake/parking-reads.js'
 import { MAIN_BRANCH } from '../ports/snapshot.js'
@@ -444,23 +443,21 @@ export function readBriefs(dir: string): Brief[] {
   })
 }
 
-const GHOST_LINE_PAYLOADS = `SELECT payload FROM events WHERE type = '${GHOST_LINE}' AND legacy = 0 ORDER BY id`
-
-export function ghostJournalOf(db: DatabaseSync): string {
-  const history = legacyHistory(db).map(entry => JSON.stringify(entry))
-  const lines = (db.prepare(GHOST_LINE_PAYLOADS).all() as { payload: string }[]).map(row => row.payload)
-  return [...history, ...lines].map(line => `${line}\n`).join('')
+export function ghostJournalOf(busPath: string): string {
+  const history = busHistory(busPath).map(entry => `${JSON.stringify(entry)}\n`).join('')
+  return `${history}${ghostLinesText(busPath)}`
 }
 
 function main(): void {
   const handoff = process.env.CONSTRUCT_HANDOFF_DIR ?? path.join(os.homedir(), '.construct', 'handoff')
-  const db = openDatabase(defaultBusPath(), { timeout: BUSY_TIMEOUT_MS })
+  const busPath = defaultBusPath()
+  const db = openDatabase(busPath, { timeout: BUSY_TIMEOUT_MS })
   const catalog = buildCatalog({
     graph: cruise(),
     testText: test => readFileSync(path.join(REPO_ROOT, test), 'utf8'),
     cards: cardBodies(db),
     briefs: readBriefs(handoff),
-    journal: ghostJournalOf(db),
+    journal: ghostJournalOf(busPath),
   })
   writeCatalog(db, catalog)
   db.close()

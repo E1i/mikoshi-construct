@@ -25,7 +25,7 @@ describe('pnpm mutate judge --card records its verdict in the bus', () => {
 
     const db = openBus(bus)
     try {
-      expect(ghostJournalOf(db)).toBe(`${JSON.stringify(line)}\n`)
+      expect(ghostJournalOf(bus)).toBe(`${JSON.stringify(line)}\n`)
       expect(db.prepare('SELECT card_id FROM events WHERE type = \'ghost.line\'').all()).toEqual([{ card_id: 616 }])
     }
     finally {
