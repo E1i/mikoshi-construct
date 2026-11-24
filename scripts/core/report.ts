@@ -8,7 +8,7 @@ import { busProjections, pullRequests } from '../supervisor/composition.js'
 import { CARD_FOLDED_ON_APPEND } from './card-automaton.js'
 import { defaultBusPath, openBus } from './db.js'
 import { EITHER_JOURNAL, eventLog, events } from './events-query.js'
-import { CHAIN_OBSERVED, REDUCED, REJECTED, TASK_ENQUEUED, TASK_SUPERSEDED } from './events.js'
+import { BUS_PULSE, CHAIN_OBSERVED, REDUCED, REJECTED, TASK_ENQUEUED, TASK_SUPERSEDED } from './events.js'
 import { LEASE_FOLDS } from './lease.js'
 import { TASK_FOLDS } from './queue.js'
 import { PROJECTION_KEYS, projectionDump, reduce, reducedThrough } from './reducer.js'
@@ -25,8 +25,6 @@ export const EXIT_CRITERIA = {
   rejected: 'reducer.rejected',
   replay: 'replay byte-diff',
 } as const
-
-const NETWATCH_TICK = 'netwatch.tick'
 
 const ALL_EVENT_COLUMNS = 'id, ts, type, actor, card_id, pr, head, dedupe_key, payload, legacy'
 
@@ -46,7 +44,7 @@ class Period {
   }
 
   ticksBetween(fromId: number, toId: number): number {
-    return events(this.db, { types: [NETWATCH_TICK], since: fromId, before: toId, legacy: EITHER_JOURNAL }).length
+    return events(this.db, { types: [BUS_PULSE], since: fromId, before: toId, legacy: EITHER_JOURNAL }).length
   }
 }
 
@@ -107,7 +105,7 @@ function supersededLine(db: DatabaseSync, period: Period): string {
 
 function lagLine(period: Period): string {
   const reductions = period.events(REDUCED).map(row => ({ id: row.id, through: Number(payload(row).through_event_id) }))
-  const ticks = period.events(NETWATCH_TICK).filter(row => Number(payload(row).written) > 0)
+  const ticks = period.events(BUS_PULSE).filter(row => Number(payload(row).written) > 0)
   const lags: number[] = []
   let unreduced = 0
   for (const tick of ticks) {
@@ -260,7 +258,7 @@ export function shadowReading(db: DatabaseSync, projections: Projections, readSe
 
 export function shadowReport(db: DatabaseSync, since: string, projections: Projections): string[] {
   const period = new Period(db, since)
-  const ticks = period.events(NETWATCH_TICK).length
+  const ticks = period.events(BUS_PULSE).length
   const skipped = period.events('netwatch.skipped').length
   return [
     `${since === '' ? 'over the whole log' : `since ${since}`}: ${ticks} ticks, ${skipped} skipped polls`,
