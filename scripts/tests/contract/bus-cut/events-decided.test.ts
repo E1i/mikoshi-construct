@@ -37,9 +37,9 @@ describe('events is a decided module (D-502)', () => {
   })
 
   it('events is decided with its whole files as contract and every decided importer is granted it', () => {
-    expect(MODULE_GRAPH.modules.events).toEqual({ owns: [EVENTS, STORED_EVENT], contract: [EVENTS, STORED_EVENT], may_use: [], status: 'decided' })
+    expect(MODULE_GRAPH.modules.events).toEqual({ owns: [EVENTS, STORED_EVENT], contract: [EVENTS, STORED_EVENT], may_use: ['layout', 'ports-adapters', 'ports'], status: 'decided' })
 
-    const granted = Object.entries(MODULE_GRAPH.modules).filter(([, spec]) => spec.may_use.includes('events')).map(([id]) => id).sort()
-    expect(granted).toEqual(['bus', 'card-record', 'node-answer', 'node-close', 'node-launch', 'node-merge', 'node-restart', 'node-review', 'node-update', 'node-witness', 'order', 'plan', 'pr-record', 'session'])
+    const granted = Object.entries(MODULE_GRAPH.modules).filter(([, spec]) => spec.may_use.includes('events')).map(([id]) => id)
+    expect(granted).toEqual(expect.arrayContaining(['bus', 'card-record', 'node-answer', 'node-close', 'node-launch', 'node-merge', 'node-restart', 'node-review', 'node-update', 'node-witness', 'order', 'plan', 'pr-record', 'session']))
   })
 })

@@ -739,6 +739,7 @@
     "scripts/tests/contract/module-graph-report.test.ts",
     "scripts/tests/contract/module-graph-tool.test.ts",
     "scripts/tests/contract/module-ownership-generated.test.ts",
+    "scripts/tests/contract/modules-placed.test.ts",
     "scripts/tests/contract/one-writer-per-table.test.ts",
     "scripts/tests/contract/owner-commands-detector.test.ts",
     "scripts/tests/contract/owner-reads/bus-domain.test.ts",

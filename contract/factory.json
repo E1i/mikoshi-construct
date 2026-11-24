@@ -3446,21 +3446,87 @@
     "modules": {
       "atlas": {
         "concepts": [],
-        "contract": [],
+        "contract": [
+          "src/atlas/**",
+          "scripts/atlas/**"
+        ],
         "may_use": [
-          "command-registry"
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry",
+          "bus",
+          "card-model",
+          "card-record",
+          "project",
+          "plan",
+          "order",
+          "decisions",
+          "session",
+          "model",
+          "quality",
+          "intake",
+          "rules",
+          "pr-record",
+          "factory-contract",
+          "node-answer",
+          "node-close",
+          "node-launch",
+          "node-merge",
+          "node-restart",
+          "node-review",
+          "node-update",
+          "node-witness",
+          "ui"
         ],
         "owns": [
           "src/atlas/**",
           "scripts/atlas/**"
         ],
-        "status": "undecided"
+        "status": "decided"
       },
       "board": {
         "concepts": [],
-        "contract": [],
+        "contract": [
+          "scripts/cli/board-page.ts",
+          "scripts/cli/board-page/**",
+          "scripts/cli/board-warnings.ts",
+          "src/commands/board/**"
+        ],
         "may_use": [
-          "command-registry"
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry",
+          "bus",
+          "card-model",
+          "card-record",
+          "project",
+          "plan",
+          "order",
+          "decisions",
+          "session",
+          "model",
+          "quality",
+          "intake",
+          "rules",
+          "pr-record",
+          "factory-contract",
+          "node-answer",
+          "node-close",
+          "node-launch",
+          "node-merge",
+          "node-restart",
+          "node-review",
+          "node-update",
+          "node-witness",
+          "ui",
+          "atlas",
+          "release",
+          "cost",
+          "window"
         ],
         "owns": [
           "scripts/cli/board-page.ts",
@@ -3468,7 +3534,7 @@
           "scripts/cli/board-warnings.ts",
           "src/commands/board/**"
         ],
-        "status": "undecided"
+        "status": "decided"
       },
       "bus": {
         "concepts": [],
@@ -3495,7 +3561,11 @@
           "scripts/core/bus-adapter.ts"
         ],
         "may_use": [
-          "events"
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry"
         ],
         "owns": [
           "scripts/core/db.ts",
@@ -3537,7 +3607,14 @@
           "src/card/complexity.ts",
           "scripts/core/identifiers.ts"
         ],
-        "may_use": [],
+        "may_use": [
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry",
+          "bus"
+        ],
         "owns": [
           "src/card/grammar.ts",
           "src/card/parking.ts",
@@ -3566,11 +3643,13 @@
           "scripts/core/card-readings.ts"
         ],
         "may_use": [
-          "bus",
-          "card-model",
-          "command-registry",
+          "layout",
+          "ports-adapters",
+          "ports",
           "events",
-          "ports"
+          "command-registry",
+          "bus",
+          "card-model"
         ],
         "owns": [
           "scripts/core/card-bodies.ts",
@@ -3596,7 +3675,12 @@
         "contract": [
           "scripts/core/owner-commands.ts"
         ],
-        "may_use": [],
+        "may_use": [
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events"
+        ],
         "owns": [
           "scripts/core/owner-commands.ts"
         ],
@@ -3614,21 +3698,74 @@
       },
       "cost": {
         "concepts": [],
-        "contract": [],
-        "may_use": [],
+        "contract": [
+          "scripts/ladder/**",
+          "scripts/done/**",
+          "src/commands/cost/**"
+        ],
+        "may_use": [
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry",
+          "bus",
+          "card-model",
+          "card-record",
+          "project",
+          "plan",
+          "order",
+          "decisions",
+          "session",
+          "model",
+          "quality",
+          "intake",
+          "rules",
+          "pr-record",
+          "factory-contract",
+          "node-answer",
+          "node-close",
+          "node-launch",
+          "node-merge",
+          "node-restart",
+          "node-review",
+          "node-update",
+          "node-witness",
+          "ui",
+          "atlas",
+          "release"
+        ],
         "owns": [
           "scripts/ladder/**",
           "scripts/done/**",
           "src/commands/cost/**"
         ],
-        "status": "undecided"
+        "status": "decided"
       },
       "decisions": {
         "concepts": [
           "owner-decisions"
         ],
-        "contract": [],
-        "may_use": [],
+        "contract": [
+          "scripts/core/inbox.ts",
+          "scripts/core/card-decisions.ts",
+          "scripts/policy/live-decision.ts",
+          "scripts/policy/decisions/**",
+          "scripts/owner/**"
+        ],
+        "may_use": [
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry",
+          "bus",
+          "card-model",
+          "card-record",
+          "project",
+          "plan",
+          "order"
+        ],
         "owns": [
           "scripts/core/inbox.ts",
           "scripts/core/card-decisions.ts",
@@ -3636,7 +3773,7 @@
           "scripts/policy/decisions/**",
           "scripts/owner/**"
         ],
-        "status": "undecided"
+        "status": "decided"
       },
       "events": {
         "concepts": [],
@@ -3644,7 +3781,11 @@
           "scripts/core/events.ts",
           "scripts/core/stored-event.ts"
         ],
-        "may_use": [],
+        "may_use": [
+          "layout",
+          "ports-adapters",
+          "ports"
+        ],
         "owns": [
           "scripts/core/events.ts",
           "scripts/core/stored-event.ts"
@@ -3653,18 +3794,57 @@
       },
       "factory-contract": {
         "concepts": [],
-        "contract": [],
-        "may_use": [],
+        "contract": [
+          "scripts/contract/contours.ts"
+        ],
+        "may_use": [
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry",
+          "bus",
+          "card-model",
+          "card-record",
+          "project",
+          "plan",
+          "order",
+          "decisions",
+          "session",
+          "model",
+          "quality",
+          "intake",
+          "rules",
+          "pr-record"
+        ],
         "owns": [
           "scripts/contract/contours.ts"
         ],
-        "status": "undecided"
+        "status": "decided"
       },
       "intake": {
         "concepts": [],
-        "contract": [],
+        "contract": [
+          "scripts/intake/lane-json.ts",
+          "scripts/intake/parking-reads.ts",
+          "src/commands/intake/**"
+        ],
         "may_use": [
-          "command-registry"
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry",
+          "bus",
+          "card-model",
+          "card-record",
+          "project",
+          "plan",
+          "order",
+          "decisions",
+          "session",
+          "model",
+          "quality"
         ],
         "owns": [
           "scripts/intake/**",
@@ -3675,13 +3855,19 @@
           "!scripts/intake/intake.ts",
           "!scripts/intake/witness-fields-backfill.ts"
         ],
-        "status": "undecided"
+        "status": "decided"
       },
       "layout": {
         "concepts": [
           "generated-files"
         ],
-        "contract": [],
+        "contract": [
+          "scripts/core/built-entry.ts",
+          "scripts/core/factory-paths.ts",
+          "scripts/core/generated-files.ts",
+          "scripts/core/declarations.ts",
+          "scripts/core/declared-events.ts"
+        ],
         "may_use": [],
         "owns": [
           "scripts/core/built-entry.ts",
@@ -3690,17 +3876,34 @@
           "scripts/core/declarations.ts",
           "scripts/core/declared-events.ts"
         ],
-        "status": "undecided"
+        "status": "decided"
       },
       "model": {
         "concepts": [],
-        "contract": [],
-        "may_use": [],
+        "contract": [
+          "src/model/**",
+          "scripts/model/**"
+        ],
+        "may_use": [
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry",
+          "bus",
+          "card-model",
+          "card-record",
+          "project",
+          "plan",
+          "order",
+          "decisions",
+          "session"
+        ],
         "owns": [
           "src/model/**",
           "scripts/model/**"
         ],
-        "status": "undecided"
+        "status": "decided"
       },
       "node-answer": {
         "concepts": [
@@ -3710,15 +3913,25 @@
           "scripts/nodes/answer/answer-worker.ts"
         ],
         "may_use": [
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry",
           "bus",
-          "session",
           "card-model",
           "card-record",
-          "pr-record",
+          "project",
           "plan",
-          "command-registry",
-          "ports-adapters",
-          "events"
+          "order",
+          "decisions",
+          "session",
+          "model",
+          "quality",
+          "intake",
+          "rules",
+          "pr-record",
+          "factory-contract"
         ],
         "owns": [
           "scripts/nodes/answer/**"
@@ -3731,15 +3944,25 @@
           "scripts/nodes/close/close-worker.ts"
         ],
         "may_use": [
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry",
           "bus",
-          "session",
           "card-model",
           "card-record",
-          "pr-record",
+          "project",
           "plan",
-          "command-registry",
-          "ports-adapters",
-          "events"
+          "order",
+          "decisions",
+          "session",
+          "model",
+          "quality",
+          "intake",
+          "rules",
+          "pr-record",
+          "factory-contract"
         ],
         "owns": [
           "scripts/nodes/close/**"
@@ -3752,16 +3975,25 @@
           "scripts/nodes/launch/launch-worker.ts"
         ],
         "may_use": [
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry",
           "bus",
-          "session",
           "card-model",
           "card-record",
-          "pr-record",
+          "project",
           "plan",
-          "command-registry",
-          "ports-adapters",
-          "events",
-          "order"
+          "order",
+          "decisions",
+          "session",
+          "model",
+          "quality",
+          "intake",
+          "rules",
+          "pr-record",
+          "factory-contract"
         ],
         "owns": [
           "scripts/nodes/launch/**"
@@ -3775,7 +4007,7 @@
         "owns": [
           "scripts/nodes/laws.ts"
         ],
-        "status": "undecided"
+        "status": "tool"
       },
       "node-merge": {
         "concepts": [],
@@ -3783,15 +4015,25 @@
           "scripts/nodes/merge/merge-worker.ts"
         ],
         "may_use": [
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry",
           "bus",
-          "session",
           "card-model",
           "card-record",
-          "pr-record",
+          "project",
           "plan",
-          "command-registry",
-          "ports-adapters",
-          "events"
+          "order",
+          "decisions",
+          "session",
+          "model",
+          "quality",
+          "intake",
+          "rules",
+          "pr-record",
+          "factory-contract"
         ],
         "owns": [
           "scripts/nodes/merge/**"
@@ -3804,15 +4046,25 @@
           "scripts/nodes/restart/restart-worker.ts"
         ],
         "may_use": [
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry",
           "bus",
-          "session",
           "card-model",
           "card-record",
-          "pr-record",
+          "project",
           "plan",
-          "command-registry",
-          "ports-adapters",
-          "events"
+          "order",
+          "decisions",
+          "session",
+          "model",
+          "quality",
+          "intake",
+          "rules",
+          "pr-record",
+          "factory-contract"
         ],
         "owns": [
           "scripts/nodes/restart/**"
@@ -3825,15 +4077,25 @@
           "scripts/nodes/review/review-worker.ts"
         ],
         "may_use": [
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry",
           "bus",
-          "session",
           "card-model",
           "card-record",
-          "pr-record",
+          "project",
           "plan",
-          "command-registry",
-          "ports-adapters",
-          "events"
+          "order",
+          "decisions",
+          "session",
+          "model",
+          "quality",
+          "intake",
+          "rules",
+          "pr-record",
+          "factory-contract"
         ],
         "owns": [
           "scripts/nodes/review/**",
@@ -3851,15 +4113,25 @@
           "scripts/nodes/update/update-worker.ts"
         ],
         "may_use": [
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry",
           "bus",
-          "session",
           "card-model",
           "card-record",
-          "pr-record",
+          "project",
           "plan",
-          "command-registry",
-          "ports-adapters",
-          "events"
+          "order",
+          "decisions",
+          "session",
+          "model",
+          "quality",
+          "intake",
+          "rules",
+          "pr-record",
+          "factory-contract"
         ],
         "owns": [
           "scripts/nodes/update/**"
@@ -3872,15 +4144,25 @@
           "scripts/nodes/witness/witness-worker.ts"
         ],
         "may_use": [
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry",
           "bus",
-          "session",
           "card-model",
           "card-record",
-          "pr-record",
+          "project",
           "plan",
-          "command-registry",
-          "ports-adapters",
-          "events"
+          "order",
+          "decisions",
+          "session",
+          "model",
+          "quality",
+          "intake",
+          "rules",
+          "pr-record",
+          "factory-contract"
         ],
         "owns": [
           "scripts/nodes/witness/**"
@@ -3894,8 +4176,15 @@
         ],
         "may_use": [
           "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry",
           "bus",
-          "events"
+          "card-model",
+          "card-record",
+          "project",
+          "plan"
         ],
         "owns": [
           "scripts/core/order/**"
@@ -3911,9 +4200,15 @@
           "src/card/slice-depends.ts"
         ],
         "may_use": [
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry",
+          "bus",
           "card-model",
           "card-record",
-          "events"
+          "project"
         ],
         "owns": [
           "scripts/window/plan-export.ts",
@@ -3928,8 +4223,39 @@
           "bus-read",
           "process-table"
         ],
-        "contract": [],
-        "may_use": [],
+        "contract": [
+          "scripts/ports/bus-read.ts",
+          "scripts/ports/card-tree.ts",
+          "scripts/ports/ci-reading.ts",
+          "scripts/ports/client/claude/adapter.ts",
+          "scripts/ports/client/index.ts",
+          "scripts/ports/diff.ts",
+          "scripts/ports/gh.ts",
+          "scripts/ports/github-status.ts",
+          "scripts/ports/github.ts",
+          "scripts/ports/isolation.ts",
+          "scripts/ports/main-merge.ts",
+          "scripts/ports/meter.ts",
+          "scripts/ports/netwatch.ts",
+          "scripts/ports/prepare-tree.ts",
+          "scripts/ports/process-table.ts",
+          "scripts/ports/result.ts",
+          "scripts/ports/review-planner.ts",
+          "scripts/ports/serve-record.ts",
+          "scripts/ports/session.ts",
+          "scripts/ports/shift-settings.ts",
+          "scripts/ports/snapshot.ts",
+          "scripts/ports/task-start.ts",
+          "scripts/ports/tree-publish.ts",
+          "scripts/ports/witnesses.ts",
+          "scripts/ports/worktree-home.ts",
+          "scripts/ports/worktree.ts",
+          "scripts/core/bus-contract.ts"
+        ],
+        "may_use": [
+          "layout",
+          "ports-adapters"
+        ],
         "owns": [
           "scripts/ports/**",
           "scripts/core/gh-callers.ts",
@@ -3942,7 +4268,7 @@
           "!scripts/ports/git.ts",
           "!scripts/ports/prompt-store.ts"
         ],
-        "status": "undecided"
+        "status": "decided"
       },
       "ports-adapters": {
         "concepts": [
@@ -3955,7 +4281,9 @@
           "scripts/ports/client/contract.ts",
           "scripts/ports/client/codex/adapter.ts"
         ],
-        "may_use": [],
+        "may_use": [
+          "layout"
+        ],
         "owns": [
           "scripts/ports/git.ts",
           "scripts/ports/disk.ts",
@@ -3979,8 +4307,23 @@
           "scripts/core/pr-status.ts"
         ],
         "may_use": [
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry",
           "bus",
-          "events"
+          "card-model",
+          "card-record",
+          "project",
+          "plan",
+          "order",
+          "decisions",
+          "session",
+          "model",
+          "quality",
+          "intake",
+          "rules"
         ],
         "owns": [
           "scripts/nodes/review/pr-close.ts",
@@ -3997,9 +4340,36 @@
       },
       "project": {
         "concepts": [],
-        "contract": [],
+        "contract": [
+          "src/commands/attach/**",
+          "src/commands/detach/**",
+          "src/commands/doctor/**",
+          "src/commands/sync/**",
+          "src/commands/graph.ts",
+          "src/commands/init.ts",
+          "src/commands/soulkill.ts",
+          "src/detect/**",
+          "src/manifest.ts",
+          "src/materialize/**",
+          "src/presets/**",
+          "src/record-ahead.ts",
+          "src/sync/**",
+          "src/failure.ts",
+          "src/known-flags.ts",
+          "src/version.ts",
+          "scripts/composition/**",
+          "scripts/harness-command/**",
+          "scripts/attach/**"
+        ],
         "may_use": [
-          "command-registry"
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry",
+          "bus",
+          "card-model",
+          "card-record"
         ],
         "owns": [
           "src/commands/attach/**",
@@ -4022,15 +4392,44 @@
           "scripts/harness-command/**",
           "scripts/attach/**"
         ],
-        "status": "undecided"
+        "status": "decided"
       },
       "quality": {
         "concepts": [
           "ci-reading",
           "layers"
         ],
-        "contract": [],
-        "may_use": [],
+        "contract": [
+          "scripts/core/layer-map.ts",
+          "scripts/core/layer-map.json",
+          "scripts/core/verification.ts",
+          "scripts/cli/check-catalog.ts",
+          "scripts/cli/check-matrix.ts",
+          "scripts/cli/mutate.ts",
+          "scripts/ci/**",
+          "scripts/quality/**",
+          "scripts/privacy/**",
+          "src/commands/ci/**",
+          "src/commands/mutate/**",
+          "src/commands/test-runner.ts",
+          "src/card/covering-tests.ts"
+        ],
+        "may_use": [
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry",
+          "bus",
+          "card-model",
+          "card-record",
+          "project",
+          "plan",
+          "order",
+          "decisions",
+          "session",
+          "model"
+        ],
         "owns": [
           "scripts/core/layer-map.ts",
           "scripts/core/layer-map.json",
@@ -4046,24 +4445,90 @@
           "src/commands/test-runner.ts",
           "src/card/covering-tests.ts"
         ],
-        "status": "undecided"
+        "status": "decided"
       },
       "release": {
         "concepts": [],
-        "contract": [],
-        "may_use": [],
+        "contract": [
+          "scripts/release/**",
+          "scripts/release-notes/**",
+          "scripts/docs/**",
+          "src/commands/run-record.ts"
+        ],
+        "may_use": [
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry",
+          "bus",
+          "card-model",
+          "card-record",
+          "project",
+          "plan",
+          "order",
+          "decisions",
+          "session",
+          "model",
+          "quality",
+          "intake",
+          "rules",
+          "pr-record",
+          "factory-contract",
+          "node-answer",
+          "node-close",
+          "node-launch",
+          "node-merge",
+          "node-restart",
+          "node-review",
+          "node-update",
+          "node-witness",
+          "ui",
+          "atlas"
+        ],
         "owns": [
           "scripts/release/**",
           "scripts/release-notes/**",
           "scripts/docs/**",
           "src/commands/run-record.ts"
         ],
-        "status": "undecided"
+        "status": "decided"
       },
       "rules": {
         "concepts": [],
-        "contract": [],
-        "may_use": [],
+        "contract": [
+          "scripts/policy/policy.ts",
+          "scripts/policy/morse/**",
+          "scripts/policy/repeat-finding.ts",
+          "scripts/policy/round-limit-decision.ts",
+          "scripts/policy/shard.ts",
+          "scripts/policy/shards.ts",
+          "scripts/policy/shredder/**",
+          "scripts/policy/widening.ts",
+          "scripts/policy/touch-scope.ts",
+          "scripts/policy/derived-files.ts",
+          "scripts/policy/placement-growth.ts",
+          "scripts/morse/**",
+          "scripts/core/push-policy.ts"
+        ],
+        "may_use": [
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry",
+          "bus",
+          "card-model",
+          "card-record",
+          "project",
+          "plan",
+          "order",
+          "decisions",
+          "session",
+          "model",
+          "quality",
+          "intake"
+        ],
         "owns": [
           "scripts/policy/policy.ts",
           "scripts/policy/morse/**",
@@ -4079,7 +4544,7 @@
           "scripts/morse/**",
           "scripts/core/push-policy.ts"
         ],
-        "status": "undecided"
+        "status": "decided"
       },
       "session": {
         "concepts": [
@@ -4113,13 +4578,18 @@
           "scripts/supervisor/workers.ts"
         ],
         "may_use": [
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry",
           "bus",
           "card-model",
           "card-record",
-          "command-registry",
-          "ports-adapters",
-          "events",
-          "order"
+          "project",
+          "plan",
+          "order",
+          "decisions"
         ],
         "owns": [
           "scripts/core/machine-sessions.ts",
@@ -4148,23 +4618,94 @@
       },
       "ui": {
         "concepts": [],
-        "contract": [],
+        "contract": [
+          "src/ui/**"
+        ],
         "may_use": [
-          "command-registry"
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry",
+          "bus",
+          "card-model",
+          "card-record",
+          "project",
+          "plan",
+          "order",
+          "decisions",
+          "session",
+          "model",
+          "quality",
+          "intake",
+          "rules",
+          "pr-record",
+          "factory-contract",
+          "node-answer",
+          "node-close",
+          "node-launch",
+          "node-merge",
+          "node-restart",
+          "node-review",
+          "node-update",
+          "node-witness"
         ],
         "owns": [
           "src/ui/**"
         ],
-        "status": "undecided"
+        "status": "decided"
       },
       "window": {
         "concepts": [
           "window-requests"
         ],
-        "contract": [],
+        "contract": [
+          "scripts/window/board.ts",
+          "scripts/window/eddies-measure.ts",
+          "scripts/window/handoff-check.ts",
+          "scripts/window/loop.ts",
+          "scripts/window/tab.ts",
+          "scripts/window/takeover-push-release.ts",
+          "scripts/window/watch.ts",
+          "scripts/window/window-heartbeat.ts",
+          "scripts/window/window-prs.ts",
+          "scripts/window/window-request-tools.ts",
+          "scripts/window/window-requests.ts",
+          "scripts/window/window-session-end.ts",
+          "scripts/window/window-subagents.ts"
+        ],
         "may_use": [
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
           "command-registry",
-          "order"
+          "bus",
+          "card-model",
+          "card-record",
+          "project",
+          "plan",
+          "order",
+          "decisions",
+          "session",
+          "model",
+          "quality",
+          "intake",
+          "rules",
+          "pr-record",
+          "factory-contract",
+          "node-answer",
+          "node-close",
+          "node-launch",
+          "node-merge",
+          "node-restart",
+          "node-review",
+          "node-update",
+          "node-witness",
+          "ui",
+          "atlas",
+          "release",
+          "cost"
         ],
         "owns": [
           "scripts/window/**",
@@ -4173,7 +4714,7 @@
           "!scripts/window/plan-export.ts",
           "!scripts/window/plan-folds.ts"
         ],
-        "status": "undecided"
+        "status": "decided"
       }
     }
   },
