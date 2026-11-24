@@ -2305,6 +2305,7 @@
           "scripts/cli/check-matrix.ts",
           "scripts/cli/mutate.ts",
           "scripts/cli/slot.ts",
+          "scripts/cli/task-start.ts",
           "scripts/conveyor/measures.ts",
           "scripts/core/bus-path.ts",
           "scripts/core/journal.ts",
@@ -2346,7 +2347,6 @@
           "scripts/policy/shard.ts",
           "scripts/ports/card-tree.ts",
           "scripts/ports/netwatch.ts",
-          "scripts/ports/task-start.ts",
           "scripts/ports/tree-publish.ts",
           "scripts/ports/worktree-home.ts",
           "scripts/release/evidence.ts",
@@ -2639,11 +2639,11 @@
         "derived": false,
         "directory": true,
         "namedIn": [
+          "scripts/cli/task-start.ts",
           "scripts/nodes/close/ended-card-trees.ts",
           "scripts/nodes/launch/launch-root.ts",
           "scripts/nodes/update/update-worker.ts",
           "scripts/ports/card-tree.ts",
-          "scripts/ports/task-start.ts",
           "scripts/ports/worktree-home.ts",
           "scripts/supervisor/composition.ts",
           "scripts/window/tab.ts",
@@ -3427,6 +3427,7 @@
       "scripts/intake/intake.ts",
       "scripts/supervisor/start.ts",
       "scripts/supervisor/netwatch-root.ts",
+      "scripts/cli/task-start.ts",
       "scripts/supervisor/composition.ts"
     ],
     "exclusions": {
@@ -6094,11 +6095,13 @@
           "ADOPT_USAGE",
           "PREFIX",
           "TECHNOLOGY_WORDS",
-          "USAGE"
+          "USAGE",
+          "WINDOW_LIMIT_SLOTS"
         ],
         "functions": {
+          "flagValue": "(argv: string[], flag: string): { at: number; value: string | undefined; }",
           "gitIn": "(cwd: string, args: string[]): string",
-          "realDeps": "(): TaskStartDeps",
+          "refuse": "(message: string): TaskStartResult",
           "runTaskStart": "(argv: string[], deps: TaskStartDeps, handed?: HandedContract): TaskStartResult"
         },
         "language": "technology",
@@ -6111,7 +6114,9 @@
         ],
         "types": {
           "HandedContract": "interface HandedContract extends Contract { forecast?: CheapForecast; }",
-          "TaskStartDeps": "interface TaskStartDeps { cwd: string; git: (cwd: string, args: string[]) => string; install: (cwd: string, args: string[]) => void; exists: (target: string) => boolean; bus: string; now: () => Date; session: string | undefined; shift?: string; worktreeHome?: string; treeOf?: (id: string) => string; style?: SignalStyle; cardBody?: CardBodyReader; windowLimit?: () => number; }",
+          "TaskStartContract": "type TaskStartContract = Parameters<typeof unsatisfiedDependencies>[0]",
+          "TaskStartDeps": "interface TaskStartDeps { contract: TaskStartContract; flags: TaskStartFlags; cwd: string; git: (cwd: string, args: string[]) => string; install: (cwd: string, args: string[]) => void; exists: (target: string) => boolean; bus: string; now: () => Date; session: string | undefined; shift?: string; worktreeHome?: string; treeOf?: (id: string) => string; style?: SignalStyle; cardBody?: CardBodyReader; windowLimit?: () => number; }",
+          "TaskStartFlags": "interface TaskStartFlags { card: string; adopt: string; withoutIntake: string; }",
           "TaskStartResult": "interface TaskStartResult { stdout: string[]; stderr: string[]; exitCode: number; worktree?: string; }"
         }
       },

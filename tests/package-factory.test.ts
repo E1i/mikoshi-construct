@@ -35,7 +35,7 @@ const STARTS: Record<string, { args: string[], exit: number, prints: string }> =
   'scripts/cli/slot.ts': { args: [], exit: 1, prints: '[bus:slot] the kind is one of quality | vitest' },
   'scripts/intake/import.ts': { args: [], exit: 1, prints: '[bus:import] no journal at' },
   'scripts/nodes/close/task-close.ts': { args: [], exit: 1, prints: '[task:close] one task id is needed' },
-  'scripts/ports/task-start.ts': { args: [], exit: 1, prints: '[task:start] a task starts from its card now' },
+  'scripts/cli/task-start.ts': { args: [], exit: 1, prints: '[task:start] a task starts from its card now' },
   'scripts/supervisor/start.ts': { args: ['--bogus'], exit: 2, prints: FACTORY_START_USAGE },
   'scripts/policy/decisions/read.ts': { args: [], exit: 1, prints: '[decisions] no decisions at' },
   'scripts/ladder/role.ts': { args: ['review', '--task', 't1'], exit: 0, prints: 'local: launch the review agent for t1' },

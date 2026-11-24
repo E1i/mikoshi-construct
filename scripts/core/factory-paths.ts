@@ -85,7 +85,7 @@ export const FACTORY_FORMER_FOLDERS = {
 
 export const FACTORY_FOLDERS = {
   busTests: ['scripts/tests/bus'],
-  entries: ['cli', 'core', 'intake', 'ladder', 'nodes', 'owner', 'policy', 'ports', 'supervisor', 'window'],
+  entries: ['cli', 'core', 'intake', 'ladder', 'nodes', 'owner', 'policy', 'supervisor', 'window'],
   sharedCode: ['scripts/cli', 'scripts/core', 'scripts/intake', 'scripts/ladder', 'scripts/nodes', 'scripts/policy', 'scripts/ports', 'scripts/supervisor', 'scripts/window'],
   tests: ['scripts/tests'],
 } as const satisfies Record<string, readonly string[]>
