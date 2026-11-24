@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { allowRule } from '../src/commands/attach/daemon-commands.js'
 import { runAttach, SETTINGS_FILE } from '../src/commands/attach/index.js'
 import { ATTACH_RECORD_FILE } from '../src/commands/attach/record.js'
-import { browserLabExcludedCommand, excludedBrowserLabLocally, isSettingsHook, readSettings } from '../src/commands/attach/settings.js'
+import { browserLabExcludedCommand, excludedBrowserLabLocally, isSettingsHook, PROCESS_TABLE_COMMAND, readSettings } from '../src/commands/attach/settings.js'
 import { askDetach } from '../src/commands/detach/index.js'
 import { runInit } from '../src/commands/init.js'
 import { createUi, silentWriter } from '../src/ui/console.js'
@@ -36,12 +36,23 @@ async function attach(dir: string): Promise<void> {
   expect((await runAttach(ui, { dir, harness: 'pnpm run quality', requiredCheck: 'gate', yes: true })).status).toBe('done')
 }
 
+const PS_LINE = 'ps -Ao pid=,ppid=,pgid=,lstart=,args='
+
 describe('attach excludes the browser-lab command from the sandbox', () => {
-  it('writes exactly one excludedCommands entry, for browser-lab.mjs', async () => {
+  it('writes exactly the browser-lab.mjs entry and the process-table ps line', async () => {
     const dir = fixture()
     await attach(dir)
-    expect(excludedOf(dir)).toEqual([browserLabExcludedCommand()])
+    expect(excludedOf(dir)).toEqual([browserLabExcludedCommand(), PROCESS_TABLE_COMMAND])
     expect(browserLabExcludedCommand()).toContain('/.construct/browser-lab/bin/browser-lab.mjs')
+  })
+
+  it('attach writes exactly the process-table ps line into sandbox.excludedCommands and nothing wider', async () => {
+    const dir = fixture()
+    await attach(dir)
+    expect(PROCESS_TABLE_COMMAND).toBe(PS_LINE)
+    expect(excludedOf(dir).filter(entry => /^\S*\bps\b/.test(entry))).toEqual([PS_LINE])
+    expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
+    expect(existsSync(path.join(dir, SETTINGS_FILE))).toBe(false)
   })
 
   it('returns a settings.local.json that did not exist to not existing', async () => {
@@ -57,7 +68,7 @@ describe('attach excludes the browser-lab command from the sandbox', () => {
     mkdirSync(path.join(dir, '.claude'), { recursive: true })
     writeFileSync(path.join(dir, SETTINGS_FILE), original)
     await attach(dir)
-    expect(excludedOf(dir)).toEqual([browserLabExcludedCommand()])
+    expect(excludedOf(dir)).toEqual([browserLabExcludedCommand(), PROCESS_TABLE_COMMAND])
     expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     expect(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe(original)
   })
@@ -68,7 +79,7 @@ describe('attach excludes the browser-lab command from the sandbox', () => {
     mkdirSync(path.join(dir, '.claude'), { recursive: true })
     writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify(held))
     await attach(dir)
-    expect(excludedOf(dir)).toEqual(['docker *', browserLabExcludedCommand()])
+    expect(excludedOf(dir)).toEqual(['docker *', browserLabExcludedCommand(), PROCESS_TABLE_COMMAND])
     expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     expect(JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8'))).toEqual(held)
   })
@@ -79,7 +90,7 @@ describe('attach excludes the browser-lab command from the sandbox', () => {
     mkdirSync(path.join(dir, '.claude'), { recursive: true })
     writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify(held))
     await attach(dir)
-    expect(excludedOf(dir)).toEqual([browserLabExcludedCommand()])
+    expect(excludedOf(dir)).toEqual([browserLabExcludedCommand(), PROCESS_TABLE_COMMAND])
     expect((await askDetach(ui, { dir, yes: true })).status).toBe('done')
     expect(JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8'))).toEqual(held)
   })
@@ -99,7 +110,7 @@ describe('init writes the exclusion where a home path stays on this machine', ()
     const dir = mkdtempSync(path.join(tmpdir(), 'construct-init-sandbox-'))
     const captured = capturedUi()
     await runInit(captured.ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
-    expect(excludedOf(dir)).toEqual([browserLabExcludedCommand()])
+    expect(excludedOf(dir)).toEqual([browserLabExcludedCommand(), PROCESS_TABLE_COMMAND])
     expect(settingsOf(dir, '.claude/settings.json').sandbox?.excludedCommands).toBeUndefined()
     expect(readFileSync(path.join(dir, '.claude/settings.json'), 'utf8')).not.toContain(homedir())
     expect(captured.lines.join('\n')).not.toContain('without its exclusion')
@@ -109,7 +120,7 @@ describe('init writes the exclusion where a home path stays on this machine', ()
     const dir = mkdtempSync(path.join(tmpdir(), 'construct-init-sandbox-'))
     const home = mkdtempSync(path.join(tmpdir(), 'construct-init-home-'))
     await runInit(ui, { dir, preset: 'node-backend', yes: true, dryRun: false, home })
-    expect(excludedOf(dir)).toEqual([browserLabExcludedCommand(home)])
+    expect(excludedOf(dir)).toEqual([browserLabExcludedCommand(home), PROCESS_TABLE_COMMAND])
   })
 
   it('keeps what an existing .claude/settings.local.json holds', async () => {
@@ -117,7 +128,7 @@ describe('init writes the exclusion where a home path stays on this machine', ()
     mkdirSync(path.join(dir, '.claude'))
     writeFileSync(path.join(dir, SETTINGS_FILE), JSON.stringify({ model: 'opus', sandbox: { excludedCommands: ['docker *'] } }))
     await runInit(ui, { dir, preset: 'node-backend', yes: true, dryRun: false })
-    expect(JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8'))).toEqual({ model: 'opus', sandbox: { excludedCommands: ['docker *', browserLabExcludedCommand()] }, permissions: { allow: [allowRule(browserLabExcludedCommand())] } })
+    expect(JSON.parse(readFileSync(path.join(dir, SETTINGS_FILE), 'utf8'))).toEqual({ model: 'opus', sandbox: { excludedCommands: ['docker *', browserLabExcludedCommand(), PROCESS_TABLE_COMMAND] }, permissions: { allow: [allowRule(browserLabExcludedCommand())] } })
   })
 
   it('a dry run writes no settings.local.json', async () => {
@@ -161,6 +172,8 @@ describe('the one function that writes the exclusion', () => {
   const HOME = '/home/someone'
   const ENTRY = browserLabExcludedCommand(HOME)
   const ENTRY_JSON = JSON.stringify(ENTRY)
+  const PS_JSON = JSON.stringify(PROCESS_TABLE_COMMAND)
+  const listed = (separator: string): string => `${ENTRY_JSON},${separator}${PS_JSON}`
 
   function written(before: string): string {
     const dir = mkdtempSync(path.join(tmpdir(), 'construct-exclusion-'))
@@ -177,47 +190,47 @@ describe('the one function that writes the exclusion', () => {
   const LAYOUTS: Record<string, { before: string, after: string }> = {
     'no sandbox, compact': {
       before: '{"model":"opus"}',
-      after: `{"model":"opus","sandbox": {"excludedCommands":[${ENTRY_JSON}]},${COMPACT_ALLOW}}`,
+      after: `{"model":"opus","sandbox": {"excludedCommands":[${listed('')}]},${COMPACT_ALLOW}}`,
     },
     'no sandbox, indented by four with odd values': {
       before: '{\n    "n": 1.0,\n    "u": "\\u00e9",\n    "1": [ 1,2 ]\n}\n',
-      after: `{\n    "n": 1.0,\n    "u": "\\u00e9",\n    "1": [ 1,2 ],\n    "sandbox": {\n      "excludedCommands": [\n        ${ENTRY_JSON}\n      ]\n    },\n    "permissions": {\n      "allow": [\n        ${ALLOW_JSON}\n      ]\n    }\n}\n`,
+      after: `{\n    "n": 1.0,\n    "u": "\\u00e9",\n    "1": [ 1,2 ],\n    "sandbox": {\n      "excludedCommands": [\n        ${listed('\n        ')}\n      ]\n    },\n    "permissions": {\n      "allow": [\n        ${ALLOW_JSON}\n      ]\n    }\n}\n`,
     },
     'an empty object': {
       before: '{}\n',
-      after: `{\n  "sandbox": {\n    "excludedCommands": [\n      ${ENTRY_JSON}\n    ]\n  },\n  ${INDENTED_ALLOW}\n}\n`,
+      after: `{\n  "sandbox": {\n    "excludedCommands": [\n      ${listed('\n      ')}\n    ]\n  },\n  ${INDENTED_ALLOW}\n}\n`,
     },
     'a sandbox without the list': {
       before: '{ "sandbox": { "enabled": true }, "z": "}" }',
-      after: `{ "sandbox": { "enabled": true, "excludedCommands": [${ENTRY_JSON}] }, "z": "}", ${COMPACT_ALLOW} }`,
+      after: `{ "sandbox": { "enabled": true, "excludedCommands": [${listed('')}] }, "z": "}", ${COMPACT_ALLOW} }`,
     },
     'an empty sandbox': {
       before: '{\n  "sandbox": {}\n}\n',
-      after: `{\n  "sandbox": {\n    "excludedCommands": [\n      ${ENTRY_JSON}\n    ]\n  },\n  ${INDENTED_ALLOW}\n}\n`,
+      after: `{\n  "sandbox": {\n    "excludedCommands": [\n      ${listed('\n      ')}\n    ]\n  },\n  ${INDENTED_ALLOW}\n}\n`,
     },
     'a list with entries, a string holding brackets and a quote': {
       before: '{\n  "sandbox": {\n    "excludedCommands": [\n      "a ] \\" }"\n    ]\n  },\n  "after": null\n}\n',
-      after: `{\n  "sandbox": {\n    "excludedCommands": [\n      "a ] \\" }",\n      ${ENTRY_JSON}\n    ]\n  },\n  "after": null,\n  ${INDENTED_ALLOW}\n}\n`,
+      after: `{\n  "sandbox": {\n    "excludedCommands": [\n      "a ] \\" }",\n      ${listed('\n      ')}\n    ]\n  },\n  "after": null,\n  ${INDENTED_ALLOW}\n}\n`,
     },
     'an empty list': {
       before: '{"sandbox":{"excludedCommands":[ ]}}',
-      after: `{"sandbox":{"excludedCommands":[\n  ${ENTRY_JSON}\n]},${COMPACT_ALLOW}}`,
+      after: `{"sandbox":{"excludedCommands":[\n  ${listed('\n  ')}\n]},${COMPACT_ALLOW}}`,
     },
     'crlf line ends': {
       before: '{\r\n  "a": true\r\n}\r\n',
-      after: `{\r\n  "a": true,\r\n  "sandbox": {\n    "excludedCommands": [\n      ${ENTRY_JSON}\n    ]\n  },\r\n  ${INDENTED_ALLOW}\r\n}\r\n`,
+      after: `{\r\n  "a": true,\r\n  "sandbox": {\n    "excludedCommands": [\n      ${listed('\n      ')}\n    ]\n  },\r\n  ${INDENTED_ALLOW}\r\n}\r\n`,
     },
     'a key repeated, the last one the parser reads': {
       before: '{"sandbox":{"excludedCommands":["x"]},"sandbox":{"excludedCommands":["y"]}}',
-      after: `{"sandbox":{"excludedCommands":["x"]},"sandbox":{"excludedCommands":["y",${ENTRY_JSON}]},${COMPACT_ALLOW}}`,
+      after: `{"sandbox":{"excludedCommands":["x"]},"sandbox":{"excludedCommands":["y",${listed('')}]},${COMPACT_ALLOW}}`,
     },
     'a key written with an escape': {
       before: '{"s\\u0061ndbox":{"enabled":false}}',
-      after: `{"s\\u0061ndbox":{"enabled":false,"excludedCommands": [${ENTRY_JSON}]},${COMPACT_ALLOW}}`,
+      after: `{"s\\u0061ndbox":{"enabled":false,"excludedCommands": [${listed('')}]},${COMPACT_ALLOW}}`,
     },
     'an allow list already there': {
       before: '{"permissions":{"allow":["Read(x)"]}}',
-      after: `{"permissions":{"allow":["Read(x)",${ALLOW_JSON}]},"sandbox": {"excludedCommands":[${ENTRY_JSON}]}}`,
+      after: `{"permissions":{"allow":["Read(x)",${ALLOW_JSON}]},"sandbox": {"excludedCommands":[${listed('')}]}}`,
     },
   }
 
@@ -229,18 +242,18 @@ describe('the one function that writes the exclusion', () => {
   }
 
   it('an entry already held is not added twice and the file is not rewritten', () => {
-    const before = `{ "sandbox" : { "excludedCommands" : [ ${ENTRY_JSON} ] }, "permissions" : { "allow" : [ ${ALLOW_JSON} ] } }`
+    const before = `{ "sandbox" : { "excludedCommands" : [ ${ENTRY_JSON}, ${PS_JSON} ] }, "permissions" : { "allow" : [ ${ALLOW_JSON} ] } }`
     expect(written(before)).toBe(before)
   })
 
   it('a held exclusion with no allow rule gains only the rule', () => {
-    const before = `{ "sandbox" : { "excludedCommands" : [ ${ENTRY_JSON} ] } }`
-    expect(written(before)).toBe(`{ "sandbox" : { "excludedCommands" : [ ${ENTRY_JSON} ] }, ${COMPACT_ALLOW} }`)
+    const before = `{ "sandbox" : { "excludedCommands" : [ ${ENTRY_JSON}, ${PS_JSON} ] } }`
+    expect(written(before)).toBe(`{ "sandbox" : { "excludedCommands" : [ ${ENTRY_JSON}, ${PS_JSON} ] }, ${COMPACT_ALLOW} }`)
   })
 
   it('reports what it added, and nothing when the entry was held', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'construct-exclusion-'))
-    expect(excludedBrowserLabLocally(dir, HOME)).toMatchObject({ added: [ENTRY], createdSandbox: true, createdExcluded: true, createdFile: true, beforeSha256: null })
+    expect(excludedBrowserLabLocally(dir, HOME)).toMatchObject({ added: [ENTRY, PROCESS_TABLE_COMMAND], createdSandbox: true, createdExcluded: true, createdFile: true, beforeSha256: null })
     expect(excludedBrowserLabLocally(dir, HOME)).toMatchObject({ added: [], createdSandbox: false, createdExcluded: false, createdFile: false })
   })
 
@@ -288,6 +301,13 @@ describe('a hand-edited sandbox record in the attach record', () => {
   it('is rejected when it names a command other than browser-lab', async () => {
     const hook = await recordedHook()
     expect(isSettingsHook({ ...hook, sandbox: { added: ['rm -rf *'], createdSandbox: true, createdExcluded: true } })).toBe(false)
+  })
+
+  it('is accepted with the exact process-table ps line and rejected with any wider ps form', async () => {
+    const hook = await recordedHook()
+    const recorded = (added: string[]): boolean => isSettingsHook({ ...hook, sandbox: { added, createdSandbox: true, createdExcluded: true } })
+    expect(recorded([PROCESS_TABLE_COMMAND])).toBe(true)
+    expect(['ps *', 'ps', `${PROCESS_TABLE_COMMAND} *`, 'ps -A'].map(form => recorded([form]))).toEqual([false, false, false, false])
   })
 
   it('is accepted when an earlier attach recorded the relative entry, so detach still removes it', async () => {

@@ -5,7 +5,8 @@
     "scripts/ports/",
     "scripts/core/gh-callers.ts",
     "scripts/core/gh-callers.known.json",
-    "scripts/core/bus-contract.ts"
+    "scripts/core/bus-contract.ts",
+    "scripts/core/process-listing.ts"
   ],
   "exclude": [],
   "shared": []

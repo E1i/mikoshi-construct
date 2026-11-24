@@ -161,6 +161,7 @@
   "boundary:project->intake": 1,
   "boundary:project->layout": 1,
   "boundary:project->model": 22,
+  "boundary:project->ports": 1,
   "boundary:project->ports-adapters": 1,
   "boundary:project->rules": 3,
   "boundary:project->session": 2,

@@ -8,6 +8,7 @@ import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { PROCESS_TABLE_COMMAND } from '../../../src/commands/attach/settings.js'
 import { appendEvent } from '../../core/db.js'
 import { ANSWER_STEP, CARD_STARTED, CARD_STOPPED, QUESTION_AGENT } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
@@ -59,7 +60,7 @@ function settingsOf(run: AnswerRun): unknown {
 
 function treeSettings(worktree: string, ownerQuestion: string): unknown {
   return {
-    sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY], allowMachLookup: ['com.apple.trustd*'] } },
+    sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY], allowMachLookup: ['com.apple.trustd*'] }, excludedCommands: [PROCESS_TABLE_COMMAND] },
     permissions: { allow: [`Bash(${TREE_GATE})`, `Edit(/${worktree}/**)`, `Edit(/${ownerQuestion})`] },
     env: SESSION_BASH_CAP,
     hooks: WIDE_VITEST_HOOKS,
