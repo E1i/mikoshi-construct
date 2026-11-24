@@ -726,6 +726,7 @@
     "scripts/tests/contract/composition-registers-only-in-composition.test.ts",
     "scripts/tests/contract/contours.test.ts",
     "scripts/tests/contract/events-catalogue.test.ts",
+    "scripts/tests/contract/fixtures-on-fake.test.ts",
     "scripts/tests/contract/layer-cuts/bus-card-sql-function.test.ts",
     "scripts/tests/contract/layer-cuts/claude-adapter-shift-settings.test.ts",
     "scripts/tests/contract/layer-cuts/decisions-window-runner.test.ts",
