@@ -17,7 +17,7 @@ import { sameDecisionWords, sayToOwnerChannel } from '../../owner/channel.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { decisionsAdder } from '../../policy/decisions/projection.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
-import { busProjections, cardTransitions } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions, DECISION_EVENT_READS } from '../../supervisor/composition.js'
 import { runRequest, WindowRequests } from '../../window/window-requests.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -93,7 +93,7 @@ function windowOf({ made, root }: Card): { channel: string, run: (...argv: strin
   const refuse = (): never => {
     throw new Error('the owner word on a wait uses no tool but the decisions adder')
   }
-  const tools = { treeOf: refuse, exists: existsSync, cutTree: refuse, dryRunOf: refuse, addDecision: decisionsAdder(made.db, decisions, made.clock.now), causeHolds: refuse, closePr: refuse, closeDropped: () => [] }
+  const tools = { treeOf: refuse, exists: existsSync, cutTree: refuse, dryRunOf: refuse, addDecision: decisionsAdder(made.db, decisions, made.clock.now, DECISION_EVENT_READS), causeHolds: refuse, closePr: refuse, closeDropped: () => [] }
   return {
     channel,
     run: (...argv) => {

@@ -34,7 +34,7 @@ import { roundLimitDecisionOf } from '../../policy/round-limit-decision.js'
 import { decisionsInForceAt } from '../../policy/shards.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { WORKTREE_HOME_VARIABLE } from '../../ports/worktree-home.js'
-import { busProjections, cardTransitions } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions, DECISION_EVENT_READS } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { productionDeps, STALL_MS } from '../../window/watch.js'
@@ -85,7 +85,7 @@ function room(bench: MergeBench = mergeBench()): Room {
         mkdirSync(path.join(root, 'worktrees', `mc-${CARD}`), { recursive: true })
       },
       dryRunOf: dryRunIn(path.join(root, 'dry-run-reviews')),
-      addDecision: decisionsAdder(bench.db, path.join(root, '.construct', 'owner-decisions.md'), bench.clock.now),
+      addDecision: decisionsAdder(bench.db, path.join(root, '.construct', 'owner-decisions.md'), bench.clock.now, DECISION_EVENT_READS),
       causeHolds: () => made.causes.shift() ?? null,
       closePr: request => new PrCloser(bench.db, bench.gitHub.client, bench.gitHub.patch, bench.clock.now).close(request),
       closeDropped: () => new PrCloser(bench.db, bench.gitHub.client, bench.gitHub.patch, bench.clock.now).closeDropped(),
@@ -408,7 +408,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
       executor.launch(leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'launch', 'worker:launch:worker-1')!)
     bench.tick()
     expect(taskState(bench.db, key).state).toBe('stopped')
-    const { causeHolds } = realRequestTools(bench.db, bench.busPath, repo, { [WORKTREE_HOME_VARIABLE]: home }, busProjections())
+    const { causeHolds } = realRequestTools(bench.db, bench.busPath, repo, { [WORKTREE_HOME_VARIABLE]: home }, busProjections(), DECISION_EVENT_READS)
 
     const plain = ask(made, { kind: 'requeue', task_key: key })
     expect(made.requests({ causeHolds }).run()[0]).toMatchObject({ kind: 'refused', request: plain, detail: expect.stringContaining(`the card tree ${tree} has uncommitted changes; a requeue with keep_tree: true`) })
@@ -521,7 +521,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
   it('the real tools read the count line from the report in the launch directory of the bus', () => {
     const made = room()
     const report = path.join(busDirOf(made.bench.busPath), 'launch', `report-${CARD}.md`)
-    expect(realRequestTools(made.bench.db, made.bench.busPath, process.cwd(), {}, busProjections()).appendCountLine!(PR, CARD)).toEqual({ done: false, why: `card #${CARD} has no report at ${report}, so no count line to append to PR #${PR}` })
+    expect(realRequestTools(made.bench.db, made.bench.busPath, process.cwd(), {}, busProjections(), DECISION_EVENT_READS).appendCountLine!(PR, CARD)).toEqual({ done: false, why: `card #${CARD} has no report at ${report}, so no count line to append to PR #${PR}` })
   })
 
   it('pnpm bus:request pr.body takes a --pr', () => {
