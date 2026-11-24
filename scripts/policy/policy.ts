@@ -6,7 +6,8 @@ import { RISK_LEVELS, riskOf } from '../../src/card/risk.js'
 import { judgedFieldWitnessesOf, witnessesOf } from '../../src/card/witness-fields.js'
 import { isChangeWitness, ownerPathsOf } from '../../src/commands/intake/check.js'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.js'
-import { CARD_ADMITTED, MERGE_DONE, PR_CLOSED, WITNESS_RECORDED } from '../core/events.js'
+import { mergeRecordOf, ofCard } from '../core/events-query.js'
+import { CARD_ADMITTED, WITNESS_RECORDED } from '../core/events.js'
 import { GENERATED_FILES } from '../core/generated-files.js'
 import { matchGlob } from './shredder/glob.js'
 import { readOwnerMergeKinds } from './shredder/reader.js'
@@ -664,18 +665,7 @@ export interface WitnessRecord {
   detail: string
 }
 
-const LATEST_RECORD = `
-  SELECT payload FROM events
-  WHERE type = '${WITNESS_RECORDED}' AND legacy = 0 AND card_id = ? AND head = ? AND json_extract(payload, '$.cardBody') = ?
-    AND (? IS NULL OR json_extract(payload, '$.base') = ?)
-  ORDER BY id DESC LIMIT 1
-`
-
-export const MERGE_RECORD = `
-  SELECT payload FROM events
-  WHERE pr = ? AND (type = '${MERGE_DONE}' OR (type = '${PR_CLOSED}' AND json_extract(payload, '$.merged') = 1))
-  ORDER BY CASE type WHEN '${MERGE_DONE}' THEN 0 ELSE 1 END, id LIMIT 1
-`
+export { MERGE_RECORD } from '../core/events-query.js'
 
 function commandsOf(item: string): string[] {
   return [...item.matchAll(BACKTICKED)].map(match => match[1]!.trim()).filter(command => command !== '')
@@ -708,19 +698,21 @@ export function cardWitnessesOf(body: string): CardWitnesses {
   }
 }
 
-const LATEST_ADMISSION_WITH_TEXT = `
-  SELECT json_extract(payload, '$.bodySha') AS body_sha, json_extract(payload, '$.text') AS text FROM events
-  WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ?
-    AND json_type(payload, '$.bodySha') = 'text' AND json_type(payload, '$.text') = 'text'
-  ORDER BY id DESC LIMIT 1
-`
+function latestAdmissionWithText(db: DatabaseSync, cardId: number): { bodySha: string, text: string } | null {
+  for (const row of ofCard(db, cardId, { types: [CARD_ADMITTED], newestFirst: true })) {
+    const { bodySha, text } = row.data ?? {}
+    if (typeof bodySha === 'string' && typeof text === 'string')
+      return { bodySha, text }
+  }
+  return null
+}
 
 export function witnessSubjectOf(db: DatabaseSync, cardId: number): WitnessSubject | null {
-  const admission = db.prepare(LATEST_ADMISSION_WITH_TEXT).get(cardId) as { body_sha: string, text: string } | undefined
-  if (admission === undefined)
+  const admission = latestAdmissionWithText(db, cardId)
+  if (admission === null)
     return null
   const witnesses = cardWitnessesOf(admission.text)
-  return witnesses.acceptance.length + witnesses.invariants.length === 0 ? null : { cardId, cardBody: admission.body_sha, creates: cardCreatesOf(admission.text), ...witnesses }
+  return witnesses.acceptance.length + witnesses.invariants.length === 0 ? null : { cardId, cardBody: admission.bodySha, creates: cardCreatesOf(admission.text), ...witnesses }
 }
 
 export interface WitnessDenial {
@@ -729,10 +721,11 @@ export interface WitnessDenial {
 }
 
 export function witnessRecordOf(db: DatabaseSync, cardId: number, head: string, base: string | null, cardBody: string): WitnessRecord | null {
-  const row = db.prepare(LATEST_RECORD).get(cardId, head, cardBody, base, base) as { payload: string } | undefined
-  if (row === undefined)
+  const payload = ofCard(db, cardId, { types: [WITNESS_RECORDED], head, newestFirst: true })
+    .map(row => row.data ?? {})
+    .find(data => data.cardBody === cardBody && (base === null || data.base === base))
+  if (payload === undefined)
     return null
-  const payload = JSON.parse(row.payload) as { verdict?: unknown, base?: unknown, detail?: unknown }
   return { verdict: storedVerdict(payload.verdict), base: String(payload.base ?? ''), detail: String(payload.detail ?? '') }
 }
 
@@ -769,9 +762,9 @@ export function closeWitnessDenial(db: DatabaseSync, cardId: number, pr: number 
     return null
   if (head === null)
     return noHeld(cardId, 'head')
-  const merge = pr === null ? undefined : db.prepare(MERGE_RECORD).get(pr) as { payload: string } | undefined
-  if (merge === undefined)
+  const merge = pr === null ? null : mergeRecordOf(db, pr)
+  if (merge === null)
     return recordDenial(db, subject, head, null)
-  const { witnessBase } = JSON.parse(merge.payload) as { witnessBase?: unknown }
+  const { witnessBase } = merge
   return typeof witnessBase === 'string' ? recordDenial(db, subject, head, witnessBase) : null
 }
