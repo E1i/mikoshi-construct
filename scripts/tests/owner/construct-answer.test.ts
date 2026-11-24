@@ -18,7 +18,7 @@ import { decisionsFileOf } from '../../policy/decisions/decisions.js'
 import { decisionsAdderOfBus, decisionsSettlerOfBus } from '../../policy/decisions/projection.js'
 import { closedByRounds } from '../../policy/round-limit-decision.js'
 import { decisionsInForceAt } from '../../policy/shards.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, DECISION_EVENT_READS } from '../../supervisor/composition.js'
 import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
 import { sha } from '../bus/github-fake.js'
 import { eventCount, eventsOf, liveBench, spendReviewRounds } from '../bus/merge-bench.js'
@@ -79,7 +79,7 @@ function refuse(): never {
 }
 
 function tools(room: Room): RequestTools {
-  return { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: decisionsAdderOfBus(room.bench.db, room.bench.busPath, room.bench.clock.now), settleDecisions: decisionsSettlerOfBus(room.bench.db, room.bench.busPath, room.bench.clock.now, busProjections()), causeHolds: refuse, closePr: refuse, closeDropped: () => [] }
+  return { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: decisionsAdderOfBus(room.bench.db, room.bench.busPath, room.bench.clock.now, DECISION_EVENT_READS), settleDecisions: decisionsSettlerOfBus(room.bench.db, room.bench.busPath, room.bench.clock.now, busProjections(), DECISION_EVENT_READS), causeHolds: refuse, closePr: refuse, closeDropped: () => [] }
 }
 
 function busRun(room: Room): RequestOutcome[] {

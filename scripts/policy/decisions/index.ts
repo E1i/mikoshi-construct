@@ -5,12 +5,12 @@ import type { Fold, StoredEvent } from '../../core/stored.js'
 import type { DecisionRow, DecisionsPort, OwnerWords } from './decisions.js'
 import { DECISIONS_FILE } from '../../core/bus-path.js'
 import { DECISIONS, readCurrent } from '../../core/bus-readings.js'
-import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../../core/card-automaton.js'
+import { cardStatesAmong, waitIdsAmong } from '../../core/card-readings.js'
 import { appendEvent, DECISION_ARCHIVED, DECISION_IN_FORCE } from '../../core/db.js'
 import { DECISION_EXPIRED, DECISION_RECORDED, DECISIONS_IMPORTED, DECISIONS_PROJECTED } from '../../core/events.js'
 import { OWNER } from '../../core/inbox.js'
 import { NETWATCH } from '../../core/observations.js'
-import { payloadOf, reject, Rejection, STORED_COLUMNS } from '../../core/stored.js'
+import { payloadOf, reject, Rejection } from '../../core/stored.js'
 import { termOf, withoutSource } from './decisions.js'
 
 export interface InForceDecision {
@@ -60,15 +60,19 @@ export function recordDecision(db: DatabaseSync, decision: OwnerDecision): void 
     throw new Error(`${dedupeKey} is already in the bus`)
 }
 
-function actorOf(db: DatabaseSync, event: StoredEvent): string | null {
-  return (db.prepare('SELECT actor FROM events WHERE id = ?').get(event.id) as { actor: string | null }).actor
+export interface DecisionEventReads {
+  actorOf: (db: DatabaseSync, eventId: number) => string | null
+  projectedBefore: (db: DatabaseSync, eventId?: number) => boolean
+  expiredDecisionIds: (db: DatabaseSync) => unknown[]
+  recordedByTheOwner: (db: DatabaseSync) => StoredEvent[]
+  tsOf: (db: DatabaseSync, eventIds: readonly number[]) => Map<number, string>
+  cardEnded: (state: string | null) => boolean
 }
 
 const WAIT_ID_IN_TEXT = /\b[QW]\d+\b/g
 
 export function waitsTheDecisionNames(db: DatabaseSync, text: string): string[] {
-  const mentioned = JSON.stringify(text.match(WAIT_ID_IN_TEXT) ?? [])
-  return (db.prepare('SELECT id FROM owner_waits WHERE id IN (SELECT value FROM json_each(?))').all(mentioned) as { id: string }[]).map(wait => wait.id)
+  return waitIdsAmong(db, text.match(WAIT_ID_IN_TEXT) ?? [])
 }
 
 function numbersOf(payload: Record<string, unknown>, field: string): number[] {
@@ -84,29 +88,27 @@ function archive(db: DatabaseSync, decisionId: number): void {
   db.prepare(`UPDATE decisions SET state = '${DECISION_ARCHIVED}' WHERE decision_id = ?`).run(decisionId)
 }
 
-const ENDED_CARD_STATES = `'${MERGED_CARD}', '${CLOSED_CARD}', '${DROPPED_CARD}'`
 const CARD_NUMBER_IN_TEXT = /#(\d+)\b/g
 
-function aCardTheTextNamesHasNotEnded(db: DatabaseSync, text: string): boolean {
+function aCardTheTextNamesHasNotEnded(db: DatabaseSync, text: string, reads: DecisionEventReads): boolean {
   const named = [...text.matchAll(CARD_NUMBER_IN_TEXT)].map(match => Number(match[1]))
-  return db.prepare(`
-    SELECT 1 FROM cards
-    WHERE card_id IN (SELECT value FROM json_each(?)) AND coalesce(state, '') NOT IN (${ENDED_CARD_STATES})
-    LIMIT 1
-  `).get(JSON.stringify(named)) !== undefined
+  return [...cardStatesAmong(db, named).values()].some(state => !reads.cardEnded(state))
 }
 
-export function archiveSpentDecisions(db: DatabaseSync): void {
-  const scopeEnded = db.prepare(`
-    SELECT decision_id, text FROM decisions
-    WHERE state = '${DECISION_IN_FORCE}' AND json_array_length(coalesce(scope, '[]')) > 0
-      AND NOT EXISTS (
-        SELECT 1 FROM json_each(decisions.scope) AS named
-        WHERE named.value NOT IN (SELECT card_id FROM cards WHERE state IN (${ENDED_CARD_STATES}))
-      )
-  `).all() as { decision_id: number, text: string }[]
-  for (const decision of scopeEnded) {
-    if (!aCardTheTextNamesHasNotEnded(db, decision.text))
+function everyCardEnded(db: DatabaseSync, cardIds: readonly number[], reads: DecisionEventReads): boolean {
+  const states = cardStatesAmong(db, cardIds)
+  return cardIds.every(cardId => states.has(cardId) && reads.cardEnded(states.get(cardId) ?? null))
+}
+
+const SCOPED_IN_FORCE = `
+  SELECT decision_id, text, scope FROM decisions
+  WHERE state = '${DECISION_IN_FORCE}' AND json_array_length(coalesce(scope, '[]')) > 0
+`
+
+export function archiveSpentDecisions(db: DatabaseSync, reads: DecisionEventReads): void {
+  const scoped = db.prepare(SCOPED_IN_FORCE).all() as { decision_id: number, text: string, scope: string }[]
+  for (const decision of scoped) {
+    if (everyCardEnded(db, JSON.parse(decision.scope) as number[], reads) && !aCardTheTextNamesHasNotEnded(db, decision.text, reads))
       archive(db, Number(decision.decision_id))
   }
 }
@@ -122,8 +124,8 @@ function recordedWordsOf(payload: Record<string, unknown>): RecordedWords {
   }
 }
 
-function foldDecisionRecorded(db: DatabaseSync, event: StoredEvent): void {
-  const actor = actorOf(db, event)
+function foldDecisionRecorded(db: DatabaseSync, event: StoredEvent, reads: DecisionEventReads): void {
+  const actor = reads.actorOf(db, event.id)
   if (actor !== OWNER)
     reject(`${DECISION_RECORDED} is the owner's, not ${actor}'s`)
   const { decisionId, text, cards, supersedes } = recordedWordsOf(payloadOf(event))
@@ -133,7 +135,7 @@ function foldDecisionRecorded(db: DatabaseSync, event: StoredEvent): void {
     .run(decisionId, text, JSON.stringify(cards), OWNER, event.id, termOf(text).until, JSON.stringify(supersedes))
   for (const target of supersedes)
     archive(db, target)
-  archiveSpentDecisions(db)
+  archiveSpentDecisions(db, reads)
 }
 
 function importedOf(entry: unknown): InForceDecision {
@@ -151,23 +153,19 @@ function sameDecision(held: InForceDecision | undefined, imported: InForceDecisi
   return held !== undefined && held.text === imported.text && JSON.stringify(held.cards) === JSON.stringify(imported.cards)
 }
 
-function theBusProjectsTheFileSince(db: DatabaseSync, eventId: number): boolean {
-  return db.prepare(`SELECT 1 FROM events WHERE type = '${DECISIONS_PROJECTED}' AND id < ? LIMIT 1`).get(eventId) !== undefined
+const SUPERSEDED = `SELECT named.value AS decision_id FROM decisions, json_each(coalesce(decisions.supersedes, '[]')) AS named`
+
+function retiredByTheBus(db: DatabaseSync, reads: DecisionEventReads): Set<number> {
+  const superseded = (db.prepare(SUPERSEDED).all() as { decision_id: number }[]).map(row => row.decision_id)
+  const expired = reads.expiredDecisionIds(db)
+  return new Set([...superseded, ...expired].map(Number))
 }
 
-function retiredByTheBus(db: DatabaseSync): Set<number> {
-  const rows = db.prepare(`
-    SELECT named.value AS decision_id FROM decisions, json_each(coalesce(decisions.supersedes, '[]')) AS named
-    UNION SELECT json_extract(payload, '$.decision_id') FROM events WHERE type = '${DECISION_EXPIRED}'
-  `).all() as { decision_id: number }[]
-  return new Set(rows.map(row => Number(row.decision_id)))
-}
-
-function foldDecisionsImported(db: DatabaseSync, event: StoredEvent): void {
-  const actor = actorOf(db, event)
+function foldDecisionsImported(db: DatabaseSync, event: StoredEvent, reads: DecisionEventReads): void {
+  const actor = reads.actorOf(db, event.id)
   if (actor !== NETWATCH)
     reject(`${DECISIONS_IMPORTED} is ${NETWATCH}'s, not ${actor}'s`)
-  if (theBusProjectsTheFileSince(db, event.id))
+  if (reads.projectedBefore(db, event.id))
     return
   const listed = payloadOf(event).decisions
   const imported = Array.isArray(listed) ? listed.map(importedOf) : reject('decisions is not a list')
@@ -175,7 +173,7 @@ function foldDecisionsImported(db: DatabaseSync, event: StoredEvent): void {
     reject('a decision_id is listed twice')
   const held = new Map(inForceDecisions(db).map(decision => [decision.decisionId, decision]))
   const kept = new Set(imported.filter(decision => sameDecision(held.get(decision.decisionId), decision)).map(decision => decision.decisionId))
-  const retired = retiredByTheBus(db)
+  const retired = retiredByTheBus(db, reads)
   for (const decisionId of held.keys()) {
     if (!kept.has(decisionId))
       archive(db, decisionId)
@@ -186,11 +184,11 @@ function foldDecisionsImported(db: DatabaseSync, event: StoredEvent): void {
       ON CONFLICT (decision_id) DO UPDATE SET text = excluded.text, scope = excluded.scope, source = excluded.source, event_id = excluded.event_id, until = excluded.until, state = excluded.state
     `).run(decision.decisionId, decision.text, JSON.stringify(decision.cards), DECISIONS_FILE, event.id, termOf(decision.text).until)
   }
-  archiveSpentDecisions(db)
+  archiveSpentDecisions(db, reads)
 }
 
-function foldDecisionExpired(db: DatabaseSync, event: StoredEvent): void {
-  const actor = actorOf(db, event)
+function foldDecisionExpired(db: DatabaseSync, event: StoredEvent, reads: DecisionEventReads): void {
+  const actor = reads.actorOf(db, event.id)
   if (actor !== NETWATCH)
     reject(`${DECISION_EXPIRED} is ${NETWATCH}'s, not ${actor}'s`)
   const decisionId = payloadOf(event).decision_id
@@ -218,8 +216,8 @@ export function expireDecisions(db: DatabaseSync, now: Date): void {
   }
 }
 
-export function busProjectsDecisions(db: DatabaseSync): boolean {
-  return db.prepare(`SELECT 1 FROM events WHERE type = '${DECISIONS_PROJECTED}' LIMIT 1`).get() !== undefined
+export function busProjectsDecisions(db: DatabaseSync, reads: DecisionEventReads): boolean {
+  return reads.projectedBefore(db)
 }
 
 export function startProjectingDecisions(db: DatabaseSync, now: Date): void {
@@ -247,22 +245,41 @@ function firstEventOfEachDecision(decisions: RecordedDecision[]): RecordedDecisi
   })
 }
 
-export function decisionHistory(db: DatabaseSync): RecordedDecision[] {
-  const events = db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE type = '${DECISION_RECORDED}' AND legacy = 0 AND actor = '${OWNER}' ORDER BY id`).all() as unknown as StoredEvent[]
-  return firstEventOfEachDecision(events.flatMap(recordedDecisionOf))
+export function decisionHistory(db: DatabaseSync, reads: DecisionEventReads): RecordedDecision[] {
+  return firstEventOfEachDecision(reads.recordedByTheOwner(db).flatMap(recordedDecisionOf))
 }
 
-export function recordedNumbers(db: DatabaseSync): number[] {
+export function recordedNumbers(db: DatabaseSync, reads: DecisionEventReads): number[] {
   const inTheTable = (db.prepare('SELECT decision_id FROM decisions').all() as { decision_id: number }[]).map(row => Number(row.decision_id))
-  return [...new Set([...inTheTable, ...decisionHistory(db).map(decision => decision.decisionId)])]
+  return [...new Set([...inTheTable, ...decisionHistory(db, reads).map(decision => decision.decisionId)])]
 }
 
-export function decisionRows(db: DatabaseSync): DecisionRow[] {
-  const ownDate = new Map(decisionHistory(db).map(decision => [decision.decisionId, decision.recordedAt]))
-  const rows = db.prepare(`
-    SELECT decisions.decision_id, decisions.text, decisions.scope, decisions.until, decisions.state, decisions.source, decisions.supersedes, events.ts
-    FROM decisions JOIN events ON events.id = decisions.event_id ORDER BY decisions.decision_id
-  `).all() as { decision_id: number, text: string, scope: string | null, until: string | null, state: string, source: string, supersedes: string | null, ts: string }[]
+const DECISION_ROWS = 'SELECT decision_id, text, scope, until, state, source, supersedes, event_id FROM decisions ORDER BY decision_id'
+
+interface DecisionTableRow {
+  decision_id: number
+  text: string
+  scope: string | null
+  until: string | null
+  state: string
+  source: string
+  supersedes: string | null
+  event_id: number
+  ts: string
+}
+
+export function decisionRecordedAfter(db: DatabaseSync, decisionId: number, eventId: number): boolean {
+  return db.prepare('SELECT 1 FROM decisions WHERE decision_id = ? AND event_id > ?').get(decisionId, eventId) !== undefined
+}
+
+export function decisionRows(db: DatabaseSync, reads: DecisionEventReads): DecisionRow[] {
+  const ownDate = new Map(decisionHistory(db, reads).map(decision => [decision.decisionId, decision.recordedAt]))
+  const stored = db.prepare(DECISION_ROWS).all() as Omit<DecisionTableRow, 'ts'>[]
+  const tsOf = reads.tsOf(db, stored.map(row => Number(row.event_id)))
+  const rows = stored.flatMap((row) => {
+    const ts = tsOf.get(Number(row.event_id))
+    return ts === undefined ? [] : [{ ...row, ts }]
+  })
   const successor = new Map<number, number>()
   for (const row of rows) {
     for (const target of JSON.parse(row.supersedes ?? '[]') as number[])
@@ -280,10 +297,12 @@ export function decisionRows(db: DatabaseSync): DecisionRow[] {
   }))
 }
 
-export const DECISION_FOLDS: Record<string, Fold> = {
-  [DECISION_RECORDED]: foldDecisionRecorded,
-  [DECISIONS_IMPORTED]: foldDecisionsImported,
-  [DECISION_EXPIRED]: foldDecisionExpired,
+export function decisionFolds(reads: DecisionEventReads): Record<string, Fold> {
+  return {
+    [DECISION_RECORDED]: (db, event) => foldDecisionRecorded(db, event, reads),
+    [DECISIONS_IMPORTED]: (db, event) => foldDecisionsImported(db, event, reads),
+    [DECISION_EXPIRED]: (db, event) => foldDecisionExpired(db, event, reads),
+  }
 }
 
 interface InForceRow {

@@ -52,7 +52,6 @@ const SITES_OF_THE_RECONNAISSANCE: Record<string, readonly string[]> = {
   'owner-decisions': [
     'scripts/nodes/launch/launch-candidates.ts',
     'scripts/core/inbox.ts',
-    'scripts/nodes/answer/answer-source.ts',
     'scripts/core/bus-path.ts',
   ],
   'handoff-status': ['src/commands/doctor/factory.ts'],

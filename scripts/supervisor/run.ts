@@ -29,7 +29,7 @@ import { realRequestTools } from '../window/window-request-tools.js'
 import { WindowRequests } from '../window/window-requests.js'
 import { alive, BUS_RUN_MARKERS, instancesOf, processBeatsOn, psList, RUN_SCRIPT } from './bg.js'
 import { closeWaitsOfEndedCards } from './card-waits.js'
-import { busProjections, cardTransitions, composeBus, deadEndParts, deriveQueuesOfTheBus, gateRunSpoolPlaces, openComposedBus, recordOwnStart, requiredCheckAt } from './composition.js'
+import { busProjections, cardTransitions, composeBus, deadEndParts, DECISION_EVENT_READS, deriveQueuesOfTheBus, gateRunSpoolPlaces, openComposedBus, recordOwnStart, requiredCheckAt } from './composition.js'
 import { DeadEnds } from './dead-ends.js'
 import { GateRunSpool } from './gate-run-spool.js'
 import { sessionLifeIn } from './recorded-worker.js'
@@ -246,7 +246,7 @@ export const QUIET_REDUCED_MS = TICK_MS
 export function composeReducerPass(db: DatabaseSync, busPath: string, clock: () => Date, home: string, repo: string = process.cwd(), env: NodeJS.ProcessEnv = process.env, log: (line: string) => void = console.log, quietMs: number = QUIET_REDUCED_MS): ReducerPass {
   composeBus(db)
   const projections = busProjections()
-  const requests = new WindowRequests(db, clock, realRequestTools(db, busPath, repo, env, projections), ownerChannelOfBus(home, busPath))
+  const requests = new WindowRequests(db, clock, realRequestTools(db, busPath, repo, env, projections, DECISION_EVENT_READS), ownerChannelOfBus(home, busPath))
   const answer = (): void => {
     for (const outcome of requests.run())
       log(`${REDUCER_PREFIX}${WINDOW_REQUEST} ${outcome.request} ${outcome.kind}: ${outcome.detail}`)
