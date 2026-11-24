@@ -72,7 +72,8 @@ const attachDecidesWithoutTheStack = {
   rules: {
     'no-restricted-imports': ['error', {
       patterns: [
-        ...dependencyBoundary(['src/commands', ALLOWED_INTERNAL_IMPORTS['src/commands']]).rules['no-restricted-imports'][1].patterns,
+        dependencyBoundary(['src/commands', ALLOWED_INTERNAL_IMPORTS['src/commands']]).rules['no-restricted-imports'][1].patterns[0],
+        factoryReach('src/commands/attach'),
         { group: ['../../detect', '../../detect/*'], allowImportNames: ['isEmptyDir'], message: ATTACH_DECIDES_WITHOUT_THE_STACK },
       ],
     }],

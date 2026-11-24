@@ -1,6 +1,7 @@
 import type { ProcessCwds } from './client/contract.js'
 import { execFileSync } from 'node:child_process'
 import process from 'node:process'
+import { LISTING_COLUMNS, LISTING_PROGRAM } from '../core/process-listing.js'
 import { clientAdapter } from './client/index.js'
 
 export const TECHNOLOGY_WORDS = ['lsof', 'ps', 'top'] as const
@@ -23,7 +24,6 @@ export interface ProcessTable {
   cpuSample: () => string
 }
 
-const LISTING_COLUMNS = ['-Ao', 'pid=,ppid=,pgid=,lstart=,args=']
 const LISTING_LINE = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\w{3}\s+\w{3}\s+\d+\s+[\d:]+\s+\d{4})\s?(.*)$/
 const CWD_FIELD = 'n'
 const NO_CLIENT_FOUND = 1
@@ -85,7 +85,7 @@ function cwdsIn(output: string): string[] {
 export class OsProcessTable implements ProcessTable {
   snapshot(): ProcessSnapshot {
     try {
-      return { readable: true, rows: parseListing(execFileSync('ps', LISTING_COLUMNS, { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' }, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: LISTING_BUFFER })) }
+      return { readable: true, rows: parseListing(execFileSync(LISTING_PROGRAM, [...LISTING_COLUMNS], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' }, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: LISTING_BUFFER })) }
     }
     catch (error) {
       return { readable: false, reason: firstLine(error) }

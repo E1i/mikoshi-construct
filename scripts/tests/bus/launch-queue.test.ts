@@ -12,6 +12,7 @@ import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
+import { PROCESS_TABLE_COMMAND } from '../../../src/commands/attach/settings.js'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { runIntake } from '../../../src/commands/intake/index.js'
 import { cardBodyText } from '../../core/card-bodies.js'
@@ -936,7 +937,7 @@ describe('the launch queue', () => {
     const [args, card] = (await written(stub.argsFile)).trim().split('\n')
     const settings = /^--permission-mode dontAsk --setting-sources project,local --settings (\{.*\}) --tools Read,Edit,Write,Bash,Grep,Glob --disable-slash-commands --strict-mcp-config -p --session-id session-934$/.exec(args!)?.[1]
     expect(JSON.parse(settings ?? 'null')).toEqual({
-      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY], allowMachLookup: ['com.apple.trustd*'] } },
+      sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false, network: { allowLocalBinding: true, allowUnixSockets: [TSX_PIPE_DIRECTORY], allowMachLookup: ['com.apple.trustd*'] }, excludedCommands: [PROCESS_TABLE_COMMAND] },
       permissions: { allow: [`Bash(${TREE_GATE})`, `Edit(/${tree}/**)`] },
       env: SESSION_BASH_CAP,
       hooks: WIDE_VITEST_HOOKS,

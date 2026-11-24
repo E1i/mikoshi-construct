@@ -6,7 +6,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, 
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { browserLabExcludedCommand, SETTINGS_FILE } from '../src/commands/attach/settings.js'
+import { browserLabExcludedCommand, PROCESS_TABLE_COMMAND, SETTINGS_FILE } from '../src/commands/attach/settings.js'
 import { discoveryProvenance } from '../src/commands/doctor/provenance.js'
 import { runInit } from '../src/commands/init.js'
 import { applySync, printSyncApply, runSync, SYNC_APPLY_EXIT, SYNC_JSON_SCHEMA_VERSION, syncApplyExit, syncApplyJson } from '../src/commands/sync/index.js'
@@ -327,7 +327,7 @@ describe('the installed lab exclusion under sync', () => {
 
     expect(result.written).toEqual([])
     expect(result.browserLabExclusion).toEqual({ command: ENTRY, state: 'added' })
-    expect(excludedIn(dir)).toEqual([ENTRY])
+    expect(excludedIn(dir)).toEqual([ENTRY, PROCESS_TABLE_COMMAND])
     expect(read(dir, MANIFEST)).toBe(manifest)
     expect(syncApplyJson(result).browserLabExclusion).toBe('added')
     const output = printed(result)
@@ -380,7 +380,7 @@ describe('the installed lab exclusion under sync', () => {
     const afterFirst = read(dir, LOCAL_SETTINGS)
     expect(first.browserLabExclusion?.state).toBe('added')
     expect(afterFirst.startsWith('{ "model":   "opus",\n  "n": 1.0,')).toBe(true)
-    expect(excludedIn(dir)).toEqual([ENTRY])
+    expect(excludedIn(dir)).toEqual([ENTRY, PROCESS_TABLE_COMMAND])
 
     const second = applySync(dir, VERSION, HOME)!
     expect(second.browserLabExclusion?.state).toBe('held')

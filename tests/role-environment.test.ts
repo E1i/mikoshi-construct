@@ -12,7 +12,7 @@ import { windowCommand } from '../scripts/ports/client/claude/adapter.js'
 import { shiftSettings } from '../scripts/ports/shift-settings.js'
 import { allowRule, shippedDaemonCommands } from '../src/commands/attach/daemon-commands.js'
 import { excludedBrowserLabInTheConstruct, settledProjectSettings } from '../src/commands/attach/index.js'
-import { browserLabExcludedCommand, browserLabInstalledScript, cardTreeGitWrites, GITHUB_API_DOMAIN, OWNER_CHANNEL_ENTRY, RECORDED_BY_AN_EARLIER_ATTACH, ROLE_DOMAINS, SETTINGS_FILE, wroteLocally } from '../src/commands/attach/settings.js'
+import { browserLabExcludedCommand, browserLabInstalledScript, cardTreeGitWrites, GITHUB_API_DOMAIN, OWNER_CHANNEL_ENTRY, PROCESS_TABLE_COMMAND, RECORDED_BY_AN_EARLIER_ATTACH, ROLE_DOMAINS, SETTINGS_FILE, wroteLocally } from '../src/commands/attach/settings.js'
 import { browserLabStep, cardFirstSteps, factoryChecklist, LAB_ROLES, readStep, roleSituations, windowFirstSteps } from '../src/commands/doctor/factory.js'
 import { FileReadings } from '../src/commands/doctor/readings.js'
 import { printFactoryChecklist } from '../src/commands/doctor/report.js'
@@ -221,7 +221,7 @@ describe('browser-lab is called only at its installed path, and starts where a r
 
     applySync(made.dir, VERSION, made.home)
 
-    expect(readFileSync(path.join(made.dir, SETTINGS_FILE), 'utf8')).toBe(`{\n  "sandbox": {\n    "excludedCommands": [\n      "${entry}"\n    ]\n  },\n  "model": "opus",\n  "permissions": {\n    "allow": [\n      "${allowRule(entry)}"\n    ]\n  }\n}\n`)
+    expect(readFileSync(path.join(made.dir, SETTINGS_FILE), 'utf8')).toBe(`{\n  "sandbox": {\n    "excludedCommands": [\n      "${entry}",\n      "${PROCESS_TABLE_COMMAND}"\n    ]\n  },\n  "model": "opus",\n  "permissions": {\n    "allow": [\n      "${allowRule(entry)}"\n    ]\n  }\n}\n`)
     expect(json(made.dir, PROJECT_SETTINGS).sandbox.excludedCommands).toBeUndefined()
   })
 
@@ -235,7 +235,7 @@ describe('browser-lab is called only at its installed path, and starts where a r
 
     const report = applySync(made.dir, VERSION, made.home)!
 
-    expect(readFileSync(path.join(made.dir, SETTINGS_FILE), 'utf8')).toBe(before.replace(`      "${RECORDED_BY_AN_EARLIER_ATTACH}",\n`, ''))
+    expect(readFileSync(path.join(made.dir, SETTINGS_FILE), 'utf8')).toBe(before.replace(`      "${RECORDED_BY_AN_EARLIER_ATTACH}",\n`, '').replace(`      "${entry}"\n`, `      "${entry}",\n      "${PROCESS_TABLE_COMMAND}"\n`))
     expect(report.browserLabExclusion).toEqual({ command: entry, state: 'added' })
     const unchanged = excludedBrowserLabInTheConstruct(made.dir, made.home)!
     expect(wroteLocally(unchanged)).toBe(false)
@@ -260,7 +260,7 @@ describe('browser-lab is called only at its installed path, and starts where a r
     const shipped = shippedDaemonCommands(made.home)
     const cardExclusions = (daemons?: string[]): unknown => sandboxEntry(roleSituations(new FileReadings(made.dir), made.dir, made.home, daemons).card.layers[1]!.settings, 'excludedCommands')
     expect(cardExclusions()).toEqual(json(made.dir, SETTINGS_FILE).sandbox.excludedCommands)
-    expect(cardExclusions()).toEqual(shipped)
+    expect(cardExclusions()).toEqual([...shipped, PROCESS_TABLE_COMMAND])
 
     const second = path.join(made.home, '.construct', 'second-daemon', 'bin', 'second.mjs')
     mkdirSync(path.dirname(second), { recursive: true })
@@ -269,7 +269,7 @@ describe('browser-lab is called only at its installed path, and starts where a r
     const local = json(made.dir, SETTINGS_FILE)
     writeJson(made.dir, SETTINGS_FILE, { ...local, sandbox: { ...local.sandbox, excludedCommands: daemons } })
 
-    expect(cardExclusions(daemons)).toEqual(daemons)
+    expect(cardExclusions(daemons)).toEqual([...daemons, PROCESS_TABLE_COMMAND])
     const card = roleSituations(new FileReadings(made.dir), made.dir, made.home, daemons).card
     expect(readStep(card, { role: 'launch', step: 'second daemon', command: `node ${second} run`, writes: [], domains: [] })).toEqual({ refused: null, outsideTheSandbox: true })
   })
@@ -278,15 +278,15 @@ describe('browser-lab is called only at its installed path, and starts where a r
     const made = await consumer()
     const shipped = shippedDaemonCommands(made.home)
     const cardExclusions = (daemons?: string[]): unknown => sandboxEntry(roleSituations(new FileReadings(made.dir), made.dir, made.home, daemons).card.layers[1]!.settings, 'excludedCommands')
-    expect(json(made.dir, SETTINGS_FILE).sandbox.excludedCommands).toEqual(shipped)
-    expect(cardExclusions()).toBeUndefined()
+    expect(json(made.dir, SETTINGS_FILE).sandbox.excludedCommands).toEqual([...shipped, PROCESS_TABLE_COMMAND])
+    expect(cardExclusions()).toEqual([PROCESS_TABLE_COMMAND])
 
     installTheLab(made.home)
     const missing = path.join(made.home, '.construct', 'missing-daemon', 'bin', 'missing.mjs')
     const daemons = [...shipped, `node ${missing} *`]
     const local = json(made.dir, SETTINGS_FILE)
     writeJson(made.dir, SETTINGS_FILE, { ...local, sandbox: { ...local.sandbox, excludedCommands: daemons } })
-    expect(cardExclusions(daemons)).toEqual(shipped)
+    expect(cardExclusions(daemons)).toEqual([...shipped, PROCESS_TABLE_COMMAND])
   })
 
   it('the doctor models a daemon exclusion that only the project settings carry', async () => {
@@ -299,7 +299,7 @@ describe('browser-lab is called only at its installed path, and starts where a r
     writeJson(made.dir, PROJECT_SETTINGS, { ...project, sandbox: { ...project.sandbox, excludedCommands: shipped } })
 
     const card = roleSituations(new FileReadings(made.dir), made.dir, made.home).card
-    expect(sandboxEntry(card.layers[1]!.settings, 'excludedCommands')).toEqual(shipped)
+    expect(sandboxEntry(card.layers[1]!.settings, 'excludedCommands')).toEqual([...shipped, PROCESS_TABLE_COMMAND])
   })
 
   it('a call of the tree copy of browser-lab stays inside the card sandbox', async () => {
@@ -307,7 +307,7 @@ describe('browser-lab is called only at its installed path, and starts where a r
     installTheLab(made.home)
     const card = cardTreeOf(made)
     const settings = shiftSettings(card.tree, { prepush: [], handoffWrite: null, codeMatrix: null }, [], made.home)
-    expect(settings.sandbox.excludedCommands).toEqual([browserLabExcludedCommand(made.home)])
+    expect(settings.sandbox.excludedCommands).toEqual([browserLabExcludedCommand(made.home), PROCESS_TABLE_COMMAND])
     for (const entry of settings.sandbox.excludedCommands ?? []) {
       expect(entry).not.toBe(RECORDED_BY_AN_EARLIER_ATTACH)
       expect(entry.startsWith('node scripts/')).toBe(false)
