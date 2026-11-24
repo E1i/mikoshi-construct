@@ -751,6 +751,7 @@
     "scripts/tests/contract/owner-reads/events-query.test.ts",
     "scripts/tests/contract/owner-reads/plan.test.ts",
     "scripts/tests/contract/owner-reads/quality-intake.test.ts",
+    "scripts/tests/contract/owner-reads/rules.test.ts",
     "scripts/tests/contract/permanent-suite-holds-on-any-base.test.ts",
     "scripts/tests/contract/plan-folds-contour.test.ts",
     "scripts/tests/contract/port-language.test.ts",

@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import { ofPr } from '../../core/events-query.js'
 import { UPDATE_DONE } from '../../core/events.js'
 
 export interface CleanUpdate {
@@ -6,12 +7,10 @@ export interface CleanUpdate {
   to: string
 }
 
-const CLEAN_UPDATES_OF_A_PR = `
-  SELECT json_extract(payload, '$.from') AS "from", json_extract(payload, '$.to') AS "to" FROM events
-  WHERE type = '${UPDATE_DONE}' AND legacy = 0 AND pr = ? AND json_extract(payload, '$.clean') = 1
-  ORDER BY id
-`
+const JSON_TRUE: readonly unknown[] = [1, true]
 
 export function cleanUpdatesOf(db: DatabaseSync, pr: number): CleanUpdate[] {
-  return db.prepare(CLEAN_UPDATES_OF_A_PR).all(pr) as unknown as CleanUpdate[]
+  return ofPr(db, pr, { types: [UPDATE_DONE] })
+    .filter(row => JSON_TRUE.includes(row.data?.clean))
+    .map(row => ({ from: row.data!.from as string, to: row.data!.to as string }))
 }

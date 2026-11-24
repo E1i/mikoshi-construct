@@ -1,6 +1,6 @@
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite'
 import type { StoredEvent } from './stored.js'
-import { SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, SHARD_USED } from './events.js'
+import { CARD_ADMITTED, MERGE_DONE, PR_CLOSED, REVIEW_RECORDED, SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, SHARD_USED } from './events.js'
 import { payloadOf, Rejection } from './stored.js'
 
 export const EITHER_JOURNAL = 'either'
@@ -186,6 +186,47 @@ export function unspentShardRows(db: DatabaseSync, cardId: number, pr: number | 
 
 export function shardUsedByRun(db: DatabaseSync, run: string): boolean {
   return db.prepare(SHARD_USED_BY_RUN).get(run) !== undefined
+}
+
+export const REVIEWS_OF_A_PR = `
+  SELECT id, head, json_extract(payload, '$.verdict') AS verdict, json_extract(payload, '$.card_body') AS card_body FROM events
+  WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? ORDER BY id
+`
+
+export interface ReviewRow {
+  head: string | null
+  verdict: unknown
+  card_body: unknown
+}
+
+export function reviewsOfPr(db: DatabaseSync, pr: number): ReviewRow[] {
+  return db.prepare(REVIEWS_OF_A_PR).all(pr) as unknown as ReviewRow[]
+}
+
+export function bodiesAdmittedBySourceForAPr(source: string): string {
+  return `
+  SELECT DISTINCT json_extract(payload, '$.bodySha') AS body FROM events
+  WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND json_extract(payload, '$.source') = '${source}' AND json_type(payload, '$.bodySha') = 'text'
+    AND card_id IN (SELECT card_id FROM events WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? AND card_id IS NOT NULL)
+`
+}
+
+export function bodiesAdmittedBySource(db: DatabaseSync, query: string, pr: number): Set<string> {
+  return new Set((db.prepare(query).all(pr) as { body: string }[]).map(row => row.body))
+}
+
+export const MERGE_RECORD = `
+  SELECT payload FROM events
+  WHERE pr = ? AND (type = '${MERGE_DONE}' OR (type = '${PR_CLOSED}' AND json_extract(payload, '$.merged') = 1))
+  ORDER BY CASE type WHEN '${MERGE_DONE}' THEN 0 ELSE 1 END, id LIMIT 1
+`
+
+const JSON_TRUE: readonly unknown[] = [1, true]
+
+export function mergeRecordOf(db: DatabaseSync, pr: number): EventData | null {
+  const ofThePr = events(db, { pr, types: [MERGE_DONE, PR_CLOSED], legacy: EITHER_JOURNAL })
+  const record = ofThePr.find(row => row.type === MERGE_DONE) ?? ofThePr.find(row => row.type === PR_CLOSED && JSON_TRUE.includes(row.data?.merged))
+  return record === undefined ? null : record.data ?? {}
 }
 
 const CARD_IDS_IN_EVENTS = `SELECT DISTINCT card_id FROM events WHERE card_id IS NOT NULL`
