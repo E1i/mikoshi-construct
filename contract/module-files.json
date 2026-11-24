@@ -1668,6 +1668,7 @@
     "scripts/ports/netwatch.ts",
     "scripts/ports/pr-status.ts",
     "scripts/ports/prepare-tree.ts",
+    "scripts/ports/process-listing.ts",
     "scripts/ports/process-table.ts",
     "scripts/ports/result.ts",
     "scripts/ports/review-planner.ts",

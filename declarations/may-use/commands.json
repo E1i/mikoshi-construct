@@ -16,6 +16,7 @@
     "core/verification.js"
   ],
   "may_use_factory_within": {
+    "attach": ["ports/process-listing.js"],
     "doctor": ["policy/decisions/decisions.js", "policy/live-decision.js", "policy/touch-scope.js"],
     "intake": ["policy/decisions/decisions.js", "policy/touch-scope.js"]
   }

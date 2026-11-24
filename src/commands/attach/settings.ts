@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { isDeepStrictEqual } from 'node:util'
+import { LISTING_COMMAND } from '../../../scripts/ports/process-listing.js'
 import { appendHookEntry, isJsonObject } from '../../materialize/strategies.js'
 import { engramFile } from '../../model/discovery.js'
 import { ATTACH_GUARD, ATTACH_WINDOW_HOOKS } from '../../presets/index.js'
@@ -70,9 +71,7 @@ export interface SandboxExclusion {
 
 export const RECORDED_BY_AN_EARLIER_ATTACH = 'node scripts/construct/browser-lab.mjs *'
 
-const PROCESS_TABLE_PROGRAM = 'ps'
-const PROCESS_TABLE_ARGUMENTS: readonly string[] = ['-Ao', 'pid=,ppid=,pgid=,lstart=,args=']
-export const PROCESS_TABLE_COMMAND = [PROCESS_TABLE_PROGRAM, ...PROCESS_TABLE_ARGUMENTS].join(' ')
+export const PROCESS_TABLE_COMMAND = LISTING_COMMAND
 
 export function excludedCommandsWritten(home: string = homedir()): string[] {
   return [...shippedDaemonCommands(home), PROCESS_TABLE_COMMAND]

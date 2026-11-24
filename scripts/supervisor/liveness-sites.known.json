@@ -12,6 +12,7 @@
   { "file": "scripts/nodes/review/reviewer.ts", "kind": "imported-judge" },
   { "file": "scripts/nodes/review/reviewer.ts", "kind": "kill" },
   { "file": "scripts/nodes/witness/witness-executor.ts", "kind": "kill" },
+  { "file": "scripts/ports/process-listing.ts", "kind": "ps" },
   { "file": "scripts/ports/process-table.ts", "kind": "ps" },
   { "file": "scripts/ports/worktree.ts", "kind": "live-session" },
   { "file": "scripts/quality/lock.ts", "kind": "kill" },
@@ -23,6 +24,5 @@
   { "file": "scripts/supervisor/run.ts", "kind": "imported-judge" },
   { "file": "scripts/window/exit.ts", "kind": "kill" },
   { "file": "scripts/window/loop.ts", "kind": "kill" },
-  { "file": "scripts/window/watch-store.ts", "kind": "imported-judge" },
-  { "file": "src/commands/attach/settings.ts", "kind": "ps" }
+  { "file": "scripts/window/watch-store.ts", "kind": "imported-judge" }
 ]

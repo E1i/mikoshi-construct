@@ -5915,6 +5915,18 @@
           "TreePreparer": "type TreePreparer = (tree: string) => void"
         }
       },
+      "scripts/ports/process-listing.ts": {
+        "constants": [
+          "LISTING_COLUMNS: readonly string[]",
+          "LISTING_COMMAND",
+          "LISTING_PROGRAM"
+        ],
+        "functions": {},
+        "language": "factory",
+        "reexports": [],
+        "technologyWords": [],
+        "types": {}
+      },
       "scripts/ports/process-table.ts": {
         "constants": [
           "CLIENT_CWDS_COMMAND",
