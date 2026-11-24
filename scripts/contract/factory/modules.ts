@@ -55,6 +55,15 @@ const SESSION_CONTRACT = [
   ...supervisor('bg', 'heartbeat', 'liveness-sites', 'scheduler', 'stamp', 'supervisor', 'workers'),
 ]
 
+const INTAKE_CONTRACT = [...within(factory('intake'), 'lane-json.ts', 'parking-reads.ts'), 'src/commands/intake/**']
+
+const PORTS_CONTRACT = [
+  ...within(factory('ports'), 'bus-read.ts', 'card-tree.ts', 'ci-reading.ts', 'client/claude/adapter.ts', 'client/index.ts', 'diff.ts', 'gh.ts', 'github-status.ts', 'github.ts', 'isolation.ts', 'main-merge.ts', 'meter.ts', 'netwatch.ts', 'prepare-tree.ts', 'process-table.ts', 'result.ts', 'review-planner.ts', 'serve-record.ts', 'session.ts', 'shift-settings.ts', 'snapshot.ts', 'task-start.ts', 'tree-publish.ts', 'witnesses.ts', 'worktree-home.ts', 'worktree.ts'),
+  ...core('bus-contract.ts'),
+]
+
+const WINDOW_CONTRACT = within(factory('window'), 'board.ts', 'eddies-measure.ts', 'handoff-check.ts', 'loop.ts', 'tab.ts', 'takeover-push-release.ts', 'watch.ts', 'window-heartbeat.ts', 'window-prs.ts', 'window-request-tools.ts', 'window-requests.ts', 'window-session-end.ts', 'window-subagents.ts')
+
 export const COMPOSITION_MODULE = factory('supervisor/composition.ts')
 
 export const COMPOSITION_ROOTS: readonly string[] = ['src/cli.ts', 'src/program.ts', factory('window/miko.ts'), factory('intake/intake.ts'), factory('supervisor/start.ts'), factory('supervisor/netwatch-root.ts'), factory('cli/task-start.ts'), COMPOSITION_MODULE]
@@ -67,18 +76,40 @@ export interface DrawnModule {
   status: ModuleStatus
 }
 
-const NODE_MAY_USE = ['bus', 'session', 'card-model', 'card-record', 'pr-record', 'plan', 'command-registry', 'ports-adapters', 'events']
-
-function node(name: string, alsoUses: readonly string[] = []): DrawnModule {
-  return { contract: [factory(`nodes/${name}/${name}-worker.ts`)], may_use: [...NODE_MAY_USE, ...alsoUses], status: 'decided' }
+export interface Layer {
+  name: string
+  modules: readonly string[]
+  ordered: boolean
 }
 
-function decided(may_use: readonly string[]): DrawnModule {
-  return { contract: OWNS_ARE_THE_CONTRACT, may_use, status: 'decided' }
+const NODES = ['node-answer', 'node-close', 'node-launch', 'node-merge', 'node-restart', 'node-review', 'node-update', 'node-witness']
+
+export const LAYERS: readonly Layer[] = [
+  { name: 'ports', modules: ['layout', 'ports-adapters', 'ports'], ordered: true },
+  { name: 'core', modules: ['events', 'command-registry', 'bus'], ordered: true },
+  { name: 'domain', modules: ['card-model', 'card-record', 'project', 'plan', 'order', 'decisions', 'session', 'model', 'quality', 'intake', 'rules', 'pr-record', 'factory-contract'], ordered: true },
+  { name: 'nodes', modules: NODES, ordered: false },
+  { name: 'surfaces', modules: ['ui', 'atlas', 'release', 'cost', 'window', 'board'], ordered: true },
+]
+
+export function belowInTheLayers(id: string, layers: readonly Layer[] = LAYERS): string[] {
+  const at = layers.findIndex(layer => layer.modules.includes(id))
+  if (at < 0)
+    throw new Error(`${id} is in no layer of the module graph`)
+  const { modules, ordered } = layers[at]!
+  return [...layers.slice(0, at).flatMap(layer => layer.modules), ...(ordered ? modules.slice(0, modules.indexOf(id)) : [])]
 }
 
-function undecided(may_use: readonly string[] = []): DrawnModule {
-  return { contract: [], may_use, status: 'undecided' }
+function node(name: string): DrawnModule {
+  return { contract: [factory(`nodes/${name}/${name}-worker.ts`)], may_use: belowInTheLayers(`node-${name}`), status: 'decided' }
+}
+
+function decided(id: string): DrawnModule {
+  return { contract: OWNS_ARE_THE_CONTRACT, may_use: belowInTheLayers(id), status: 'decided' }
+}
+
+function decidedWith(id: string, contract: readonly string[]): DrawnModule {
+  return { contract, may_use: belowInTheLayers(id), status: 'decided' }
 }
 
 const TOOL: DrawnModule = { contract: [], may_use: [], status: 'tool' }
@@ -87,44 +118,42 @@ export function isTool(spec: ModuleSpec | undefined): boolean {
   return spec?.status === 'tool'
 }
 
-const OWNER_COMMANDS_READER = ['command-registry']
-
 export const DRAWN: Readonly<Record<string, DrawnModule>> = {
-  'bus': { contract: BUS_CONTRACT, may_use: ['events'], status: 'decided' },
-  'session': { contract: SESSION_CONTRACT, may_use: ['bus', 'card-model', 'card-record', 'command-registry', 'ports-adapters', 'events', 'order'], status: 'decided' },
-  'card-model': decided([]),
-  'card-record': decided(['bus', 'card-model', 'command-registry', 'events', 'ports']),
-  'plan': decided(['card-model', 'card-record', 'events']),
-  'pr-record': decided(['bus', 'events']),
-  'command-registry': decided([]),
-  'ports-adapters': decided([]),
+  'bus': decidedWith('bus', BUS_CONTRACT),
+  'session': decidedWith('session', SESSION_CONTRACT),
+  'card-model': decided('card-model'),
+  'card-record': decided('card-record'),
+  'plan': decided('plan'),
+  'pr-record': decided('pr-record'),
+  'command-registry': decided('command-registry'),
+  'ports-adapters': decided('ports-adapters'),
   'node-answer': node('answer'),
   'node-close': node('close'),
-  'node-launch': node('launch', ['order']),
+  'node-launch': node('launch'),
   'node-merge': node('merge'),
   'node-restart': node('restart'),
   'node-review': node('review'),
   'node-update': node('update'),
   'node-witness': node('witness'),
-  'node-laws': undecided(),
-  'events': decided([]),
-  'order': decided(['layout', 'bus', 'events']),
-  'layout': undecided(),
-  'decisions': undecided(),
-  'rules': undecided(),
-  'quality': undecided(),
-  'intake': undecided(OWNER_COMMANDS_READER),
-  'cost': undecided(),
-  'ports': undecided(),
-  'window': undecided([...OWNER_COMMANDS_READER, 'order']),
-  'board': undecided(OWNER_COMMANDS_READER),
-  'release': undecided(),
-  'factory-contract': undecided(),
+  'node-laws': TOOL,
+  'events': decided('events'),
+  'order': decided('order'),
+  'layout': decided('layout'),
+  'decisions': decided('decisions'),
+  'rules': decided('rules'),
+  'quality': decided('quality'),
+  'intake': decidedWith('intake', INTAKE_CONTRACT),
+  'cost': decided('cost'),
+  'ports': decidedWith('ports', PORTS_CONTRACT),
+  'window': decidedWith('window', WINDOW_CONTRACT),
+  'board': decided('board'),
+  'release': decided('release'),
+  'factory-contract': decided('factory-contract'),
   'contract-generator': TOOL,
-  'project': undecided(OWNER_COMMANDS_READER),
-  'model': undecided(),
-  'atlas': undecided(OWNER_COMMANDS_READER),
-  'ui': undecided(OWNER_COMMANDS_READER),
+  'project': decided('project'),
+  'model': decided('model'),
+  'atlas': decided('atlas'),
+  'ui': decided('ui'),
 }
 
 export function drawnWithOwns(owns: Readonly<Record<string, readonly string[]>>, drawn: Readonly<Record<string, DrawnModule>> = DRAWN): Record<string, ModuleSpec> {

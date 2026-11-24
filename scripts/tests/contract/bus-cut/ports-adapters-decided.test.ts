@@ -19,6 +19,10 @@ const NODE_TO_ADAPTER = [
 
 const PORTS_GRANTED_BY_D778 = ['card-record']
 
+const NOT_ABOVE_ADAPTERS = ['layout', 'ports-adapters']
+
+const NOT_ABOVE_PORTS = [...NOT_ABOVE_ADAPTERS, 'ports']
+
 describe('ports-adapters is a decided module (D-503)', () => {
   it('a node imports a pure adapter without a violation', { timeout: REPO_RUN_TIMEOUT }, () => {
     const report = repositoryReport()
@@ -35,16 +39,19 @@ describe('ports-adapters is a decided module (D-503)', () => {
     const adapters = MODULE_GRAPH.modules['ports-adapters']
     const ports = MODULE_GRAPH.modules.ports
 
-    expect(adapters).toEqual({ owns: PURE_ADAPTERS, contract: PURE_ADAPTERS, may_use: [], status: 'decided' })
-    expect(ports?.status).toBe('undecided')
+    expect(adapters).toEqual({ owns: PURE_ADAPTERS, contract: PURE_ADAPTERS, may_use: ['layout'], status: 'decided' })
+    expect(ports?.status).toBe('decided')
+    expect(ports?.may_use).toEqual(['layout', 'ports-adapters'])
     expect(ports?.owns.filter(glob => glob.startsWith('!scripts/ports/')).map(glob => glob.slice(1)).sort()).toEqual([...PURE_ADAPTERS].sort())
   })
 
-  it('the decided importers of the adapters are granted ports-adapters and the only wide ports grant is the one D-778 gives card-record', () => {
-    const granted = Object.entries(MODULE_GRAPH.modules).filter(([, spec]) => spec.may_use.includes('ports-adapters')).map(([id]) => id).sort()
+  it('the decided importers of the adapters are granted ports-adapters, and card-record keeps the ports grant D-778 gives it', () => {
+    const granted = Object.entries(MODULE_GRAPH.modules).filter(([, spec]) => spec.may_use.includes('ports-adapters')).map(([id]) => id)
     const widePorts = Object.entries(MODULE_GRAPH.modules).filter(([, spec]) => spec.may_use.includes('ports')).map(([id]) => id)
 
-    expect(granted).toEqual(['node-answer', 'node-close', 'node-launch', 'node-merge', 'node-restart', 'node-review', 'node-update', 'node-witness', 'session'])
-    expect(widePorts).toEqual(PORTS_GRANTED_BY_D778)
+    expect(granted).toEqual(expect.arrayContaining(['node-answer', 'node-close', 'node-launch', 'node-merge', 'node-restart', 'node-review', 'node-update', 'node-witness', 'session']))
+    expect(widePorts).toEqual(expect.arrayContaining(PORTS_GRANTED_BY_D778))
+    expect(granted.filter(id => NOT_ABOVE_ADAPTERS.includes(id))).toEqual([])
+    expect(widePorts.filter(id => NOT_ABOVE_PORTS.includes(id))).toEqual([])
   })
 })
