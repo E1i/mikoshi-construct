@@ -1,5 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { GitHubPost } from '../../core/pr-status.js'
+import type { MergeTechnicalReason } from '../../nodes/merge/merge-executor.js'
+import type { AuthorityRule } from '../../policy/policy.js'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -17,6 +19,40 @@ const HEAD = 'b'.repeat(40)
 const NEXT = 'c'.repeat(40)
 const NOW = new Date('2026-10-20T08:00:00.000Z')
 const UNDER_FULL_SUITE_LOAD_MS = 5 * 60_000
+const MERGE_TECHNICAL_REASONS: Record<MergeTechnicalReason, boolean> = {
+  version_pr_open: false,
+  not_mergeable: false,
+  not_a_candidate: false,
+  held_for_owner: false,
+  outside_touches: false,
+  owner_question_open: false,
+  no_pass_on_head: false,
+  needs_update: false,
+  stale_head: true,
+  github_error: true,
+  ci_not_ready: true,
+  ci_red: true,
+  review_failed: true,
+  no_isolation: true,
+  wrong_base: true,
+  not_mine: true,
+  witness: true,
+  kept_by_push_policy: true,
+}
+const MERGE_AUTHORITY_RULES: Record<AuthorityRule, true> = {
+  version_pr: true,
+  no_shard_merge: true,
+  owner_merges_unread: true,
+  owner_by_risk: true,
+  reserved: true,
+  decision_unread: true,
+  owner_without_shard: true,
+  r1: true,
+  no_matrix_count_line: true,
+  unsandboxed_command: true,
+  ratchet_grows: true,
+  known_violations_grow: true,
+}
 
 beforeEach(() => {
   vi.stubEnv('BUS_RERUN', '')
@@ -315,9 +351,29 @@ describe('the PR status check the bus sets', () => {
     const { post, calls } = recorder()
     expect(setStepStatuses(db, post, () => NOW).map(({ step, state }) => [step, state])).toEqual([
       ['merge allowed by the owner, D-131', 'success'],
+      ['merge held: version_pr_open', 'error'],
       ['merge refused: owner_by_risk', 'failure'],
     ])
-    expect(calls.map(([endpoint]) => endpoint)).toEqual([`repos/{owner}/{repo}/statuses/${HEAD}`, `repos/{owner}/{repo}/statuses/${HEAD}`])
+    expect(calls.map(([endpoint]) => endpoint)).toEqual(Array.from({ length: 3 }).fill(`repos/{owner}/{repo}/statuses/${HEAD}`))
+  })
+
+  it('every merge denial reason sets a terminal status naming the reason', () => {
+    const denials = [
+      ...Object.entries(MERGE_TECHNICAL_REASONS).map(([reason, refused]) => ({ kind: 'technical', reason, ...(refused ? { refused } : {}) })),
+      ...Object.keys(MERGE_AUTHORITY_RULES).map(rule => ({ kind: 'authority', rule, refused: true })),
+    ]
+    for (const denial of denials) {
+      const db = bus()
+      pullRequest(db, HEAD, 'open')
+      step(db, 'task.leased', HEAD, { task_key: 'merge:1091:950', queue: 'merge', lease_gen: 1 })
+      step(db, 'policy.denied', HEAD, { command: 'merge', detail: 'x', ...denial }, 'policy')
+      const { post, calls } = recorder()
+      setStepStatuses(db, post, () => NOW)
+      const named = 'reason' in denial ? denial.reason : denial.rule
+      const expected = denial.refused === true ? { state: 'failure', description: `mikoshi: merge refused: ${named}` } : { state: 'error', description: `mikoshi: merge held: ${named}` }
+      expect(calls.at(-1), named).toEqual([`repos/{owner}/{repo}/statuses/${HEAD}`, { context: STATUS_CONTEXT, ...expected }])
+      db.close()
+    }
   })
 
   it('a recorded witness verdict sets a final status', () => {
