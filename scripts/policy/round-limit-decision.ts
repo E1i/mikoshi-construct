@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Card } from '../../src/card/grammar.js'
 import type { ParkedTask } from '../../src/card/parking.js'
+import type { EventRow, ReviewRow } from '../core/events-query.js'
 import type { Queue } from '../core/identifiers.js'
 import type { CleanUpdate } from '../nodes/update/update-done.js'
 import type { InForceDecision } from './decisions/index.js'
@@ -10,7 +11,8 @@ import { RISK_PREFIX, riskReading, SEAM_PREFIX, SLICE_DEPENDS, SLICE_PREFIX } fr
 import { witnessesOf } from '../../src/card/witness-fields.js'
 import { AMEND_SOURCE } from '../../src/commands/intake/admit.js'
 import { WITNESSES_HEADING } from '../../src/commands/intake/slice.js'
-import { CARD_ADMITTED, PR_OBSERVED, PR_OPENED, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, ROUND_EXTENDED, ROUND_MUTATIONS_PARKED, SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED } from '../core/events.js'
+import { all, bodiesAdmittedBySource, bodiesAdmittedBySourceForAPr, EITHER_JOURNAL, ofPr, reviewsOfPr } from '../core/events-query.js'
+import { PR_OBSERVED, PR_OPENED, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, ROUND_EXTENDED, ROUND_MUTATIONS_PARKED, SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED } from '../core/events.js'
 import { isFullSha, REVIEW_ROUNDS } from '../core/identifiers.js'
 import { INTAKE_ACTOR_PREFIX } from '../intake/admissions.js'
 import { cleanUpdatesOf } from '../nodes/update/update-done.js'
@@ -40,10 +42,12 @@ export function allowMergeOfPrAtHead(pr: number, head: string): string {
   return `${ALLOW_MERGE} PR #${pr} at ${head}`
 }
 
-const HEADS_OF_A_PR = `SELECT head FROM events WHERE type IN ('${PR_OPENED}', '${PR_OBSERVED}') AND legacy = 0 AND pr = ? AND head IS NOT NULL ORDER BY id`
+function headsOf(rows: readonly EventRow[]): string[] {
+  return rows.flatMap(row => row.head === null ? [] : [row.head])
+}
 
 export function observedHeadsOf(db: DatabaseSync, pr: number): string[] {
-  const heads = (db.prepare(HEADS_OF_A_PR).all(pr) as { head: string }[]).map(row => row.head)
+  const heads = headsOf(ofPr(db, pr, { types: [PR_OPENED, PR_OBSERVED] }))
   return heads.filter((head, at) => at === 0 || heads[at - 1] !== head)
 }
 
@@ -374,22 +378,11 @@ export function pushedAfterContinueFixes(decisions: readonly InForceDecision[], 
   return last !== -1 && sinceTheLastContinue.slice(0, last).every(each => !changesHeads.has(each))
 }
 
-export const REVIEWS_OF_A_PR = `
-  SELECT id, head, json_extract(payload, '$.verdict') AS verdict, json_extract(payload, '$.card_body') AS card_body FROM events
-  WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? ORDER BY id
-`
+export { REVIEWS_OF_A_PR } from '../core/events-query.js'
 
-export interface RoundReview {
-  head: string | null
-  verdict: unknown
-  card_body: unknown
-}
+export type RoundReview = ReviewRow
 
-export const BODIES_OWNER_AMENDED_FOR_A_PR = `
-  SELECT DISTINCT json_extract(payload, '$.bodySha') AS body FROM events
-  WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND json_extract(payload, '$.source') = '${AMEND_SOURCE}' AND json_type(payload, '$.bodySha') = 'text'
-    AND card_id IN (SELECT card_id FROM events WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? AND card_id IS NOT NULL)
-`
+export const BODIES_OWNER_AMENDED_FOR_A_PR = bodiesAdmittedBySourceForAPr(AMEND_SOURCE)
 
 function bodyThePreviousHeadWasFirstReviewedUnder(reviews: readonly RoundReview[], at: number): unknown {
   const earlier = reviews.slice(0, at).filter(review => review.head !== reviews[at]!.head)
@@ -417,49 +410,51 @@ export function roundsOf(reviews: readonly RoundReview[], ownerAmended: Readonly
 }
 
 export const REPEAT_FINDINGS = 'repeat_findings'
-const REPEAT_STOP_ON_A_HEAD = `SELECT 1 FROM events WHERE type = '${REVIEW_ROUNDS_SPENT}' AND legacy = 0 AND pr = ? AND head IS ? AND json_extract(payload, '$.state') = '${REPEAT_FINDINGS}' LIMIT 1`
+const JSON_TRUE: readonly unknown[] = [1, true]
 
-const A_WINDOW_DECISIONS_SHARD_LIVE_AT_THE_EXTENSION = `EXISTS (
-  SELECT 1 FROM events AS issued
-  WHERE issued.type = '${SHARD_ISSUED}' AND issued.id < extended.id AND json_extract(issued.payload, '$.window') = 1
-    AND json_extract(issued.payload, '$.scope') = '${DECISIONS_SCOPE}' AND json_extract(issued.payload, '$.until') > extended.ts
-    AND NOT EXISTS (
-      SELECT 1 FROM events AS ended WHERE ended.type IN ('${SHARD_REVOKED}', '${SHARD_EXPIRED}') AND ended.id < extended.id
-        AND json_extract(ended.payload, '$.id') = json_extract(issued.payload, '$.id')
-    )
-)`
-
-const GREEN_CI_ON_THE_EXTENDED_HEAD = `EXISTS (
-  SELECT 1 FROM events AS seen
-  WHERE seen.id = (SELECT max(latest.id) FROM events AS latest WHERE latest.type = '${PR_OBSERVED}' AND latest.legacy = 0 AND latest.pr = extended.pr AND latest.id < extended.id)
-    AND seen.head = extended.head AND json_extract(seen.payload, '$.ci') = 'green'
-)`
-
-const GRANTED_EXTENSIONS_OF_A_PR = `
-  SELECT json_extract(extended.payload, '$.findings') AS findings, json_extract(extended.payload, '$.previous') AS previous FROM events AS extended
-  WHERE extended.type = '${ROUND_EXTENDED}' AND extended.legacy = 0 AND extended.pr = ?
-    AND ${A_WINDOW_DECISIONS_SHARD_LIVE_AT_THE_EXTENSION} AND ${GREEN_CI_ON_THE_EXTENDED_HEAD}
-`
-
-function findingsIn(json: string | null): string[] {
-  const parsed: unknown = json === null ? [] : JSON.parse(json)
-  return Array.isArray(parsed) ? parsed.filter((finding): finding is string => typeof finding === 'string') : []
+function repeatStopOnHead(db: DatabaseSync, pr: number, head: string | null): boolean {
+  return ofPr(db, pr, { types: [REVIEW_ROUNDS_SPENT] }).some(row => row.head === head && row.data?.state === REPEAT_FINDINGS)
 }
 
-function raisesNewFindings(row: { findings: string | null, previous: string | null }): boolean {
-  const findings = findingsIn(row.findings)
-  return findings.length > 0 && !sameFindings(findings, findingsIn(row.previous))
+function shardEnded(ended: EventRow, issued: EventRow, extended: EventRow): boolean {
+  return ended.id < extended.id && (ended.type === SHARD_REVOKED || ended.type === SHARD_EXPIRED) && ended.data?.id === issued.data?.id
+}
+
+function windowDecisionsShardLiveAt(shards: readonly EventRow[], extended: EventRow): boolean {
+  const until = (issued: EventRow): unknown => issued.data?.until
+  return shards.some(issued => issued.type === SHARD_ISSUED && issued.id < extended.id && JSON_TRUE.includes(issued.data?.window)
+    && issued.data?.scope === DECISIONS_SCOPE && typeof until(issued) === 'string' && extended.ts !== null && (until(issued) as string) > extended.ts
+    && !shards.some(ended => shardEnded(ended, issued, extended)))
+}
+
+function greenCiOnTheExtendedHead(observed: readonly EventRow[], extended: EventRow): boolean {
+  const seen = observed.filter(row => row.id < extended.id).at(-1)
+  return seen !== undefined && extended.head !== null && seen.head === extended.head && seen.data?.ci === 'green'
+}
+
+function findingsIn(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((finding): finding is string => typeof finding === 'string') : []
+}
+
+function raisesNewFindings(extended: EventRow): boolean {
+  const findings = findingsIn(extended.data?.findings)
+  return findings.length > 0 && !sameFindings(findings, findingsIn(extended.data?.previous))
 }
 
 function extensionsOf(db: DatabaseSync, pr: number): number {
-  return (db.prepare(GRANTED_EXTENSIONS_OF_A_PR).all(pr) as { findings: string | null, previous: string | null }[]).filter(raisesNewFindings).length
+  const extensions = ofPr(db, pr, { types: [ROUND_EXTENDED] })
+  if (extensions.length === 0)
+    return 0
+  const shards = all(db, [SHARD_ISSUED, SHARD_REVOKED, SHARD_EXPIRED], { legacy: EITHER_JOURNAL })
+  const observed = ofPr(db, pr, { types: [PR_OBSERVED] })
+  return extensions.filter(extended => windowDecisionsShardLiveAt(shards, extended) && greenCiOnTheExtendedHead(observed, extended) && raisesNewFindings(extended)).length
 }
 
 export function changesRoundsOf(db: DatabaseSync, pr: number, next?: RoundReview): number {
-  const ownerAmended = new Set((db.prepare(BODIES_OWNER_AMENDED_FOR_A_PR).all(pr) as { body: string }[]).map(row => row.body))
-  const counted = [...db.prepare(REVIEWS_OF_A_PR).all(pr) as unknown as RoundReview[], ...(next === undefined ? [] : [next])]
+  const ownerAmended = bodiesAdmittedBySource(db, BODIES_OWNER_AMENDED_FOR_A_PR, pr)
+  const counted = [...reviewsOfPr(db, pr), ...(next === undefined ? [] : [next])]
   const rounds = roundsOf(counted, ownerAmended) - extensionsOf(db, pr)
-  return db.prepare(REPEAT_STOP_ON_A_HEAD).get(pr, counted.at(-1)?.head ?? null) === undefined ? rounds : Math.max(rounds, REVIEW_ROUNDS)
+  return repeatStopOnHead(db, pr, counted.at(-1)?.head ?? null) ? Math.max(rounds, REVIEW_ROUNDS) : rounds
 }
 
 const ROUND_LIMITED: readonly Queue[] = ['review', 'answer', 'merge']
@@ -468,10 +463,8 @@ export function outOfRounds(db: DatabaseSync, queue: Queue, pr: number | null): 
   return ROUND_LIMITED.includes(queue) && pr !== null && changesRoundsOf(db, pr) >= REVIEW_ROUNDS
 }
 
-const MUTATION_PARKINGS_OF_A_PR = `SELECT id, head FROM events WHERE type = '${ROUND_MUTATIONS_PARKED}' AND legacy = 0 AND pr = ? AND head IS NOT NULL ORDER BY id`
-
 function mutationParkingsOf(db: DatabaseSync, pr: number): MutationParking[] {
-  return db.prepare(MUTATION_PARKINGS_OF_A_PR).all(pr) as unknown as MutationParking[]
+  return ofPr(db, pr, { types: [ROUND_MUTATIONS_PARKED] }).flatMap(row => row.head === null ? [] : [{ id: row.id, head: row.head }])
 }
 
 export function mergeDecidedPastRoundLimit(db: DatabaseSync, ts: string, pr: number | null, head: string | null): number | null {
@@ -481,7 +474,9 @@ export function mergeDecidedPastRoundLimit(db: DatabaseSync, ts: string, pr: num
   return roundLimitDecisionOf(decisionsInForceAt(db, new Date(ts)), pr, head, cleanUpdates) ?? mutationsParkedGrantOf(mutationParkingsOf(db, pr), head, cleanUpdates)
 }
 
-const CHANGES_HEADS_OF_A_PR = `SELECT DISTINCT head FROM events WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? AND head IS NOT NULL AND json_extract(payload, '$.verdict') = 'changes'`
+function changesHeadsOf(db: DatabaseSync, pr: number): Set<string> {
+  return new Set(headsOf(ofPr(db, pr, { types: [REVIEW_RECORDED] }).filter(row => row.data?.verdict === 'changes')))
+}
 
 function continuedPastRoundLimit(db: DatabaseSync, ts: string, queue: Queue, pr: number, head: string | null): boolean {
   if (head === null)
@@ -490,8 +485,7 @@ function continuedPastRoundLimit(db: DatabaseSync, ts: string, queue: Queue, pr:
   const cleanUpdates = cleanUpdatesOf(db, pr)
   if (queue === 'answer')
     return continueFixesDecisionOf(decisions, pr, head, cleanUpdates) !== null
-  const changesHeads = new Set((db.prepare(CHANGES_HEADS_OF_A_PR).all(pr) as { head: string }[]).map(row => row.head))
-  return pushedAfterContinueFixes(decisions, pr, head, { observedHeads: observedHeadsOf(db, pr), cleanUpdates, changesHeads })
+  return pushedAfterContinueFixes(decisions, pr, head, { observedHeads: observedHeadsOf(db, pr), cleanUpdates, changesHeads: changesHeadsOf(db, pr) })
 }
 
 export function closedByRounds(db: DatabaseSync, ts: string, queue: Queue, pr: number | null, head: string | null): boolean {
