@@ -89,10 +89,10 @@ describe('module graph: a tool', () => {
 describe('the factory contract generator is a tool', () => {
   const RUNTIME_CONSUMED = ['scripts/contract/contours.ts']
 
-  it('the generator is a tool and the files with runtime importers stay undecided in factory-contract', () => {
+  it('the generator is a tool and the files with runtime importers are decided in factory-contract', () => {
     expect(MODULE_STATUSES).toContain('tool')
     expect(MODULE_GRAPH.modules['contract-generator']!.status).toBe('tool')
-    expect(MODULE_GRAPH.modules['factory-contract']).toMatchObject({ owns: RUNTIME_CONSUMED, contract: [], may_use: [], status: 'undecided' })
+    expect(MODULE_GRAPH.modules['factory-contract']).toMatchObject({ owns: RUNTIME_CONSUMED, contract: RUNTIME_CONSUMED, status: 'decided' })
     expect(ownerOf(MODULE_GRAPH, 'scripts/contract/factory/modules.ts')).toEqual(['contract-generator'])
     expect(ownerOf(MODULE_GRAPH, 'scripts/contract/module-graph/boundary.ts')).toEqual(['contract-generator'])
     expect(RUNTIME_CONSUMED.map(file => ownerOf(MODULE_GRAPH, file))).toEqual([['factory-contract']])
