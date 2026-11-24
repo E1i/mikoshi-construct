@@ -754,6 +754,7 @@
     "scripts/tests/contract/owner-reads/plan.test.ts",
     "scripts/tests/contract/owner-reads/pr.test.ts",
     "scripts/tests/contract/owner-reads/quality-intake.test.ts",
+    "scripts/tests/contract/owner-reads/queue-report.test.ts",
     "scripts/tests/contract/owner-reads/rules.test.ts",
     "scripts/tests/contract/permanent-suite-holds-on-any-base.test.ts",
     "scripts/tests/contract/plan-folds-contour.test.ts",

@@ -8,12 +8,12 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { HOLD_RECHECK_MS } from '../../core/card-hold.js'
+import { openDecisionWaitsOfCard } from '../../core/card-readings.js'
 import { appendEvent, openOwnerWait } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_OPENED, QUESTION_OWNER, SCOPE_WIDENED } from '../../core/events.js'
 import { OPEN_OWNER_STOP_OF_CARD } from '../../core/inbox.js'
 import { leaseNext } from '../../core/lease.js'
 import { all as pullRequests } from '../../core/pr-readings.js'
-import { openDecisionWaitsOf } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
 import { cardContract } from '../../intake/card-contract.js'
 import { AnswerExecutor, closeWaitOfAWidenStopTheAmendLifted } from '../../nodes/answer/answer-executor.js'
@@ -57,7 +57,7 @@ function openStopOf(made: MergeBench): number | null {
 
 function openDecisionWaits(made: MergeBench): string[] {
   reduce(made.db, 'pending', busProjections())
-  return (made.db.prepare(openDecisionWaitsOf('?')).all(CARD) as { id: string }[]).map(wait => wait.id)
+  return openDecisionWaitsOfCard(made.db, CARD).map(wait => wait.id)
 }
 
 async function refusedOutsideTouches(admitted = 'src/a.ts') {

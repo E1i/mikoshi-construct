@@ -70,8 +70,8 @@ function expectReplayKeepsOldReviews(copy: DatabaseSync): void {
   reduce(copy, 'pending', busProjections())
   expect(projectionDump(copy)).toBe(folded)
 
-  const ofAnOldInput = new Set(reviewKeysOfAnOldInput(copy))
-  const ofTheCurrentInputAgain = new Set(reviewKeysOfTheCurrentInputAgain(copy))
+  const ofAnOldInput = new Set(reviewKeysOfAnOldInput(copy, pullRequests(copy)))
+  const ofTheCurrentInputAgain = new Set(reviewKeysOfTheCurrentInputAgain(copy, pullRequests(copy)))
   deriveQueuesOfTheBus(copy, '2026-10-11T17:30:00.000Z')
   const after = new Map((copy.prepare(`SELECT task_key, state FROM tasks WHERE queue = 'review'`).all() as { task_key: string, state: string }[]).map(row => [row.task_key, row.state]))
   for (const old of oldReviews) {

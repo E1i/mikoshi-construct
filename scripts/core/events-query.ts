@@ -1,4 +1,4 @@
-import type { DatabaseSync, SQLInputValue } from 'node:sqlite'
+import type { DatabaseSync, SQLInputValue, SQLOutputValue } from 'node:sqlite'
 import type { StoredEvent } from './stored.js'
 import { CARD_ADMITTED, MERGE_DONE, PR_CLOSED, PR_STATUS_SET, REVIEW_RECORDED, SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, SHARD_USED } from './events.js'
 import { payloadOf, Rejection } from './stored.js'
@@ -16,6 +16,7 @@ export interface EventsQuery {
   ids?: readonly number[]
   keys?: readonly string[]
   ts?: string
+  from?: string
   actorPrefix?: string
   exceptActor?: string
   mentions?: string
@@ -90,6 +91,8 @@ function whereOf(query: EventsQuery): { clauses: string[], values: SQLInputValue
     add(`dedupe_key IN (${placeholders(query.keys)})`, ...query.keys)
   if (query.ts !== undefined)
     add('ts = ?', query.ts)
+  if (query.from !== undefined)
+    add('ts >= ?', query.from)
   if (query.actorPrefix !== undefined)
     add('substr(actor, 1, ?) = ?', query.actorPrefix.length, query.actorPrefix)
   if (query.exceptActor !== undefined)
@@ -115,6 +118,10 @@ export function latestOfCardWhere(alias: string, condition: string): string {
   return eventsSql({ columns: `${alias}.id AS id, ${alias}.payload AS payload`, alias, where: ` WHERE ${alias}.legacy = 0 AND ${alias}.card_id = ? AND ${condition}`, newestFirst: true, limit: ' LIMIT 1' })
 }
 
+export function eventsWhere(alias: string, columns: string, condition: string): string {
+  return eventsSql({ columns, alias, where: ` WHERE ${condition}`, newestFirst: false, limit: '' })
+}
+
 export function events(db: DatabaseSync, query: EventsQuery = {}): EventRow[] {
   if (query.types?.length === 0 || query.ids?.length === 0 || query.keys?.length === 0)
     return []
@@ -123,6 +130,10 @@ export function events(db: DatabaseSync, query: EventsQuery = {}): EventRow[] {
   const limit = query.limit === undefined ? '' : ` LIMIT ${Math.max(0, Math.trunc(query.limit))}`
   const sql = eventsSql({ columns: ROW_COLUMNS, where, newestFirst: query.newestFirst === true, limit })
   return (db.prepare(sql).all(...values) as unknown as RawRow[]).map(rowOf)
+}
+
+export function eventLog(db: DatabaseSync): Record<string, SQLOutputValue>[] {
+  return db.prepare(eventsSql({ columns: ROW_COLUMNS, where: '', newestFirst: false, limit: '' })).all()
 }
 
 export function all(db: DatabaseSync, types?: readonly string[], query: Omit<EventsQuery, 'types'> = {}): EventRow[] {

@@ -2,10 +2,12 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { BoundDecision } from '../../core/identifiers.js'
 import type { Candidate, CandidateRules, QuestionAnswered, QueuedTask, QueueSource } from '../../core/queue.js'
 import { CARD_BODIES } from '../../core/card-bodies.js'
+import { aDowngradeWaitOpenOn, latestQuestionStopsWithTheirCard } from '../../core/card-readings.js'
 import { CARD_HELD, CARD_RELEASED, CARD_STOPPED, POLICY_DENIED, WITNESS_RECORDED } from '../../core/events.js'
 import { MAIN_BRANCH } from '../../core/identifiers.js'
 import { A_RERUN_DUE } from '../../core/observations.js'
-import { A_LAUNCH_STOP_WITH_NO_PULL_REQUEST, aDowngradeWaitOpenOn, anOpenQuestion, answerCardBodyOf, candidateRows, cardBodyShaOf, everyRow, HELD_BY_A_DEPENDENCY, keyOf, latestQuestionStops, latestTurnOf, LEASED, MERGE_REFUSED, openCandidates, THE_WINDOW_AMENDS_THE_CARD_FIRST } from '../../core/queue.js'
+import { latestQuestionStops } from '../../core/pr-readings.js'
+import { A_LAUNCH_STOP_WITH_NO_PULL_REQUEST, anOpenQuestion, answerCardBodyOf, candidateRows, cardBodyShaOf, everyRow, HELD_BY_A_DEPENDENCY, keyOf, latestTurnOf, LEASED, MERGE_REFUSED, openCandidates, THE_WINDOW_AMENDS_THE_CARD_FIRST } from '../../core/queue.js'
 import { strandedAnswers } from './duties/index.js'
 
 export interface CardSqlParts {
@@ -37,6 +39,7 @@ function notAWindowCardOf(windowWho: string): (card: string) => string {
 
 function questionCandidates(notAWindowCard: (card: string) => string): string {
   return latestQuestionStops(
+    latestQuestionStopsWithTheirCard(latestTurnOf),
     `stop.card_id, coalesce(stop.pr, cards.pr) AS pr, coalesce(prs.head, stop.head) AS head, stop.id AS stop, ${cardBodyShaOf('stop.card_id')} AS card_body`,
     `NOT ${THE_WINDOW_AMENDS_THE_CARD_FIRST} AND NOT ${A_LAUNCH_STOP_WITH_NO_PULL_REQUEST} AND ${notAWindowCard('stop.card_id')} AND NOT ${aDowngradeWaitOpenOn('stop.card_id')}
     AND (prs.pr IS NULL OR NOT ${HELD_BY_A_DEPENDENCY})`,

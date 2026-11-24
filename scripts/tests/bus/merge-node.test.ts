@@ -12,7 +12,7 @@ import { prBodySha } from '../../core/identifiers.js'
 import { completeTask, leaseNext } from '../../core/lease.js'
 import { NODE_CURSORS } from '../../core/node.js'
 import { all as pullRequests } from '../../core/pr-readings.js'
-import { keyOf, MERGE_CANDIDATES, NEEDS_UPDATE, queueTask } from '../../core/queue.js'
+import { keyOf, mergeCandidateRows, NEEDS_UPDATE, queueTask } from '../../core/queue.js'
 import { mergeCandidates } from '../../nodes/merge/merge-candidates.js'
 import { MERGE_QUEUE, MergeExecutor } from '../../nodes/merge/merge-executor.js'
 import { MergeNode } from '../../nodes/merge/merge-worker.js'
@@ -191,7 +191,7 @@ describe('mergeCandidates', () => {
     spendReviewRounds(made, 970, sha('a'))
     made.tick()
 
-    expect(made.db.prepare(MERGE_CANDIDATES).all().map(row => row.pr)).toEqual([970])
+    expect(mergeCandidateRows(made.db, pullRequests(made.db), []).map(row => row.pr)).toEqual([970])
     expect(derivedKeys(made)).toEqual([])
     expect(mergeTasks(made, 970)).toBe(0)
   })

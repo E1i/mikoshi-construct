@@ -4,11 +4,11 @@ import type { AnswerSource, CardSession } from '../answer-source.js'
 import type { TreeMerge } from './tree.js'
 import { CLOSED_WAIT, OWNER_WAITS } from '../../../core/bus-readings.js'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../../../core/card-automaton.js'
-import { closedWaitIds, openOwnerWaits } from '../../../core/card-readings.js'
+import { closedWaitIds, openDecisionWaitsOfCard, openOwnerWaits } from '../../../core/card-readings.js'
 import { closeOwnerWait, inTransaction, openBusWait } from '../../../core/db.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_DROPPED, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, WITNESS_RECORDED } from '../../../core/events.js'
 import { mergedCards, ofPr as pullRequestOf } from '../../../core/pr-readings.js'
-import { openDecisionWaitsOf, unmergedDependenciesOf } from '../../../core/queue.js'
+import { unmergedDependenciesOf } from '../../../core/queue.js'
 import { cardDecisionCommand, decisionsInForceAt } from '../../../policy/shards.js'
 import { BusRead } from '../../../ports/bus-read.js'
 import { MAIN_BRANCH } from '../../../ports/snapshot.js'
@@ -197,7 +197,7 @@ export class AnswerSources {
       return
     const db = this.parts.db
     const prefix = emptyRoundWaitPrefix(lease.cardId)
-    const waits = (db.prepare(openDecisionWaitsOf('?')).all(lease.cardId) as { id: string, text: string }[]).filter(wait => wait.text.startsWith(prefix))
+    const waits = openDecisionWaitsOfCard(db, lease.cardId).filter(wait => wait.text.startsWith(prefix))
     const answers: Record<Exclude<EmptyRoundExit, 'closed'>, string> = {
       'decision': `lifted: a decision bound to card #${lease.cardId} was recorded`,
       'amend': `lifted: card #${lease.cardId} was amended`,
@@ -232,7 +232,7 @@ export class AnswerSources {
 
   private holdForTheOwner(lease: Lease, stop: AwaitedStop): void {
     const db = this.parts.db
-    if (db.prepare(openDecisionWaitsOf('?')).get(lease.cardId) !== undefined)
+    if (openDecisionWaitsOfCard(db, lease.cardId).length > 0)
       return
     const text = `${emptyRoundWaitPrefix(lease.cardId)}${stop.reason} stop left nothing, so no answer round runs until a decision bound to the card, an amend or a new head`
     const ask = { need: 'decision' as const, text, command: cardDecisionCommand(lease.cardId), card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) }

@@ -2,9 +2,9 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../../core/lease.js'
 import { DatabaseSync as Sqlite } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
-import { bodyAdmittedAfter, cardsAmong, openWaitEventsByCard, waitClosedBefore, waitStatesAmong } from '../../../core/card-readings.js'
+import { bodyAdmittedAfter, cardsAmong, cardsWithAState, openWaitEventsByCard, waitClosedBefore, waitStatesAmong } from '../../../core/card-readings.js'
 import { appendEvent, openBus } from '../../../core/db.js'
-import { all, byId, EITHER_JOURNAL, events, latest, latestOfCardWhere, ofCard, ofPr, perCard, unspentShardRows } from '../../../core/events-query.js'
+import { all, byId, EITHER_JOURNAL, eventLog, events, latest, latestOfCardWhere, ofCard, ofPr, perCard, unspentShardRows } from '../../../core/events-query.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_HELD, CARD_STARTED, CARD_STOPPED, DECISIONS_IMPORTED, DECISIONS_PROJECTED, PR_OBSERVED, QUESTION_AGENT, REVIEW_RECORDED, SHARD_ISSUED, TASK_COMPLETED, TASK_FAILED, TASK_RELEASED } from '../../../core/events.js'
 import { TREE_CARRIER_QUEUE } from '../../../core/lease.js'
 import { NETWATCH } from '../../../core/observations.js'
@@ -405,5 +405,39 @@ describe('the readings derive-queues takes from bus and card-record', () => {
     expect(cardsAmong(db, [CARD, OTHER_CARD, 1])).toEqual(new Map([[CARD, { state: 'closed', pr: 7 }], [OTHER_CARD, { state: null, pr: null }]]))
     expect(waitStatesAmong(db, ['Q1', 'Q2', 'Q9'])).toEqual(new Map([['Q1', 'open'], ['Q2', 'closed']]))
     expect(openWaitEventsByCard(db)).toEqual(new Map([[OTHER_CARD, [4]], [CARD, [5]]]))
+  })
+})
+
+const REPORT_TS = '2026-11-24T08:00:00.000Z'
+const REPORT_LATER = '2026-11-24T09:00:00.000Z'
+
+function tick(db: DatabaseSync, ts: string, key: string, legacy = false): void {
+  appendEvent(db, { ts, type: 'netwatch.tick', actor: 'netwatch', cardId: null, pr: null, head: null, dedupeKey: key, payload: { written: 1 }, legacy })
+}
+
+describe('the readings report and tasks take from bus and card-record', () => {
+  it('events-query answers the events from a moment on, as the report period reads them', () => {
+    const db = bus()
+    tick(db, REPORT_TS, 'early')
+    tick(db, REPORT_LATER, 'late')
+    tick(db, REPORT_LATER, 'legacy', true)
+    expect(events(db, { types: ['netwatch.tick'], from: REPORT_LATER }).map(row => row.dedupe_key)).toEqual(['late'])
+    expect(events(db, { types: ['netwatch.tick'], from: '' }).map(row => row.dedupe_key)).toEqual(['early', 'late'])
+    expect(events(db, { types: ['netwatch.tick'], since: 1, before: 3, legacy: EITHER_JOURNAL })).toHaveLength(1)
+  })
+
+  it('events-query answers the whole log as stored, legacy rows included, for the replay snapshot', () => {
+    const db = bus()
+    tick(db, REPORT_TS, 'early')
+    tick(db, REPORT_LATER, 'legacy', true)
+    expect(eventLog(db).map(row => [row.dedupe_key, row.legacy, typeof row.payload])).toEqual([['early', 0, 'string'], ['legacy', 1, 'string']])
+  })
+
+  it('card-record answers the cards that hold a state', () => {
+    const db = bus()
+    tick(db, REPORT_TS, 'first')
+    tick(db, REPORT_TS, 'second')
+    db.prepare(`INSERT INTO cards (card_id, state, pr, event_id) VALUES (7, 'closed', NULL, 1), (8, NULL, NULL, 2)`).run()
+    expect(cardsWithAState(db)).toEqual(new Map([[7, 'closed']]))
   })
 })

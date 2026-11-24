@@ -4,13 +4,15 @@ import { Buffer } from 'node:buffer'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { busProjections } from '../supervisor/composition.js'
+import { busProjections, pullRequests } from '../supervisor/composition.js'
 import { CARD_FOLDED_ON_APPEND } from './card-automaton.js'
 import { defaultBusPath, openBus } from './db.js'
-import { CHAIN_OBSERVED, REDUCED, REJECTED, TASK_ENQUEUED, TASK_SUPERSEDED } from './events.js'
+import { EITHER_JOURNAL, eventLog, events } from './events-query.js'
+import { BUS_PULSE, CHAIN_OBSERVED, REDUCED, REJECTED, TASK_ENQUEUED, TASK_SUPERSEDED } from './events.js'
 import { LEASE_FOLDS } from './lease.js'
 import { TASK_FOLDS } from './queue.js'
 import { PROJECTION_KEYS, projectionDump, reduce, reducedThrough } from './reducer.js'
+import * as tasks from './tasks-query.js'
 import { watermarkOf } from './watermark.js'
 
 export const PREFIX = '[bus:report] '
@@ -38,11 +40,11 @@ class Period {
   constructor(private readonly db: DatabaseSync, private readonly since: string) {}
 
   events(type: string): Row[] {
-    return this.db.prepare('SELECT id, card_id, pr, head, payload FROM events WHERE type = ? AND legacy = 0 AND ts >= ? ORDER BY id').all(type, this.since) as unknown as Row[]
+    return events(this.db, { types: [type], from: this.since })
   }
 
   ticksBetween(fromId: number, toId: number): number {
-    return Number((this.db.prepare(`SELECT count(*) AS n FROM events WHERE type = 'netwatch.tick' AND id > ? AND id < ?`).get(fromId, toId) as { n: number }).n)
+    return events(this.db, { types: [BUS_PULSE], since: fromId, before: toId, legacy: EITHER_JOURNAL }).length
   }
 }
 
@@ -59,7 +61,7 @@ function median(values: number[]): number {
 const PR_STATES = ['open', 'merged', 'closed'] as const
 
 function prsLine(db: DatabaseSync, period: Period): string {
-  const projected = (db.prepare('SELECT state FROM prs').all() as { state: string }[]).map(row => row.state)
+  const projected = pullRequests(db).map(row => row.state)
   const counts = PR_STATES.map(state => `${state} ${projected.filter(each => each === state).length}`).join(', ')
   const closings = period.events('pr.closed').map(row => payload(row).merged === true)
   return `${EXIT_CRITERIA.prs}: ${projected.length} in the projection (${counts}); `
@@ -93,13 +95,17 @@ function latencyLine(period: Period): string {
 }
 
 function supersededLine(db: DatabaseSync, period: Period): string {
-  const stale = db.prepare(`SELECT tasks.task_key FROM tasks JOIN prs ON prs.pr = tasks.pr WHERE tasks.state = 'queued' AND tasks.head != prs.head ORDER BY tasks.task_key`).all().map(row => String(row.task_key))
+  const heads = new Map(pullRequests(db).map(row => [row.pr, row.head]))
+  const stale = tasks.all(db).filter((task) => {
+    const head = task.pr === null ? undefined : heads.get(task.pr)
+    return task.state === 'queued' && typeof head === 'string' && task.head !== null && task.head !== head
+  }).map(task => task.task_key).sort()
   return `${EXIT_CRITERIA.superseded}: ${period.events(TASK_SUPERSEDED).length} superseded; still queued on an old head: ${stale.join(', ') || 'none'}`
 }
 
 function lagLine(period: Period): string {
   const reductions = period.events(REDUCED).map(row => ({ id: row.id, through: Number(payload(row).through_event_id) }))
-  const ticks = period.events('netwatch.tick').filter(row => Number(payload(row).written) > 0)
+  const ticks = period.events(BUS_PULSE).filter(row => Number(payload(row).written) > 0)
   const lags: number[] = []
   let unreduced = 0
   for (const tick of ticks) {
@@ -195,8 +201,7 @@ function oneSnapshot(db: DatabaseSync, projections: Projections): Snapshot {
     const liveDump = projectionDump(db)
     const through = replayCutOff(db)
     const incremental = incrementalCutOffs(db, through, projections)
-    const events = db.prepare(`SELECT ${ALL_EVENT_COLUMNS} FROM events ORDER BY id`).all()
-    return { liveDump, through, incremental, events }
+    return { liveDump, through, incremental, events: eventLog(db) }
   }
   finally {
     db.exec('COMMIT')
@@ -204,12 +209,12 @@ function oneSnapshot(db: DatabaseSync, projections: Projections): Snapshot {
 }
 
 export function replayDifferences(db: DatabaseSync, projections: Projections): { live: number, differences: ReplayDifference[] } {
-  const { liveDump, through, incremental, events } = oneSnapshot(db, projections)
+  const { liveDump, through, incremental, events: log } = oneSnapshot(db, projections)
   const live = Buffer.from(liveDump)
   const replay = openBus(':memory:')
   try {
     const insert = replay.prepare(`INSERT INTO events (${ALL_EVENT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    for (const row of events) {
+    for (const row of log) {
       if (Number(row.id) <= (incremental.get(String(row.type)) ?? through) || FOLDED_ON_APPEND.has(String(row.type)))
         insert.run(row.id, row.ts, row.type, row.actor, row.card_id, row.pr, row.head, row.dedupe_key, row.payload, row.legacy)
     }
@@ -253,7 +258,7 @@ export function shadowReading(db: DatabaseSync, projections: Projections, readSe
 
 export function shadowReport(db: DatabaseSync, since: string, projections: Projections): string[] {
   const period = new Period(db, since)
-  const ticks = period.events('netwatch.tick').length
+  const ticks = period.events(BUS_PULSE).length
   const skipped = period.events('netwatch.skipped').length
   return [
     `${since === '' ? 'over the whole log' : `since ${since}`}: ${ticks} ticks, ${skipped} skipped polls`,

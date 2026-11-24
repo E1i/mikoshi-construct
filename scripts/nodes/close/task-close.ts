@@ -24,8 +24,9 @@ import { ghostLines } from '../../core/journal.js'
 import { legacyHistory } from '../../core/legacy-history.js'
 import { pnpmCommand } from '../../core/owner-commands.js'
 import { ghInRepositoryOf } from '../../core/places.js'
+import { ofPr } from '../../core/pr-readings.js'
 import { openDatabase } from '../../core/sqlite.js'
-import { cardStartedLines, prCardOf } from '../../core/tasks.js'
+import { cardStartedLines } from '../../core/tasks.js'
 import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { archiveOf, decisionsNumbered, defaultDecisionsFile } from '../../policy/decisions/read.js'
 import { closeWitnessDenial } from '../../policy/policy.js'
@@ -182,6 +183,18 @@ export interface VerifiedClosing {
   verification: unknown
   actual: unknown
   event: number
+}
+
+export function prCardOf(busPath: string, pr: number): number | null {
+  if (!existsSync(busPath))
+    return null
+  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+  try {
+    return ofPr(db, pr)?.card_id ?? null
+  }
+  finally {
+    db.close()
+  }
 }
 
 export function cardVerifiedClosings(busPath: string): VerifiedClosing[] {

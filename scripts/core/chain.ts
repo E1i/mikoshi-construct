@@ -6,7 +6,7 @@ import { appendEvent, inTransaction } from './db.js'
 import { CHAIN_OBSERVED, CHAIN_RESTARTED } from './events.js'
 import { isFullSha } from './identifiers.js'
 import { payloadOf, reject } from './stored.js'
-import { markReduced, reduceProjection, watermarkOf } from './watermark.js'
+import { lastEventId, markReduced, reduceProjection, watermarkOf } from './watermark.js'
 
 export const CHAIN_STATES = ['running', 'waiting', 'stopped', 'fault'] as const
 
@@ -119,10 +119,6 @@ const CHAIN_FOLDS: Record<string, Fold> = {
 }
 
 export const CHAINS_PROJECTION: IncrementalProjection = { table: 'chains', folds: CHAIN_FOLDS }
-
-function lastEventId(db: DatabaseSync): number {
-  return Number((db.prepare('SELECT coalesce(max(id), 0) AS id FROM events').get() as { id: number }).id)
-}
 
 export function observeChain(db: DatabaseSync, ts: string, actor: string, chain: ChainObservation): boolean {
   const payload = { dir: chain.dir, parking: chain.parking, sha: chain.sha, pid: chain.pid, leader: chain.leader, boundary: chain.boundary, state: chain.state, ...(chain.waitingOn === undefined ? {} : { waitingOn: chain.waitingOn }) }

@@ -43,7 +43,7 @@ import { CHECK_MS, TICK_MS } from '../core/cadence.js'
 import { appendedOnCard, cardFolds, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION, cardsAnswered, CHANGES_CARD, CLOSED_CARD, DEFERRED_CARD, DROPPED_CARD, FALLEN_CARD, IN_REVIEW_CARD, MERGED_CARD, QUEUED_CARD, READY_CARD, RUNNING_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { admittedCardVersion, backfillPendingSliceParents, cardOfBranch } from '../core/card-bodies.js'
 import { cardDecisionReads, reviewedUnderTheCardDecision, reviewsTheCardDecisionReopens, withDecidedContinuations } from '../core/card-decisions.js'
-import { openOwnerWaits } from '../core/card-readings.js'
+import { openDecisionWaitsOfCard, openOwnerWaits } from '../core/card-readings.js'
 import { CHAINS_PROJECTION } from '../core/chain.js'
 import { defaultBusPath, openBus } from '../core/db.js'
 import { byId, EITHER_JOURNAL, events, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } from '../core/events-query.js'
@@ -159,8 +159,10 @@ export function planOfCard(db: DatabaseSync, cardId: number): PlanOfCard | null 
   return plans.ofCard(db, cardId)
 }
 
-export function busContract(): typeof BUS_CONTRACT {
-  return BUS_CONTRACT
+const COMPOSED_BUS_CONTRACT = { ...BUS_CONTRACT, openDecisionWaitsOfCard }
+
+export function busContract(): typeof COMPOSED_BUS_CONTRACT {
+  return COMPOSED_BUS_CONTRACT
 }
 
 export function cardTransitions(): CardTransitions {
@@ -360,6 +362,7 @@ export function openComposedBus(file: string = defaultBusPath()): DatabaseSync {
 
 export function candidateRules(): CandidateRules {
   return {
+    prs: prs.all,
     mayRequeue: mayRequeueUnderTheRounds,
     decisionsAt,
     mergeDecided: mergeDecidedPastRoundLimit,

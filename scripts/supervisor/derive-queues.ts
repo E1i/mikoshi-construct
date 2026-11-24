@@ -34,6 +34,8 @@ export interface QueuePr {
   card_id: number | null
   head: string | null
   state: string | null
+  ci: string | null
+  verdict_on_head: string | null
   body_sha: string | null
 }
 
@@ -409,7 +411,7 @@ export function dueAgainSource(prs: QueuePrs, candidates: (db: DatabaseSync, ts:
   return {
     requeue: (db, ts) => {
       const due = new Set(candidates(db, ts).map(keyOf))
-      return [...reviewsOfTheCurrentInputAgain(db), ...supersededMergesAndUpdatesOnTheCurrentHead(readingsOf(db, prs)).filter(row => due.has(row.task_key))]
+      return [...reviewsOfTheCurrentInputAgain(db, prs.all(db)), ...supersededMergesAndUpdatesOnTheCurrentHead(readingsOf(db, prs)).filter(row => due.has(row.task_key))]
     },
   }
 }
@@ -455,7 +457,7 @@ function supersededAndWithdrawn(db: DatabaseSync, ts: string, pass: QueuePass): 
   }
   for (const row of tasksOfAClosedPullRequest(db, readingsOf(db, pass.prs), ts))
     withdrawTask(db, ts, identityOfRow(row))
-  for (const row of [...reviewsOfAnOldInput(db), ...answersOfAnOldCardBody(db), ...mergesOfAnOldBody(readingsOf(db, pass.prs))]) {
+  for (const row of [...reviewsOfAnOldInput(db, pass.prs.all(db)), ...answersOfAnOldCardBody(db), ...mergesOfAnOldBody(readingsOf(db, pass.prs))]) {
     if (supersedeTask(db, ts, identityOfRow(row)))
       superseded.push(row.task_key)
   }

@@ -24,7 +24,7 @@ function busFile(): string {
 }
 
 function isEventRead(sql: string): boolean {
-  return /^SELECT id, ts, type\b.* FROM events ORDER BY id$/.test(sql)
+  return /^SELECT id, ts, type\b.* FROM events ORDER BY id(?: ASC)?$/.test(sql)
 }
 
 function appendingBeforeEventRead(db: DatabaseSync, append: () => void): DatabaseSync {
