@@ -49,7 +49,7 @@ import { byId, EITHER_JOURNAL, events, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } 
 import { CARD_DEFERRED, CARD_MOVED, CARD_PLANNED, CARD_STOPPED, CARD_UNPLANNED, DECISION_EXPIRED, DECISION_RECORDED, DECISIONS_IMPORTED, DECISIONS_PROJECTED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OBSERVED, PR_OPENED, RATCHET_THRESHOLD_SET, SLICE_PARENTS_BACKFILLED, TASK_ENQUEUED, TASK_REQUEUED } from '../core/events.js'
 import { FACTORY_WORKERS } from '../core/factory-paths.js'
 import { isFullSha, prOf } from '../core/identifiers.js'
-import { CARD_BLOCKS, OWNER, OWNER_QUESTION_ANSWERED, ownerQuestionAnswered, ownerQuestionAnsweredAt } from '../core/inbox.js'
+import { amendLeavesTheWidenOfTheWaitUncovered, CARD_BLOCKS, OWNER, OWNER_QUESTION_ANSWERED, ownerQuestionAnswered, ownerQuestionAnsweredAt } from '../core/inbox.js'
 import { foreignVersion, instanceOf, provenIdentity, recordWorkerIdentity, SWITCH_FLAG, UNHANDED } from '../core/node.js'
 import { orderDeclarationsAt, overlaps } from '../core/order/overlap.js'
 import { orderEventsFrom, prOrderTickAt } from '../core/order/turn.js'
@@ -236,7 +236,7 @@ export const DECISION_EVENT_READS: DecisionEventReads = {
 }
 
 function cardWaitParts(): CardWaitParts {
-  return { archiveSpentDecisions: db => archiveSpentDecisions(db, DECISION_EVENT_READS), prRow, prsOfCard: (db, cardId) => prs.ofCard(db, cardId).map(row => row.pr), cardFolds: busCardFolds() }
+  return { archiveSpentDecisions: db => archiveSpentDecisions(db, DECISION_EVENT_READS), prRow, prsOfCard: (db, cardId) => prs.ofCard(db, cardId).map(row => row.pr), cardFolds: busCardFolds(), amendLeavesTheWidenOfTheWaitUncovered }
 }
 
 const PR_FIELDS = { isFullSha, prOf }
