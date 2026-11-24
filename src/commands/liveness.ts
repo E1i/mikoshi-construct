@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
+import { latestOfEachType } from '../../scripts/core/bus-readings.js'
 import { WINDOW_HEARTBEAT } from '../../scripts/core/events.js'
 import { withReadOnlyBus } from './cost/bus.js'
 import { claudeProjectsDir, projectKey } from './cost/claude-code.js'
@@ -14,7 +15,6 @@ export interface FactoryLiveness {
 }
 
 const EVENTS_TABLE = `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'events'`
-const NEWEST_WINDOW_BEAT = `SELECT max(ts) AS ts FROM events WHERE type = '${WINDOW_HEARTBEAT}' AND legacy = 0`
 
 function newestWindowBeat(busFile: string): string | null {
   if (!existsSync(busFile))
@@ -22,7 +22,7 @@ function newestWindowBeat(busFile: string): string | null {
   return withReadOnlyBus(busFile, (db) => {
     if (db.prepare(EVENTS_TABLE).get() === undefined)
       return null
-    return (db.prepare(NEWEST_WINDOW_BEAT).get() as { ts: string | null }).ts
+    return latestOfEachType(db, [WINDOW_HEARTBEAT])[0]?.at ?? null
   })
 }
 

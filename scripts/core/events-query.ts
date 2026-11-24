@@ -1,7 +1,10 @@
 import type { DatabaseSync, SQLInputValue, SQLOutputValue } from 'node:sqlite'
 import type { StoredEvent } from './stored.js'
-import { CARD_ADMITTED, MERGE_DONE, PR_CLOSED, PR_STATUS_SET, REVIEW_RECORDED, SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, SHARD_USED } from './events.js'
+import { CARD_ADMITTED, MERGE_DONE, PR_CLOSED, PR_STATUS_SET, PROCESS_HEARTBEAT, REVIEW_RECORDED, SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, SHARD_USED } from './events.js'
 import { payloadOf, Rejection } from './stored.js'
+
+export type { Reading, ReadProjection, StaleProjection } from './bus-readings.js'
+export { readCurrent, staleProjection } from './bus-readings.js'
 
 export const EITHER_JOURNAL = 'either'
 
@@ -19,7 +22,12 @@ export interface EventsQuery {
   from?: string
   actorPrefix?: string
   exceptActor?: string
+  notBy?: string
   mentions?: string
+  withCard?: boolean
+  withPr?: boolean
+  valid?: boolean
+  present?: readonly string[]
   legacy?: boolean | typeof EITHER_JOURNAL
   newestFirst?: boolean
   limit?: number
@@ -97,8 +105,18 @@ function whereOf(query: EventsQuery): { clauses: string[], values: SQLInputValue
     add('substr(actor, 1, ?) = ?', query.actorPrefix.length, query.actorPrefix)
   if (query.exceptActor !== undefined)
     add('actor != ?', query.exceptActor)
+  if (query.notBy !== undefined)
+    add('actor IS NOT ?', query.notBy)
   if (query.mentions !== undefined)
     add('instr(payload, ?) > 0', query.mentions)
+  if (query.withCard === true)
+    add('card_id IS NOT NULL')
+  if (query.withPr === true)
+    add('pr IS NOT NULL')
+  if (query.valid === true || query.present !== undefined)
+    add('json_valid(payload)')
+  if (query.present !== undefined)
+    add(`NOT EXISTS (SELECT 1 FROM json_each(?) AS wanted WHERE json_extract(payload, '$.' || wanted.value) IS NULL)`, JSON.stringify(query.present))
   return { clauses, values }
 }
 
@@ -122,14 +140,88 @@ export function eventsWhere(alias: string, columns: string, condition: string): 
   return eventsSql({ columns, alias, where: ` WHERE ${condition}`, newestFirst: false, limit: '' })
 }
 
-export function events(db: DatabaseSync, query: EventsQuery = {}): EventRow[] {
-  if (query.types?.length === 0 || query.ids?.length === 0 || query.keys?.length === 0)
-    return []
+function matchesNothing(query: EventsQuery): boolean {
+  return query.types?.length === 0 || query.ids?.length === 0 || query.keys?.length === 0
+}
+
+function whereClause(query: EventsQuery): { where: string, values: SQLInputValue[] } {
   const { clauses, values } = whereOf(query)
-  const where = clauses.length === 0 ? '' : ` WHERE ${clauses.join(' AND ')}`
+  return { where: clauses.length === 0 ? '' : ` WHERE ${clauses.join(' AND ')}`, values }
+}
+
+export function events(db: DatabaseSync, query: EventsQuery = {}): EventRow[] {
+  if (matchesNothing(query))
+    return []
+  const { where, values } = whereClause(query)
   const limit = query.limit === undefined ? '' : ` LIMIT ${Math.max(0, Math.trunc(query.limit))}`
   const sql = eventsSql({ columns: ROW_COLUMNS, where, newestFirst: query.newestFirst === true, limit })
   return (db.prepare(sql).all(...values) as unknown as RawRow[]).map(rowOf)
+}
+
+export const BY_CARD = 'card_id'
+
+export type EventKey = typeof BY_CARD | `$.${string}`
+
+export function lastPer(db: DatabaseSync, key: EventKey, query: EventsQuery = {}): EventRow[] {
+  if (matchesNothing(query))
+    return []
+  const byCard = key === BY_CARD
+  const { where, values } = whereClause(byCard ? query : { ...query, valid: true })
+  const sql = eventsSql({ columns: ROW_COLUMNS, where: ` WHERE id IN (SELECT max(id) FROM events${where} GROUP BY ${byCard ? BY_CARD : 'json_extract(payload, ?)'})`, newestFirst: false, limit: '' })
+  return (db.prepare(sql).all(...values, ...byCard ? [] : [key]) as unknown as RawRow[]).map(rowOf)
+}
+
+const LAST_EVENT_ID = 'SELECT coalesce(max(id), 0) AS id FROM events'
+const LAST_EVENT_ID_UNINDEXED = 'SELECT coalesce(max(id), 0) AS id FROM events NOT INDEXED'
+const EVENT_ROWS_UNINDEXED = `SELECT ${ROW_COLUMNS} FROM events NOT INDEXED WHERE id <= ? ORDER BY id`
+const DUPLICATE_KEY_UNINDEXED = 'SELECT dedupe_key FROM events NOT INDEXED GROUP BY dedupe_key HAVING count(*) > 1 LIMIT 1'
+export const EVENTS_COUNT_UNINDEXED = 'SELECT count(*) FROM events NOT INDEXED;'
+const EVENTS_SINCE = 'SELECT count(*) AS events, count(DISTINCT card_id) AS cards FROM events WHERE ts >= ?'
+const WATERMARK_ROWS = 'SELECT projection, through_event_id FROM projection_watermarks ORDER BY projection'
+const PROCESS_BEATS = 'SELECT process, ts FROM heartbeats WHERE type = ? AND substr(process, 1, ?) = ? ORDER BY process'
+
+export function lastEventId(db: DatabaseSync): number {
+  return Number((db.prepare(LAST_EVENT_ID).get() as { id: number }).id)
+}
+
+export function lastEventIdUnindexed(db: DatabaseSync): number {
+  return Number((db.prepare(LAST_EVENT_ID_UNINDEXED).get() as { id: number }).id)
+}
+
+export function eventRowsUnindexed(db: DatabaseSync, throughId: number): Iterable<Record<string, SQLOutputValue>> {
+  return db.prepare(EVENT_ROWS_UNINDEXED).iterate(throughId)
+}
+
+export function duplicateKeyUnindexed(db: DatabaseSync): string | null {
+  return (db.prepare(DUPLICATE_KEY_UNINDEXED).get() as { dedupe_key: string } | undefined)?.dedupe_key ?? null
+}
+
+export interface EventsSince {
+  events: number
+  cards: number
+}
+
+export function eventsSince(db: DatabaseSync, ts: string): EventsSince {
+  const row = db.prepare(EVENTS_SINCE).get(ts) as { events: number, cards: number }
+  return { events: Number(row.events), cards: Number(row.cards) }
+}
+
+export interface WatermarkRow {
+  projection: string
+  through_event_id: number
+}
+
+export function watermarkRows(db: DatabaseSync): WatermarkRow[] {
+  return db.prepare(WATERMARK_ROWS).all() as unknown as WatermarkRow[]
+}
+
+export interface ProcessBeatRow {
+  process: string
+  ts: string
+}
+
+export function processBeats(db: DatabaseSync, prefix = ''): ProcessBeatRow[] {
+  return db.prepare(PROCESS_BEATS).all(PROCESS_HEARTBEAT, prefix.length, prefix) as unknown as ProcessBeatRow[]
 }
 
 export function eventLog(db: DatabaseSync): Record<string, SQLOutputValue>[] {

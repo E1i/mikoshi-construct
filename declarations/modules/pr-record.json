@@ -10,6 +10,7 @@
     "scripts/core/merge-event.ts",
     "scripts/core/pr-folds.ts",
     "scripts/core/pr-readings.ts",
+    "scripts/core/cards-nobody-holds.ts",
     "scripts/core/pr-status.ts"
   ],
   "exclude": [],

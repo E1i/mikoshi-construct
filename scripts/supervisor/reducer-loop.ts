@@ -4,6 +4,7 @@ import path from 'node:path'
 import { Worker } from 'node:worker_threads'
 import { builtEntry } from '../core/built-entry.js'
 import { appendEvent } from '../core/db.js'
+import { lastEventId } from '../core/events-query.js'
 import { REDUCED } from '../core/events.js'
 import { DATABASE_LOCKED, isDatabaseLocked } from '../core/node.js'
 import { reduce } from '../core/reducer.js'
@@ -18,10 +19,6 @@ export const REDUCER_THREAD = 'scripts/supervisor/reducer-thread.ts'
 
 export function reducerThreadBeside(module: string): URL {
   return builtEntry(new URL(`./${path.posix.basename(REDUCER_THREAD)}`, module), module).url
-}
-
-function lastEventId(db: DatabaseSync): number {
-  return Number((db.prepare('SELECT coalesce(max(id), 0) AS id FROM events').get() as { id: number }).id)
 }
 
 export class ReducerPass {
