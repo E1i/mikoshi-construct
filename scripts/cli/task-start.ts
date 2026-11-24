@@ -1,4 +1,4 @@
-import type { TaskStartDeps, TaskStartResult } from '../ports/task-start.js'
+import type { TaskStartDeps, TaskStartFlags, TaskStartResult } from '../ports/task-start.js'
 import { existsSync, realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -9,14 +9,19 @@ import { defaultBusPath } from '../core/db.js'
 import { pnpmCommand } from '../core/owner-commands.js'
 import { clientAdapter } from '../ports/client/index.js'
 import { windowModeOf } from '../ports/session.js'
-import { cardIdOf, gitIn, refuse, runTaskStart, WINDOW_LIMIT_SLOTS } from '../ports/task-start.js'
+import { flagValue, gitIn, refuse, runTaskStart, WINDOW_LIMIT_SLOTS } from '../ports/task-start.js'
 import { cardTree } from '../ports/worktree-home.js'
 import { pnpmInstall } from '../ports/worktree.js'
 import { slotsOf } from '../supervisor/scheduler.js'
 
+export const TASK_START_FLAGS: TaskStartFlags = { card: '--card', adopt: '--adopt', withoutIntake: '--without-intake' }
+
+const CARD_ID = /^#(\d+)\s/
+
 export function realDeps(): TaskStartDeps {
   return {
     contract: BUS_CONTRACT,
+    flags: TASK_START_FLAGS,
     cwd: process.cwd(),
     git: gitIn,
     install: pnpmInstall,
@@ -31,8 +36,12 @@ export function realDeps(): TaskStartDeps {
   }
 }
 
+function cardIdOf(argv: string[]): string {
+  return CARD_ID.exec(flagValue(argv, TASK_START_FLAGS.card).value ?? '')?.[1] ?? '<N>'
+}
+
 function refusedInWindow(argv: string[]): TaskStartResult {
-  return refuse(`a window does not start a task itself: the bus cuts its tree, ask it with ${pnpmCommand('bus:request', 'tree.cut', '--card', cardIdOf(argv))}; nothing written`)
+  return refuse(`a window does not start a task itself: the bus cuts its tree, ask it with ${pnpmCommand('bus:request', 'tree.cut', TASK_START_FLAGS.card, cardIdOf(argv))}; nothing written`)
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -42,5 +51,8 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     console.log(line)
   for (const line of result.stderr)
     console.error(line)
-  process.exitCode = result.exitCode
+  if (result.exitCode === 0)
+    process.exitCode = 0
+  else
+    process.exitCode = 1
 }

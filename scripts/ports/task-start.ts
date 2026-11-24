@@ -34,17 +34,20 @@ export const PREFIX = '[task:start] '
 const START_USAGE = `usage: ${pnpmCommand('task:start', '<branch> --card "<card>"')}`
 const WITHOUT_INTAKE_USAGE = '[--without-intake "<reason>"]'
 export const USAGE = `${START_USAGE} ${WITHOUT_INTAKE_USAGE}`
-const CARD_FLAG = '--card'
-const ADOPT_FLAG = '--adopt'
 export const ADOPT_USAGE = `${START_USAGE} --adopt <tree> ${WITHOUT_INTAKE_USAGE}`
-const WITHOUT_INTAKE_FLAG = '--without-intake'
 const SAFE_BRANCH = /^[^\s-]\S*$/
-const CARD_ID = /^#(\d+)\s/
 
 export type TaskStartContract = Parameters<typeof unsatisfiedDependencies>[0]
 
+export interface TaskStartFlags {
+  card: string
+  adopt: string
+  withoutIntake: string
+}
+
 export interface TaskStartDeps {
   contract: TaskStartContract
+  flags: TaskStartFlags
   cwd: string
   git: (cwd: string, args: string[]) => string
   install: (cwd: string, args: string[]) => void
@@ -71,7 +74,7 @@ export interface TaskStartResult {
 
 type Admission
   = | { kind: 'admitted', by: 'bus', event: string, ts: string, body?: BodyAdmission }
-    | { kind: 'admitted', by: 'waiver', reason: string }
+    | { kind: 'admitted', by: 'waiver', flag: string, reason: string }
     | { kind: 'refused', reason: string }
 
 const LATEST_ADMISSION = `SELECT ts, dedupe_key, payload FROM events WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND card_id = ? AND ${NOT_A_BACKFILL} ORDER BY id DESC LIMIT 1`
@@ -151,7 +154,7 @@ function admittedCardLine(db: DatabaseSync, id: number, latest: AdmittedRow): st
   return sources.map(source => stringField(source.payload, 'card')).find(line => line !== undefined)
 }
 
-function busAdmission(bus: string, card: Card): Admission | undefined {
+function busAdmission(bus: string, card: Card, withoutIntake: string): Admission | undefined {
   const db = openBus(bus)
   try {
     const admitted = db.prepare(LATEST_ADMISSION).get(card.id) as AdmittedRow | undefined
@@ -159,7 +162,7 @@ function busAdmission(bus: string, card: Card): Admission | undefined {
       return undefined
     const admittedLine = admittedCardLine(db, card.id, admitted)
     if (admittedLine !== undefined && !sameCard(admittedLine, card))
-      return { kind: 'refused', reason: `card #${card.id} was admitted in the bus ${bus} as a different card (${admittedLine}) by ${admitted.dedupe_key}: admit the current card through ${ADMIT_COMMAND}, or pass ${WITHOUT_INTAKE_FLAG} "<reason>" to record an exception` }
+      return { kind: 'refused', reason: `card #${card.id} was admitted in the bus ${bus} as a different card (${admittedLine}) by ${admitted.dedupe_key}: admit the current card through ${ADMIT_COMMAND}, or pass ${withoutIntake} "<reason>" to record an exception` }
     const body = cardBodyAdmissionOf(db, card.id)
     return { kind: 'admitted', by: 'bus', event: admitted.dedupe_key, ts: admitted.ts, ...(body === null ? {} : { body }) }
   }
@@ -168,10 +171,10 @@ function busAdmission(bus: string, card: Card): Admission | undefined {
   }
 }
 
-function admission(bus: string, card: Card, waiver: string | undefined): Admission {
+function admission(bus: string, card: Card, waiver: string | undefined, withoutIntake: string): Admission {
   if (waiver !== undefined)
-    return { kind: 'admitted', by: 'waiver', reason: waiver }
-  return busAdmission(bus, card) ?? { kind: 'refused', reason: `card #${card.id} has no ${CARD_ADMITTED} in the bus ${bus}: it was not admitted; admit it through ${ADMIT_COMMAND}, or pass ${WITHOUT_INTAKE_FLAG} "<reason>" to record an exception` }
+    return { kind: 'admitted', by: 'waiver', flag: withoutIntake, reason: waiver }
+  return busAdmission(bus, card, withoutIntake) ?? { kind: 'refused', reason: `card #${card.id} has no ${CARD_ADMITTED} in the bus ${bus}: it was not admitted; admit it through ${ADMIT_COMMAND}, or pass ${withoutIntake} "<reason>" to record an exception` }
 }
 
 function admissionRecord(admitted: Exclude<Admission, { kind: 'refused' }>): Record<string, string> {
@@ -179,7 +182,7 @@ function admissionRecord(admitted: Exclude<Admission, { kind: 'refused' }>): Rec
     case 'bus':
       return { by: 'bus', event: admitted.event, admitted: admitted.ts }
     case 'waiver':
-      return { by: 'waiver', flag: WITHOUT_INTAKE_FLAG, reason: admitted.reason }
+      return { by: 'waiver', flag: admitted.flag, reason: admitted.reason }
   }
 }
 
@@ -220,7 +223,7 @@ function firstLine(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).split('\n')[0]!
 }
 
-function flagValue(argv: string[], flag: string): { at: number, value: string | undefined } {
+export function flagValue(argv: string[], flag: string): { at: number, value: string | undefined } {
   const at = argv.indexOf(flag)
   return { at, value: at === -1 ? undefined : argv[at + 1] }
 }
@@ -229,10 +232,10 @@ function pathFlagMissing(flag: { at: number, value: string | undefined }): boole
   return flag.at !== -1 && (flag.value === undefined || flag.value.startsWith('-'))
 }
 
-function cardArgs(argv: string[]): { branch: string, card: string, waiver: string | undefined, adopt: string | undefined } | null {
-  const card = flagValue(argv, CARD_FLAG)
-  const waiver = flagValue(argv, WITHOUT_INTAKE_FLAG)
-  const adopt = flagValue(argv, ADOPT_FLAG)
+function cardArgs(argv: string[], flags: TaskStartFlags): { branch: string, card: string, waiver: string | undefined, adopt: string | undefined } | null {
+  const card = flagValue(argv, flags.card)
+  const waiver = flagValue(argv, flags.withoutIntake)
+  const adopt = flagValue(argv, flags.adopt)
   if (card.value === undefined || (waiver.at !== -1 && (waiver.value === undefined || waiver.value.trim() === '')))
     return null
   if (pathFlagMissing(adopt))
@@ -288,10 +291,10 @@ function admittedBody(recorded: string, text: string): boolean {
   return recorded === bodySha(text) || recorded === bodyShaWithoutTouches(text)
 }
 
-function editedPastAdmission(admitted: Exclude<Admission, { kind: 'refused' }>, cardFile: CardFile, card: Card): string | null {
+function editedPastAdmission(admitted: Exclude<Admission, { kind: 'refused' }>, cardFile: CardFile, card: Card, withoutIntake: string): string | null {
   if (admitted.by !== 'bus' || admitted.body === undefined || cardFile.kind !== 'parked' || admittedBody(admitted.body.bodySha, cardFile.text))
     return null
-  return `the card body of #${card.id} is not the body ${admitted.body.event} admitted (bodySha ${admitted.body.bodySha}, the bus holds ${bodySha(cardFile.text)}): it was edited past intake; admit it again through ${ADMIT_COMMAND}, or pass ${WITHOUT_INTAKE_FLAG} "<reason>" to record an exception; nothing written`
+  return `the card body of #${card.id} is not the body ${admitted.body.event} admitted (bodySha ${admitted.body.bodySha}, the bus holds ${bodySha(cardFile.text)}): it was edited past intake; admit it again through ${ADMIT_COMMAND}, or pass ${withoutIntake} "<reason>" to record an exception; nothing written`
 }
 
 function manualContract(card: Card, cardFile: CardFile): Contract | string {
@@ -330,16 +333,13 @@ function whoAndRisk(cardFile: CardFile): { who?: string, risk?: WrittenRisk } {
   return { who: cardFile.parked.who, ...(risk === undefined ? {} : { risk }) }
 }
 
-export function cardIdOf(argv: string[]): string {
-  return CARD_ID.exec(flagValue(argv, CARD_FLAG).value ?? '')?.[1] ?? '<N>'
-}
-
 export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: HandedContract): TaskStartResult {
-  if (!argv.includes(CARD_FLAG))
+  const { flags } = deps
+  if (!argv.includes(flags.card))
     return refuse(`a task starts from its card now: ${USAGE}; the id is the card's #<id>`)
-  const args = cardArgs(argv)
+  const args = cardArgs(argv, flags)
   if (args === null)
-    return refuse(argv.includes(ADOPT_FLAG) ? ADOPT_USAGE : USAGE)
+    return refuse(argv.includes(flags.adopt) ? ADOPT_USAGE : USAGE)
   const { branch } = args
   const parsed = parseCard(args.card, readMilestones(deps.cwd))
   if (parsed.kind === 'refused')
@@ -353,7 +353,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
     return refuse(`card #${id} depends on ${unsatisfied.map(dependency => `#${dependency}`).join(', ')}, which are not merged and not closed by a report; nothing written`)
   let admitted: Admission
   try {
-    admitted = admission(deps.bus, card, args.waiver)
+    admitted = admission(deps.bus, card, args.waiver, flags.withoutIntake)
   }
   catch (error) {
     return refuse(`the bus ${deps.bus} could not be read: ${firstLine(error)}; nothing written`)
@@ -364,7 +364,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
   const atLimit = windowAtLimit(deps, id, cardFile)
   if (atLimit !== null)
     return refuse(atLimit)
-  const edited = editedPastAdmission(admitted, cardFile, card)
+  const edited = editedPastAdmission(admitted, cardFile, card, flags.withoutIntake)
   if (edited !== null)
     return refuse(edited)
   const contract = handed === undefined ? manualContract(card, cardFile) : { CONTRACT: handed.CONTRACT, EXPECT: handed.EXPECT }

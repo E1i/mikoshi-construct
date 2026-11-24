@@ -2778,9 +2778,14 @@
       "entries": [
         "scripts/cli/task-start.ts"
       ],
-      "exits": [],
+      "exits": [
+        0,
+        1
+      ],
       "flags": [
-        "card"
+        "adopt",
+        "card",
+        "without-intake"
       ],
       "json": false,
       "unknownFlag": "not read"

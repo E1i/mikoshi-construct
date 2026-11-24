@@ -9,6 +9,7 @@ import { pathToFileURL } from 'node:url'
 import { afterEach, expect, it } from 'vitest'
 import { BOUNDARY_PREFIX, boundaryNumbers, boundaryReport } from '../../contract/module-graph/boundary.js'
 import { readRatchet } from '../../contract/ratchet.js'
+import { scriptSurfaces } from '../../contract/surface.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED } from '../../core/events.js'
 import { realStarterPorts } from '../../nodes/launch/launch-root.js'
@@ -104,6 +105,13 @@ it('the task start port takes the bus contract from its root, so ports->bus hold
   expect(readFileSync(PORT_FILE, 'utf8')).not.toContain('core/bus-adapter')
   expect(readRatchet(REPO_ROOT)[PORTS_TO_BUS]).toBe(PORTS_TO_BUS_WITHOUT_TASK_START)
   expect(boundaryNumbers(boundaryReport(REPO_ROOT).violations)[PORTS_TO_BUS]).toBe(PORTS_TO_BUS_WITHOUT_TASK_START)
+})
+
+it('the task start root reads the flags and exits the command takes, so its surface keeps adopt, card, without-intake and exits 0 and 1', () => {
+  const surface = scriptSurfaces(REPO_ROOT)['task:start']!
+  expect(surface.entries).toEqual(['scripts/cli/task-start.ts'])
+  expect(surface.flags).toEqual(['adopt', 'card', 'without-intake'])
+  expect(surface.exits).toEqual([0, 1])
 })
 
 it('task start in a window refuses at once and names tree.cut', () => {

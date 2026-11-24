@@ -5,7 +5,7 @@ import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { bodySha, bodyShaWithoutTouches } from '../../../src/commands/intake/confirm.js'
-import { realDeps } from '../../cli/task-start.js'
+import { realDeps, TASK_START_FLAGS } from '../../cli/task-start.js'
 import { BACKFILL_SOURCE } from '../../core/backfill-source.js'
 import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { appendEvent, openBus } from '../../core/db.js'
@@ -92,6 +92,7 @@ function newWorld(files: Record<string, string> = {}): World {
 function depsOf(world: World, session: string | null = SESSION, installs: [string, string[]][] = []): TaskStartDeps {
   return {
     contract: BUS_CONTRACT,
+    flags: TASK_START_FLAGS,
     cwd: world.repo,
     git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' }),
     install: (cwd, args) => {

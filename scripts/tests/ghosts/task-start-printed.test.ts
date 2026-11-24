@@ -3,6 +3,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { TASK_START_FLAGS } from '../../cli/task-start.js'
 import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { cardStartedLines } from '../../core/tasks.js'
 import { runTaskStart } from '../../ports/task-start.js'
@@ -26,6 +27,7 @@ function world(bodies?: Record<number, string>): { deps: TaskStartDeps, starts: 
     read,
     deps: {
       contract: BUS_CONTRACT,
+      flags: TASK_START_FLAGS,
       cwd: '/repo',
       git: (_cwd, args) => {
         if (args[0] === 'show-ref')

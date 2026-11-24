@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { printBoard } from '../../cli/board-page.js'
+import { TASK_START_FLAGS } from '../../cli/task-start.js'
 import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { openBus } from '../../core/db.js'
 import { HANDOFF_FIELDS } from '../../core/handoff-fields.js'
@@ -139,6 +140,7 @@ describe('the window commands under the sandbox law', () => {
     const calls: string[][] = []
     const result = runTaskStart(['feat/x', '--card', CARD, '--without-intake', 'sandbox law'], {
       contract: BUS_CONTRACT,
+      flags: TASK_START_FLAGS,
       cwd: world.repo,
       git: (cwd, args) => {
         calls.push(args)

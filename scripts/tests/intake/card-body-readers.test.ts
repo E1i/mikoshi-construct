@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { runAmend } from '../../../src/commands/intake/amend.js'
-import { realDeps } from '../../cli/task-start.js'
+import { realDeps, TASK_START_FLAGS } from '../../cli/task-start.js'
 import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { BUS_DB_VARIABLE } from '../../core/bus-path.js'
 import { admittedBodyText, busAdmittedBodies, cardBodyText } from '../../core/card-bodies.js'
@@ -87,6 +87,7 @@ function depsOf(w: World): TaskStartDeps {
   vi.stubEnv(BUS_DB_VARIABLE, w.bus)
   return {
     contract: BUS_CONTRACT,
+    flags: TASK_START_FLAGS,
     cwd: w.repo,
     git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' }),
     install: () => {},
