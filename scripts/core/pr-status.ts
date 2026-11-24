@@ -20,7 +20,7 @@ const HEAD_IS_GONE = 422
 
 const WITNESS_STEPS: Readonly<Partial<Record<string, [string, StatusState]>>> = { green: ['witness green', 'success'], unchecked: ['witness could not check', 'pending'] }
 
-export type StatusState = 'pending' | 'success' | 'failure'
+export type StatusState = 'pending' | 'success' | 'failure' | 'error'
 
 export interface StepStatus {
   pr: number
@@ -62,9 +62,14 @@ function stepAndState(event: StepEvent): [string, StatusState] | null {
     case CARD_STOPPED: return ['stopped', 'failure']
     case WITNESS_RECORDED: return WITNESS_STEPS[String(payload.verdict)] ?? ['witness red', 'failure']
     case DECISION_RECORDED: return [`merge allowed by the owner, D-${String(payload.decision_id)}`, 'success']
-    case POLICY_DENIED: return payload.command === 'merge' && payload.refused === true ? [`merge refused: ${String(payload.reason ?? payload.rule)}`, 'failure'] : null
+    case POLICY_DENIED: return payload.command === 'merge' ? mergeDenialStep(payload) : null
     default: return null
   }
+}
+
+function mergeDenialStep(payload: Record<string, unknown>): [string, StatusState] {
+  const reason = String(payload.reason ?? payload.rule)
+  return payload.refused === true ? [`merge refused: ${reason}`, 'failure'] : [`merge held: ${reason}`, 'error']
 }
 
 function headOf(event: StepEvent): string | null {
