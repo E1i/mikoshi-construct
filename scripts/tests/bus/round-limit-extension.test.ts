@@ -18,6 +18,7 @@ import { REVIEW_ROUNDS_SPENT, ReviewWorker } from '../../nodes/review/review-wor
 import { reviewOf, reviewPrompt } from '../../nodes/review/reviewer.js'
 import { cardWitnessesOf } from '../../policy/policy.js'
 import { changesRoundsOf, closedByRounds, limitRuleOf, mergeDecidedPastRoundLimit, mutationsParkedGrantOf, PARKED_MUTATION_PREFIX, RECUT_ACTOR, REPEAT_FINDINGS, sameFindings } from '../../policy/round-limit-decision.js'
+import { planOfCard } from '../../supervisor/composition.js'
 import { RECUT_GRACE_MS } from '../../supervisor/derive-queues.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from './github-fake.js'
@@ -77,7 +78,7 @@ function fixture(shard = true, text = cardText(CARD)): Fixture {
     return { status: 201, headers: {}, body: { number } }
   }
   const gitHub: GitHub = endpoint => endpoint.includes('/issues?') ? { status: 200, headers: {}, body: [{ number: Math.max(...bench.gitHub.pulls.keys()) }] } : bench.gitHub.client(endpoint)
-  const recutter = new RoundLimitRecutter({ db: bench.db, gitHub, post, patch: bench.gitHub.patch, clock: bench.clock.now, cardStates: () => busHeldCards(bench.db), closedWaits: () => closedWaitIds(bench.db) })
+  const recutter = new RoundLimitRecutter({ db: bench.db, gitHub, post, patch: bench.gitHub.patch, clock: bench.clock.now, cardStates: () => busHeldCards(bench.db), closedWaits: () => closedWaitIds(bench.db), planOfCard })
   const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, reviewer: async () => ({ verdict: 'changes', findings: reviewer.findings, ...(reviewer.survivingMutations === undefined ? {} : { survivingMutations: reviewer.survivingMutations }), session: 'reviewer-1' }), plan: () => fullReview('a fixed plan'), clock: bench.clock.now, session: 'worker-1', recut: { recut: (at) => {
     const outcome = recutter.recut(at)
     outcomes.push(outcome)

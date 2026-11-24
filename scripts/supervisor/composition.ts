@@ -21,6 +21,7 @@ import type { WitnessParts } from '../nodes/witness/witness-candidates.js'
 import type { DecisionEventReads, InForceDecision } from '../policy/decisions/index.js'
 import type { GitHub } from '../ports/github.js'
 import type { PlanParts } from '../window/plan-folds.js'
+import type { PlanOfCard } from '../window/plan-readings.js'
 import type { DetachedLaunch } from './bg.js'
 import type { CardWaitParts } from './card-waits.js'
 import type { DeadEndEvents, DeadEndParts } from './dead-ends.js'
@@ -81,6 +82,7 @@ import { requiredCheckOf } from '../ports/snapshot.js'
 import { launchDirOf } from '../ports/tree-publish.js'
 import { cardTreeRoots } from '../ports/worktree-home.js'
 import { foldPlanEvent } from '../window/plan-folds.js'
+import { plans } from '../window/plan-readings.js'
 import { releasingTakeoverOnPush } from '../window/takeover-push-release.js'
 import { PREFIX } from './bg.js'
 import { cardWaitFolds, closeWaitsOfAnEndedCard, closingTheWaitsOfAClosedPr, ownerWaitFolds } from './card-waits.js'
@@ -151,6 +153,10 @@ export function refusesForeignCard(db: DatabaseSync, lease: Lease, understands: 
 
 export function windowRequestBus(): typeof BUS_CONTRACT {
   return BUS_CONTRACT
+}
+
+export function planOfCard(db: DatabaseSync, cardId: number): PlanOfCard | null {
+  return plans.ofCard(db, cardId)
 }
 
 export function cardTransitions(): CardTransitions {

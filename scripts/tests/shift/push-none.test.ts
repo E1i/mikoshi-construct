@@ -16,7 +16,7 @@ import { PrCloser, RoundLimitRecutter } from '../../nodes/review/pr-close.js'
 import { ghNotePr } from '../../nodes/review/review-worker.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { GhBudgetWindow, ghPort } from '../../ports/gh.js'
-import { candidateRules, cardTransitions, requiredCheckAt, updateParts } from '../../supervisor/composition.js'
+import { candidateRules, cardTransitions, planOfCard, requiredCheckAt, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from '../bus/github-fake.js'
 import { benchOverlaps, liveBench, mainMovesPastEveryPr, mergeBench } from '../bus/merge-bench.js'
@@ -178,7 +178,7 @@ describe('push policy none', () => {
         writes.push(endpoint)
         throw new Error('written')
       }
-      const recutter = new RoundLimitRecutter({ db: made.db, gitHub: made.gitHub.client, post: record, patch: record, clock: made.clock.now, cardStates: () => busHeldCards(made.db), closedWaits: () => closedWaitIds(made.db), pushPolicy: () => policy })
+      const recutter = new RoundLimitRecutter({ db: made.db, gitHub: made.gitHub.client, post: record, patch: record, clock: made.clock.now, cardStates: () => busHeldCards(made.db), closedWaits: () => closedWaitIds(made.db), planOfCard, pushPolicy: () => policy })
       const outcome = recutter.recut({ cardId: 1080, pr: 980, head: sha('a'), findings: [] })
 
       expect(writes).toEqual([])

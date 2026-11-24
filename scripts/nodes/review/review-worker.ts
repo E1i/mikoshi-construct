@@ -49,7 +49,7 @@ import { realIsolationReader } from '../../ports/isolation.js'
 import { promptsDirOf } from '../../ports/prompt-store.js'
 import { plannerProcess, REVIEW_PLAN_FLAG } from '../../ports/review-planner.js'
 import { spawnReviewSession } from '../../ports/session.js'
-import { busProjections, candidateRules, cardSessionPulse, cardTransitions, nodeLiveness, nodeSupply, pullRequests, requiredCheckAt, withSlots } from '../../supervisor/composition.js'
+import { busProjections, candidateRules, cardSessionPulse, cardTransitions, nodeLiveness, nodeSupply, planOfCard, pullRequests, requiredCheckAt, withSlots } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { busUnstartedTails, gitReviewPlanner } from './depth-sources.js'
 import { recordForeignDivergences } from './divergence-alarm.js'
@@ -518,7 +518,7 @@ async function main(): Promise<number> {
     notePr: ghNotePr(cwd, PROCESS_GH_PORT, () => pushPolicyOf(readThroughPort, cwd)),
     isolation: realIsolationReader(process.env, cwd, reviewIsolationCommand()),
     keepDryRun: keepDryRun(trees.dir),
-    recut: db => new RoundLimitRecutter({ db, gitHub: ghApi(cwd), post: ghApiPost(cwd), patch: ghApiPatch(cwd), clock: () => new Date(), cardStates: () => busHeldCards(db), closedWaits: () => closedWaitIds(db), pushPolicy: () => pushPolicyOf(readThroughPort, cwd) }),
+    recut: db => new RoundLimitRecutter({ db, gitHub: ghApi(cwd), post: ghApiPost(cwd), patch: ghApiPatch(cwd), clock: () => new Date(), cardStates: () => busHeldCards(db), closedWaits: () => closedWaitIds(db), planOfCard, pushPolicy: () => pushPolicyOf(readThroughPort, cwd) }),
     tail: db => new BusTailIntake({ db, gitHub: ghApi(cwd), clock: () => new Date(), cardStates: () => busHeldCards(db), unstartedTails: busUnstartedTails(db) }),
   })
 }

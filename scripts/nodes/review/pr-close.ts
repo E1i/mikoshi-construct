@@ -20,7 +20,6 @@ import { leasedOn } from '../../core/lease.js'
 import { closedKey, reopeningOf } from '../../core/observations.js'
 import { CLOSE_RULES, closePolicy, RETRIED_CLOSE_RULES } from '../../policy/policy.js'
 import { parkPlanOf, RECUT_ACTOR, RECUT_SOURCE, recutCardCount, recutOf, recutPlanOf } from '../../policy/round-limit-decision.js'
-import { plans } from '../../window/plan-readings.js'
 
 export const CLOSE_COMMAND = 'close'
 export const CLOSE_ACTOR = 'worker:close-pr:bus'
@@ -62,6 +61,13 @@ export interface RoundLimitRecut {
 
 export type CardAdmit = (event: CardEvent) => boolean
 
+export interface CardPlan {
+  plan: string
+  state: string
+}
+
+export type PlanOfCardReading = (db: DatabaseSync, cardId: number) => CardPlan | null
+
 export interface RecutParts {
   db: DatabaseSync
   gitHub: GitHub
@@ -70,6 +76,7 @@ export interface RecutParts {
   clock: () => Date
   cardStates: CardStatesPort
   closedWaits: () => readonly string[]
+  planOfCard: PlanOfCardReading
   admit?: CardAdmit
   pushPolicy?: () => PushPolicy
 }
@@ -312,7 +319,7 @@ export class RoundLimitRecutter implements RoundLimitRecut {
   }
 
   private planIntoTheRelease(at: RoundLimitAt, added: readonly number[]): void {
-    const plan = plans.ofCard(this.parts.db, at.cardId)
+    const plan = this.parts.planOfCard(this.parts.db, at.cardId)
     if (plan?.state !== OPEN_PLAN)
       return
     const release = plan.plan

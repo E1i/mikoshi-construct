@@ -12,7 +12,7 @@ import { openBus } from '../scripts/core/db.js'
 import { reduce } from '../scripts/core/reducer.js'
 import { busHeldCards, busIntakePorts } from '../scripts/intake/intake.js'
 import { RoundLimitRecutter } from '../scripts/nodes/review/pr-close.js'
-import { busProjections } from '../scripts/supervisor/composition.js'
+import { busProjections, planOfCard } from '../scripts/supervisor/composition.js'
 import { requestFromWindow, runRequest, WindowRequests } from '../scripts/window/window-requests.js'
 import { parkingFileText, parseParkingFile } from '../src/card/parking.js'
 import { admittedRecord, runIntake } from '../src/commands/intake/index.js'
@@ -142,7 +142,7 @@ describe('a recorded foreign id does not move the row of the factory', () => {
     recordForeign(db, FOREIGN_ROW)
     const pull = { state: 'open', head: { ref: `feat/card-${B_MAX}` }, base: { ref: 'main' }, body: `#${B_MAX} a-card [implement/netwatch/M/cheap/auto] · depends — · blocks —` }
     const gitHub: GitHub = endpoint => answered(endpoint.includes('/issues?') ? [{ number: OWN_MAX_OUTSIDE }] : pull)
-    const recutter = new RoundLimitRecutter({ db, gitHub, post: () => answered({ number: OWN_NEXT + 1 }, 201), patch: () => answered({}), clock: () => NOW, cardStates: () => busHeldCards(db), closedWaits: () => closedWaitIds(db) })
+    const recutter = new RoundLimitRecutter({ db, gitHub, post: () => answered({ number: OWN_NEXT + 1 }, 201), patch: () => answered({}), clock: () => NOW, cardStates: () => busHeldCards(db), closedWaits: () => closedWaitIds(db), planOfCard })
 
     const outcome = recutter.recut({ cardId: B_MAX, pr: B_PR, head: 'b'.repeat(40), findings: [`${GOAL_FILE}:planLine prints the wrong count`] })
 
@@ -217,7 +217,7 @@ describe('a card number comes from the factory it is admitted into', () => {
     const gitHub: GitHub = endpoint => answered(endpoint.includes('/issues?') ? [{ number: B_PR }] : pull)
     const post: GitHubPut = () => answered({ number: B_PR + 1 }, 201)
     const patch: GitHubPut = () => answered({})
-    const recutter = new RoundLimitRecutter({ db: b, gitHub, post, patch, clock: () => NOW, cardStates: () => busHeldCards(b), closedWaits: () => closedWaitIds(b) })
+    const recutter = new RoundLimitRecutter({ db: b, gitHub, post, patch, clock: () => NOW, cardStates: () => busHeldCards(b), closedWaits: () => closedWaitIds(b), planOfCard })
 
     const outcome = recutter.recut({ cardId: B_MAX, pr: B_PR, head: 'b'.repeat(40), findings: [`${GOAL_FILE}:planLine prints the wrong count`] })
 
