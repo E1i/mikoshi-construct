@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url'
 import { catalogIsEmpty, changedPaths, changesTheCatalog, MAIN_TIP, rebuildCatalogAt } from '../../cli/check-catalog.js'
 import { appendEvent, defaultBusPath } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
+import { EITHER_JOURNAL, events } from '../../core/events-query.js'
 import { BOARD_ALARM, CARD_ADMITTED, DECISION_RECORDED, MERGE_DONE, PR_CLOSED, PR_GROUPS, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED } from '../../core/events.js'
 import { Node, NodeRefused, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
@@ -70,8 +71,8 @@ export class NoLiveVerdict extends NodeRefused {
 }
 
 export function firstLiveVerdict(db: DatabaseSync): number | null {
-  const row = db.prepare(`SELECT id FROM events WHERE type = ? AND actor LIKE ? AND actor != ? ORDER BY id LIMIT 1`).get(REVIEW_RECORDED, `${LIVE_REVIEWER}%`, DRY_RUN_ACTOR) as { id: number } | undefined
-  return row === undefined ? null : Number(row.id)
+  const [first] = events(db, { types: [REVIEW_RECORDED], actorPrefix: LIVE_REVIEWER, exceptActor: DRY_RUN_ACTOR, legacy: EITHER_JOURNAL, limit: 1 })
+  return first === undefined ? null : first.id
 }
 
 function scopeOf(event: StoredEvent): Scope | undefined {

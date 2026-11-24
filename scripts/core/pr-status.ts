@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { appendEvent } from './db.js'
+import { events, lastStatusSetOnHead } from './events-query.js'
 import { CARD_STOPPED, COMMAND_EXECUTED, DECISION_RECORDED, MERGE_DONE, POLICY_DENIED, PR_OPENED, PR_STATUS_REFUSED, PR_STATUS_SET, REVIEW_RECORDED, TASK_LEASED, WITNESS_RECORDED } from './events.js'
 import { moveCursor, openCursor } from './node.js'
 
@@ -112,28 +113,28 @@ export function statusFields(status: StepStatus): Record<string, string> {
   return { state: status.state, context: STATUS_CONTEXT, description: `${STATUS_CONTEXT}: ${status.step}` }
 }
 
-const NEXT_STEP_AFTER = `SELECT id, type, pr, head, payload FROM events WHERE legacy = 0 AND id > ? AND type IN (${STEP_EVENTS.map(() => '?').join(', ')}) ORDER BY id LIMIT 1`
 const OPEN_ON_HEAD = `SELECT 1 FROM prs WHERE pr = ? AND head = ? AND state = 'open'`
-export const LAST_STATUS_SET_ON_HEAD = `SELECT json_extract(payload, '$.step') AS step, json_extract(payload, '$.state') AS state FROM events WHERE type = '${PR_STATUS_SET}' AND legacy = 0 AND pr = ? AND head = ? ORDER BY id DESC LIMIT 1`
-const WITNESS_VERDICT_BEFORE = `SELECT 1 FROM events WHERE type = '${WITNESS_RECORDED}' AND legacy = 0 AND pr = ? AND head = ? AND id < ? LIMIT 1`
+
+function nextStepAfter(db: DatabaseSync, id: number): StepEvent | undefined {
+  return events(db, { since: id, types: STEP_EVENTS, limit: 1 })[0]
+}
 
 function isOnOpenHead(db: DatabaseSync, status: StepStatus): boolean {
   return db.prepare(OPEN_ON_HEAD).get(status.pr, status.head) !== undefined
 }
 
 function isAlreadySet(db: DatabaseSync, status: StepStatus): boolean {
-  const last = db.prepare(LAST_STATUS_SET_ON_HEAD).get(status.pr, status.head) as { step: unknown, state: unknown } | undefined
+  const last = lastStatusSetOnHead(db, status.pr, status.head)
   return last?.step === status.step && last.state === status.state
 }
 
 function isWitnessLeaseAfterItsVerdict(db: DatabaseSync, event: StepEvent, status: StepStatus): boolean {
-  return event.type === TASK_LEASED && status.step === 'witness' && db.prepare(WITNESS_VERDICT_BEFORE).get(status.pr, status.head, event.id) !== undefined
+  return event.type === TASK_LEASED && status.step === 'witness' && events(db, { types: [WITNESS_RECORDED], pr: status.pr, head: status.head, before: event.id, limit: 1 }).length > 0
 }
 
 export function setStepStatuses(db: DatabaseSync, post: GitHubPost, now: () => Date = () => new Date(), batch = STATUS_BATCH): StepStatus[] {
   const set: StepStatus[] = []
-  const nextStep = db.prepare(NEXT_STEP_AFTER)
-  for (let event = nextStep.get(openCursor(db, STATUS_CURSOR), ...STEP_EVENTS) as StepEvent | undefined; event !== undefined && set.length < batch; event = nextStep.get(event.id, ...STEP_EVENTS) as StepEvent | undefined) {
+  for (let event = nextStepAfter(db, openCursor(db, STATUS_CURSOR)); event !== undefined && set.length < batch; event = nextStepAfter(db, event.id)) {
     const status = stepStatusOf(withPrHead(db, event))
     if (status === null || !isOnOpenHead(db, status) || isWitnessLeaseAfterItsVerdict(db, event, status) || isAlreadySet(db, status)) {
       moveCursor(db, STATUS_CURSOR, event.id)

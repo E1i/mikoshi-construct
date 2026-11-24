@@ -3,6 +3,7 @@ import type { Lease } from '../../core/lease.js'
 import type { ReviewStatus, StatusPublisher } from '../../ports/github-status.js'
 import type { GitHub } from '../../ports/github.js'
 import type { NO_ISOLATION } from '../../ports/isolation.js'
+import { EITHER_JOURNAL, events } from '../../core/events-query.js'
 import { CARD_ANSWERED, CARD_STARTED } from '../../core/events.js'
 import { assertHeld } from '../../core/lease.js'
 import { REVIEW_STATUS_CONTEXT } from '../../ports/github-status.js'
@@ -26,6 +27,7 @@ export interface VerdictRequest {
 
 const REPO = 'repos/{owner}/{repo}'
 const STATUS_STATE: Record<VerdictWord, ReviewStatus['state']> = { pass: 'success', changes: 'failure' }
+const AUTHOR_TURNS: readonly string[] = [CARD_STARTED, CARD_ANSWERED]
 
 interface Pull {
   state?: string
@@ -38,7 +40,7 @@ function sessionsIn(payload: Record<string, unknown>): string[] {
 }
 
 export function authorSessions(db: DatabaseSync, cardId: number): Set<string> {
-  const rows = db.prepare(`SELECT payload FROM events WHERE card_id = ? AND (type IN ('${CARD_STARTED}', '${CARD_ANSWERED}') OR legacy = 1) ORDER BY id`).all(cardId)
+  const rows = events(db, { card: cardId, legacy: EITHER_JOURNAL }).filter(row => row.legacy || AUTHOR_TURNS.includes(row.type))
   const sessions = new Set<string>()
   for (const row of rows) {
     try {

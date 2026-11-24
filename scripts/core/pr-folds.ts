@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Fold, StoredEvent } from './stored.js'
+import { cardOfPr, linkedPrOf } from './card-readings.js'
 import { MAIN_ADVANCED, PR_CLOSED, PR_OBSERVED, PR_OPENED } from './events.js'
 import { payloadOf, reject } from './stored.js'
 
@@ -19,11 +20,6 @@ export interface PrRow {
   draft: number | null
   event_id: number
   body_sha: string | null
-}
-
-interface CardRow {
-  card_id: number
-  pr: number | null
 }
 
 export interface CardTransitions {
@@ -64,16 +60,8 @@ export function prRow(db: DatabaseSync, pr: number): PrRow | undefined {
   return db.prepare('SELECT * FROM prs WHERE pr = ?').get(pr) as PrRow | undefined
 }
 
-function cardRow(db: DatabaseSync, cardId: number): CardRow | undefined {
-  return db.prepare('SELECT card_id, pr FROM cards WHERE card_id = ?').get(cardId) as CardRow | undefined
-}
-
-function cardOfPr(db: DatabaseSync, pr: number): number | null {
-  return (db.prepare('SELECT card_id FROM cards WHERE pr = ?').get(pr) as { card_id: number } | undefined)?.card_id ?? null
-}
-
 export function linkRefusal(db: DatabaseSync, cardId: number): string | null {
-  const linkedPr = cardRow(db, cardId)?.pr ?? null
+  const linkedPr = linkedPrOf(db, cardId)
   if (linkedPr === null)
     return null
   const linked = prRow(db, linkedPr)
