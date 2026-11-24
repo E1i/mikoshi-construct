@@ -12,7 +12,7 @@ import type { UpdateSourceParts } from './update-candidates.js'
 import { Buffer } from 'node:buffer'
 import { NOT_MINE, notMine } from '../../core/card-automaton.js'
 import { pathsOutsideTheBody } from '../../core/card-bodies.js'
-import { closedWaitIds } from '../../core/card-readings.js'
+import { closedWaitIds, closedWaitTextsOf } from '../../core/card-readings.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { CI_RERUN_REQUESTED, COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, QUESTION_OWNER, REVIEW_RECORDED, UPDATE_DONE } from '../../core/events.js'
@@ -22,6 +22,7 @@ import { ofPr } from '../../core/pr-readings.js'
 import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
 import { COMPLETED, keyOf, MERGE_REFUSED } from '../../core/queue.js'
 import { cardContract } from '../../intake/card-contract.js'
+import { growthAskedBefore } from '../../policy/derived-files.js'
 import { rerunFailedJobsEndpoint, runsOnHeadEndpoint } from '../../ports/ci-reading.js'
 import { REVIEW_STATUS_CONTEXT } from '../../ports/github-status.js'
 import { conflictingCardOf } from '../../ports/main-merge.js'
@@ -285,7 +286,7 @@ export class UpdateExecutor {
       return this.denied(lease, technical('github_error', messageOf(error)))
     }
     const hold = this.parts.derived(lease.cardId, card, files)
-    if (hold === null)
+    if (hold === null || (hold.kind === 'grown' && growthAskedBefore(hold.detail, closedWaitTextsOf(this.parts.db, lease.cardId))))
       return null
     const detail = `pull request #${lease.pr} at ${lease.head}: ${hold.detail}`
     return hold.kind === 'refused' ? this.denied(lease, technical(DERIVED_REFUSED, detail)) : this.grownForTheOwner(lease, detail)

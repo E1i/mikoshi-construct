@@ -338,7 +338,6 @@ class KeptBoardThread {
   private failures = 0
   private startedMs = 0
   private restart: ReturnType<typeof setTimeout> | null = null
-  private stopped = false
 
   constructor(private readonly busPath: string, private readonly periodMs: number, private readonly spawn: BoardTimerSpawn | undefined, private readonly down: (down: BoardThreadDown) => void, private readonly now: () => number) {}
 
@@ -350,7 +349,6 @@ class KeptBoardThread {
   }
 
   async stop(): Promise<void> {
-    this.stopped = true
     if (this.restart !== null)
       clearTimeout(this.restart)
     this.restart = null
@@ -361,7 +359,7 @@ class KeptBoardThread {
   }
 
   private ended(thread: StartedBoardTimer, cause: string): void {
-    if (this.stopped || thread !== this.thread)
+    if (thread !== this.thread)
       return
     this.thread = null
     this.failures = this.now() - this.startedMs >= this.periodMs * PERIODS_THAT_CLEAR_THE_FAILURES ? 1 : this.failures + 1
@@ -375,8 +373,7 @@ class KeptBoardThread {
     }
     this.restart = setTimeout(() => {
       this.restart = null
-      if (!this.stopped)
-        this.start()
+      this.start()
     }, delay)
   }
 }
