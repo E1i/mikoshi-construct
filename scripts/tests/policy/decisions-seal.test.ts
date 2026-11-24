@@ -12,7 +12,7 @@ import { reduce } from '../../core/reducer.js'
 import { parseDecisions, projectDecisions } from '../../policy/decisions/decisions.js'
 import { BusDecisions, recordDecision } from '../../policy/decisions/index.js'
 import { decisionsSettler } from '../../policy/decisions/projection.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, DECISION_EVENT_READS } from '../../supervisor/composition.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const CONCEPT = CONCEPTS.find(concept => concept.id === 'owner-decisions')!
@@ -25,7 +25,6 @@ interface Carrier {
 const CARRIERS: readonly Carrier[] = [
   { path: 'scripts/core/bus-path.ts', reason: 'names the file of the projection beside the bus; the folder imports the name from here' },
   { path: 'scripts/core/inbox.ts', reason: 'the inbox closes a wait a later decision answers; moves to decisionAnswersTheStop in a later slice of P2' },
-  { path: 'scripts/nodes/answer/answer-source.ts', reason: 'the answer node asks whether a decision was recorded after a stop; moves to the port in a later slice of P2' },
   { path: 'scripts/nodes/launch/launch-candidates.ts', reason: 'launch reads the decisions in force for its prompt; moves to the port in a later slice of P2' },
 ]
 
@@ -84,7 +83,7 @@ describe('the decisions seal', () => {
     writeFileSync(file, `# Owner decisions\n\n- D-7 · 2026-11-11 — [owner] ${ALLOWANCE} · card #80 · decisions:add\n`)
     const db = openBus(bus)
     try {
-      decisionsSettler(db, file, () => AT, busProjections())()
+      decisionsSettler(db, file, () => AT, busProjections(), DECISION_EVENT_READS)()
       const decisions = new BusDecisions(db)
       expect(decisions.inForce()).toEqual([])
       expect(ownerAllowed(decisions, 80, [WITNESS], [WITNESS])).toBe(false)

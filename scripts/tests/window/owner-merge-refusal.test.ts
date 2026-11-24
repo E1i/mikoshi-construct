@@ -13,7 +13,7 @@ import { decisionOnAWait, sayToOwnerChannel } from '../../owner/channel.js'
 import { decisionsFileOf } from '../../policy/decisions/decisions.js'
 import { decisionsAdderOfBus, decisionsSettlerOfBus } from '../../policy/decisions/projection.js'
 import { decisionsInForceAt } from '../../policy/shards.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, DECISION_EVENT_READS } from '../../supervisor/composition.js'
 import { runRequest, WindowRequests } from '../../window/window-requests.js'
 import { sha } from '../bus/github-fake.js'
 import { liveBench } from '../bus/merge-bench.js'
@@ -62,7 +62,7 @@ function refuse(): never {
 }
 
 function tools(at: Room): RequestTools {
-  return { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: decisionsAdderOfBus(at.bench.db, at.bench.busPath, at.bench.clock.now), settleDecisions: decisionsSettlerOfBus(at.bench.db, at.bench.busPath, at.bench.clock.now, busProjections()), causeHolds: refuse, closePr: refuse, closeDropped: () => [] }
+  return { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: decisionsAdderOfBus(at.bench.db, at.bench.busPath, at.bench.clock.now, DECISION_EVENT_READS), settleDecisions: decisionsSettlerOfBus(at.bench.db, at.bench.busPath, at.bench.clock.now, busProjections(), DECISION_EVENT_READS), causeHolds: refuse, closePr: refuse, closeDropped: () => [] }
 }
 
 function mergeWait(at: Room): string {

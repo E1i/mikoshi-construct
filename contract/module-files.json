@@ -745,6 +745,7 @@
     "scripts/tests/contract/owner-reads/card-domain.test.ts",
     "scripts/tests/contract/owner-reads/card-reads-events-through-bus.test.ts",
     "scripts/tests/contract/owner-reads/decisions-inbox.test.ts",
+    "scripts/tests/contract/owner-reads/decisions-policy.test.ts",
     "scripts/tests/contract/owner-reads/events-query.test.ts",
     "scripts/tests/contract/owner-reads/plan.test.ts",
     "scripts/tests/contract/permanent-suite-holds-on-any-base.test.ts",
@@ -2617,6 +2618,7 @@
   ],
   "session": [
     "scripts/cli/slot.ts",
+    "scripts/cli/task-start.ts",
     "scripts/core/cadence.ts",
     "scripts/core/chain.ts",
     "scripts/core/eddies.ts",

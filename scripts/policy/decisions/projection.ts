@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Projections } from '../../core/reducer.js'
+import type { DecisionEventReads } from './index.js'
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { openBus } from '../../core/db.js'
 import { reduce } from '../../core/reducer.js'
@@ -21,16 +22,16 @@ function writeIfChanged(file: string, before: string, after: string): void {
     writeFileSync(file, after)
 }
 
-export function decisionsSettler(db: DatabaseSync, decisions: string, now: () => Date, projections: Projections): DecisionsSettler {
+export function decisionsSettler(db: DatabaseSync, decisions: string, now: () => Date, projections: Projections, reads: DecisionEventReads): DecisionsSettler {
   return () => {
-    if (!busProjectsDecisions(db))
+    if (!busProjectsDecisions(db, reads))
       startProjectingDecisions(db, now())
     reduce(db, 'pending', projections)
     expireDecisions(db, now())
     reduce(db, 'pending', projections)
     const archive = archiveOf(decisions)
     const [file, archived] = [readIfThere(decisions), readIfThere(archive)]
-    const projected = projectDecisions(decisionRows(db), file, archived, ARCHIVE_HEADER)
+    const projected = projectDecisions(decisionRows(db, reads), file, archived, ARCHIVE_HEADER)
     try {
       writeIfChanged(archive, archived, projected.archive)
       writeIfChanged(decisions, file, projected.file)
@@ -41,7 +42,7 @@ export function decisionsSettler(db: DatabaseSync, decisions: string, now: () =>
   }
 }
 
-export function decisionsAdder(db: DatabaseSync, decisions: string, now: () => Date): DecisionsAdder {
+export function decisionsAdder(db: DatabaseSync, decisions: string, now: () => Date, reads: DecisionEventReads): DecisionsAdder {
   return (args) => {
     const lines: string[] = []
     const code = runDecisionsAdd(args, {
@@ -52,7 +53,7 @@ export function decisionsAdder(db: DatabaseSync, decisions: string, now: () => D
       write: (file, text) => writeFileSync(file, text),
       remove: unlinkSync,
       record: decision => recordDecision(db, decision),
-      held: () => recordedNumbers(db),
+      held: () => recordedNumbers(db, reads),
       settled: () => false,
       out: line => lines.push(line),
       err: line => lines.push(line),
@@ -61,12 +62,12 @@ export function decisionsAdder(db: DatabaseSync, decisions: string, now: () => D
   }
 }
 
-export function decisionsSettlerOfBus(db: DatabaseSync, busPath: string, now: () => Date, projections: Projections): DecisionsSettler {
-  return decisionsSettler(db, decisionsFileOf(busPath), now, projections)
+export function decisionsSettlerOfBus(db: DatabaseSync, busPath: string, now: () => Date, projections: Projections, reads: DecisionEventReads): DecisionsSettler {
+  return decisionsSettler(db, decisionsFileOf(busPath), now, projections, reads)
 }
 
-export function decisionsAdderOfBus(db: DatabaseSync, busPath: string, now: () => Date): DecisionsAdder {
-  return decisionsAdder(db, decisionsFileOf(busPath), now)
+export function decisionsAdderOfBus(db: DatabaseSync, busPath: string, now: () => Date, reads: DecisionEventReads): DecisionsAdder {
+  return decisionsAdder(db, decisionsFileOf(busPath), now, reads)
 }
 
 export function projectionText(busPath: string): string {
@@ -74,14 +75,14 @@ export function projectionText(busPath: string): string {
   return existsSync(file) ? readFileSync(file, 'utf8') : ''
 }
 
-export function decisionsAdderOpeningTheBus(busPath: string, now: () => Date): DecisionsAdder {
+export function decisionsAdderOpeningTheBus(busPath: string, now: () => Date, reads: DecisionEventReads): DecisionsAdder {
   return (args) => {
     const file = decisionsFileOf(busPath)
     if (!existsSync(file))
       writeFileSync(file, '')
     const db = openBus(busPath)
     try {
-      return decisionsAdder(db, file, now)(args)
+      return decisionsAdder(db, file, now, reads)(args)
     }
     finally {
       db.close()

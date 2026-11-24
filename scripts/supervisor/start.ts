@@ -22,6 +22,7 @@ import { allowLiveText, namesQueueLive } from '../policy/live-decision.js'
 import { activeWindowShards, DECISIONS_SCOPE, WINDOW_SHARD_HOURS, windowShardEnded } from '../policy/shards.js'
 import { ghPort, readGhJson, recordedAccount } from '../ports/gh.js'
 import { installedPackage, instancesOf, printBg, provenOnBus, psList } from './bg.js'
+import { DECISION_EVENT_READS } from './composition.js'
 import { startBus, SUPERVISOR_LAUNCH } from './supervisor.js'
 import { DEFAULT_MODE, FACTORY_MODES, isBusWorker, isFactoryMode, MODE_LIVE, MODE_WORKERS, startingMode, switchDetection, switchMode } from './workers.js'
 
@@ -522,7 +523,7 @@ export function busDecisionsText(busDb: string): ModeParts['decisionsText'] {
 }
 
 export function busDecisionsAdder(busDb: string, now: () => Date): ModeParts['addDecision'] {
-  return decisionsAdderOpeningTheBus(busDb, now)
+  return decisionsAdderOpeningTheBus(busDb, now, DECISION_EVENT_READS)
 }
 
 async function main(): Promise<void> {

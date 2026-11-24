@@ -1,28 +1,36 @@
 import type { ShiftTask } from '../../../src/card/task-file.js'
 import type { TreeDeps } from '../../ports/worktree.js'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, expect, it } from 'vitest'
+import { BOUNDARY_PREFIX, boundaryNumbers, boundaryReport } from '../../contract/module-graph/boundary.js'
+import { readRatchet } from '../../contract/ratchet.js'
+import { scriptSurfaces } from '../../contract/surface.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED } from '../../core/events.js'
 import { realStarterPorts } from '../../nodes/launch/launch-root.js'
 import { CARD_VARIABLE, EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE } from '../../ports/session.js'
 import { cardTree, WORKTREE_HOME_VARIABLE } from '../../ports/worktree-home.js'
 import { cutTree } from '../../ports/worktree.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, DECISION_EVENT_READS } from '../../supervisor/composition.js'
 import { realRequestTools } from '../../window/window-request-tools.js'
 
 const CARD_ID = 987654
 const CARD = `#${CARD_ID} window-card [implement/ghosts/S/cheap/auto] · depends — · blocks —`
 const BRANCH = 'feat/window-card'
 const NOW = '2026-11-07T08:00:00.000Z'
-const TASK_START = path.resolve(import.meta.dirname, '../../ports/task-start.ts')
+const TASK_START = path.resolve(import.meta.dirname, '../../cli/task-start.ts')
 const TSX_LOADER = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href
 const CUT_TIMEOUT_MS = 120_000
+const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
+const PORT_FILE = path.join(REPO_ROOT, 'scripts/ports/task-start.ts')
+const PORTS_TO_BUS = `${BOUNDARY_PREFIX}ports->bus`
+const PORTS_TO_BUS_WITHOUT_TASK_START = 16
+const REPO_RUN_TIMEOUT = 180_000
 const REFUSAL = `[task:start] a window does not start a task itself: the bus cuts its tree, ask it with pnpm bus:request tree.cut --card ${CARD_ID}; nothing written`
 const WINDOWS: readonly [string, NodeJS.ProcessEnv][] = [
   ['a tab window', { [WINDOW_VARIABLE]: 'tab' }],
@@ -93,6 +101,19 @@ function startedOutsideAnyRepository(marks: NodeJS.ProcessEnv, argv: string[]): 
   return { stderr: stderr.trim(), status }
 }
 
+it('the task start port takes the bus contract from its root, so ports->bus holds 16 in the graph and the ratchet', { timeout: REPO_RUN_TIMEOUT }, () => {
+  expect(readFileSync(PORT_FILE, 'utf8')).not.toContain('core/bus-adapter')
+  expect(readRatchet(REPO_ROOT)[PORTS_TO_BUS]).toBe(PORTS_TO_BUS_WITHOUT_TASK_START)
+  expect(boundaryNumbers(boundaryReport(REPO_ROOT).violations)[PORTS_TO_BUS]).toBe(PORTS_TO_BUS_WITHOUT_TASK_START)
+})
+
+it('the task start root reads the flags and exits the command takes, so its surface keeps adopt, card, without-intake and exits 0 and 1', () => {
+  const surface = scriptSurfaces(REPO_ROOT)['task:start']!
+  expect(surface.entries).toEqual(['scripts/cli/task-start.ts'])
+  expect(surface.flags).toEqual(['adopt', 'card', 'without-intake'])
+  expect(surface.exits).toEqual([0, 1])
+})
+
 it('task start in a window refuses at once and names tree.cut', () => {
   for (const [, marks] of WINDOWS) {
     expect(startedOutsideAnyRepository(marks, [BRANCH, '--card', CARD])).toEqual({ stderr: REFUSAL, status: 1 })
@@ -124,7 +145,7 @@ it('the bus tree.cut path still cuts the tree', () => {
   const db = openBus(world.bus)
   try {
     const bus = envOf(world, { [WINDOW_VARIABLE]: 'tab', [LOOP_PID_VARIABLE]: '4242', [EXIT_REQUEST_VARIABLE]: '/h/miko-exit.4242.request' })
-    const tools = realRequestTools(db, world.bus, world.repo, bus, busProjections())
+    const tools = realRequestTools(db, world.bus, world.repo, bus, busProjections(), DECISION_EVENT_READS)
     tools.cutTree(BRANCH, CARD)
     expect(existsSync(tools.treeOf(CARD_ID))).toBe(true)
     expect(branchHeld(world.repo, BRANCH)).toBe(true)

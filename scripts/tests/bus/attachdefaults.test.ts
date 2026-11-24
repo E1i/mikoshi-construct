@@ -9,6 +9,7 @@ import { resolveTheme } from '../../../src/ui/theme.js'
 import { dryRunIn, keepDryRun } from '../../nodes/review/dry-run-record.js'
 import { decisionsAdder } from '../../policy/decisions/projection.js'
 import { decisionsInForceAt } from '../../policy/shards.js'
+import { DECISION_EVENT_READS } from '../../supervisor/composition.js'
 import { ALLOW_MERGE_RECORD, allowMergeRuleInForce, requestFromWindow, WindowRequests } from '../../window/window-requests.js'
 import { sha } from './github-fake.js'
 import { liveBench, spendReviewRounds } from './merge-bench.js'
@@ -61,7 +62,7 @@ function requestsIn(bench: MergeBench, bus: string, repository: string): WindowR
     exists: refuse,
     cutTree: refuse,
     dryRunOf: dryRunIn(path.join(bus, 'dry-run-reviews')),
-    addDecision: decisionsAdder(bench.db, path.join(bus, 'owner-decisions.md'), bench.clock.now),
+    addDecision: decisionsAdder(bench.db, path.join(bus, 'owner-decisions.md'), bench.clock.now, DECISION_EVENT_READS),
     causeHolds: refuse,
     closePr: refuse,
     closeDropped: () => [],

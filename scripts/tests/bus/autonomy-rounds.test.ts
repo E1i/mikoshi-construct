@@ -20,7 +20,7 @@ import { sayToOwnerChannel, USED_WORD } from '../../owner/channel.js'
 import { decisionsAdder } from '../../policy/decisions/projection.js'
 import { roundLimitDecisionOf } from '../../policy/round-limit-decision.js'
 import { DECISIONS_SCOPE, decisionsInForceAt } from '../../policy/shards.js'
-import { cardTransitions } from '../../supervisor/composition.js'
+import { cardTransitions, DECISION_EVENT_READS } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { ALLOW_MERGE_RECORD, ANSWER_SOURCE, HEAD_WORD, requestFromWindow, requestOf, WindowRequests } from '../../window/window-requests.js'
 import { sha } from './github-fake.js'
@@ -81,7 +81,7 @@ function windowAtTheLimit(): Window {
     exists: existsSync,
     cutTree: () => {},
     dryRunOf: dryRunIn(path.join(root, 'dry-run-reviews')),
-    addDecision: decisionsAdder(bench.db, decisions, bench.clock.now),
+    addDecision: decisionsAdder(bench.db, decisions, bench.clock.now, DECISION_EVENT_READS),
     causeHolds: () => null,
     closePr: request => closer().close(request),
     closeDropped: () => closer().closeDropped(),

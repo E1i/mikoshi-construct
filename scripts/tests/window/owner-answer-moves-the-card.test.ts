@@ -17,7 +17,7 @@ import { decisionOnAWait, sayToOwnerChannel } from '../../owner/channel.js'
 import { decisionsFileOf } from '../../policy/decisions/decisions.js'
 import { decisionsAdderOfBus, decisionsSettlerOfBus } from '../../policy/decisions/projection.js'
 import { mergeDecidedPastRoundLimit, RECUT_ACTOR } from '../../policy/round-limit-decision.js'
-import { answerParts, busProjections } from '../../supervisor/composition.js'
+import { answerParts, busProjections, DECISION_EVENT_READS } from '../../supervisor/composition.js'
 import { DEAD_END } from '../../supervisor/dead-ends.js'
 import { runRequest, WindowRequests } from '../../window/window-requests.js'
 import { sha } from '../bus/github-fake.js'
@@ -81,7 +81,7 @@ function refuse(): never {
 }
 
 function tools(at: Room): RequestTools {
-  return { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: decisionsAdderOfBus(at.bench.db, at.bench.busPath, at.bench.clock.now), settleDecisions: decisionsSettlerOfBus(at.bench.db, at.bench.busPath, at.bench.clock.now, busProjections()), causeHolds: refuse, closePr: refuse, closeDropped: () => [] }
+  return { treeOf: refuse, exists: refuse, cutTree: refuse, dryRunOf: refuse, addDecision: decisionsAdderOfBus(at.bench.db, at.bench.busPath, at.bench.clock.now, DECISION_EVENT_READS), settleDecisions: decisionsSettlerOfBus(at.bench.db, at.bench.busPath, at.bench.clock.now, busProjections(), DECISION_EVENT_READS), causeHolds: refuse, closePr: refuse, closeDropped: () => [] }
 }
 
 function changesOn(at: Room, head: string): void {

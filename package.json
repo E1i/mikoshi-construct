@@ -99,7 +99,7 @@
     "owner:command": "node --import tsx scripts/window/owner-command.ts",
     "handoff:check": "node --import tsx scripts/window/handoff-check.ts",
     "handoff:write": "node --import tsx scripts/window/handoff-write.ts",
-    "task:start": "node --import tsx scripts/ports/task-start.ts",
+    "task:start": "node --import tsx scripts/cli/task-start.ts",
     "ghosts:hash": "node --import tsx scripts/ladder/hash.ts",
     "ghosts:launch": "node --import tsx scripts/ladder/launch.ts",
     "ghosts:role": "node --import tsx scripts/ladder/role.ts",

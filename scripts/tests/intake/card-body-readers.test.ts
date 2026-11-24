@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
 import { runAmend } from '../../../src/commands/intake/amend.js'
+import { realDeps, TASK_START_FLAGS } from '../../cli/task-start.js'
 import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { BUS_DB_VARIABLE } from '../../core/bus-path.js'
 import { admittedBodyText, busAdmittedBodies, cardBodyText } from '../../core/card-bodies.js'
@@ -15,7 +16,7 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { busIntakePorts } from '../../intake/intake.js'
-import { realDeps, runTaskStart } from '../../ports/task-start.js'
+import { runTaskStart } from '../../ports/task-start.js'
 import { busProjections } from '../../supervisor/composition.js'
 
 const CARD = 1783
@@ -85,6 +86,8 @@ function admitThenAmend(w: World): void {
 function depsOf(w: World): TaskStartDeps {
   vi.stubEnv(BUS_DB_VARIABLE, w.bus)
   return {
+    contract: BUS_CONTRACT,
+    flags: TASK_START_FLAGS,
     cwd: w.repo,
     git: (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: 'pipe' }),
     install: () => {},
