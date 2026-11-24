@@ -143,6 +143,7 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/core/gh-callers.ts`,
     `${FACTORY_ROOT}/core/gh-callers.known.json`,
     `${FACTORY_ROOT}/core/bus-contract.ts`,
+    `${FACTORY_ROOT}/core/process-listing.ts`,
   ],
   'ports-adapters': [
     `${FACTORY_ROOT}/ports/git.ts`,

@@ -7,7 +7,7 @@ import { tmpdir, userInfo } from 'node:os'
 import path from 'node:path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { allowRule, shippedDaemonCommands } from '../../../src/commands/attach/daemon-commands.js'
-import { browserLabExcludedCommand, browserLabInstalledScript } from '../../../src/commands/attach/settings.js'
+import { browserLabExcludedCommand, browserLabInstalledScript, PROCESS_TABLE_COMMAND } from '../../../src/commands/attach/settings.js'
 import { runInit } from '../../../src/commands/init.js'
 import { readManifest, readShiftGate } from '../../../src/manifest.js'
 import { createUi, silentWriter } from '../../../src/ui/console.js'
@@ -23,6 +23,9 @@ vi.mock('../../ports/card-grants.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../ports/card-grants.js')>()
   return { ...original, grantOf: (card: number | null) => original.grantOf(card, [...original.CARD_GRANTS, ...plantedGrants.rows]) }
 })
+
+const PS = PROCESS_TABLE_COMMAND
+const LISTING_SANDBOX = { ...CARD_SESSION_SANDBOX, excludedCommands: [PS] }
 
 function editCovers(rule: string, file: string): boolean {
   const pattern = /^Edit\(\/(.+)\)$/.exec(rule)?.[1]
@@ -72,6 +75,13 @@ describe('the settings a card session is started with in a repository after cons
   it('allow an edit outside the tree only on a file the starter names', () => {
     const question = path.join(tmpdir(), 'answers', 'owner-question.md')
     expect(shiftSettings(tree, readShiftGate(tree), [question]).permissions.allow.at(-1)).toBe(`Edit(/${question})`)
+  })
+
+  it('every card session excludes the exact process-table ps line by D-775', () => {
+    const { excludedCommands } = shiftSettings(tree, readShiftGate(tree), [], tree).sandbox
+    expect(PS).toBe('ps -Ao pid=,ppid=,pgid=,lstart=,args=')
+    expect(excludedCommands).toEqual([PS])
+    expect(JSON.parse(settingsFlag(shiftSettings(tree, readShiftGate(tree), [], tree)).at(-1)!).sandbox.excludedCommands).toEqual([PS])
   })
 
   it('travel as one --settings argument holding the settings as JSON, behind --setting-sources that leaves out the user settings', () => {
@@ -125,7 +135,7 @@ describe('the browser lab exclusion a card session takes from the settings of it
       rmSync(path.join(tree, '.claude', file))
       return excludedCommands
     })
-    expect(excluded).toEqual([[entry], [entry]])
+    expect(excluded).toEqual([[entry, PS], [entry, PS]])
   })
 
   it('any other entry the repository excludes never reaches the session settings', () => {
@@ -133,7 +143,7 @@ describe('the browser lab exclusion a card session takes from the settings of it
     holdSettings('settings.local.json', [OTHER_ENTRY])
     const together = settings().sandbox.excludedCommands
     holdSettings('settings.json', [OTHER_ENTRY])
-    expect({ together, alone: settings().sandbox.excludedCommands }).toEqual({ together: [entry], alone: undefined })
+    expect({ together, alone: settings().sandbox.excludedCommands }).toEqual({ together: [entry, PS], alone: [PS] })
   })
 
   it('the excluded command names the absolute lab script outside the tree and no copy in the tree', () => {
@@ -146,7 +156,7 @@ describe('the browser lab exclusion a card session takes from the settings of it
     expect(entry).toBe(`node ${home}/.construct/browser-lab/bin/browser-lab.mjs *`)
     expect(path.isAbsolute(browserLabInstalledScript(home))).toBe(true)
     expect(browserLabInstalledScript(home).startsWith(`${tree}${path.sep}`)).toBe(false)
-    expect({ relative: relative.sandbox.excludedCommands, absolute: absolute.sandbox.excludedCommands, notInstalled: notInstalled.sandbox.excludedCommands }).toEqual({ relative: undefined, absolute: [entry], notInstalled: undefined })
+    expect({ relative: relative.sandbox.excludedCommands, absolute: absolute.sandbox.excludedCommands, notInstalled: notInstalled.sandbox.excludedCommands }).toEqual({ relative: [PS], absolute: [entry, PS], notInstalled: [PS] })
     expect(excludedBy(entry, `node ${browserLabInstalledScript(home)} page about:blank`)).toBe(true)
     for (const call of ['node scripts/construct/browser-lab.mjs page about:blank', `node ${tree}/scripts/construct/browser-lab.mjs page about:blank`, `node ${tree}/sub/scripts/construct/browser-lab.mjs page about:blank`, 'node sub/scripts/construct/browser-lab.mjs page about:blank'])
       expect(excludedBy(entry, call), call).toBe(false)
@@ -173,7 +183,7 @@ describe('the browser lab exclusion a card session takes from the settings of it
   })
 
   it('a missing file, an unparsable file or a malformed excludedCommands excludes nothing and leaves the settings as they are without the entry', () => {
-    const plain = { sandbox: CARD_SESSION_SANDBOX, permissions: { allow: ['Bash(pnpm run quality)', `Edit(/${tree}/**)`] }, env: SESSION_BASH_CAP, hooks: WIDE_VITEST_HOOKS }
+    const plain = { sandbox: LISTING_SANDBOX, permissions: { allow: ['Bash(pnpm run quality)', `Edit(/${tree}/**)`] }, env: SESSION_BASH_CAP, hooks: WIDE_VITEST_HOOKS }
     const missing = settings()
     writeFileSync(path.join(tree, '.claude', 'settings.json'), '{ not json')
     const unparsable = settings()
@@ -192,7 +202,7 @@ describe('the browser lab exclusion a card session takes from the settings of it
     expect(shippedDaemonCommands(home)).toEqual([entry])
     expect({ without: without.permissions.allow, installed: installed.permissions.allow, missingProgram: missingProgram.permissions.allow }).toEqual({ without: plain, installed: [...plain, allowRule(entry)], missingProgram: plain })
     expect(installed.permissions.allow).not.toContain(allowRule(OTHER_ENTRY))
-    expect(installed.sandbox.excludedCommands).toEqual([entry])
+    expect(installed.sandbox.excludedCommands).toEqual([entry, PS])
   })
 
   it('leaves the network and the unsandboxed-command refusal of the card session unchanged with the entry present', () => {
@@ -204,7 +214,7 @@ describe('the browser lab exclusion a card session takes from the settings of it
     const without = settings()
     holdSettings('settings.json', [entry])
     const excluded = settings()
-    expect(excluded.sandbox.excludedCommands).toEqual([entry])
+    expect(excluded.sandbox.excludedCommands).toEqual([entry, PS])
     expect([without, excluded].map(built => JSON.parse(settingsFlag(built).at(-1)!).env)).toMatchObject([{ BASH_MAX_TIMEOUT_MS: '1800000', BASH_DEFAULT_TIMEOUT_MS: '1800000' }, { BASH_MAX_TIMEOUT_MS: '1800000', BASH_DEFAULT_TIMEOUT_MS: '1800000' }])
   })
 
@@ -232,7 +242,7 @@ describe('the browser lab exclusion a card session takes from the settings of it
     holdSettings('settings.json', [entry])
     const [grant] = CARD_GRANTS
     const built = shiftSettings(tree, GATE, [], home, grant!.card)
-    expect({ excluded: built.sandbox.excludedCommands, domains: built.sandbox.network.allowedDomains, allow: built.permissions.allow.slice(-grant!.allow.length), deny: built.permissions.deny?.length, filesystem: built.sandbox.filesystem }).toEqual({ excluded: [entry, ...grant!.excludedCommands], domains: [...grant!.domains], allow: [...grant!.allow], deny: 2, filesystem: { allowWrite: [path.join(home, '.codex')], denyWrite: [path.join(tree, 'scripts', 'construct', 'browser-lab.mjs'), path.join(home, '.construct', 'browser-lab')] } })
+    expect({ excluded: built.sandbox.excludedCommands, domains: built.sandbox.network.allowedDomains, allow: built.permissions.allow.slice(-grant!.allow.length), deny: built.permissions.deny?.length, filesystem: built.sandbox.filesystem }).toEqual({ excluded: [entry, ...grant!.excludedCommands, PS], domains: [...grant!.domains], allow: [...grant!.allow], deny: 2, filesystem: { allowWrite: [path.join(home, '.codex')], denyWrite: [path.join(tree, 'scripts', 'construct', 'browser-lab.mjs'), path.join(home, '.construct', 'browser-lab')] } })
   })
 })
 
@@ -260,7 +270,7 @@ describe('a card granted by an owner decision gets exactly its grant and no othe
   }
 
   function plainOf(tree: string): ShiftSettings {
-    return { sandbox: CARD_SESSION_SANDBOX, permissions: { allow: ['Bash(pnpm run quality)', `Edit(/${tree}/**)`] }, env: SESSION_BASH_CAP, hooks: WIDE_VITEST_HOOKS }
+    return { sandbox: LISTING_SANDBOX, permissions: { allow: ['Bash(pnpm run quality)', `Edit(/${tree}/**)`] }, env: SESSION_BASH_CAP, hooks: WIDE_VITEST_HOOKS }
   }
 
   it('card #2156 gets codex, mkdir and git init of its fixed scratch directory, Write and Edit inside it, the Codex API and sign-in hosts and ~/.codex by D-705, and nothing else', () => {
@@ -270,7 +280,7 @@ describe('a card granted by an owner decision gets exactly its grant and no othe
     const resolved = `/private/tmp/claude-${uid}/codex-live-hooks`
     expect(GRANT_SCRATCH_DIRECTORY).toBe(probe)
     expect(shiftSettings(tree, GATE, [], home)).toStrictEqual({
-      sandbox: { ...CARD_SESSION_SANDBOX, network: { ...CARD_SESSION_SANDBOX.network, allowedDomains: CODEX_HOSTS }, excludedCommands: ['codex exec *'], filesystem: { allowWrite: [path.join(home, '.codex')] } },
+      sandbox: { ...CARD_SESSION_SANDBOX, network: { ...CARD_SESSION_SANDBOX.network, allowedDomains: CODEX_HOSTS }, excludedCommands: ['codex exec *', PS], filesystem: { allowWrite: [path.join(home, '.codex')] } },
       permissions: { allow: ['Bash(pnpm run quality)', `Edit(/${tree}/**)`, 'Bash(codex *)', `Bash(mkdir -p ${probe})`, `Bash(mkdir ${probe})`, `Bash(git init ${probe})`, `Write(/${probe}/**)`, `Edit(/${probe}/**)`, `Write(/${resolved}/**)`, `Edit(/${resolved}/**)`] },
       env: SESSION_BASH_CAP,
       hooks: WIDE_VITEST_HOOKS,
@@ -286,13 +296,13 @@ describe('a card granted by an owner decision gets exactly its grant and no othe
     expect(shiftSettings(forced, GATE, [], home, null)).toStrictEqual(plainOf(forced))
   })
 
-  it('card #2156 runs codex exec outside the sandbox by D-765 and no other card excludes anything', () => {
+  it('card #2156 runs codex exec outside the sandbox by D-765 and no other card excludes anything but the process-table line', () => {
     const granted = shiftSettings(path.join(scratch, String(GRANTED)), GATE, [], home)
     const others = [GRANTED - 1, GRANTED + 1, null].map(card => shiftSettings(path.join(scratch, String(GRANTED)), GATE, [], home, card))
-    expect(granted.sandbox.excludedCommands).toEqual(['codex exec *'])
-    expect(JSON.parse(settingsFlag(granted).at(-1)!).sandbox.excludedCommands).toEqual(['codex exec *'])
+    expect(granted.sandbox.excludedCommands).toEqual(['codex exec *', PS])
+    expect(JSON.parse(settingsFlag(granted).at(-1)!).sandbox.excludedCommands).toEqual(['codex exec *', PS])
     expect(granted.sandbox).toMatchObject({ allowUnsandboxedCommands: false })
-    expect(others.map(built => built.sandbox.excludedCommands)).toEqual([undefined, undefined, undefined])
+    expect(others.map(built => built.sandbox.excludedCommands)).toEqual([[PS], [PS], [PS]])
     expect(CARD_GRANTS.filter(grant => grant.excludedCommands.length > 0).map(grant => ({ card: grant.card, excluded: grant.excludedCommands }))).toEqual([{ card: GRANTED, excluded: ['codex exec *'] }])
   })
 
@@ -305,7 +315,7 @@ describe('a card granted by an owner decision gets exactly its grant and no othe
     writeFileSync(browserLabInstalledScript(home), '')
     const built = shiftSettings(tree, GATE, [], home)
     const other = shiftSettings(tree, GATE, [], home, GRANTED + 1)
-    expect({ granted: built.sandbox.excludedCommands, other: other.sandbox.excludedCommands }).toEqual({ granted: [entry, 'codex exec *'], other: [entry] })
+    expect({ granted: built.sandbox.excludedCommands, other: other.sandbox.excludedCommands }).toEqual({ granted: [entry, 'codex exec *', PS], other: [entry, PS] })
     expect(built.permissions.allow).toContain(allowRule(entry))
   })
 
@@ -318,16 +328,15 @@ describe('a card granted by an owner decision gets exactly its grant and no othe
     writeFileSync(browserLabInstalledScript(home), '')
     plantedGrants.rows = [plantedRow([entry])]
     const built = shiftSettings(tree, GATE, [], home)
-    expect(built.sandbox.excludedCommands).toEqual([entry])
-    expect(JSON.parse(settingsFlag(built).at(-1)!).sandbox.excludedCommands).toEqual([entry])
+    expect(built.sandbox.excludedCommands).toEqual([entry, PS])
+    expect(JSON.parse(settingsFlag(built).at(-1)!).sandbox.excludedCommands).toEqual([entry, PS])
   })
 
-  it('a granted row with no excluded command leaves the sandbox with no excludedCommands key', () => {
+  it('a granted row with no excluded command leaves the sandbox excluding only the process-table line', () => {
     const tree = path.join(scratch, 'worktrees', String(PLANTED))
     plantedGrants.rows = [plantedRow([])]
     const { sandbox } = shiftSettings(tree, GATE, [], home)
-    expect(Object.hasOwn(sandbox, 'excludedCommands')).toBe(false)
-    expect(sandbox).toStrictEqual({ ...CARD_SESSION_SANDBOX, network: { ...CARD_SESSION_SANDBOX.network, allowedDomains: [] } })
+    expect(sandbox).toStrictEqual({ ...LISTING_SANDBOX, network: { ...CARD_SESSION_SANDBOX.network, allowedDomains: [] } })
   })
 
   it('the card is read from the tree name the bus gives it, in either home', () => {
@@ -411,7 +420,7 @@ describe('the browser lab exclusion a card tree takes from its main checkout', (
     holdInMain([entry])
     const built = settings()
     expect(existsSync(path.join(tree, '.claude', 'settings.local.json'))).toBe(false)
-    expect(built.sandbox.excludedCommands).toEqual([entry])
+    expect(built.sandbox.excludedCommands).toEqual([entry, PS])
     expect(built.permissions.deny).toContain(`Edit(/${path.join(tree, 'scripts', 'construct', 'browser-lab.mjs')})`)
   })
 
@@ -419,19 +428,19 @@ describe('the browser lab exclusion a card tree takes from its main checkout', (
     holdInMain([OTHER_ENTRY, entry])
     const together = settings().sandbox.excludedCommands
     holdInMain([OTHER_ENTRY])
-    expect({ together, alone: settings().sandbox.excludedCommands }).toEqual({ together: [entry], alone: undefined })
+    expect({ together, alone: settings().sandbox.excludedCommands }).toEqual({ together: [entry, PS], alone: [PS] })
   })
 
   it('the entry in the main checkout opens nothing when the installed script is missing', () => {
     holdInMain([entry])
     rmSync(browserLabInstalledScript(home))
-    expect(settings().sandbox.excludedCommands).toBeUndefined()
+    expect(settings().sandbox.excludedCommands).toEqual([PS])
   })
 
   it('a tree\'s own file still excludes the lab when the main checkout does not', () => {
     mkdirSync(path.join(tree, '.claude'))
     writeFileSync(path.join(tree, '.claude', 'settings.local.json'), JSON.stringify({ sandbox: { excludedCommands: [entry] } }))
-    expect(settings().sandbox.excludedCommands).toEqual([entry])
+    expect(settings().sandbox.excludedCommands).toEqual([entry, PS])
   })
 
   it('a main checkout without the file, or a tree whose git pointer leads nowhere, excludes nothing', () => {
@@ -440,7 +449,7 @@ describe('the browser lab exclusion a card tree takes from its main checkout', (
     writeFileSync(path.join(tree, '.git'), 'gitdir: /nowhere/at/all\n')
     const brokenPointer = settings().sandbox.excludedCommands
     writeFileSync(path.join(tree, '.git'), 'not a pointer\n')
-    expect({ noFile, brokenPointer, noPointer: settings().sandbox.excludedCommands }).toEqual({ noFile: undefined, brokenPointer: undefined, noPointer: undefined })
+    expect({ noFile, brokenPointer, noPointer: settings().sandbox.excludedCommands }).toEqual({ noFile: [PS], brokenPointer: [PS], noPointer: [PS] })
   })
 
   it('a pointer into a git directory not named .git names no main checkout', () => {
@@ -451,6 +460,6 @@ describe('the browser lab exclusion a card tree takes from its main checkout', (
     mkdirSync(elsewhere, { recursive: true })
     writeFileSync(path.join(elsewhere, 'commondir'), '../..\n')
     writeFileSync(path.join(tree, '.git'), `gitdir: ${elsewhere}\n`)
-    expect(settings().sandbox.excludedCommands).toBeUndefined()
+    expect(settings().sandbox.excludedCommands).toEqual([PS])
   })
 })

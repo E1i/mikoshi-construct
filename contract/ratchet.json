@@ -55,6 +55,7 @@
   "boundary:project->decisions": 2,
   "boundary:project->intake": 1,
   "boundary:project->model": 22,
+  "boundary:project->ports": 1,
   "boundary:project->rules": 3,
   "boundary:project->session": 2,
   "boundary:project->ui": 15,

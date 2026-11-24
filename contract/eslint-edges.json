@@ -75,6 +75,7 @@
     "core/layer-map.js",
     "core/merge-event.js",
     "core/owner-commands.js",
+    "core/process-listing.js",
     "core/verification.js"
   ],
   "allowedFactoryImports": {
@@ -98,6 +99,21 @@
       "core/merge-event.js",
       "core/owner-commands.js",
       "core/verification.js"
+    ],
+    "src/commands/attach": [
+      "core/bus-path.js",
+      "core/bus-readings.js",
+      "core/card-readings.js",
+      "core/eddies.js",
+      "core/events.js",
+      "core/factory-paths.js",
+      "core/gh-callers.js",
+      "core/handoff-dir.js",
+      "core/layer-map.js",
+      "core/merge-event.js",
+      "core/owner-commands.js",
+      "core/verification.js",
+      "core/process-listing.js"
     ],
     "src/commands/doctor": [
       "core/bus-path.js",

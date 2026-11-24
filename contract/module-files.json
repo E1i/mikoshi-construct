@@ -1655,6 +1655,7 @@
     "scripts/core/bus-contract.ts",
     "scripts/core/gh-callers.known.json",
     "scripts/core/gh-callers.ts",
+    "scripts/core/process-listing.ts",
     "scripts/ports/bus-read.ts",
     "scripts/ports/card-grants.ts",
     "scripts/ports/card-tree.ts",

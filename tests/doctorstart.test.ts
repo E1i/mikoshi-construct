@@ -10,7 +10,7 @@ import { HANDOFF_DIR_VARIABLE } from '../scripts/core/handoff-dir.js'
 import { statusOf } from '../scripts/core/handoff-status.js'
 import { sessionHandoffOf } from '../scripts/window/handoff-write.js'
 import { HANDOFF_VARIABLE, OWNER_COMMANDS, PACKAGE_COMMANDS } from '../scripts/window/loop.js'
-import { browserLabExcludedCommand } from '../src/commands/attach/settings.js'
+import { browserLabExcludedCommand, PROCESS_TABLE_COMMAND } from '../src/commands/attach/settings.js'
 import { SYNC_APPLY } from '../src/commands/doctor/factory.js'
 import { DOCTOR_EXIT, factoryChecklist, printFactoryChecklist } from '../src/commands/doctor/index.js'
 import { runInit } from '../src/commands/init.js'
@@ -126,6 +126,20 @@ describe('doctor --factory checks that the factory can start without the owner',
     for (const unreadable of ['{ not json', 'null', '[]', '"allow"', '{"permissions":["Bash(gh pr merge:*)"]}']) {
       localSettings(factory, unreadable)
       expect(red(check(factory)), unreadable).toEqual({ 'card-permissions': EDIT_LOCAL_SETTINGS })
+    }
+  })
+
+  it('doctor --factory reads the exact process-table ps line as allowed and any other ps form as widening', async () => {
+    const factory = await readyFactory()
+    const lab = browserLabExcludedCommand(factory.home)
+    expect(PROCESS_TABLE_COMMAND).toBe('ps -Ao pid=,ppid=,pgid=,lstart=,args=')
+    for (const allowed of [[PROCESS_TABLE_COMMAND], [lab, PROCESS_TABLE_COMMAND]]) {
+      localSettings(factory, JSON.stringify({ sandbox: { excludedCommands: allowed } }))
+      expect(red(check(factory)), JSON.stringify(allowed)).toEqual({})
+    }
+    for (const form of ['ps *', 'ps', 'ps -Ao *', `${PROCESS_TABLE_COMMAND} *`, `${PROCESS_TABLE_COMMAND} `, 'ps -A']) {
+      localSettings(factory, JSON.stringify({ sandbox: { excludedCommands: [lab, PROCESS_TABLE_COMMAND, form] } }))
+      expect(red(check(factory)), form).toEqual({ 'card-permissions': EDIT_LOCAL_SETTINGS })
     }
   })
 

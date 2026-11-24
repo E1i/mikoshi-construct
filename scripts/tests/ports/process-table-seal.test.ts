@@ -9,6 +9,7 @@ import { knownLivenessSites, LIVENESS_JUDGE, livenessSources } from '../../super
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const PORT = 'scripts/ports/process-table.ts'
+const LISTING_LINE = 'scripts/core/process-listing.ts'
 const PLANTED_FILE = 'scripts/nodes/planted.ts'
 const SCAN_TIMEOUT = 180_000
 const LIVENESS_WORDS = /\balive\b|\bliveness\b|\bisAlive\b|process\.kill\(/i
@@ -135,7 +136,7 @@ describe('the seal of the process table', () => {
     const processTableEntries = known.filter(site => site.kind === 'ps')
     const callers = portCallers(livenessSources(REPO_ROOT))
 
-    expect(processTableEntries).toEqual([{ file: PORT, kind: 'ps' }])
+    expect(processTableEntries).toEqual([{ file: LISTING_LINE, kind: 'ps' }, { file: PORT, kind: 'ps' }])
     expect(callers.filter(file => known.some(site => site.file === file && site.kind === 'ps'))).toEqual([])
     expect(callers.length).toBeGreaterThan(processTableEntries.length)
   })
