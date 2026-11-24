@@ -2,9 +2,9 @@ import type { ShiftGate } from '../../src/manifest.js'
 import { existsSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { allowRule, daemonProgram, SETTINGS_FILE, shippedDaemonCommands } from '../../src/commands/attach/daemon-commands.js'
-import { cardTreeGitWrites, PROCESS_TABLE_COMMAND } from '../../src/commands/attach/settings.js'
+import { allowRule, cardTreeGitWrites, daemonProgram, SETTINGS_FILE, shippedDaemonCommands } from '../../src/commands/attach/daemon-commands.js'
 import { isJsonObject } from '../../src/materialize/strategies.js'
+import { LISTING_COMMAND } from '../core/process-listing.js'
 import { cardOfTree, grantOf } from './card-grants.js'
 import { WIDE_VITEST_HOOKS } from './wide-vitest-guard.js'
 
@@ -102,7 +102,7 @@ function grantedSandbox(card: number | null, home: string, tree: string): ShiftS
   const grant = grantOf(card)
   const allowWrite = [...(grant?.homeWrites ?? []).map(entry => path.join(home, entry)), ...treeGitWrites(tree)]
   const networked = grant === null ? CARD_SESSION_SANDBOX : { ...CARD_SESSION_SANDBOX, network: { ...CARD_SESSION_SANDBOX.network, allowedDomains: [...grant.domains] } }
-  const sandbox = { ...networked, excludedCommands: unionOf(grant?.excludedCommands ?? [], [PROCESS_TABLE_COMMAND]) }
+  const sandbox = { ...networked, excludedCommands: unionOf(grant?.excludedCommands ?? [], [LISTING_COMMAND]) }
   return allowWrite.length === 0 ? sandbox : { ...sandbox, filesystem: { allowWrite } }
 }
 
