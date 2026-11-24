@@ -1,7 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { BusEvent } from '../core/db.js'
+import type { SHARD_REVOKED } from '../core/events.js'
 import type { InForceDecision } from './decisions/index.js'
-import { SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, SHARD_USED } from '../core/events.js'
+import { shardUsedByRun, unendedWindowShardRows, unspentShardRows } from '../core/events-query.js'
+import { SHARD_EXPIRED } from '../core/events.js'
 import { decisionCommand, lapsed, termOf, visibleToCard } from './decisions/decisions.js'
 import { inForceDecisions } from './decisions/index.js'
 import { OWNER_EVEN_UNDER_THE_DECISION } from './policy.js'
@@ -105,24 +106,12 @@ export interface WindowShard {
   until: string
 }
 
-const UNENDED_WINDOW_SHARDS = `
-  SELECT issued.id AS event_id, json_extract(issued.payload, '$.id') AS id, json_extract(issued.payload, '$.by') AS by,
-    json_extract(issued.payload, '$.scope') AS scope, json_extract(issued.payload, '$.until') AS until
-  FROM events issued
-  WHERE issued.type = '${SHARD_ISSUED}' AND json_extract(issued.payload, '$.window') = 1
-    AND NOT EXISTS (SELECT 1 FROM events ended WHERE ended.type IN ('${SHARD_REVOKED}', '${SHARD_EXPIRED}') AND json_extract(ended.payload, '$.id') = json_extract(issued.payload, '$.id'))
-`
-
-const WINDOW_SHARDS = `${UNENDED_WINDOW_SHARDS} ORDER BY issued.id DESC`
-
-export const WINDOW_SHARDS_LIVE_AT = `${UNENDED_WINDOW_SHARDS} AND json_extract(issued.payload, '$.until') > ?`
-
 export function isWindowScope(value: unknown): value is WindowScope {
   return WINDOW_SCOPES.includes(value as WindowScope)
 }
 
 function unendedWindowShards(db: DatabaseSync): WindowShard[] {
-  return (db.prepare(WINDOW_SHARDS).all() as Record<string, unknown>[]).flatMap(row =>
+  return unendedWindowShardRows(db).flatMap(row =>
     typeof row.id === 'string' && typeof row.by === 'string' && isWindowScope(row.scope) && typeof row.until === 'string'
       ? [{ id: row.id, by: row.by, scope: row.scope, until: row.until }]
       : [])
@@ -160,11 +149,23 @@ export function cardDecisionCommand(cardId: number): string {
   return decisionCommand('<decision>', [cardId])
 }
 
-export function windowShardEnded(type: typeof SHARD_REVOKED | typeof SHARD_EXPIRED, actor: string, id: string, now: Date): BusEvent {
+export interface WindowShardEnded {
+  ts: string
+  type: typeof SHARD_REVOKED | typeof SHARD_EXPIRED
+  actor: string
+  cardId: null
+  pr: null
+  head: null
+  dedupeKey: string
+  payload: { id: string }
+  legacy: boolean
+}
+
+export function windowShardEnded(type: typeof SHARD_REVOKED | typeof SHARD_EXPIRED, actor: string, id: string, now: Date): WindowShardEnded {
   return { ts: now.toISOString(), type, actor, cardId: null, pr: null, head: null, dedupeKey: `${type}:${id}`, payload: { id }, legacy: false }
 }
 
-export function expiredWindowShards(db: DatabaseSync, now: Date, actor: string): BusEvent[] {
+export function expiredWindowShards(db: DatabaseSync, now: Date, actor: string): WindowShardEnded[] {
   return unendedWindowShards(db).filter(shard => Date.parse(shard.until) <= now.getTime()).map(shard => windowShardEnded(SHARD_EXPIRED, actor, shard.id, now))
 }
 
@@ -205,15 +206,7 @@ export function cardDecisionLines(db: DatabaseSync, cardId: number, now: Date): 
 export function shardActive(db: DatabaseSync, run: string | null): boolean {
   if (run === null)
     return false
-  return db.prepare(`SELECT 1 FROM events WHERE type = '${SHARD_USED}' AND json_extract(payload, '$.run') = ? LIMIT 1`).get(run) !== undefined
-}
-
-export function unspentShardsOf(card: string, pr: string): string {
-  return `
-  SELECT issued.id AS event_id, json_extract(issued.payload, '$.id') AS id, json_extract(issued.payload, '$.under') AS under FROM events issued
-  WHERE issued.type = '${SHARD_ISSUED}' AND (issued.card_id = ${card} OR issued.pr = ${pr})
-    AND NOT EXISTS (SELECT 1 FROM events used WHERE used.type = '${SHARD_USED}' AND json_extract(used.payload, '$.id') = json_extract(issued.payload, '$.id'))
-`
+  return shardUsedByRun(db, run)
 }
 
 function covers(under: unknown, decisions: readonly InForceDecision[]): under is number | null {
@@ -221,8 +214,7 @@ function covers(under: unknown, decisions: readonly InForceDecision[]): under is
 }
 
 export function unspentShard(db: DatabaseSync, cardId: number, pr: number | null, decisions: readonly InForceDecision[] = []): UnspentShard | null {
-  const rows = db.prepare(`${unspentShardsOf('?', '?')} ORDER BY issued.id`).all(cardId, pr) as { id: unknown, under: unknown }[]
-  for (const row of rows) {
+  for (const row of unspentShardRows(db, cardId, pr)) {
     if (typeof row.id === 'string' && covers(row.under, decisions))
       return { id: row.id, under: row.under }
   }

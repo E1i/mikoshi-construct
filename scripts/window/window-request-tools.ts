@@ -72,7 +72,7 @@ function causeHoldsIn(db: DatabaseSync, repo: string, treeOf: (cardId: number) =
   }
 }
 
-export function realRequestTools(db: DatabaseSync, busPath: string, repo: string, env: NodeJS.ProcessEnv, projections: Parameters<typeof decisionsSettlerOfBus>[3]): RequestTools {
+export function realRequestTools(db: DatabaseSync, busPath: string, repo: string, env: NodeJS.ProcessEnv, projections: Parameters<typeof decisionsSettlerOfBus>[3], decisionReads: Parameters<typeof decisionsSettlerOfBus>[4]): RequestTools {
   const gitHub = ghApi(repo)
   const patch = ghApiPatch(repo)
   const pushPolicy = (): PushPolicy => pushPolicyOf(readThroughPort, repo)
@@ -89,8 +89,8 @@ export function realRequestTools(db: DatabaseSync, busPath: string, repo: string
       execFileSync('pnpm', ['--silent', 'task:start', branch, '--card', cardLine], { cwd: repo, env: { ...env, [WINDOW_VARIABLE]: '', [LOOP_PID_VARIABLE]: '', [EXIT_REQUEST_VARIABLE]: '' }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
     },
     dryRunOf: dryRunIn(dryRunReviewsDir(busDirOf(busPath))),
-    addDecision: decisionsAdderOfBus(db, busPath, () => new Date()),
-    settleDecisions: decisionsSettlerOfBus(db, busPath, () => new Date(), projections),
+    addDecision: decisionsAdderOfBus(db, busPath, () => new Date(), decisionReads),
+    settleDecisions: decisionsSettlerOfBus(db, busPath, () => new Date(), projections, decisionReads),
     causeHolds: causeHoldsIn(db, repo, treeOf),
     closePr: request => closer.close(request),
     closeDropped: () => closer.closeDropped(),

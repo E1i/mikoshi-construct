@@ -13,7 +13,7 @@ import { archiveOf, runDecisionsRead, sessionCardOf } from '../../policy/decisio
 import { liveDecisionOf } from '../../policy/live-decision.js'
 import { reservationOf } from '../../policy/policy.js'
 import { decisionsInForceAt, unspentShard } from '../../policy/shards.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, DECISION_EVENT_READS } from '../../supervisor/composition.js'
 import { pendingRequests, runRequest } from '../../window/window-requests.js'
 
 const NOW = new Date('2026-11-05T10:00:00Z')
@@ -42,7 +42,7 @@ function bench(fileText?: string): Bench {
   const file = path.join(root, 'owner-decisions.md')
   if (fileText !== undefined)
     writeFileSync(file, fileText)
-  return { root, db, file, settle: (now = NOW) => decisionsSettler(db, file, () => now, busProjections())() }
+  return { root, db, file, settle: (now = NOW) => decisionsSettler(db, file, () => now, busProjections(), DECISION_EVENT_READS)() }
 }
 
 function record(made: Bench, decisionId: number, text: string, cards: number[] = [], supersedes?: number[]): void {
@@ -174,7 +174,7 @@ describe('owner decisions live in the bus', () => {
   it('a decision past 8000 bytes in force is not refused for its size', () => {
     const made = bench()
     const word = 'decision '.repeat(1000).trim()
-    const adder = decisionsAdder(made.db, made.file, () => NOW)
+    const adder = decisionsAdder(made.db, made.file, () => NOW, DECISION_EVENT_READS)
     writeFileSync(made.file, '# Owner decisions\n')
     expect(adder([`[owner] ${word}`]).code).toBe(0)
     expect(adder([`[owner] ${word} again`]).code).toBe(0)
@@ -243,7 +243,7 @@ describe('owner decisions live in the bus', () => {
     made.settle()
     expect(readFileSync(archiveOf(made.file), 'utf8')).toMatch(/- D-1 · .*first\..*superseded-by D-2/)
 
-    const adder = decisionsAdder(made.db, made.file, () => NOW)
+    const adder = decisionsAdder(made.db, made.file, () => NOW, DECISION_EVENT_READS)
     expect(adder(['[owner] third.']).lines[0]).toContain('- D-3 · ')
   })
 
@@ -251,7 +251,7 @@ describe('owner decisions live in the bus', () => {
     const made = bench()
     record(made, 1, 'first.')
     made.settle()
-    const adder = decisionsAdder(made.db, made.file, () => NOW)
+    const adder = decisionsAdder(made.db, made.file, () => NOW, DECISION_EVENT_READS)
     expect(adder(['[owner] second. · supersedes D-1']).code).toBe(0)
     reduce(made.db, 'pending', busProjections())
     expect(inForceNumbers(made.db)).toEqual([2])
@@ -265,7 +265,7 @@ describe('owner decisions live in the bus', () => {
   it('a card tail and a term in the record text reach the table, so the decision can still be spent', () => {
     const made = bench()
     made.settle()
-    const adder = decisionsAdder(made.db, made.file, () => NOW)
+    const adder = decisionsAdder(made.db, made.file, () => NOW, DECISION_EVENT_READS)
     expect(adder([`[owner] one. · card #${CARD}`]).code).toBe(0)
     expect(adder([`[owner] two. · until ${TERM}`]).code).toBe(0)
     reduce(made.db, 'pending', busProjections())

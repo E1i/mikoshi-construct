@@ -6,8 +6,8 @@ import { CARD_STOPPED, PR_OBSERVED, QUESTION_OWNER } from '../../core/events.js'
 import { isFullSha, prOf } from '../../core/identifiers.js'
 import { prFolds } from '../../core/pr-folds.js'
 import { reduce } from '../../core/reducer.js'
-import { DECISION_FOLDS, recordDecision } from '../../policy/decisions/index.js'
-import { busCardFolds, busProjections } from '../../supervisor/composition.js'
+import { recordDecision } from '../../policy/decisions/index.js'
+import { busCardFolds, busProjections, decisionFoldsOfTheBus } from '../../supervisor/composition.js'
 
 const LINKED_CARD = 7101
 const STOPPED_CARD = 7102
@@ -46,11 +46,10 @@ describe('the card folds are sequenced by the composition, not written by the pr
     expect(cardOf(db, LINKED_CARD)).toBeUndefined()
   })
 
-  // eslint-disable-next-line test/prefer-lowercase-title
-  it('DECISION_FOLDS alone leaves a QUESTION_OWNER stop unreleased', () => {
+  it('the decision folds alone leaves a QUESTION_OWNER stop unreleased', () => {
     db = openBus(':memory:')
     stoppedOnTheOwnerThenDecided(db)
-    reduce(db, 'rebuild', { folds: [busCardFolds(), DECISION_FOLDS], incremental: [] })
+    reduce(db, 'rebuild', { folds: [busCardFolds(), decisionFoldsOfTheBus()], incremental: [] })
     expect(db.prepare('SELECT decision_id FROM decisions').all().map(row => ({ ...row }))).toEqual([{ decision_id: DECISION }])
     expect(cardOf(db, STOPPED_CARD)?.state).toBe('stopped')
   })

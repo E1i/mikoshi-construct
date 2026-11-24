@@ -12,8 +12,8 @@ import { CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_OPENED, QUEST
 import { runInbox } from '../../core/inbox.js'
 import { reduce, reducedTypes, SNAPSHOT } from '../../core/reducer.js'
 import { watermarkOf } from '../../core/watermark.js'
-import { currentDecisions, DECISION_FOLDS, inForceDecisions, recordDecision } from '../../policy/decisions/index.js'
-import { busCardFolds, busOwnerWaitFolds, busProjections, openComposedBus } from '../../supervisor/composition.js'
+import { currentDecisions, inForceDecisions, recordDecision } from '../../policy/decisions/index.js'
+import { busCardFolds, busOwnerWaitFolds, busProjections, decisionFoldsOfTheBus, openComposedBus } from '../../supervisor/composition.js'
 
 const TS = '2026-11-09T08:02:45.000Z'
 const CARD = 7
@@ -134,7 +134,7 @@ describe('a reader of a projection behind its events', () => {
   it('every type a fold of the projection reads is a type its reader checks, and every checked type is reduced', () => {
     const covers = (types: readonly string[], folds: Record<string, unknown>): string[] => Object.keys(folds).filter(type => !types.includes(type))
     expect(covers(PROJECTION_TYPES[OWNER_WAITS], busOwnerWaitFolds())).toEqual([])
-    expect(covers(PROJECTION_TYPES[DECISIONS], DECISION_FOLDS)).toEqual([])
+    expect(covers(PROJECTION_TYPES[DECISIONS], decisionFoldsOfTheBus())).toEqual([])
     expect(covers(PROJECTION_TYPES[CARDS], busCardFolds())).toEqual([])
     expect([...CARD_TYPES_FOLDED_ON_APPEND].sort()).toEqual(Object.keys(CARDS_PROJECTION.folds).sort())
     expect(Object.values(PROJECTION_TYPES).flat().filter(type => !reducedTypes(busProjections()).includes(type))).toEqual([])

@@ -18,7 +18,7 @@ import type { DriftWatch } from '../nodes/merge/weights-drift.js'
 import type { UpdateSourceParts } from '../nodes/update/update-candidates.js'
 import type { DerivedHolds, ThresholdSet } from '../nodes/update/update-executor.js'
 import type { WitnessParts } from '../nodes/witness/witness-candidates.js'
-import type { InForceDecision } from '../policy/decisions/index.js'
+import type { DecisionEventReads, InForceDecision } from '../policy/decisions/index.js'
 import type { GitHub } from '../ports/github.js'
 import type { PlanParts } from '../window/plan-folds.js'
 import type { DetachedLaunch } from './bg.js'
@@ -45,8 +45,8 @@ import { cardDecisionReads, reviewedUnderTheCardDecision, reviewsTheCardDecision
 import { openOwnerWaits } from '../core/card-readings.js'
 import { CHAINS_PROJECTION } from '../core/chain.js'
 import { defaultBusPath, openBus } from '../core/db.js'
-import { byId, events } from '../core/events-query.js'
-import { CARD_DEFERRED, CARD_MOVED, CARD_PLANNED, CARD_STOPPED, CARD_UNPLANNED, DECISION_RECORDED, DECISIONS_IMPORTED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OBSERVED, PR_OPENED, RATCHET_THRESHOLD_SET, SLICE_PARENTS_BACKFILLED, TASK_ENQUEUED, TASK_REQUEUED } from '../core/events.js'
+import { byId, EITHER_JOURNAL, events, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } from '../core/events-query.js'
+import { CARD_DEFERRED, CARD_MOVED, CARD_PLANNED, CARD_STOPPED, CARD_UNPLANNED, DECISION_EXPIRED, DECISION_RECORDED, DECISIONS_IMPORTED, DECISIONS_PROJECTED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OBSERVED, PR_OPENED, RATCHET_THRESHOLD_SET, SLICE_PARENTS_BACKFILLED, TASK_ENQUEUED, TASK_REQUEUED } from '../core/events.js'
 import { FACTORY_WORKERS } from '../core/factory-paths.js'
 import { isFullSha, prOf } from '../core/identifiers.js'
 import { amendLeavesTheWidenOfTheWaitUncovered, CARD_BLOCKS, OWNER, OWNER_QUESTION_ANSWERED, ownerQuestionAnswered, ownerQuestionAnsweredAt } from '../core/inbox.js'
@@ -69,10 +69,10 @@ import { WeightsDriftWatch } from '../nodes/merge/weights-drift.js'
 import { ROLES_PROJECTION } from '../nodes/restart/role.js'
 import { updateCandidates, updateSource } from '../nodes/update/update-candidates.js'
 import { witnessSource } from '../nodes/witness/witness-candidates.js'
-import { archiveSpentDecisions, BusDecisions, DECISION_FOLDS } from '../policy/decisions/index.js'
+import { archiveSpentDecisions, BusDecisions, decisionFolds } from '../policy/decisions/index.js'
 import { answersOfTheDecisions } from '../policy/decisions/wait-folds.js'
 import { mayRequeueUnderTheRounds, mergeDecidedPastRoundLimit, outOfRounds, RECUT_ACTOR, REVIEWS_OF_A_PR } from '../policy/round-limit-decision.js'
-import { decisionsInForceAt, unspentShardsOf, WINDOW_SHARDS_LIVE_AT, withDecisionsHeldAt } from '../policy/shards.js'
+import { decisionsInForceAt, withDecisionsHeldAt } from '../policy/shards.js'
 import { cardAllowancesIn, derivedHoldOf } from '../policy/touch-scope.js'
 import { ANY, BusRead } from '../ports/bus-read.js'
 import { cardTreeReading } from '../ports/card-tree.js'
@@ -221,8 +221,22 @@ export function busCardFolds(): Record<string, Fold> {
   return cardFolds(BUS_CONTRACT, CARD_PR_READINGS)
 }
 
+const PROJECTED_DECISIONS = [DECISIONS_PROJECTED]
+const EXPIRED_DECISIONS = [DECISION_EXPIRED]
+const RECORDED_DECISIONS = [DECISION_RECORDED]
+const ENDED_CARD_STATES: readonly (string | null)[] = [MERGED_CARD, CLOSED_CARD, DROPPED_CARD]
+
+export const DECISION_EVENT_READS: DecisionEventReads = {
+  actorOf: (db, eventId) => byId(db, eventId)?.actor ?? null,
+  projectedBefore: (db, eventId) => events(db, { types: PROJECTED_DECISIONS, legacy: EITHER_JOURNAL, limit: 1, ...(eventId === undefined ? {} : { before: eventId }) }).length > 0,
+  expiredDecisionIds: db => events(db, { types: EXPIRED_DECISIONS, legacy: EITHER_JOURNAL }).map(event => event.data?.decision_id),
+  recordedByTheOwner: db => events(db, { types: RECORDED_DECISIONS }).filter(event => event.actor === OWNER),
+  tsOf: (db, eventIds) => new Map(events(db, { ids: eventIds, legacy: EITHER_JOURNAL }).map(event => [event.id, event.ts])),
+  cardEnded: state => ENDED_CARD_STATES.includes(state),
+}
+
 function cardWaitParts(): CardWaitParts {
-  return { archiveSpentDecisions, prRow, prsOfCard: (db, cardId) => prs.ofCard(db, cardId).map(row => row.pr), cardFolds: busCardFolds(), amendLeavesTheWidenOfTheWaitUncovered }
+  return { archiveSpentDecisions: db => archiveSpentDecisions(db, DECISION_EVENT_READS), prRow, prsOfCard: (db, cardId) => prs.ofCard(db, cardId).map(row => row.pr), cardFolds: busCardFolds(), amendLeavesTheWidenOfTheWaitUncovered }
 }
 
 const PR_FIELDS = { isFullSha, prOf }
@@ -283,8 +297,12 @@ export function busPrFolds(): Record<string, Fold> {
   }), busCardLinkFolds())
 }
 
+export function decisionFoldsOfTheBus(): Record<string, Fold> {
+  return decisionFolds(DECISION_EVENT_READS)
+}
+
 export function busDecisionFolds(): Record<string, Fold> {
-  return followedBy(DECISION_FOLDS, busCardReleaseFolds())
+  return followedBy(decisionFoldsOfTheBus(), busCardReleaseFolds())
 }
 
 export function busOwnerWaitFolds(): Record<string, Fold> {
