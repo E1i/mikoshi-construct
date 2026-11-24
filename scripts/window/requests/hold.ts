@@ -1,6 +1,6 @@
 import type { RequestContext, RequestExecutor } from './context.js'
 import type { Executed, RequestPayload } from './request.js'
-import { appendEvent, CARD_HELD, CARD_RELEASED, cardIdOf, holdLayersOf, holdThatStays, inTransaction, QUEUE_ACTOR, queueAgain, tasksWithdrawnByAClosedHold, withdrawQueuedTasksOfHeldCard } from './reach.js'
+import { answersWithdrawnByAClosedHold, appendEvent, CARD_HELD, CARD_RELEASED, cardIdOf, holdLayersOf, holdThatStays, inTransaction, QUEUE_ACTOR, queueAgain, withdrawQueuedTasksOfHeldCard } from './reach.js'
 import { text } from './request.js'
 
 export function holdFor(context: RequestContext, request: number, payload: RequestPayload, type: typeof CARD_HELD | typeof CARD_RELEASED): Executed {
@@ -14,7 +14,7 @@ export function holdFor(context: RequestContext, request: number, payload: Reque
     appendEvent(context.db, { ts, type, actor: QUEUE_ACTOR, cardId, pr: null, head: null, dedupeKey: `${type}:request-${request}`, payload: { request, ...(reason === null ? {} : { reason }) }, legacy: false })
     if (type === CARD_HELD)
       return { requeued: [], withdrawn: withdrawQueuedTasksOfHeldCard(context.db, ts, cardId, request) }
-    const again = tasksWithdrawnByAClosedHold(context.db, cardId, opened)
+    const again = answersWithdrawnByAClosedHold(context.db, cardId, opened)
     again.forEach(task => queueAgain(context.db, ts, task, request, `request-${request}`))
     return { requeued: again.map(task => task.task_key), withdrawn: [] }
   })

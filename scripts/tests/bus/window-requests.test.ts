@@ -15,7 +15,7 @@ import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { BUS_DB_VARIABLE, busDirOf } from '../../core/bus-path.js'
 import { factoryMode } from '../../core/card-bodies.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { BOARD_ALARM, BUS_PULSE, CARD_ADMITTED, CARD_DROPPED, CARD_STOPPED, OWNER_WAIT_OPENED, PR_CLOSED, PR_OPENED, REQUEST_DONE, REQUEST_REFUSED, SHARD_ISSUED, WINDOW_REQUEST } from '../../core/events.js'
+import { BOARD_ALARM, BUS_PULSE, CARD_ADMITTED, CARD_DROPPED, CARD_RELEASED, CARD_STOPPED, OWNER_WAIT_OPENED, PR_CLOSED, PR_OPENED, REQUEST_DONE, REQUEST_REFUSED, SHARD_ISSUED, WINDOW_REQUEST } from '../../core/events.js'
 import { prBodySha, taskKey } from '../../core/identifiers.js'
 import { ownerInbox } from '../../core/inbox.js'
 import { failTask, leaseNext } from '../../core/lease.js'
@@ -1024,5 +1024,18 @@ describe('a hold withdraws every queued task of the card', () => {
     ask(made, { kind: 'release', card: CARD })
     made.requests().run()
     expect(tasksOfCard(made)).toEqual([{ queue: 'answer', state: 'queued' }, { queue: 'launch', state: 'queued' }])
+  })
+
+  it('a release queues again only what its own hold withdrew', () => {
+    const made = room()
+    queuedLaunchAndAnswer(made)
+    ask(made, { kind: 'hold', card: CARD, reason: 'the owner holds it' })
+    made.requests().run()
+    appendEvent(made.bench.db, { ts: made.bench.clock.now().toISOString(), type: CARD_RELEASED, actor: 'owner', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_RELEASED}:raw`, payload: {}, legacy: false })
+    ask(made, { kind: 'hold', card: CARD, reason: 'the owner holds it again' })
+    made.requests().run()
+    ask(made, { kind: 'release', card: CARD })
+    made.requests().run()
+    expect(tasksOfCard(made)).toEqual([{ queue: 'answer', state: 'withdrawn' }, { queue: 'launch', state: 'withdrawn' }])
   })
 })

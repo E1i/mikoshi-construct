@@ -125,7 +125,7 @@ function queuedTasksWithdrawnSince(db: DatabaseSync, cardId: number, opened: num
   return rows.filter(row => byAHold.has(row.event_id)).map(queueRowOf)
 }
 
-export function tasksWithdrawnByAClosedHold(db: DatabaseSync, cardId: number, opened: number | null): QueueTaskRow[] {
+export function answersWithdrawnByAClosedHold(db: DatabaseSync, cardId: number, opened: number | null): QueueTaskRow[] {
   if (opened === null || holderOf(holdLayersOf(db, cardId)) !== null)
     return []
   return [...answersWithdrawnSince(db, cardId, opened), ...queuedTasksWithdrawnSince(db, cardId, opened)]

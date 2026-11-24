@@ -15,7 +15,7 @@ import { existsSync, readFileSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { riskOf } from '../../../src/card/risk.js'
 import { pathsOutsideTheBody } from '../../core/card-bodies.js'
-import { holdRecheckAt, LIVE_SESSION_IN_THE_TREE, queueAgain, sessionStopOf, tasksWithdrawnByAClosedHold } from '../../core/card-hold.js'
+import { answersWithdrawnByAClosedHold, holdRecheckAt, LIVE_SESSION_IN_THE_TREE, queueAgain, sessionStopOf } from '../../core/card-hold.js'
 import { closedWaitIds } from '../../core/card-readings.js'
 import { appendEvent, inTransaction, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
@@ -544,7 +544,7 @@ function answersQueuedAfterALateRelease(db: DatabaseSync, ts: string, cardId: nu
   const release = latestReleaseOf(db, cardId)
   if (release === null || ownerHoldOf(db, cardId) !== null)
     return []
-  const missed = tasksWithdrawnByAClosedHold(db, cardId, release.id)
+  const missed = answersWithdrawnByAClosedHold(db, cardId, release.id)
   missed.forEach(task => queueAgain(db, ts, task, release.request, `${CARD_RELEASED}-${release.id}`))
   return missed.map(task => task.task_key)
 }
