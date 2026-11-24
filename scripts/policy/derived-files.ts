@@ -221,6 +221,22 @@ export function derivedGrowthLine(grown: readonly GrownDerived[]): string {
   return `the derived ${grown.map(each => `${each.file} grows by ${each.entries.join(', ')}`).join('; ')}; the rerun reproduces it, and growth is the owner's decision (${DECISION}), so it waits for the owner`
 }
 
+const MEASURED_FROM = /\((?:-?\d+ → |new: )(-?\d+)\)/g
+
+function rowsAndValuesOf(text: string): string {
+  return text.replace(MEASURED_FROM, '(→ $1)')
+}
+
+export function growthAskedBefore(line: string, closedWaitTexts: readonly string[]): boolean {
+  const asked = rowsAndValuesOf(line)
+  return closedWaitTexts.some(text => rowsAndValuesOf(text).includes(asked))
+}
+
+export function growthToAsk(grown: readonly GrownDerived[], allowances: readonly string[], closedWaitTexts: readonly string[]): GrownDerived[] {
+  const unallowed = unallowedGrowth(grown, allowances)
+  return unallowed.length > 0 && growthAskedBefore(derivedGrowthLine(unallowed), closedWaitTexts) ? [] : unallowed
+}
+
 export function derivedRefusalLine(refused: readonly RefusedDerived[]): string {
   return refused.map(each => each.why).join('; ')
 }

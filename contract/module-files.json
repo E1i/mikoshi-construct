@@ -470,6 +470,7 @@
     "scripts/tests/bus/generated-rebuilt-not-overlap.test.ts",
     "scripts/tests/bus/github-fake.ts",
     "scripts/tests/bus/github.test.ts",
+    "scripts/tests/bus/growth-asked-once-across-nodes.test.ts",
     "scripts/tests/bus/head-poll.test.ts",
     "scripts/tests/bus/heartbeat.test.ts",
     "scripts/tests/bus/held-stop-generated-twin.test.ts",
