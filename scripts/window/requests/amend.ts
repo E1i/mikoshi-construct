@@ -1,8 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { RequestContext, RequestExecutor } from './context.js'
+import type { CardBodiesBus, RequestContext, RequestExecutor } from './context.js'
 import type { AdmitResult, AmendedStop, AmendFlags, CardAdmissionsPort, CardEventPort } from './reach.js'
 import type { Executed, RequestPayload } from './request.js'
-import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { withWitnessRecords, witnessRecordsOf } from '../../quality/witness-records.js'
 import { answerToResumeAfterAmend, appendCardEvent, bodyNotFoldedYet, BusDecisions, CARD_ADMITTED, CARD_BODIES, cardBodyText, cardIdOf, correctionText, INTAKE_ACTOR_PREFIX, inTransaction, laid, launchWaitsOf, layLanes, OPEN_OWNER_STOP_OF_CARD, queueAgain, repositoryLanes, runAmend } from './reach.js'
 import { messageOf, text } from './request.js'
@@ -50,14 +49,14 @@ function amendAnswer(cardId: number, result: AdmitResult, lane: string | null): 
   return { done: false, why: `#${cardId}: the amend ended ${result.status}; nothing was admitted` }
 }
 
-function amendEvents(context: RequestContext, request: number): CardEventPort {
+function amendEvents(context: RequestContext, bus: CardBodiesBus, request: number): CardEventPort {
   const actor = `${INTAKE_ACTOR_PREFIX}request-${request}`
   return event => inTransaction(context.db, () => {
     if (event.type !== CARD_ADMITTED) {
-      appendCardEvent(BUS_CONTRACT, context.db, actor, event)
+      appendCardEvent(bus, context.db, actor, event)
       return
     }
-    appendCardEvent(BUS_CONTRACT, context.db, actor, laid(context.db, event))
+    appendCardEvent(bus, context.db, actor, laid(context.db, event))
     layLanes(context.db, repositoryLanes(context.repository)(), event.ts, actor, event.cardId)
   })
 }
@@ -75,16 +74,18 @@ function resumeAfterAmend(context: RequestContext, request: number, cardId: numb
 }
 
 export const execute: RequestExecutor = (context, request, payload) => {
-  const { db } = context
+  const { db, bus } = context
   const cardId = cardIdOf(payload.card)
   if (cardId === null)
     return { done: false, why: 'amend names no card' }
-  if (bodyNotFoldedYet(BUS_CONTRACT, db, cardId))
+  if (bus === null)
+    return { done: false, why: `#${cardId}: this request runner was composed without the bus contract; amend runs only under bus:run` }
+  if (bodyNotFoldedYet(bus, db, cardId))
     return { done: false, why: `#${cardId}: the bus has not folded its latest body yet; ask again on the next tick` }
   const lane = (db.prepare(`SELECT lane FROM ${CARD_BODIES} WHERE card_id = ?`).get(cardId) as { lane: string | null } | undefined)?.lane ?? null
   const stop = db.prepare(OPEN_OWNER_STOP_OF_CARD).get(cardId) as { id: number, payload: string } | undefined
   const cardStates = (): Map<string, string> => new Map((db.prepare(CARD_STATES).all() as unknown as { card_id: number, state: string | null }[]).map(row => [String(row.card_id), row.state ?? HELD_WITHOUT_STATE]))
-  const result = runAmend({ card: `#${cardId}`, flags: amendFlagsOf(payload), dir: context.repository, dryRun: false, autoConfirm: payload.auto_confirm === true, events: amendEvents(context, request), admissions: latestAdmissionOf(db), decisions: new BusDecisions(db), cardStates, cardWaits: launchWaitsOf(db, context.repository) }, context.clock)
+  const result = runAmend({ card: `#${cardId}`, flags: amendFlagsOf(payload), dir: context.repository, dryRun: false, autoConfirm: payload.auto_confirm === true, events: amendEvents(context, bus, request), admissions: latestAdmissionOf(db), decisions: new BusDecisions(db), cardStates, cardWaits: launchWaitsOf(db, context.repository) }, context.clock)
   const answered = amendAnswer(cardId, result, lane)
   return stop === undefined || result.status !== 'admitted' ? answered : { done: true, why: `${answered.why}; ${resumeAfterAmend(context, request, cardId, stop, payload)}` }
 }

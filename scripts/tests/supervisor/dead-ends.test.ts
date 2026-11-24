@@ -115,7 +115,7 @@ function windowRequeue(db: DatabaseSync, key: string): number {
 
 function requestContext(db: DatabaseSync): RequestContext {
   const tools = { causeHolds: () => null } as unknown as RequestTools
-  return new RequestContext(db, () => PAST_THE_ROUND, tools, 'owner', () => null, 'repository', {} as GitHub)
+  return new RequestContext(db, () => PAST_THE_ROUND, tools, 'owner', () => null, 'repository', {} as GitHub, null)
 }
 
 describe('a dead-end alarm names the task key a window requeue looks up', () => {

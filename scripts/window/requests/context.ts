@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { GitHub } from './reach.js'
+import type { bodyNotFoldedYet, GitHub } from './reach.js'
 import type { Executed, RequestPayload, RequestTools } from './request.js'
 import { startStillOpen } from '../window-session-end.js'
 import { CARD_ANSWERED, CARD_CONTINUED, CARD_STARTED, CARD_STOPPED, decisionsInForceAt, holdLayersOf, legacyHistory, ownerHoldOf, PR_OBSERVED, REJECTED, sameDecisionWords, settledCards } from './reach.js'
@@ -12,6 +12,8 @@ export interface PrAsObserved {
   event_id: number
   body_sha: string | null
 }
+
+export type CardBodiesBus = Parameters<typeof bodyNotFoldedYet>[0]
 
 export type RequestExecutor = (context: RequestContext, request: number, payload: RequestPayload) => Executed
 
@@ -26,7 +28,7 @@ function cardStatesOf(db: DatabaseSync): Map<string, string> {
 }
 
 export class RequestContext {
-  constructor(readonly db: DatabaseSync, readonly clock: () => Date, readonly tools: RequestTools, readonly ownerChannel: string, readonly releaseVersion: () => string | null, readonly repository: string, readonly gitHub: GitHub) {}
+  constructor(readonly db: DatabaseSync, readonly clock: () => Date, readonly tools: RequestTools, readonly ownerChannel: string, readonly releaseVersion: () => string | null, readonly repository: string, readonly gitHub: GitHub, readonly bus: CardBodiesBus | null) {}
 
   now(): string {
     return this.clock().toISOString()
