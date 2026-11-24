@@ -1,6 +1,7 @@
 import type { ClientAdapter, ClientGuarantees, Invocation, ModelPick, ReadBudget, Refusal, SessionPlace, SessionPolicy, SessionReading, SessionSpec, ToolUse, Usage } from '../contract.js'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
+import process from 'node:process'
 
 const CODEX_COMMAND = 'codex'
 const ARGV_HEAD_NAMING_THE_PROGRAM = 2
@@ -88,13 +89,56 @@ function streamOf(stdoutPath: string | null): RawEntry[] {
   return entriesOf(textOf(stdoutPath) ?? '')
 }
 
-function usageOf(raw: unknown): Usage | null {
+function codexSpendBasis(raw: unknown): Usage | null {
   if (!isObject(raw))
     return null
-  const { input_tokens: input, cached_input_tokens: cached, cache_write_input_tokens: cacheWrite, output_tokens: output, reasoning_output_tokens: reasoning } = raw
-  if (typeof input !== 'number' || typeof cached !== 'number' || typeof cacheWrite !== 'number' || typeof output !== 'number' || typeof reasoning !== 'number')
+  const { input_tokens: inputWithCached, cached_input_tokens: cached, cache_write_input_tokens: cacheWrite, output_tokens: output, reasoning_output_tokens: reasoning } = raw
+  if (typeof inputWithCached !== 'number' || typeof cached !== 'number' || typeof cacheWrite !== 'number' || typeof output !== 'number' || typeof reasoning !== 'number')
     return null
-  return { input: input - cached, cached, cacheWrite, output, reasoning }
+  return { input: inputWithCached - cached, cached, cacheWrite, output, reasoning }
+}
+
+function lastTokenCountOf(entries: RawEntry[]): RawEntry | null {
+  const info = entries.filter(entry => entry.type === 'event_msg' && isObject(entry.payload) && entry.payload.type === 'token_count').map(entry => (entry.payload as RawEntry).info).filter(isObject).at(-1)
+  return info ?? null
+}
+
+function promptSizeOf(lastTurn: unknown): number | null {
+  return isObject(lastTurn) && typeof lastTurn.input_tokens === 'number' ? lastTurn.input_tokens : null
+}
+
+function rolloutSessionOf(entries: RawEntry[]): string | null {
+  const meta = entries.find(entry => entry.type === 'session_meta')?.payload
+  return isObject(meta) && typeof meta.id === 'string' ? meta.id : null
+}
+
+function codexHome(env: NodeJS.ProcessEnv): string | null {
+  const home = env.CODEX_HOME ?? (env.HOME === undefined ? undefined : path.join(env.HOME, '.codex'))
+  return home === undefined || home === '' ? null : home
+}
+
+function rolloutOf(env: NodeJS.ProcessEnv, session: string): string | null {
+  const home = codexHome(env)
+  if (session.trim() === '' || home === null)
+    return null
+  const sessions = path.join(home, 'sessions')
+  if (!existsSync(sessions))
+    return null
+  const named = readdirSync(sessions, { recursive: true, encoding: 'utf8' })
+    .filter(file => path.basename(file).startsWith('rollout-') && path.basename(file).endsWith(`-${session}.jsonl`))
+    .sort()
+    .at(-1)
+  return named === undefined ? null : path.join(sessions, named)
+}
+
+function windowMeasureOf(rollout: string | null): Pick<SessionReading, 'usage' | 'contextTokens' | 'clientSession'> {
+  const entries = entriesOf(textOf(rollout) ?? '')
+  const tokenCount = lastTokenCountOf(entries)
+  return {
+    usage: codexSpendBasis(tokenCount?.total_token_usage),
+    contextTokens: promptSizeOf(tokenCount?.last_token_usage),
+    clientSession: rolloutSessionOf(entries),
+  }
 }
 
 function failureOf(failed: RawEntry): string {
@@ -131,10 +175,15 @@ function toolUsesOf(entries: RawEntry[]): ToolUse[] {
 }
 
 function readingOf(place: SessionPlace): SessionReading {
+  const reading = streamReadingOf(place)
+  return place.stdoutPath === null ? { ...reading, ...windowMeasureOf(rolloutOf(process.env, place.session)) } : reading
+}
+
+function streamReadingOf(place: SessionPlace): SessionReading {
   const entries = streamOf(place.stdoutPath)
   return {
     ...endOf(entries, place),
-    usage: usageOf(entries.filter(entry => entry.type === 'turn.completed').at(-1)?.usage),
+    usage: codexSpendBasis(entries.filter(entry => entry.type === 'turn.completed').at(-1)?.usage),
     costUsd: null,
     turns: null,
     durationMs: null,
