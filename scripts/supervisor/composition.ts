@@ -86,7 +86,7 @@ import { plans } from '../window/plan-readings.js'
 import { releasingTakeoverOnPush } from '../window/takeover-push-release.js'
 import { PREFIX } from './bg.js'
 import { cardWaitFolds, closeWaitsOfAnEndedCard, closingTheWaitsOfAClosedPr, ownerWaitFolds } from './card-waits.js'
-import { causeGoneSource, derivedQueues, DOWNGRADE_PARKED_SOURCE, dueAgainSource, NO_CARD_TREE_SOURCE, restartSource, SETTLE_SOURCE, stopNoLongerHoldsSource } from './derive-queues.js'
+import { causeGoneSource, derivedQueues, downgradeParkedSource, dueAgainSource, noCardTreeSource, restartSource, settleSource, stopNoLongerHoldsSource } from './derive-queues.js'
 import { unendedStarts } from './expected-time.js'
 import { busSessionPulse, heartbeatEnv, measureCardSession, ownStart, recordProcessHeartbeat } from './heartbeat.js'
 import { SILENT_MS } from './liveness-sites.js'
@@ -434,16 +434,16 @@ export interface NamedQueueSource {
 export function namedQueueSources(): NamedQueueSource[] {
   const rules = candidateRules()
   return [
-    { node: 'answer', source: NO_CARD_TREE_SOURCE },
+    { node: 'answer', source: noCardTreeSource(prs) },
     { node: 'witness', source: witnessSource() },
     { node: 'merge', source: mergeSource(mergeParts()) },
-    { node: 'answer', source: DOWNGRADE_PARKED_SOURCE },
-    { node: 'merge', source: dueAgainSource((db, ts) => [...mergeCandidates(db, ts, rules), ...updateCandidates(db, ts, updateParts())]) },
+    { node: 'answer', source: downgradeParkedSource(prs) },
+    { node: 'merge', source: dueAgainSource(prs, (db, ts) => [...mergeCandidates(db, ts, rules), ...updateCandidates(db, ts, updateParts())]) },
     { node: 'update', source: updateSource(updateParts()) },
-    { node: 'review', source: causeGoneSource(reopenedReviews(rules)) },
-    { node: 'answer', source: stopNoLongerHoldsSource(ownerQuestionAnswered) },
-    { node: 'window', source: SETTLE_SOURCE },
-    { node: 'restart', source: restartSource(rules) },
+    { node: 'review', source: causeGoneSource(prs, reopenedReviews(rules)) },
+    { node: 'answer', source: stopNoLongerHoldsSource(prs, ownerQuestionAnswered) },
+    { node: 'window', source: settleSource(prs) },
+    { node: 'restart', source: restartSource(prs, rules) },
     { node: 'answer', source: answerSource(answerParts()) },
     { node: 'launch', source: LAUNCH_SOURCE },
   ]
@@ -508,7 +508,7 @@ export function deadEndParts(db: DatabaseSync, candidates: readonly NodeCandidat
 }
 
 export function queuePass(): QueuePass {
-  return { sources: queueSources(), mayRequeue: mayRequeue(), decisionsAt, held: (db, ts, work) => withDecisionsHeldAt(db, new Date(ts), work) }
+  return { prs, sources: queueSources(), mayRequeue: mayRequeue(), decisionsAt, held: (db, ts, work) => withDecisionsHeldAt(db, new Date(ts), work) }
 }
 
 export function sliceParentsOnce(db: DatabaseSync, ts: string): SliceParentsBackfill | null {

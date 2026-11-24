@@ -2,7 +2,6 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { CardOfStop } from '../core/card-readings.js'
 import type { EventRow } from '../core/events-query.js'
 import type { BoundDecision } from '../core/identifiers.js'
-import type { PrRow } from '../core/pr-readings.js'
 import type { CandidateRules, Derived, MayRequeue, QuestionAnswered, QueuedTask, QueueSource, RequeueRow, TaskRow } from '../core/queue.js'
 import type { TaskRow as StoredTask } from '../core/tasks-query.js'
 import { isBackfill } from '../core/backfill-source.js'
@@ -12,7 +11,6 @@ import { byId, EITHER_JOURNAL, events, latest } from '../core/events-query.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, declaredPart, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_ROUNDS_SPENT, ROUND_MUTATIONS_PARKED, TASK_FAILED, TASK_REQUEUED, TASK_WITHDRAWN, WITNESS_DOWNGRADE } from '../core/events.js'
 import { tasksTheHeadOrTheCardDecisionSupersedes } from '../core/identifiers.js'
 import { ADMIT_COMMAND } from '../core/owner-commands.js'
-import * as prs from '../core/pr-readings.js'
 import { answersOfAnOldCardBody, COMPLETED, deriveQueues, DOWNGRADE_WAIT_OPEN, FAILURES_TO_STOP, FAULT, identityOfRow, keyOf, LAUNCH_STOP_WITH_NO_PULL_REQUEST, LEASED, openCandidates, QUEUE_ACTOR, QUEUED, reviewsOfAnOldInput, reviewsOfTheCurrentInputAgain, STOPPED, SUPERSEDED, supersedeTask, WITHDRAWN, withdrawTask } from '../core/queue.js'
 import * as tasks from '../core/tasks-query.js'
 
@@ -31,7 +29,22 @@ const STILL_NEEDED_AFTER_A_MERGE = new Set(['merge', 'close', 'witness'])
 const CARD_TURNS = [CARD_STOPPED, CARD_ANSWERED, CARD_STARTED]
 const JSON_TRUE: readonly unknown[] = [1, true]
 
+export interface QueuePr {
+  pr: number
+  card_id: number | null
+  head: string | null
+  state: string | null
+  body_sha: string | null
+}
+
+export interface QueuePrs {
+  all: (db: DatabaseSync) => QueuePr[]
+  ofPr: (db: DatabaseSync, pr: number) => QueuePr | null
+  mainsSinceLastMechanics: (db: DatabaseSync) => { mechanics: string, shas: ReadonlySet<string> } | null
+}
+
 export interface QueuePass {
+  prs: QueuePrs
   sources: readonly QueueSource[]
   mayRequeue: MayRequeue
   decisionsAt: (db: DatabaseSync, ts: string) => readonly BoundDecision[]
@@ -40,22 +53,23 @@ export interface QueuePass {
 
 interface Readings {
   tasks: StoredTask[]
-  prs: Map<number, PrRow>
+  prs: Map<number, QueuePr>
+  reads: QueuePrs
 }
 
-function readingsOf(db: DatabaseSync): Readings {
-  return { tasks: tasks.all(db), prs: new Map(prs.all(db).map(pr => [pr.pr, pr])) }
+function readingsOf(db: DatabaseSync, prs: QueuePrs): Readings {
+  return { tasks: tasks.all(db), prs: new Map(prs.all(db).map(pr => [pr.pr, pr])), reads: prs }
 }
 
-function prOf(readings: Readings, task: { pr: number | null }): PrRow | undefined {
+function prOf(readings: Readings, task: { pr: number | null }): QueuePr | undefined {
   return task.pr === null ? undefined : readings.prs.get(task.pr)
 }
 
-function onTheHead(pr: PrRow | undefined, task: StoredTask): boolean {
+function onTheHead(pr: QueuePr | undefined, task: StoredTask): boolean {
   return pr !== undefined && pr.head !== null && pr.head === task.head
 }
 
-function onTheOpenHead(pr: PrRow | undefined, task: StoredTask): boolean {
+function onTheOpenHead(pr: QueuePr | undefined, task: StoredTask): boolean {
   return pr?.state === OPEN && onTheHead(pr, task)
 }
 
@@ -90,7 +104,7 @@ interface RestartTarget {
   head: string
 }
 
-function restartTargets(db: DatabaseSync): RestartTarget[] {
+function restartTargets(db: DatabaseSync, prs: QueuePrs): RestartTarget[] {
   const mains = prs.mainsSinceLastMechanics(db)
   return (db.prepare(CHAINS).all() as { card_id: number, sha: string, state: string }[]).flatMap((chain) => {
     const mechanics = mains !== null && !mains.shas.has(chain.sha) ? mains.mechanics : null
@@ -114,7 +128,7 @@ function tasksOfAnOldHead(db: DatabaseSync, readings: Readings): OldHeadRow[] {
       add({ ...rowOfTask(task), head_moved: moved ? 1 : 0 })
   }
   const restarts = readings.tasks.filter(task => task.queue === 'restart' && LIVE.has(task.state))
-  const targets = restarts.length === 0 ? [] : restartTargets(db)
+  const targets = restarts.length === 0 ? [] : restartTargets(db, readings.reads)
   for (const task of restarts) {
     const heads = targets.filter(target => target.card_id === task.card_id).map(target => target.head)
     if (heads.length === 0 || (task.head !== null && !heads.includes(task.head)))
@@ -194,8 +208,8 @@ function cardTreeCanBeBroughtUp(db: DatabaseSync, readings: Readings, cardId: nu
     && typeof start.data?.worktree === 'string' && typeof start.data.branch === 'string')
 }
 
-function stoppedOnNoCardTree(db: DatabaseSync): RequeueRow[] {
-  const readings = readingsOf(db)
+function stoppedOnNoCardTree(db: DatabaseSync, prs: QueuePrs): RequeueRow[] {
+  const readings = readingsOf(db, prs)
   return byTaskKey(readings.tasks.filter(task => task.queue === 'answer' && task.state === STOPPED && (task.pr === null || onTheOpenHead(prOf(readings, task), task)))
     .filter(task => byId(db, task.event_id)?.data?.reason === NO_CARD_TREE && cardTreeCanBeBroughtUp(db, readings, task.card_id))
     .map(task => ({ ...rowOfTask(task), failure: task.event_id })))
@@ -210,8 +224,8 @@ function answeredAt(db: DatabaseSync, answered: QuestionAnswered): (stop: number
   return stop => (query.get(stop) as { answered: number | null }).answered === 1
 }
 
-function answersWhoseStopNoLongerHold(db: DatabaseSync, answered: QuestionAnswered): StoppedAnswerRow[] {
-  const readings = readingsOf(db)
+function answersWhoseStopNoLongerHold(db: DatabaseSync, prs: QueuePrs, answered: QuestionAnswered): StoppedAnswerRow[] {
+  const readings = readingsOf(db, prs)
   const isAnswered = answeredAt(db, answered)
   return byTaskKey(readings.tasks.flatMap((task): StoppedAnswerRow[] => {
     if (task.queue !== 'answer' || task.state !== COMPLETED || task.task_key.toLowerCase().includes(':stop-') || !onTheOpenHead(prOf(readings, task), task))
@@ -238,8 +252,8 @@ function queuedAnswersUnderADowngradeWait(db: DatabaseSync): TaskRow[] {
   return byTaskKey(queued.filter(task => waiting.has(task.card_id)).map(rowOfTask))
 }
 
-function answersParkedOnADowngradeWaitNowClosed(db: DatabaseSync): RequeueRow[] {
-  const readings = readingsOf(db)
+function answersParkedOnADowngradeWaitNowClosed(db: DatabaseSync, prs: QueuePrs): RequeueRow[] {
+  const readings = readingsOf(db, prs)
   const parked = readings.tasks.filter(task => task.queue === 'answer' && task.state === WITHDRAWN && (task.pr === null || onTheOpenHead(prOf(readings, task), task)))
     .filter((task) => {
       const event = byId(db, task.event_id)
@@ -255,7 +269,7 @@ interface QuestionStop {
   cardRow: CardOfStop | undefined
 }
 
-function latestQuestionStops(db: DatabaseSync): QuestionStop[] {
+function latestQuestionStops(db: DatabaseSync, prs: QueuePrs): QuestionStop[] {
   const latestOfCard = new Map<number, EventRow>()
   for (const stop of events(db, { types: [CARD_STOPPED] })) {
     if (stop.card_id !== null && stop.data?.reason === QUESTION_AGENT)
@@ -300,8 +314,8 @@ function latestAdmission(db: DatabaseSync, cardId: number): EventRow | undefined
   return events(db, { card: cardId, types: [CARD_ADMITTED], newestFirst: true }).find(admitted => admitted.data === null || !isBackfill(admitted.data))
 }
 
-function launchStopsLifted(db: DatabaseSync): { card_id: number, stop: number, admission: string | null }[] {
-  return latestQuestionStops(db).filter(question =>
+function launchStopsLifted(db: DatabaseSync, prs: QueuePrs): { card_id: number, stop: number, admission: string | null }[] {
+  return latestQuestionStops(db, prs).filter(question =>
     question.stop.pr === null && question.stop.dedupe_key.startsWith(LAUNCH_STOP_WITH_NO_PULL_REQUEST)
     && !asksToWidenTheTouches(question.stop) && !admittedAfterTheStop(db, question) && !aQuestionOfTheStopStillOpen(db, question)
     && !ENDED_CARD_STATES.has(question.cardRow?.state ?? ''),
@@ -316,8 +330,8 @@ interface WindowQuestionRow {
   lane: unknown
 }
 
-function questionsWithNoWindowWaitYet(db: DatabaseSync): WindowQuestionRow[] {
-  return latestQuestionStops(db).filter((question) => {
+function questionsWithNoWindowWaitYet(db: DatabaseSync, prs: QueuePrs): WindowQuestionRow[] {
+  return latestQuestionStops(db, prs).filter((question) => {
     const amendsFirst = (asksToWidenTheTouches(question.stop) || askedTheSameQuestionJustBefore(db, question)) && !admittedAfterTheStop(db, question)
     return amendsFirst && events(db, { card: question.card, types: [OWNER_WAIT_OPENED], since: question.stop.id, legacy: EITHER_JOURNAL, limit: 1 }).length === 0
   }).map(question => ({
@@ -329,7 +343,7 @@ function questionsWithNoWindowWaitYet(db: DatabaseSync): WindowQuestionRow[] {
   }))
 }
 
-function roundLimitsWithNoOutcome(db: DatabaseSync, settled: string): { card_id: number | null, pr: number }[] {
+function roundLimitsWithNoOutcome(db: DatabaseSync, prs: QueuePrs, settled: string): { card_id: number | null, pr: number }[] {
   const spent = events(db, { types: [REVIEW_ROUNDS_SPENT] }).filter(event => event.ts <= settled && event.pr !== null && prs.ofPr(db, event.pr)?.state === OPEN)
   if (spent.length === 0)
     return []
@@ -356,19 +370,19 @@ export function lostRecutWaitText(cardId: number, pr: number): string {
   return `card #${cardId}: PR #${pr} reached the review round limit (D-104), and the bus holds neither its re-cut nor an owner wait for it; check whether it was re-cut before deciding it`
 }
 
-function openLostRecutWaits(db: DatabaseSync, ts: string): void {
+function openLostRecutWaits(db: DatabaseSync, ts: string, prs: QueuePrs): void {
   const settled = new Date(Date.parse(ts) - RECUT_GRACE_MS).toISOString()
-  for (const row of roundLimitsWithNoOutcome(db, settled))
+  for (const row of roundLimitsWithNoOutcome(db, prs, settled))
     inTransaction(db, () => openOwnerWait(db, ts, QUEUE_ACTOR, { need: 'decision', text: lostRecutWaitText(row.card_id as number, row.pr), card: row.card_id as number, pr: row.pr }))
 }
 
-function openWindowWaits(db: DatabaseSync, ts: string): void {
-  for (const row of questionsWithNoWindowWaitYet(db))
+function openWindowWaits(db: DatabaseSync, ts: string, prs: QueuePrs): void {
+  for (const row of questionsWithNoWindowWaitYet(db, prs))
     inTransaction(db, () => openOwnerWait(db, ts, QUEUE_ACTOR, { need: 'command', text: windowWaitText(row), command: admitCommandOf(row.card_id, row.lane), card: row.card_id, ...(row.pr === null ? {} : { pr: row.pr }) }))
 }
 
-function readmitLiftedLaunchStops(db: DatabaseSync, ts: string): void {
-  for (const row of launchStopsLifted(db)) {
+function readmitLiftedLaunchStops(db: DatabaseSync, ts: string, prs: QueuePrs): void {
+  for (const row of launchStopsLifted(db, prs)) {
     if (row.admission === null)
       continue
     const admission = `${LIFTED_ADMISSION}:${row.stop}`
@@ -383,27 +397,31 @@ function alarmed(db: DatabaseSync, ts: string, row: StoppedAnswerRow): void {
   appendEvent(db, { ts, type: BOARD_ALARM, actor: QUEUE_ACTOR, cardId: row.card_id, pr: row.pr, head: row.head, dedupeKey: `${BOARD_ALARM}:${row.task_key}`, payload: { task_key: row.task_key, reason: FAULT, failures, detail }, legacy: false })
 }
 
-export const NO_CARD_TREE_SOURCE: QueueSource = { queue: 'answer', requeue: db => stoppedOnNoCardTree(db) }
+export function noCardTreeSource(prs: QueuePrs): QueueSource {
+  return { queue: 'answer', requeue: db => stoppedOnNoCardTree(db, prs) }
+}
 
-export const DOWNGRADE_PARKED_SOURCE: QueueSource = { queue: 'answer', requeue: db => answersParkedOnADowngradeWaitNowClosed(db) }
+export function downgradeParkedSource(prs: QueuePrs): QueueSource {
+  return { queue: 'answer', requeue: db => answersParkedOnADowngradeWaitNowClosed(db, prs) }
+}
 
-export function dueAgainSource(candidates: (db: DatabaseSync, ts: string) => QueuedTask[]): QueueSource {
+export function dueAgainSource(prs: QueuePrs, candidates: (db: DatabaseSync, ts: string) => QueuedTask[]): QueueSource {
   return {
     requeue: (db, ts) => {
       const due = new Set(candidates(db, ts).map(keyOf))
-      return [...reviewsOfTheCurrentInputAgain(db), ...supersededMergesAndUpdatesOnTheCurrentHead(readingsOf(db)).filter(row => due.has(row.task_key))]
+      return [...reviewsOfTheCurrentInputAgain(db), ...supersededMergesAndUpdatesOnTheCurrentHead(readingsOf(db, prs)).filter(row => due.has(row.task_key))]
     },
   }
 }
 
-export function causeGoneSource(reopened: (db: DatabaseSync, ts: string) => RequeueRow[]): QueueSource {
-  return { requeue: (db, ts) => [...alarmsWhoseCauseIsGone(db, readingsOf(db)), ...reopened(db, ts)] }
+export function causeGoneSource(prs: QueuePrs, reopened: (db: DatabaseSync, ts: string) => RequeueRow[]): QueueSource {
+  return { requeue: (db, ts) => [...alarmsWhoseCauseIsGone(db, readingsOf(db, prs)), ...reopened(db, ts)] }
 }
 
-export function stopNoLongerHoldsSource(answered: QuestionAnswered): QueueSource {
+export function stopNoLongerHoldsSource(prs: QueuePrs, answered: QuestionAnswered): QueueSource {
   return {
     queue: 'answer',
-    requeue: (db, ts) => answersWhoseStopNoLongerHold(db, answered).flatMap((row): RequeueRow[] => {
+    requeue: (db, ts) => answersWhoseStopNoLongerHold(db, prs, answered).flatMap((row): RequeueRow[] => {
       if (row.fault === true && row.failures + 1 >= FAILURES_TO_STOP) {
         alarmed(db, ts, row)
         return []
@@ -413,29 +431,31 @@ export function stopNoLongerHoldsSource(answered: QuestionAnswered): QueueSource
   }
 }
 
-export const SETTLE_SOURCE: QueueSource = {
-  settle: (db, ts) => {
-    for (const row of queuedAnswersUnderADowngradeWait(db))
-      withdrawTask(db, ts, identityOfRow(row), DOWNGRADE_WAIT_OPEN)
-    openWindowWaits(db, ts)
-    readmitLiftedLaunchStops(db, ts)
-    openLostRecutWaits(db, ts)
-  },
+export function settleSource(prs: QueuePrs): QueueSource {
+  return {
+    settle: (db, ts) => {
+      for (const row of queuedAnswersUnderADowngradeWait(db))
+        withdrawTask(db, ts, identityOfRow(row), DOWNGRADE_WAIT_OPEN)
+      openWindowWaits(db, ts, prs)
+      readmitLiftedLaunchStops(db, ts, prs)
+      openLostRecutWaits(db, ts, prs)
+    },
+  }
 }
 
-export function restartSource(rules: CandidateRules): QueueSource {
-  return { queue: 'restart', enqueue: (db, ts) => openCandidates(db, ts, 'restart', restartTargets(db).map(target => ({ pr: null, card_id: target.card_id, head: target.head })), rules) }
+export function restartSource(prs: QueuePrs, rules: CandidateRules): QueueSource {
+  return { queue: 'restart', enqueue: (db, ts) => openCandidates(db, ts, 'restart', restartTargets(db, prs).map(target => ({ pr: null, card_id: target.card_id, head: target.head })), rules) }
 }
 
 function supersededAndWithdrawn(db: DatabaseSync, ts: string, pass: QueuePass): string[] {
   const superseded: string[] = []
-  for (const row of tasksTheHeadOrTheCardDecisionSupersedes(tasksOfAnOldHead(db, readingsOf(db)), pass.decisionsAt(db, ts), identityOfRow)) {
+  for (const row of tasksTheHeadOrTheCardDecisionSupersedes(tasksOfAnOldHead(db, readingsOf(db, pass.prs)), pass.decisionsAt(db, ts), identityOfRow)) {
     if (supersedeTask(db, ts, identityOfRow(row)))
       superseded.push(row.task_key)
   }
-  for (const row of tasksOfAClosedPullRequest(db, readingsOf(db), ts))
+  for (const row of tasksOfAClosedPullRequest(db, readingsOf(db, pass.prs), ts))
     withdrawTask(db, ts, identityOfRow(row))
-  for (const row of [...reviewsOfAnOldInput(db), ...answersOfAnOldCardBody(db), ...mergesOfAnOldBody(readingsOf(db))]) {
+  for (const row of [...reviewsOfAnOldInput(db), ...answersOfAnOldCardBody(db), ...mergesOfAnOldBody(readingsOf(db, pass.prs))]) {
     if (supersedeTask(db, ts, identityOfRow(row)))
       superseded.push(row.task_key)
   }
