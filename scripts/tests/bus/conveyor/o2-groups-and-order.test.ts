@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { busFacts } from '../../../../src/commands/board/index.js'
 import { screenLines } from '../../../../src/commands/board/screens.js'
 import { PLAIN_LORE } from '../../../../src/ui/lore.js'
+import { BUS_CONTRACT } from '../../../core/bus-adapter.js'
 import { openOwnerWaits } from '../../../core/card-readings.js'
 import { appendEvent, openBus } from '../../../core/db.js'
 import { readDeclarations } from '../../../core/declarations.js'
@@ -137,7 +138,7 @@ describe('conveyor O2: the order runs in the bus, on the board and through the w
       { number: 1003, files: ['templates/base/a-new-template.md'] },
     ])
     order(db, 1002)
-    new PrOrderTick(db, busEvents(db), () => '2026-11-14T00:00:30Z', () => declarations, '', () => openOwnerWaits(db)).step()
+    new PrOrderTick(BUS_CONTRACT, db, busEvents(db), () => '2026-11-14T00:00:30Z', () => declarations, '', () => openOwnerWaits(db)).step()
     const facts = busFacts(db, new Date('2026-11-14T00:01:00Z'))
     expect(facts.groups).toEqual([
       { prs: [1001], modules: ['docs'], turn: null },
@@ -166,7 +167,7 @@ describe('conveyor O2: the order runs in the bus, on the board and through the w
     appendEvent(db, { ts: '2026-11-14T00:00:03Z', type: TASK_ENQUEUED, actor: 'policy', cardId: 32, pr: 3002, head: null, dedupeKey: 'o2:merge:enqueued', payload: { task_key: 'merge:32:3002:x', queue: 'merge' }, legacy: false })
     appendEvent(db, { ts: '2026-11-14T00:00:04Z', type: TASK_LEASED, actor: 'policy', cardId: 32, pr: 3002, head: null, dedupeKey: 'o2:merge:leased', payload: { task_key: 'merge:32:3002:x', queue: 'merge', lease_gen: 1 }, legacy: false })
     const touches = (card: number): readonly string[] | null => card === 33 ? ['docs/guide/shared.md'] : null
-    new PrOrderTick(db, busEvents(db), () => '2026-11-14T00:00:30Z', () => declarations, '', () => openOwnerWaits(db), touches).step()
+    new PrOrderTick(BUS_CONTRACT, db, busEvents(db), () => '2026-11-14T00:00:30Z', () => declarations, '', () => openOwnerWaits(db), touches).step()
     expect(busFacts(db, new Date('2026-11-14T00:01:00Z')).groups).toEqual([{ prs: [3001, 3002, 3003], modules: ['docs'], turn: 3002 }])
     db.close()
   })

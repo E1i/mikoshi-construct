@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { BusContract } from '../bus-contract.js'
 import type { PrGroup, PrPaths } from './group.js'
 import type { OverlapDeclarations } from './overlap.js'
-import { appendEvent } from '../db.js'
 import { CARD_HELD, CARD_RELEASED, CONTENTION_SUSPENDED, declaredPayload, MAIN_ADVANCED, PR_CLOSED, PR_GROUPS, PR_OBSERVED, PR_OPENED, PR_ORDERED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN } from '../events.js'
 import { groupsOf } from './group.js'
 import { modulesOf, orderDeclarationsAt, overlaps } from './overlap.js'
@@ -10,6 +10,8 @@ const TASK_QUEUED_AGAIN = [TASK_ENQUEUED, TASK_REQUEUED, TASK_RELEASED]
 const TASK_ENDED = [TASK_COMPLETED, TASK_SUPERSEDED, TASK_WITHDRAWN]
 const TASK_EVENTS = [...TASK_QUEUED_AGAIN, TASK_LEASED, ...TASK_ENDED, TASK_FAILED, TASK_EXPIRED]
 const HOLD_EVENTS = [CARD_HELD, CARD_RELEASED]
+export type OrderBus = Pick<BusContract, 'appendEvent'>
+
 export const ORDER_EVENTS: readonly string[] = [PR_OBSERVED, PR_CLOSED, PR_OPENED, PR_ORDERED, MAIN_ADVANCED, CONTENTION_SUSPENDED, ...TASK_EVENTS, ...HOLD_EVENTS]
 export const BUS_ORDERS = 'bus'
 export const WINDOW_ORDERS = 'window'
@@ -482,9 +484,9 @@ export function yieldingCardsOf(waits: readonly OpenWaitOfACard[]): Set<number> 
   return cardsWithOpenOwnerWait(waits, OWNER_MERGE)
 }
 
-export function recordGroups(db: DatabaseSync, ts: string, order: PrOrder, groups: readonly GroupWithTurn[]): boolean {
+export function recordGroups(bus: OrderBus, db: DatabaseSync, ts: string, order: PrOrder, groups: readonly GroupWithTurn[]): boolean {
   const payload = { groups: groups.map(({ prs, modules, turn }) => ({ prs, modules, turn })), ...order.counted, needUpdate: [...order.needsUpdate].sort((a, b) => a - b) }
-  return appendEvent(db, {
+  return bus.appendEvent(db, {
     ts,
     type: PR_GROUPS,
     actor: ORDER_ACTOR,
@@ -497,8 +499,8 @@ export function recordGroups(db: DatabaseSync, ts: string, order: PrOrder, group
   })
 }
 
-export function recordMove(db: DatabaseSync, ts: string, actor: string, request: number, pr: number, before: number | null): boolean {
-  return appendEvent(db, {
+export function recordMove(bus: OrderBus, db: DatabaseSync, ts: string, actor: string, request: number, pr: number, before: number | null): boolean {
+  return bus.appendEvent(db, {
     ts,
     type: PR_ORDERED,
     actor,
@@ -511,8 +513,8 @@ export function recordMove(db: DatabaseSync, ts: string, actor: string, request:
   })
 }
 
-export function recordSuspension(db: DatabaseSync, ts: string, actor: string, request: number, prs: readonly [number, number], area: string | null): boolean {
-  return appendEvent(db, {
+export function recordSuspension(bus: OrderBus, db: DatabaseSync, ts: string, actor: string, request: number, prs: readonly [number, number], area: string | null): boolean {
+  return bus.appendEvent(db, {
     ts,
     type: CONTENTION_SUSPENDED,
     actor,
@@ -533,8 +535,8 @@ export function orderedKey(pr: number, life: number): string {
   return `${PR_ORDERED}:${pr}:${life}`
 }
 
-export function recordOrdered(db: DatabaseSync, ts: string, order: PrOrder): number[] {
-  return readyToOrder(order).filter(pr => appendEvent(db, {
+export function recordOrdered(bus: OrderBus, db: DatabaseSync, ts: string, order: PrOrder): number[] {
+  return readyToOrder(order).filter(pr => bus.appendEvent(db, {
     ts,
     type: PR_ORDERED,
     actor: ORDER_ACTOR,
@@ -554,6 +556,7 @@ export class PrOrderTick {
   private read: OverlapDeclarations | null = null
 
   constructor(
+    private readonly bus: OrderBus,
     private readonly db: DatabaseSync,
     private readonly events: OrderEventSource,
     private readonly now: () => string,
@@ -569,7 +572,7 @@ export class PrOrderTick {
       const declarations = events.length > 0 || this.read === null ? this.declarations() : this.read
       this.read = declarations
       foldOrderEvents(events, declarations, this.order)
-      const lines = recordOrdered(this.db, this.now(), this.order).map(pr => `${this.prefix}PR #${pr} reached pass + green: ${PR_ORDERED} puts it at the tail of its group's order`)
+      const lines = recordOrdered(this.bus, this.db, this.now(), this.order).map(pr => `${this.prefix}PR #${pr} reached pass + green: ${PR_ORDERED} puts it at the tail of its group's order`)
       if (lines.length > 0)
         foldOrderEvents(this.events(this.order.through), declarations, this.order)
       this.recordGroups(declarations)
@@ -586,7 +589,7 @@ export class PrOrderTick {
     const reading = JSON.stringify({ groups, counted: this.order.counted, needUpdate: [...this.order.needsUpdate].sort((a, b) => a - b) })
     if (reading === this.recorded)
       return
-    recordGroups(this.db, this.now(), this.order, groups)
+    recordGroups(this.bus, this.db, this.now(), this.order, groups)
     this.recorded = reading
   }
 
@@ -599,6 +602,6 @@ export class PrOrderTick {
   }
 }
 
-export function prOrderTickAt(db: DatabaseSync, root: string, prefix: string, events: OrderEventSource, openWaits: OpenWaits, touchesOf: TouchesOf): PrOrderTick {
-  return new PrOrderTick(db, events, () => new Date().toISOString(), () => orderDeclarationsAt(root), prefix, openWaits, touchesOf)
+export function prOrderTickAt(bus: OrderBus, db: DatabaseSync, root: string, prefix: string, events: OrderEventSource, openWaits: OpenWaits, touchesOf: TouchesOf): PrOrderTick {
+  return new PrOrderTick(bus, db, events, () => new Date().toISOString(), () => orderDeclarationsAt(root), prefix, openWaits, touchesOf)
 }

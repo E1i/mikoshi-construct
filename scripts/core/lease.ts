@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { BusAfterFailure, BusCardTransitions, BusCarriedTree, BusFailure, BusLease, BusWait } from './bus-contract.js'
 import type { BusEvent } from './db.js'
 import type { Handover } from './executor-holds.js'
 import type { Queue, TaskIdentity } from './identifiers.js'
@@ -21,33 +22,13 @@ const REQUEUED_TO_THE_BACK: Queue = 'review'
 
 export class StaleLease extends Error {}
 
-export interface CardTransitions {
-  appendedOnCard: (db: DatabaseSync, event: BusEvent) => boolean
-}
+export type CardTransitions = BusCardTransitions
 
-export interface Lease {
-  taskKey: string
-  queue: Queue
-  cardId: number
-  pr: number | null
-  head: string | null
-  leaseGen: number
-  actor: string
-}
+export type Lease = BusLease<Queue>
 
-export interface CarriedTree {
-  path: string
-  head: string
-  localCommits: string[]
-  dirty: boolean
-}
+export type CarriedTree = BusCarriedTree
 
-export interface Failure {
-  reason: string
-  withdraw: boolean
-  tree?: CarriedTree
-  behind?: boolean
-}
+export type Failure = BusFailure
 
 export interface PullHead {
   pr: number
@@ -59,14 +40,11 @@ function carrying(tree: CarriedTree | undefined): { tree?: CarriedTree } {
   return tree === undefined ? {} : { tree }
 }
 
-export interface Wait {
-  reason: string
-  until: string
-}
+export type Wait = BusWait
 
 export const SUPERSEDED_LEASE = 'superseded'
 
-export type AfterFailure = typeof QUEUED | typeof WITHDRAWN | typeof STOPPED | typeof SUPERSEDED_LEASE
+export type AfterFailure = BusAfterFailure
 
 const STALE_HEAD = 'stale_head'
 

@@ -1,7 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { GitHubPost } from '../core/pr-status.js'
-import type { Derived } from '../core/queue.js'
-import type { Projections, ReduceCount } from '../core/reducer.js'
 import type { GitHub } from '../ports/github.js'
 import type { Poll } from '../ports/netwatch.js'
 import type { BgResult, ProcessList } from './bg.js'
@@ -13,14 +11,10 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { BOARD_PERIOD_MS, startBoardTimer } from '../cli/board-page.js'
-import { busDirOf } from '../core/bus-path.js'
 import { CHECK_MS, TICK_MS } from '../core/cadence.js'
 import { closedWaitIds } from '../core/card-readings.js'
-import { appendEvent, BOARD_TIMER_PROCESS, defaultBusPath, inTransaction, openBus, openBusWait } from '../core/db.js'
 import { WINDOW_REQUEST, WORKER_DOWN } from '../core/events.js'
-import { DATABASE_LOCKED, isDatabaseLocked } from '../core/node.js'
 import { setStepStatuses, STATUS_CONTEXT, STATUS_OFF_FILE, statusesSwitchedOff, statusFailureLine, statusLine } from '../core/pr-status.js'
-import { QUEUE_ACTOR } from '../core/queue.js'
 import { ownerChannelOfBus } from '../owner/channel.js'
 import { ghApi, ghApiPost } from '../ports/github.js'
 import { NetWatch, pollLine } from '../ports/netwatch.js'
@@ -29,7 +23,7 @@ import { realRequestTools } from '../window/window-request-tools.js'
 import { WindowRequests } from '../window/window-requests.js'
 import { alive, BUS_RUN_MARKERS, instancesOf, processBeatsOn, psList, RUN_SCRIPT } from './bg.js'
 import { closeWaitsOfEndedCards } from './card-waits.js'
-import { busProjections, cardTransitions, composeBus, deadEndParts, DECISION_EVENT_READS, deriveQueuesOfTheBus, gateRunSpoolPlaces, openComposedBus, recordOwnStart, requiredCheckAt, windowRequestBus } from './composition.js'
+import { busContract, busProjections, cardTransitions, composeBus, deadEndParts, DECISION_EVENT_READS, deriveQueuesOfTheBus, gateRunSpoolPlaces, openComposedBus, recordOwnStart, requiredCheckAt, windowRequestBus } from './composition.js'
 import { DeadEnds } from './dead-ends.js'
 import { GateRunSpool } from './gate-run-spool.js'
 import { sessionLifeIn } from './recorded-worker.js'
@@ -39,6 +33,10 @@ import { stampLogOutput } from './stamp.js'
 
 export const PREFIX = '[bus:run] '
 export const RUN_LOCK = 'bus-run.lock'
+
+type ReduceCount = ReturnType<ReducerPass['run']>
+
+type Projections = ConstructorParameters<typeof ReducerPass>[1]
 
 function lockHolder(lock: string): number | null {
   try {
@@ -73,9 +71,10 @@ function unprovenHolderQuestion(lock: string, holder: number, busPath: string, w
 function askOwnerOfUnprovenHolder(busPath: string, question: string, lock: string, nowMs: number): string | null {
   if (!existsSync(busPath))
     return null
-  const db = openBus(busPath)
+  const bus = busContract()
+  const db = bus.open(busPath)
   try {
-    return openBusWait(db, closedWaitIds(db), new Date(nowMs).toISOString(), QUEUE_ACTOR, { need: 'command', text: question, command: `rm ${lock}` })
+    return bus.openOwnerWait(db, closedWaitIds(db), new Date(nowMs).toISOString(), bus.queueActor, { need: 'command', text: question, command: `rm ${lock}` })
   }
   finally {
     db.close()
@@ -132,7 +131,7 @@ function removeStaleLock(lock: string, staleHolder: number | null, self: number)
 }
 
 export function holdRunLock(busPath: string, processes: ProcessList, self: number = process.pid, nowMs: number = Date.now()): BgResult {
-  const busDir = busDirOf(busPath)
+  const busDir = busContract().dirOf(busPath)
   const lock = path.join(busDir, RUN_LOCK)
   mkdirSync(busDir, { recursive: true })
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -169,7 +168,7 @@ export interface StepTiming {
 export interface Tick {
   poll: Poll
   reduced: ReduceCount | null
-  derived: Derived | null
+  derived: ReturnType<typeof deriveQueuesOfTheBus> | null
   spooled: string[]
   steps: StepTiming[]
 }
@@ -231,9 +230,10 @@ export function tickOrLocked(busTick: BusTick): string[] {
     return tick === null ? [] : tickLines(tick)
   }
   catch (error) {
-    if (!isDatabaseLocked(error))
+    const bus = busContract()
+    if (!bus.isLocked(error))
       throw error
-    return [`${PREFIX}the tick hit ${DATABASE_LOCKED}; it is retried in ${CHECK_MS / 1000} s, and bus:run stays up`, stepTimingLine(busTick.lastSteps)]
+    return [`${PREFIX}the tick hit ${bus.lockedText}; it is retried in ${CHECK_MS / 1000} s, and bus:run stays up`, stepTimingLine(busTick.lastSteps)]
   }
 }
 
@@ -284,11 +284,11 @@ export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub
 }
 
 export function startBus(db: DatabaseSync, clock: () => Date): string[] {
-  return inTransaction(db, () => closeWaitsOfEndedCards(db, clock().toISOString()))
+  return busContract().inTransaction(db, () => closeWaitsOfEndedCards(db, clock().toISOString()))
 }
 
 async function main(): Promise<number> {
-  const busPath = defaultBusPath()
+  const busPath = busContract().defaultPath()
   const lock = holdRunLock(busPath, psList())
   if (lock.exitCode !== 0) {
     console.error(lock.stderr.join('\n'))
@@ -310,7 +310,7 @@ async function main(): Promise<number> {
 type BoardTimerSpawn = NonNullable<Parameters<typeof startBoardTimer>[2]>
 type StartedBoardTimer = ReturnType<typeof startBoardTimer>
 
-export const BOARD_THREAD = BOARD_TIMER_PROCESS
+export const BOARD_THREAD = busContract().boardTimerProcess
 export const BOARD_RESTART_CAP_MS = 300_000
 const PERIODS_THAT_CLEAR_THE_FAILURES = 2
 
@@ -387,7 +387,7 @@ export function keepBoardThread(busPath: string, periodMs: number = BOARD_PERIOD
 export function boardThreadDownRecorder(db: DatabaseSync): (down: BoardThreadDown) => void {
   return (down) => {
     const ts = new Date().toISOString()
-    appendEvent(db, { ts, type: WORKER_DOWN, actor: 'policy', cardId: null, pr: null, head: null, dedupeKey: `${WORKER_DOWN}:${down.worker}:${ts}`, payload: { worker: down.worker, failures: down.failures, cause: down.cause, next_attempt_at: down.nextAttemptAt.toISOString() }, legacy: false })
+    busContract().appendEvent(db, { ts, type: WORKER_DOWN, actor: 'policy', cardId: null, pr: null, head: null, dedupeKey: `${WORKER_DOWN}:${down.worker}:${ts}`, payload: { worker: down.worker, failures: down.failures, cause: down.cause, next_attempt_at: down.nextAttemptAt.toISOString() }, legacy: false })
   }
 }
 

@@ -1,8 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
-import type { BusEvent } from '../../core/db.js'
-import type { AfterFailure, CardTransitions, Lease } from '../../core/lease.js'
-import type { CandidateRules } from '../../core/queue.js'
+import type { BusAfterFailure, BusCardTransitions, BusContract, BusEventDraft, BusLease, BusNeedsUpdate, BusQuestionOpen, BusTaskContract } from '../../core/bus-contract.js'
+import type { Queue } from '../../core/identifiers.js'
 import type { AllowedRule, AuthorityRule, MergeFacts, PatchedFile } from '../../policy/policy.js'
 import type { CompositionRecord } from '../../policy/touch-scope.js'
 import type { StatusPublisher } from '../../ports/github-status.js'
@@ -14,14 +13,10 @@ import { loadCompositionModels } from '../../composition/files.js'
 import { NOT_MINE, notMine } from '../../core/card-automaton.js'
 import { cardHoldOf, HOLD_RECHECK_MS } from '../../core/card-hold.js'
 import { closedWaitIds } from '../../core/card-readings.js'
-import { appendEvent, openBusWait } from '../../core/db.js'
-import { messageOf } from '../../core/errors.js'
 import { BOARD_ALARM, COMMAND_EXECUTED, MERGE_DONE, POLICY_ALLOWED, POLICY_DENIED, SHARD_USED } from '../../core/events.js'
 import { isFullSha } from '../../core/identifiers.js'
-import { assertHeld, completeTask, failTask, releaseTask, StaleLease, waitTask } from '../../core/lease.js'
 import { ofPr } from '../../core/pr-readings.js'
 import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
-import { keyOf, NEEDS_UPDATE, openDecisionWaitsOfCard, QUESTION_OPEN, QUEUE_ACTOR, reviewsInFlightOn, widenedOnTheAdmission } from '../../core/queue.js'
 import { cardContract } from '../../intake/card-contract.js'
 import { allowLiveCommand, liveDecisionOf } from '../../policy/live-decision.js'
 import { mergePolicy, OWNER_MERGES, OWNER_MERGES_RULES, underOwnerDecision, VERSION_BRANCH, WITNESS_REASON, witnessDenial, witnessSubjectOf } from '../../policy/policy.js'
@@ -48,7 +43,13 @@ const WITHDRAWN_ON_THE_BODY: ReadonlySet<AuthorityRule> = new Set(['decision_unr
 const FILES_PAGE = 100
 const REPO = 'repos/{owner}/{repo}'
 
-export type MergeTechnicalReason = TechnicalReason | 'not_mergeable' | 'no_pass_on_head' | 'version_pr_open' | 'wrong_base' | 'not_a_candidate' | 'not_mine' | typeof HELD_FOR_OWNER | typeof HEAD_OUTSIDE_TOUCHES | typeof QUESTION_OPEN | typeof WITNESS_REASON | typeof NEEDS_UPDATE | typeof KEPT_BY_PUSH_POLICY
+export type MergeTechnicalReason = TechnicalReason | 'not_mergeable' | 'no_pass_on_head' | 'version_pr_open' | 'wrong_base' | 'not_a_candidate' | 'not_mine' | typeof HELD_FOR_OWNER | typeof HEAD_OUTSIDE_TOUCHES | BusQuestionOpen | typeof WITNESS_REASON | BusNeedsUpdate | typeof KEPT_BY_PUSH_POLICY
+
+type Lease = BusLease<Queue>
+
+type MergeRules = Parameters<typeof mergeCandidates>[2]
+
+export type MergeBus = BusContract & BusTaskContract<Queue, ReturnType<typeof mergeCandidates>[number]>
 
 export type ParkedUntil = 'new_head' | 'wait_closed'
 
@@ -60,12 +61,13 @@ export type MergeCommand = 'merge' | 'publish'
 
 export type MergeOutcome
   = | { kind: 'merged', taskKey: string, commit: string, rule: AllowedRule }
-    | { kind: 'denied', taskKey: string, denial: MergeDenial, next: AfterFailure }
+    | { kind: 'denied', taskKey: string, denial: MergeDenial, next: BusAfterFailure }
     | { kind: 'fenced', taskKey: string }
 
 export interface ExecutorParts {
+  bus: MergeBus
   db: DatabaseSync
-  cards: CardTransitions
+  cards: BusCardTransitions
   gitHub: GitHub
   put: GitHubPut
   publish: StatusPublisher
@@ -74,7 +76,7 @@ export interface ExecutorParts {
   silentMs: number
   pushPolicy?: () => PushPolicy
   overlaps: MainOverlap
-  rules: CandidateRules
+  rules: MergeRules
   requiredCheck: () => string
 }
 
@@ -159,7 +161,7 @@ export class MergeExecutor {
 
   merge(lease: Lease): MergeOutcome {
     try {
-      assertHeld(this.parts.db, lease)
+      this.parts.bus.assertHeld(this.parts.db, lease)
       if (this.parts.pushPolicy?.() === 'none')
         return this.denied(lease, { kind: 'technical', reason: KEPT_BY_PUSH_POLICY, detail: `push policy none: the bus does not merge #${lease.pr}` })
       const foreign = notMine(cardContract(this.parts.db, lease.cardId), 'merge')
@@ -167,7 +169,7 @@ export class MergeExecutor {
         return this.denied(lease, { kind: 'technical', reason: NOT_MINE, detail: foreign })
       this.askForAllowLive()
       for (const expired of expiredWindowShards(this.parts.db, this.parts.clock(), lease.actor))
-        appendEvent(this.parts.db, expired)
+        this.parts.bus.appendEvent(this.parts.db, expired)
       const checked = this.fresh(lease)
       if (checked.kind === 'denied')
         return this.denied(lease, this.heldInsteadOfAWait(lease, checked.denial))
@@ -213,7 +215,7 @@ export class MergeExecutor {
       return this.merged(lease, verdict.rule, spent, witnessBase)
     }
     catch (error) {
-      if (error instanceof StaleLease)
+      if (this.parts.bus.isStaleLease(error))
         return { kind: 'fenced', taskKey: lease.taskKey }
       throw error
     }
@@ -222,7 +224,7 @@ export class MergeExecutor {
   private askForAllowLive(): void {
     if (liveDecisionOf(decisionsInForceAt(this.parts.db, this.parts.clock()), MERGE_QUEUE) !== null || this.underTheOwnersWindowShard())
       return
-    openBusWait(this.parts.db, closedWaitIds(this.parts.db), this.ts(), QUEUE_ACTOR, { need: 'command', text: `the ${MERGE_QUEUE} queue merges with no owner decision in force naming it live`, command: allowLiveCommand(MERGE_QUEUE) })
+    this.parts.bus.openOwnerWait(this.parts.db, closedWaitIds(this.parts.db), this.ts(), this.parts.bus.queueActor, { need: 'command', text: `the ${MERGE_QUEUE} queue merges with no owner decision in force naming it live`, command: allowLiveCommand(MERGE_QUEUE) })
   }
 
   private underTheOwnersWindowShard(): boolean {
@@ -232,7 +234,7 @@ export class MergeExecutor {
   private askTheOwnerToMerge(lease: Lease, denial: MergeDenial): void {
     if (denial.kind !== 'authority' || !OWNER_MERGES_RULES.has(denial.rule) || lease.pr === null)
       return
-    openBusWait(this.parts.db, closedWaitIds(this.parts.db), this.ts(), QUEUE_ACTOR, { need: 'merge', text: denial.detail, card: lease.cardId, pr: lease.pr })
+    this.parts.bus.openOwnerWait(this.parts.db, closedWaitIds(this.parts.db), this.ts(), this.parts.bus.queueActor, { need: 'merge', text: denial.detail, card: lease.cardId, pr: lease.pr })
   }
 
   private heldInsteadOfAWait(lease: Lease, denial: MergeDenial): MergeDenial {
@@ -243,18 +245,18 @@ export class MergeExecutor {
   }
 
   private heldByAnOpenQuestion(lease: Lease): MergeDenial | null {
-    const open = openDecisionWaitsOfCard(this.parts.db, lease.cardId)
+    const open = this.parts.bus.openDecisionWaitsOfCard(this.parts.db, lease.cardId)
     if (open.length === 0)
       return null
     const questions = open.map(wait => `${wait.id} (${wait.text})`).join(', ')
-    return { kind: 'technical', reason: QUESTION_OPEN, detail: `card #${lease.cardId} waits for the owner's answer to ${questions}; #${lease.pr} merges once it is answered`, parkedUntil: 'wait_closed' }
+    return { kind: 'technical', reason: this.parts.bus.questionOpen, detail: `card #${lease.cardId} waits for the owner's answer to ${questions}; #${lease.pr} merges once it is answered`, parkedUntil: 'wait_closed' }
   }
 
   private outsideTouches(lease: Lease, patched: readonly PatchedFile[]): MergeDenial | null {
     const card = cardContract(this.parts.db, lease.cardId)
     if (card === null)
       return null
-    const widened = widenedOnTheAdmission(this.parts.db, lease.cardId, card.admissionEventId)
+    const widened = this.parts.bus.widenedOnTheAdmission(this.parts.db, lease.cardId, card.admissionEventId)
     const touches = [...card.touches, ...widened]
     const meter = new Meter(this.parts.gitHub, () => this.parts.clock().getTime())
     const reach = { touches, added: new Set(patched.filter(file => (file as AddedFile).status === 'added').map(file => file.filename)), compositionRecords: compositionRecordsOfTheCheckout(), entriesOnlyRemoved: entriesOnlyRemovedByThePatch(meter, patched, lease.head!) }
@@ -265,9 +267,9 @@ export class MergeExecutor {
   }
 
   private noLongerACandidate(lease: Lease): MergeDenial | null {
-    if (mergeCandidates(this.parts.db, this.ts(), this.parts.rules).some(task => keyOf(task) === lease.taskKey))
+    if (mergeCandidates(this.parts.db, this.ts(), this.parts.rules).some(task => this.parts.bus.keyOf(task) === lease.taskKey))
       return null
-    const reviews = reviewsInFlightOn(this.parts.db, lease.pr, lease.head)
+    const reviews = this.parts.bus.reviewsInFlightOn(this.parts.db, lease.pr, lease.head)
     const holder = reviews.length === 0 ? 'no review in flight' : `the review ${reviews.join(', ')} in flight`
     return { kind: 'technical', reason: 'not_a_candidate', detail: `${lease.taskKey} is no longer a merge candidate: ${holder}` }
   }
@@ -327,7 +329,7 @@ export class MergeExecutor {
       }
     }
     catch (error) {
-      return technical('github_error', messageOf(error))
+      return technical('github_error', this.parts.bus.messageOf(error))
     }
   }
 
@@ -336,8 +338,8 @@ export class MergeExecutor {
       this.parts.publish({ commit: lease.head!, state: 'success', context: REVIEW_STATUS_CONTEXT, description: `owner decision D-${decision}, no review pass` })
     }
     catch (error) {
-      this.executed(lease, 'publish', { ok: false, error: messageOf(error) })
-      return { kind: 'technical', reason: 'github_error', detail: messageOf(error) }
+      this.executed(lease, 'publish', { ok: false, error: this.parts.bus.messageOf(error) })
+      return { kind: 'technical', reason: 'github_error', detail: this.parts.bus.messageOf(error) }
     }
     this.executed(lease, 'publish', { ok: true })
     return null
@@ -349,7 +351,7 @@ export class MergeExecutor {
       return this.movedFromTheLease(pull, lease) ?? this.notClean(pull, lease)
     }
     catch (error) {
-      return { kind: 'technical', reason: 'github_error', detail: messageOf(error) }
+      return { kind: 'technical', reason: 'github_error', detail: this.parts.bus.messageOf(error) }
     }
   }
 
@@ -367,7 +369,7 @@ export class MergeExecutor {
     if (main.kind === 'files' && shared.length === 0)
       return null
     const why = main.kind === 'truncated' ? `${main.why}, which counts as an overlap` : `${MAIN_BRANCH} changed ${shared.join(', ')} since ${base}, which overlaps #${lease.pr}`
-    return { kind: 'technical', reason: NEEDS_UPDATE, detail: `the check before merge found what needsUpdate had not seen: ${why}; #${lease.pr} is updated once and gives the turn back`, parkedUntil: 'new_head' }
+    return { kind: 'technical', reason: this.parts.bus.needsUpdate, detail: `the check before merge found what needsUpdate had not seen: ${why}; #${lease.pr} is updated once and gives the turn back`, parkedUntil: 'new_head' }
   }
 
   private notClean(pull: Pull, lease: Lease): MergeDenial | null {
@@ -395,7 +397,7 @@ export class MergeExecutor {
       return { kind: 'technical', reason: 'version_pr_open', detail: `#${versionPr.number} is a version pull request with approved runs and green CI on ${versionPr.head?.sha} and locks every merge` }
     }
     catch (error) {
-      return { kind: 'technical', reason: 'github_error', detail: messageOf(error) }
+      return { kind: 'technical', reason: 'github_error', detail: this.parts.bus.messageOf(error) }
     }
   }
 
@@ -409,7 +411,7 @@ export class MergeExecutor {
   }
 
   private finished(lease: Lease, commit: string, rule: AllowedRule, spent: string | null, witnessBase: string | null = null): MergeOutcome {
-    completeTask(this.parts.db, this.parts.cards, this.ts(), lease, [this.done(lease, commit, rule, witnessBase), ...(spent === null ? [] : [this.used(lease, commit, spent)])])
+    this.parts.bus.completeTask(this.parts.db, this.parts.cards, this.ts(), lease, [this.done(lease, commit, rule, witnessBase), ...(spent === null ? [] : [this.used(lease, commit, spent)])])
     return { kind: 'merged', taskKey: lease.taskKey, commit, rule }
   }
 
@@ -419,14 +421,14 @@ export class MergeExecutor {
       response = this.parts.put(`${REPO}/pulls/${lease.pr}/merge`, { sha: lease.head!, merge_method: MERGE_METHOD })
     }
     catch (error) {
-      this.executed(lease, 'merge', { ok: false, error: messageOf(error) })
-      return this.denied(lease, { kind: 'technical', reason: 'github_error', detail: messageOf(error) })
+      this.executed(lease, 'merge', { ok: false, error: this.parts.bus.messageOf(error) })
+      return this.denied(lease, { kind: 'technical', reason: 'github_error', detail: this.parts.bus.messageOf(error) })
     }
     const commit = (response.body as { sha?: unknown } | null)?.sha
     const refusedWith = response.status === NOT_ALLOWED_STATUS ? textOf(response.body) : null
     this.executed(lease, 'merge', { ok: response.status === 200 && isFullSha(commit), status: response.status, ...(refusedWith === null ? {} : { text: refusedWith }) })
     if (refusedWith !== null && NOT_UP_TO_DATE.test(refusedWith))
-      return this.denied(lease, { kind: 'technical', reason: NEEDS_UPDATE, refusal: REFUSED_NOT_UP_TO_DATE, detail: `GitHub answered ${response.status} to the merge of #${lease.pr}, so it is updated onto ${MAIN_BRANCH} first: ${refusedWith}`, parkedUntil: 'new_head' })
+      return this.denied(lease, { kind: 'technical', reason: this.parts.bus.needsUpdate, refusal: REFUSED_NOT_UP_TO_DATE, detail: `GitHub answered ${response.status} to the merge of #${lease.pr}, so it is updated onto ${MAIN_BRANCH} first: ${refusedWith}`, parkedUntil: 'new_head' })
     if (refusedWith !== null)
       return this.denied(lease, { kind: 'technical', reason: 'github_error', detail: `GitHub answered ${response.status} to the merge of #${lease.pr}: ${refusedWith}` })
     if (response.status === RATE_LIMITED_STATUS)
@@ -438,19 +440,19 @@ export class MergeExecutor {
     return this.finished(lease, commit, rule, spent, witnessBase)
   }
 
-  private done(lease: Lease, commit: string, rule: AllowedRule, witnessBase: string | null): BusEvent {
+  private done(lease: Lease, commit: string, rule: AllowedRule, witnessBase: string | null): BusEventDraft {
     return { ts: this.ts(), type: MERGE_DONE, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${MERGE_DONE}:${lease.taskKey}`, payload: { commit, rule, task_key: lease.taskKey, lease_gen: lease.leaseGen, ...(witnessBase === null ? {} : { witnessBase }) }, legacy: false }
   }
 
   private allowed(lease: Lease, rule: AllowedRule): void {
-    appendEvent(this.parts.db, { ts: this.ts(), type: POLICY_ALLOWED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_ALLOWED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'merge', rule, task_key: lease.taskKey, lease_gen: lease.leaseGen }, legacy: false })
+    this.parts.bus.appendEvent(this.parts.db, { ts: this.ts(), type: POLICY_ALLOWED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_ALLOWED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'merge', rule, task_key: lease.taskKey, lease_gen: lease.leaseGen }, legacy: false })
   }
 
   private executed(lease: Lease, command: MergeCommand, result: CommandResult & { text?: string }): void {
-    appendEvent(this.parts.db, { ts: this.ts(), type: COMMAND_EXECUTED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${COMMAND_EXECUTED}:${lease.taskKey}:${lease.leaseGen}:${command}`, payload: { command, task_key: lease.taskKey, lease_gen: lease.leaseGen, ...result }, legacy: false })
+    this.parts.bus.appendEvent(this.parts.db, { ts: this.ts(), type: COMMAND_EXECUTED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${COMMAND_EXECUTED}:${lease.taskKey}:${lease.leaseGen}:${command}`, payload: { command, task_key: lease.taskKey, lease_gen: lease.leaseGen, ...result }, legacy: false })
   }
 
-  private used(lease: Lease, commit: string, shard: string): BusEvent {
+  private used(lease: Lease, commit: string, shard: string): BusEventDraft {
     return { ts: this.ts(), type: SHARD_USED, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${SHARD_USED}:${shard}`, payload: { id: shard, commit }, legacy: false }
   }
 
@@ -459,18 +461,18 @@ export class MergeExecutor {
     const reason = denial.kind === 'technical' ? denial.reason : denial.rule
     const parked = denial.kind === 'technical' && denial.parkedUntil !== undefined
     const waits = denial.kind === 'technical' && WAIT_REASONS.has(denial.reason)
-    const event: BusEvent = { ts, type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'merge', ...denial, ...(waits || parked ? {} : { refused: true }) }, legacy: false }
+    const event: BusEventDraft = { ts, type: POLICY_DENIED, actor: 'policy', cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${POLICY_DENIED}:${lease.taskKey}:${lease.leaseGen}`, payload: { command: 'merge', ...denial, ...(waits || parked ? {} : { refused: true }) }, legacy: false }
     if (parked)
-      return { kind: 'denied', taskKey: lease.taskKey, denial, next: failTask(this.parts.db, this.parts.cards, ts, lease, { reason, withdraw: true, ...this.behindOnTheHead(lease) }, this.parts.silentMs, [event]) }
+      return { kind: 'denied', taskKey: lease.taskKey, denial, next: this.parts.bus.failTask(this.parts.db, this.parts.cards, ts, lease, { reason, withdraw: true, ...this.behindOnTheHead(lease) }, this.parts.silentMs, [event]) }
     if (waits) {
       const until = reason === HELD_FOR_OWNER || reason === HEAD_OUTSIDE_TOUCHES ? new Date(this.parts.clock().getTime() + HOLD_RECHECK_MS).toISOString() : null
       if (until === null)
-        releaseTask(this.parts.db, this.parts.cards, ts, lease, reason, [event])
+        this.parts.bus.releaseTask(this.parts.db, this.parts.cards, ts, lease, reason, [event])
       else
-        waitTask(this.parts.db, this.parts.cards, ts, lease, { reason, until }, [event])
+        this.parts.bus.waitTask(this.parts.db, this.parts.cards, ts, lease, { reason, until }, [event])
       return { kind: 'denied', taskKey: lease.taskKey, denial, next: 'queued' }
     }
-    const next = failTask(this.parts.db, this.parts.cards, ts, lease, { reason, withdraw: denial.kind === 'authority' || reason === 'not_mine' || reason === WITNESS_REASON || reason === KEPT_BY_PUSH_POLICY, ...this.behindOnTheHead(lease) }, this.parts.silentMs, [event])
+    const next = this.parts.bus.failTask(this.parts.db, this.parts.cards, ts, lease, { reason, withdraw: denial.kind === 'authority' || reason === 'not_mine' || reason === WITNESS_REASON || reason === KEPT_BY_PUSH_POLICY, ...this.behindOnTheHead(lease) }, this.parts.silentMs, [event])
     this.askTheOwnerToMerge(lease, denial)
     this.alarmOnTheBody(lease, denial)
     return { kind: 'denied', taskKey: lease.taskKey, denial, next }
@@ -484,6 +486,6 @@ export class MergeExecutor {
   private alarmOnTheBody(lease: Lease, denial: MergeDenial): void {
     if (denial.kind !== 'authority' || !WITHDRAWN_ON_THE_BODY.has(denial.rule))
       return
-    appendEvent(this.parts.db, { ts: this.ts(), type: BOARD_ALARM, actor: QUEUE_ACTOR, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${BOARD_ALARM}:${lease.taskKey}`, payload: { task_key: lease.taskKey, reason: denial.rule, detail: denial.detail }, legacy: false })
+    this.parts.bus.appendEvent(this.parts.db, { ts: this.ts(), type: BOARD_ALARM, actor: this.parts.bus.queueActor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${BOARD_ALARM}:${lease.taskKey}`, payload: { task_key: lease.taskKey, reason: denial.rule, detail: denial.detail }, legacy: false })
   }
 }

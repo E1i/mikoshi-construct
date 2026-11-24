@@ -153,6 +153,10 @@ export function windowRequestBus(): typeof BUS_CONTRACT {
   return BUS_CONTRACT
 }
 
+export function busContract(): typeof BUS_CONTRACT {
+  return BUS_CONTRACT
+}
+
 export function cardTransitions(): CardTransitions {
   return { appendedOnCard: (db, event) => appendedOnCard(BUS_CONTRACT, db, event) }
 }
@@ -526,5 +530,5 @@ export function weightsDriftWatch(gitHub: GitHub, busPath: string): (db: Databas
 }
 
 export function busOrderTick(db: DatabaseSync, root: string): PrOrderTick {
-  return prOrderTickAt(db, root, PREFIX, orderEventsFrom((type, fields, after) => new BusRead(db, { from: after + 1 }).slice(type as EventType, fields as never)), () => openOwnerWaits(db), card => cardContract(db, card)?.touches ?? null)
+  return prOrderTickAt(BUS_CONTRACT, db, root, PREFIX, orderEventsFrom((type, fields, after) => new BusRead(db, { from: after + 1 }).slice(type as EventType, fields as never)), () => openOwnerWaits(db), card => cardContract(db, card)?.touches ?? null)
 }
