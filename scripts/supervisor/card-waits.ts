@@ -7,7 +7,6 @@ import { appendEvent, CLOSED_WAIT, isOwnerWaitNeed, OPEN_WAIT, OWNER_WAIT_NEEDS,
 import { EITHER_JOURNAL, events } from '../core/events-query.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_MOVED, CARD_WAITING, DECISION_RECORDED, DECISIONS_CUT_OVER, DECISIONS_IMPORTED, MERGE_DONE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, WITNESS_DOWNGRADE } from '../core/events.js'
 import { cardIdOf, prOf } from '../core/identifiers.js'
-import { amendLeavesTheWidenOfTheWaitUncovered } from '../core/inbox.js'
 import { ADMIT_COMMAND } from '../core/owner-commands.js'
 import { payloadOf, reject } from '../core/stored.js'
 
@@ -16,6 +15,7 @@ export interface CardWaitParts {
   prRow: (db: DatabaseSync, pr: number) => { card_id: number | null } | undefined
   prsOfCard: (db: DatabaseSync, cardId: number) => readonly number[]
   cardFolds: Readonly<Record<string, Fold>>
+  amendLeavesTheWidenOfTheWaitUncovered: (db: DatabaseSync, cardId: number, waitOpened: number, amend: number) => boolean
 }
 
 export const DOWNGRADE_WAIT_PREFIX = 'W'
@@ -218,17 +218,16 @@ function closeAmendWaitsTheAdmissionAnswers(db: DatabaseSync, event: StoredEvent
 
 const AMEND_ADMISSION = 'amend'
 
-const OPEN_DECISION_WAITS_BEFORE = `SELECT id, event_id FROM owner_waits WHERE state = '${OPEN_WAIT}' AND card_id = ? AND need = 'decision' AND event_id < ?`
-const CLOSE_THE_WAIT = `UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE id = ?`
+const SINCE_THE_FIRST_EVENT = 0
 
-function closeDecisionWaitsTheAmendAnswers(db: DatabaseSync, event: StoredEvent): void {
+function closeDecisionWaitsTheAmendAnswers(db: DatabaseSync, event: StoredEvent, parts: CardWaitParts): void {
   const cardId = event.card_id
   if (payloadOf(event).source !== AMEND_ADMISSION || cardId === null)
     return
-  const waits = db.prepare(OPEN_DECISION_WAITS_BEFORE).all(cardId, event.id) as { id: string, event_id: number }[]
-  const close = db.prepare(CLOSE_THE_WAIT)
-  for (const wait of waits.filter(each => !amendLeavesTheWidenOfTheWaitUncovered(db, cardId, Number(each.event_id), event.id)))
-    close.run(`card #${cardId} amended`, event.id, wait.id)
+  if (parts.amendLeavesTheWidenOfTheWaitUncovered(db, cardId, SINCE_THE_FIRST_EVENT, event.id))
+    return
+  db.prepare(`UPDATE owner_waits SET state = '${CLOSED_WAIT}', answer = ?, event_id = ? WHERE state = '${OPEN_WAIT}' AND card_id = ? AND need = 'decision' AND event_id < ?`)
+    .run(`card #${cardId} amended`, event.id, cardId, event.id)
 }
 
 function foldAdmittedWithBody(db: DatabaseSync, event: StoredEvent, parts: CardWaitParts): void {
@@ -236,7 +235,7 @@ function foldAdmittedWithBody(db: DatabaseSync, event: StoredEvent, parts: CardW
   foldCardBody(db, event)
   closeDowngradeWaitsTheAdmissionAnswers(db, event)
   closeAmendWaitsTheAdmissionAnswers(db, event)
-  closeDecisionWaitsTheAmendAnswers(db, event)
+  closeDecisionWaitsTheAmendAnswers(db, event, parts)
 }
 
 export function closingTheWaitsOfAClosedPr(parts: CardWaitParts): Fold {
