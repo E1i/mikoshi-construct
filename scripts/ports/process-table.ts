@@ -1,8 +1,8 @@
 import type { ProcessCwds } from './client/contract.js'
 import { execFileSync } from 'node:child_process'
 import process from 'node:process'
+import { LISTING_COLUMNS, LISTING_PROGRAM } from '../core/process-listing.js'
 import { clientAdapter } from './client/index.js'
-import { LISTING_COLUMNS, LISTING_PROGRAM } from './process-listing.js'
 
 export const TECHNOLOGY_WORDS = ['lsof', 'ps', 'top'] as const
 

@@ -3934,6 +3934,7 @@
           "scripts/core/gh-callers.ts",
           "scripts/core/gh-callers.known.json",
           "scripts/core/bus-contract.ts",
+          "scripts/core/process-listing.ts",
           "!scripts/ports/client/codex/adapter.ts",
           "!scripts/ports/client/contract.ts",
           "!scripts/ports/disk.ts",
@@ -5914,18 +5915,6 @@
         "types": {
           "TreePreparer": "type TreePreparer = (tree: string) => void"
         }
-      },
-      "scripts/ports/process-listing.ts": {
-        "constants": [
-          "LISTING_COLUMNS: readonly string[]",
-          "LISTING_COMMAND",
-          "LISTING_PROGRAM"
-        ],
-        "functions": {},
-        "language": "factory",
-        "reexports": [],
-        "technologyWords": [],
-        "types": {}
       },
       "scripts/ports/process-table.ts": {
         "constants": [
