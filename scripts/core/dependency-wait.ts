@@ -37,16 +37,14 @@ function latestAdmissionDepends(names: DependencyWaitNames, card: string): strin
 `
 }
 
-const A_REPORT_CLOSE_OF_THE_DEPENDENCY = `SELECT 1 FROM events AS verified WHERE verified.type = '${CARD_VERIFIED}' AND verified.legacy = 0 AND verified.pr IS NULL
-      AND verified.card_id = dependency.card_id AND json_extract(verified.payload, '$.report') IS NOT NULL`
-
 function unmergedDependenciesWhere(names: DependencyWaitNames, card: string): string {
   return `
   SELECT dependency.card_id FROM (${latestAdmissionDepends(names, card)}) AS dependency
   WHERE NOT EXISTS (SELECT 1 FROM events AS done WHERE done.type = '${names.mergeDone}' AND done.legacy = 0 AND done.card_id = dependency.card_id)
     AND dependency.card_id NOT IN (SELECT value FROM json_each(:${MERGED_CARDS}))
     AND NOT EXISTS (SELECT 1 FROM events AS legacy WHERE legacy.type = 'merge' AND legacy.legacy = 1 AND legacy.card_id = dependency.card_id)
-    AND NOT EXISTS (${A_REPORT_CLOSE_OF_THE_DEPENDENCY})
+    AND NOT EXISTS (SELECT 1 FROM events AS verified WHERE verified.type = '${CARD_VERIFIED}' AND verified.legacy = 0 AND verified.pr IS NULL
+      AND verified.card_id = dependency.card_id AND json_extract(verified.payload, '$.report') IS NOT NULL)
   ORDER BY dependency.card_id
 `
 }
