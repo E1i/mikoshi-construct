@@ -11,7 +11,7 @@ import { BUS_DB_VARIABLE, GH_ACCOUNT_VARIABLE } from '../../core/bus-path.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED } from '../../core/events.js'
 import { busCardSessions } from '../../nodes/launch/launch-root.js'
-import { launchArgv, launchEnv, ShiftCardStarter } from '../../nodes/launch/launch-starter.js'
+import { eslintFixed, launchArgv, launchEnv, sessionResult, ShiftCardStarter } from '../../nodes/launch/launch-starter.js'
 import { HTTPS_ORIGIN_ENV } from '../../ports/tree-publish.js'
 
 const NO_FILE_CONFIG_ENV = { GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1' }
@@ -69,7 +69,20 @@ const SESSION_JOURNAL = transcript(
   toolCall(5, 'Edit', { file_path: `${TREE}/src/shelled.ts`, old_string: 'old', new_string: 'shelled line', replace_all: false }),
   toolCall(6, 'Bash', { command: 'python3 rewrite.py src/shelled.ts' }),
   toolCall(7, 'Edit', { file_path: `${TREE}/src/moved.ts`, old_string: 'old', new_string: 'moved line', replace_all: false }),
+  toolCall(9, 'Write', { file_path: `${TREE}/src/linted.ts`, content: 'import { b } from \'./b\'\nimport type { A } from \'./a\'\n' }),
+  toolCall(10, 'Edit', { file_path: `${TREE}/src/linted.ts`, old_string: '\'./b\'', new_string: '\'./b.js\'', replace_all: false }),
+  toolCall(9, 'Write', { file_path: `${TREE}/src/reworked.ts`, content: 'import { b } from \'./b\'\nimport type { A } from \'./a\'\n' }),
+  toolCall(11, 'Bash', { command: 'pnpm lint:fix' }),
 )
+
+const IMPORT_ORDER_FIXED: Record<string, string> = {
+  'import { b } from \'./b.js\'\nimport type { A } from \'./a\'\n': 'import type { A } from \'./a\'\nimport { b } from \'./b.js\'\n',
+  'import { b } from \'./b\'\nimport type { A } from \'./a\'\n': 'import type { A } from \'./a\'\nimport { b } from \'./b\'\n',
+}
+
+function fakeLintFix(_worktree: string, _relative: string, content: string): string {
+  return IMPORT_ORDER_FIXED[content] ?? content
+}
 
 const TREE_FILES: Record<string, TreeFile> = {
   'src/written.ts': { content: 'one\nthree\n', mtimeMs: at(2) },
@@ -79,6 +92,8 @@ const TREE_FILES: Record<string, TreeFile> = {
   'src/moved.ts': { content: 'moved line\n', mtimeMs: at(8) },
   'src/foreign.ts': { content: 'nobody here wrote this\n', mtimeMs: at(2) },
   'src/earlier.ts': { content: 'earlier\n', mtimeMs: at(1) },
+  'src/linted.ts': { content: 'import type { A } from \'./a\'\nimport { b } from \'./b.js\'\n', mtimeMs: at(12) },
+  'src/reworked.ts': { content: 'import type { A } from \'./a\'\nimport { b } from \'./b\'\nexport const added = b\n', mtimeMs: at(12) },
 }
 
 const EARLIER = 'sess-earlier'
@@ -117,6 +132,7 @@ function heldTree(changed: string[], overrides: Partial<StarterPorts> = {}): { s
     readTranscript: (worktree, session) => worktree === TREE && session === SESSION ? SESSION_JOURNAL : null,
     treeFile: file => TREE_FILES[path.relative(TREE, file)] ?? null,
     freshen: () => ({ kind: 'kept', why: 'the fake tree is not a git tree' }),
+    lintFixed: fakeLintFix,
     ...overrides,
   }
   const starter = new ShiftCardStarter({ launchDir: LAUNCH_DIR, claude: 'claude', treePr: 'true' }, ports)
@@ -339,6 +355,40 @@ describe('the held tree guard reads the session journal', () => {
     }
   })
 
+  it('a path the session edited and lint --fix then reordered is owned and the card continues', () => {
+    const linted: string[] = []
+    const held = heldTree(['src/linted.ts'], { lintFixed: (worktree, relative, content) => {
+      linted.push(`${worktree} ${relative}`)
+      return fakeLintFix(worktree, relative, content)
+    } })
+
+    expect(held.start()).toMatchObject({ kind: 'started', card: { worktree: TREE } })
+    expect(linted).toEqual([`${TREE} src/linted.ts`])
+    expect(held.spawned).toEqual([TREE])
+  })
+
+  it('a path changed beyond lint --fix after the last Edit still refuses the continuation', () => {
+    const held = heldTree(['src/reworked.ts'])
+
+    const outcome = held.start()
+
+    expect(refusedPaths(outcome)).toEqual(['src/reworked.ts'])
+    expect(outcome.kind === 'refused' && outcome.denial.detail).toContain('src/reworked.ts (its content differs from the session\'s last Write and the Edits after it)')
+    expect(held.spawned).toEqual([])
+  })
+
+  it('a lint --fix result that matches but lands after the session ended is still refused', () => {
+    const held = heldTree(['src/linted.ts'], { treeFile: file => path.relative(TREE, file) === 'src/linted.ts' ? { ...TREE_FILES['src/linted.ts']!, mtimeMs: at(45) } : null })
+
+    expect(refusedPaths(held.start())).toEqual(['src/linted.ts'])
+  })
+
+  it('a linter that cannot run owns nothing', () => {
+    const held = heldTree(['src/linted.ts'], { lintFixed: () => null })
+
+    expect(refusedPaths(held.start())).toEqual(['src/linted.ts'])
+  })
+
   it('a held tree the bus records no session of is refused by name', () => {
     const held = heldTree(['notes.md', 'src/written.ts'], { cardSessions: () => [] })
 
@@ -347,6 +397,31 @@ describe('the held tree guard reads the session journal', () => {
     expect(refusedPaths(outcome)).toEqual(['src/written.ts'])
     expect(outcome.kind === 'refused' && outcome.denial.detail).toContain('the bus records no session that held the tree')
     expect(held.spawned).toEqual([])
+  })
+})
+
+describe('the session result a lint --fix is compared against', () => {
+  it('is the last Write with the Edits after it, and nothing when an Edit no longer applies or no Write is journaled', () => {
+    expect(sessionResult([{ kind: 'write', content: 'a b a', at: 1 }, { kind: 'edit', oldString: 'a', newString: 'c', replaceAll: true, at: 2 }])).toBe('c b c')
+    expect(sessionResult([{ kind: 'write', content: 'old', at: 1 }, { kind: 'write', content: 'a a', at: 2 }, { kind: 'edit', oldString: 'a', newString: '$&x', replaceAll: false, at: 3 }])).toBe('$&x a')
+    expect(sessionResult([{ kind: 'write', content: 'a', at: 1 }, { kind: 'edit', oldString: 'z', newString: 'y', replaceAll: false, at: 2 }])).toBeNull()
+    expect(sessionResult([{ kind: 'edit', oldString: 'a', newString: 'b', replaceAll: false, at: 1 }])).toBeNull()
+    expect(sessionResult([])).toBeNull()
+  })
+})
+
+describe('the repository\'s ESLint --fix', () => {
+  it('reorders a type import first, as lint --fix wrote it into the held tree', () => {
+    const written = 'import process from \'node:process\'\nimport type { ShiftTask } from \'../../../src/card/task-file.js\'\n\nexport const probe: ShiftTask | null = process.exitCode === undefined ? null : null\n'
+
+    const fixed = eslintFixed(process.cwd(), 'scripts/nodes/launch/lint-probe.ts', written)
+
+    expect(fixed?.startsWith('import type { ShiftTask } from \'../../../src/card/task-file.js\'\nimport process from \'node:process\'\n')).toBe(true)
+    expect(eslintFixed(process.cwd(), 'scripts/nodes/launch/lint-probe.ts', fixed!)).toBe(fixed)
+  }, 120_000)
+
+  it('a tree with no linter gives no result', () => {
+    expect(eslintFixed(path.join(tmpdir(), 'no-such-tree-for-lint'), 'a.ts', 'x\n')).toBeNull()
   })
 })
 
