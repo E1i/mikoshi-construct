@@ -2779,7 +2779,9 @@
         "scripts/cli/task-start.ts"
       ],
       "exits": [],
-      "flags": [],
+      "flags": [
+        "card"
+      ],
       "json": false,
       "unknownFlag": "not read"
     },

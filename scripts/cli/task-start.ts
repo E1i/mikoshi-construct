@@ -1,4 +1,4 @@
-import type { TaskStartDeps } from '../ports/task-start.js'
+import type { TaskStartDeps, TaskStartResult } from '../ports/task-start.js'
 import { existsSync, realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -6,9 +6,10 @@ import { terminalStyle } from '../../src/ui/signal.js'
 import { BUS_CONTRACT } from '../core/bus-adapter.js'
 import { busAdmittedBodies } from '../core/card-bodies.js'
 import { defaultBusPath } from '../core/db.js'
+import { pnpmCommand } from '../core/owner-commands.js'
 import { clientAdapter } from '../ports/client/index.js'
 import { windowModeOf } from '../ports/session.js'
-import { gitIn, refusedInWindow, runTaskStart, WINDOW_LIMIT_SLOTS } from '../ports/task-start.js'
+import { cardIdOf, gitIn, refuse, runTaskStart, WINDOW_LIMIT_SLOTS } from '../ports/task-start.js'
 import { cardTree } from '../ports/worktree-home.js'
 import { pnpmInstall } from '../ports/worktree.js'
 import { slotsOf } from '../supervisor/scheduler.js'
@@ -28,6 +29,10 @@ export function realDeps(): TaskStartDeps {
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
     windowLimit: () => slotsOf(WINDOW_LIMIT_SLOTS, process.env),
   }
+}
+
+function refusedInWindow(argv: string[]): TaskStartResult {
+  return refuse(`a window does not start a task itself: the bus cuts its tree, ask it with ${pnpmCommand('bus:request', 'tree.cut', '--card', cardIdOf(argv))}; nothing written`)
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {

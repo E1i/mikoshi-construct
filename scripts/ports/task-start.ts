@@ -212,7 +212,7 @@ function baseOf(deps: TaskStartDeps, worktree: string): { base?: string } {
   }
 }
 
-function refuse(message: string): TaskStartResult {
+export function refuse(message: string): TaskStartResult {
   return { stdout: [], stderr: [`${PREFIX}${message}`], exitCode: 1 }
 }
 
@@ -330,9 +330,8 @@ function whoAndRisk(cardFile: CardFile): { who?: string, risk?: WrittenRisk } {
   return { who: cardFile.parked.who, ...(risk === undefined ? {} : { risk }) }
 }
 
-export function refusedInWindow(argv: string[]): TaskStartResult {
-  const id = CARD_ID.exec(flagValue(argv, CARD_FLAG).value ?? '')?.[1] ?? '<N>'
-  return refuse(`a window does not start a task itself: the bus cuts its tree, ask it with ${pnpmCommand('bus:request', 'tree.cut', '--card', id)}; nothing written`)
+export function cardIdOf(argv: string[]): string {
+  return CARD_ID.exec(flagValue(argv, CARD_FLAG).value ?? '')?.[1] ?? '<N>'
 }
 
 export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: HandedContract): TaskStartResult {

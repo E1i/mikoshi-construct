@@ -6101,8 +6101,9 @@
           "WINDOW_LIMIT_SLOTS"
         ],
         "functions": {
+          "cardIdOf": "(argv: string[]): string",
           "gitIn": "(cwd: string, args: string[]): string",
-          "refusedInWindow": "(argv: string[]): TaskStartResult",
+          "refuse": "(message: string): TaskStartResult",
           "runTaskStart": "(argv: string[], deps: TaskStartDeps, handed?: HandedContract): TaskStartResult"
         },
         "language": "technology",
