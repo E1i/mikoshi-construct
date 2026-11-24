@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite'
-import { IN_ORDER_MARK } from '../../scripts/core/bus-readings.js'
 import { LANE_ASSIGNED } from '../../scripts/core/events.js'
+
+const IN_ORDER_MARK = 'snapshot'
 
 const BUS_SCHEMA = `
 CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, type TEXT NOT NULL, actor TEXT, card_id INTEGER, pr INTEGER, head TEXT, dedupe_key TEXT, legacy INTEGER NOT NULL DEFAULT 0, payload TEXT NOT NULL);
