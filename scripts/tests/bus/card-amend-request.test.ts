@@ -11,7 +11,7 @@ import { CARD_ADMITTED, CARD_MOVED, REQUEST_DONE, REQUEST_REFUSED } from '../../
 import { reduce } from '../../core/reducer.js'
 import { busCardAdmissions, busCardEvents, busHeldCards } from '../../intake/intake.js'
 import { recordDecision } from '../../policy/decisions/index.js'
-import { busProjections, openComposedBus } from '../../supervisor/composition.js'
+import { busProjections, openComposedBus, windowRequestBus } from '../../supervisor/composition.js'
 import { requestFromWindow, requestOf, WindowRequests } from '../../window/window-requests.js'
 
 const NOW = new Date('2026-11-05T09:00:00.000Z')
@@ -72,7 +72,7 @@ function asked(w: World, request: Record<string, unknown>): { type: string, deta
   const id = requestFromWindow(w.db, NOW.toISOString(), 'test', { kind: 'amend', ...request })
   const tools = { closeDropped: () => [] } as unknown as RequestTools
   const later = new Date(NOW.getTime() + id * 1000)
-  new WindowRequests(w.db, () => later, tools, path.join(w.root, 'channel'), () => null, w.repo, {} as never).run()
+  new WindowRequests(w.db, () => later, tools, path.join(w.root, 'channel'), () => null, w.repo, {} as never, windowRequestBus()).run()
   reduce(w.db, 'pending', busProjections())
   const answer = w.db.prepare(`SELECT type, json_extract(payload, '$.detail') AS detail FROM events WHERE type IN (?, ?) AND json_extract(payload, '$.request') = ?`).get(REQUEST_DONE, REQUEST_REFUSED, id) as { type: string, detail: string }
   return answer

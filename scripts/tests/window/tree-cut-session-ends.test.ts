@@ -74,7 +74,7 @@ function launchedByTheBus({ made }: Room): void {
 }
 
 function context({ made, root }: Room): RequestContext {
-  return new RequestContext(made.db, made.clock.now, UNUSED_TOOLS, path.join(root, 'owner-answers'), () => null, root, made.gitHub.client)
+  return new RequestContext(made.db, made.clock.now, UNUSED_TOOLS, path.join(root, 'owner-answers'), () => null, root, made.gitHub.client, null)
 }
 
 function takeover({ made, root }: Room): RequestOutcome {

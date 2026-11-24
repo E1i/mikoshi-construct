@@ -1,6 +1,7 @@
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { CardStarter, LaunchOutcome } from '../../nodes/launch/launch-executor.js'
 import type { GitHubPut } from '../../ports/github.js'
+import type { RequestContext } from '../../window/requests/context.js'
 import type { RequestTools } from '../../window/window-requests.js'
 import type { MergeBench } from './merge-bench.js'
 import { execFile, execFileSync } from 'node:child_process'
@@ -34,9 +35,10 @@ import { roundLimitDecisionOf } from '../../policy/round-limit-decision.js'
 import { decisionsInForceAt } from '../../policy/shards.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { WORKTREE_HOME_VARIABLE } from '../../ports/worktree-home.js'
-import { busProjections, cardTransitions, DECISION_EVENT_READS } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions, DECISION_EVENT_READS, windowRequestBus } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
+import { execute as executeAmend } from '../../window/requests/amend.js'
 import { productionDeps, STALL_MS } from '../../window/watch.js'
 import { countLineAppender, realRequestTools, worktreesHolding } from '../../window/window-request-tools.js'
 import { ALLOW_MERGE_RECORD, ANSWER_SOURCE, pendingRequests, PREFIX, REQUEST_KINDS, REQUEST_RULE, requestFromWindow, runRequest, USAGE, WindowRequests } from '../../window/window-requests.js'
@@ -1037,5 +1039,16 @@ describe('a hold withdraws every queued task of the card', () => {
     ask(made, { kind: 'release', card: CARD })
     made.requests().run()
     expect(tasksOfCard(made)).toEqual([{ queue: 'answer', state: 'withdrawn' }, { queue: 'launch', state: 'withdrawn' }])
+  })
+})
+
+describe('the window takes the bus contract from the composition root', () => {
+  it('the composition root hands out the bus contract itself', () => {
+    expect(windowRequestBus()).toBe(BUS_CONTRACT)
+  })
+
+  it('an amend on a request runner composed without the contract is refused and says why', () => {
+    const context = { bus: null } as unknown as RequestContext
+    expect(executeAmend(context, 1, { kind: 'amend', card: 5 })).toEqual({ done: false, why: '#5: this request runner was composed without the bus contract; amend runs only under bus:run' })
   })
 })

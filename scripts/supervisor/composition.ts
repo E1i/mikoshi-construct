@@ -149,6 +149,10 @@ export function refusesForeignCard(db: DatabaseSync, lease: Lease, understands: 
   return version === null ? null : foreignVersion(understands, 'card', version, `card #${lease.cardId} (${lease.taskKey})`)
 }
 
+export function windowRequestBus(): typeof BUS_CONTRACT {
+  return BUS_CONTRACT
+}
+
 export function cardTransitions(): CardTransitions {
   return { appendedOnCard: (db, event) => appendedOnCard(BUS_CONTRACT, db, event) }
 }

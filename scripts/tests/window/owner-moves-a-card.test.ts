@@ -158,7 +158,7 @@ function stopRun(made: Room, processes: ProcessTable): Executed {
   const refuse = (): never => {
     throw new Error('the owner stop calls no other tool')
   }
-  const context = new RequestContext(made.bench.db, made.bench.clock.now, { treeOf: refuse, exists: existsSync, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: () => null, closePr: refuse, closeDropped: () => [] }, channel(made), () => null, made.root, made.bench.gitHub.client)
+  const context = new RequestContext(made.bench.db, made.bench.clock.now, { treeOf: refuse, exists: existsSync, cutTree: refuse, dryRunOf: refuse, addDecision: refuse, causeHolds: () => null, closePr: refuse, closeDropped: () => [] }, channel(made), () => null, made.root, made.bench.gitHub.client, null)
   return ownerStopExecutor(processes)(context, id, { card: CARD })
 }
 
