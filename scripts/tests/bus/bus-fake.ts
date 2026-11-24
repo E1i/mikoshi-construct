@@ -1,7 +1,51 @@
-import type { BusEvent } from '../../core/db.js'
-import type { EventData, EventRow, EventsQuery } from '../../core/events-query.js'
-import type { ReduceCount, ReduceScope } from '../../core/reducer.js'
-import type { StoredEvent } from '../../core/stored.js'
+import type { StoredEvent } from '../../core/stored-event.js'
+
+const EITHER_JOURNAL = 'either'
+
+interface BusEvent {
+  ts: string | null
+  type: string
+  actor: string | null
+  cardId: number | null
+  pr: number | null
+  head: string | null
+  dedupeKey: string
+  payload: unknown
+  legacy: boolean
+}
+
+interface EventsQuery {
+  types?: readonly string[]
+  card?: number
+  pr?: number | null
+  head?: string
+  task?: string
+  since?: number
+  before?: number
+  ids?: readonly number[]
+  keys?: readonly string[]
+  ts?: string
+  actorPrefix?: string
+  mentions?: string
+  legacy?: boolean | typeof EITHER_JOURNAL
+  newestFirst?: boolean
+  limit?: number
+}
+
+type EventData = Record<string, unknown>
+
+interface EventRow extends StoredEvent {
+  actor: string | null
+  legacy: boolean
+  data: EventData | null
+}
+
+type ReduceScope = 'pending' | 'rebuild'
+
+interface ReduceCount {
+  applied: number
+  rejected: number
+}
 
 export type FakeFold = (event: StoredEvent) => void
 
@@ -62,7 +106,7 @@ function storedOf(row: EventRow): StoredEvent {
 
 function matches(row: EventRow, query: EventsQuery): boolean {
   const legacy = query.legacy ?? false
-  return (legacy === 'either' || row.legacy === legacy)
+  return (legacy === EITHER_JOURNAL || row.legacy === legacy)
     && (query.types === undefined || query.types.includes(row.type))
     && (query.card === undefined || row.card_id === query.card)
     && (query.pr === undefined || row.pr === query.pr)
