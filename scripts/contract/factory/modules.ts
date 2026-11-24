@@ -76,28 +76,27 @@ export interface DrawnModule {
   status: ModuleStatus
 }
 
-export interface Layer {
-  name: string
+interface Layer {
   modules: readonly string[]
   ordered: boolean
 }
 
 const NODES = ['node-answer', 'node-close', 'node-launch', 'node-merge', 'node-restart', 'node-review', 'node-update', 'node-witness']
 
-export const LAYERS: readonly Layer[] = [
-  { name: 'ports', modules: ['layout', 'ports-adapters', 'ports'], ordered: true },
-  { name: 'core', modules: ['events', 'command-registry', 'bus'], ordered: true },
-  { name: 'domain', modules: ['card-model', 'card-record', 'project', 'plan', 'order', 'decisions', 'session', 'model', 'quality', 'intake', 'rules', 'pr-record', 'factory-contract'], ordered: true },
-  { name: 'nodes', modules: NODES, ordered: false },
-  { name: 'surfaces', modules: ['ui', 'atlas', 'release', 'cost', 'window', 'board'], ordered: true },
+const LAYERS: readonly Layer[] = [
+  { modules: ['layout', 'ports-adapters', 'ports'], ordered: true },
+  { modules: ['events', 'command-registry', 'bus'], ordered: true },
+  { modules: ['card-model', 'card-record', 'project', 'plan', 'order', 'decisions', 'session', 'model', 'quality', 'intake', 'rules', 'pr-record', 'factory-contract'], ordered: true },
+  { modules: NODES, ordered: false },
+  { modules: ['ui', 'atlas', 'release', 'cost', 'window', 'board'], ordered: true },
 ]
 
-export function belowInTheLayers(id: string, layers: readonly Layer[] = LAYERS): string[] {
-  const at = layers.findIndex(layer => layer.modules.includes(id))
+function belowInTheLayers(id: string): string[] {
+  const at = LAYERS.findIndex(layer => layer.modules.includes(id))
   if (at < 0)
     throw new Error(`${id} is in no layer of the module graph`)
-  const { modules, ordered } = layers[at]!
-  return [...layers.slice(0, at).flatMap(layer => layer.modules), ...(ordered ? modules.slice(0, modules.indexOf(id)) : [])]
+  const { modules, ordered } = LAYERS[at]!
+  return [...LAYERS.slice(0, at).flatMap(layer => layer.modules), ...(ordered ? modules.slice(0, modules.indexOf(id)) : [])]
 }
 
 function node(name: string): DrawnModule {
