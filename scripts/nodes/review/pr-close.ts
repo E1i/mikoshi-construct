@@ -10,8 +10,9 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { bodySha } from '../../../src/commands/intake/confirm.js'
 import { nextCardNumbers } from '../../../src/commands/intake/numbers.js'
 import { BUS_CONTRACT } from '../../core/bus-adapter.js'
+import { DROPPED_CARD, QUEUED_CARD } from '../../core/card-automaton.js'
 import { appendCardEvent, cardBodyText, laid } from '../../core/card-bodies.js'
-import { droppingEventsAmong, queuedDependentsOf } from '../../core/card-readings.js'
+import { dependentsInStateOf, stateEventsAmong } from '../../core/card-readings.js'
 import { appendEvent, inTransaction, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { EITHER_JOURNAL, events, latestPrInTheBus } from '../../core/events-query.js'
@@ -114,7 +115,7 @@ export function droppedAttempt(droppedEventId: number, pr: number): string {
 
 function openPrsOfDroppedCards(db: DatabaseSync): DroppedCardPr[] {
   const open = (db.prepare(OPEN_PRS_WITH_A_CARD).all() as { pr: number, card_id: number }[]).map(row => ({ pr: Number(row.pr), cardId: Number(row.card_id) }))
-  const drops = droppingEventsAmong(db, [...new Set(open.map(row => row.cardId))])
+  const drops = stateEventsAmong(db, DROPPED_CARD, [...new Set(open.map(row => row.cardId))])
   return open.flatMap((row) => {
     const dropped = drops.get(row.cardId)
     return dropped === undefined || events(db, { pr: row.pr, types: [PR_CLOSED], legacy: EITHER_JOURNAL, limit: 1 }).length > 0 ? [] : [{ ...row, dropped }]
@@ -284,7 +285,7 @@ export class RoundLimitRecutter implements RoundLimitRecut {
   }
 
   private parkOrWait(at: RoundLimitAt, text: string, mutations: readonly string[]): RecutOutcome {
-    const dependents: RecutCard[] = queuedDependentsOf(this.parts.db, at.cardId)
+    const dependents: RecutCard[] = dependentsInStateOf(this.parts.db, at.cardId, QUEUED_CARD)
     const plan = parkPlanOf(at.cardId, text, mutations, dependents)
     if (plan.kind === 'owner_wait')
       return this.waited(at, plan.why)

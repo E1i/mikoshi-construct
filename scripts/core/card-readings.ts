@@ -1,7 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { LastReduced, OwnerWait } from './bus-readings.js'
 import { CLOSED_WAIT, OPEN_WAIT, OWNER_WAITS, readLastReduced } from './bus-readings.js'
-import { DROPPED_CARD, QUEUED_CARD } from './card-automaton.js'
 import { cardIdsInEvents, EITHER_JOURNAL, events, latest } from './events-query.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED } from './events.js'
 
@@ -100,10 +99,10 @@ export function cardStatesAmong(db: DatabaseSync, cardIds: readonly number[]): M
   return new Map(rows.map(row => [Number(row.card_id), row.state === null ? null : String(row.state)]))
 }
 
-const DROPS_AMONG = `SELECT card_id, event_id FROM cards WHERE state = '${DROPPED_CARD}' AND card_id IN (SELECT value FROM json_each(?))`
+const ENTERED_STATE_AMONG = `SELECT card_id, event_id FROM cards WHERE state = ? AND card_id IN (SELECT value FROM json_each(?))`
 
-export function droppingEventsAmong(db: DatabaseSync, cardIds: readonly number[]): Map<number, number> {
-  const rows = db.prepare(DROPS_AMONG).all(JSON.stringify(cardIds)) as { card_id: number, event_id: number }[]
+export function stateEventsAmong(db: DatabaseSync, state: string, cardIds: readonly number[]): Map<number, number> {
+  const rows = db.prepare(ENTERED_STATE_AMONG).all(state, JSON.stringify(cardIds)) as { card_id: number, event_id: number }[]
   return new Map(rows.map(row => [Number(row.card_id), Number(row.event_id)]))
 }
 
@@ -120,19 +119,19 @@ export function cardOfPr(db: DatabaseSync, pr: number): number | null {
   return cardId === undefined ? null : Number(cardId)
 }
 
-export interface QueuedDependent {
+export interface CardDependent {
   id: number
   text: string
 }
 
-const QUEUED_DEPENDENTS_OF_CARD = `
+const DEPENDENTS_IN_STATE = `
   SELECT body.card_id AS id, body.text FROM ${CARD_BODIES} AS body JOIN cards ON cards.card_id = body.card_id
-  WHERE cards.state = '${QUEUED_CARD}' AND EXISTS (SELECT 1 FROM json_each(body.depends) WHERE value = ?)
+  WHERE cards.state = ? AND EXISTS (SELECT 1 FROM json_each(body.depends) WHERE value = ?)
   ORDER BY body.card_id
 `
 
-export function queuedDependentsOf(db: DatabaseSync, cardId: number): QueuedDependent[] {
-  return db.prepare(QUEUED_DEPENDENTS_OF_CARD).all(cardId) as unknown as QueuedDependent[]
+export function dependentsInStateOf(db: DatabaseSync, cardId: number, state: string): CardDependent[] {
+  return db.prepare(DEPENDENTS_IN_STATE).all(state, cardId) as unknown as CardDependent[]
 }
 
 const CARDS_WITH_A_STATE = `SELECT card_id, state FROM cards WHERE state IS NOT NULL`
