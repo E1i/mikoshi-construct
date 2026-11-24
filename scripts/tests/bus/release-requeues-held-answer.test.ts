@@ -57,9 +57,24 @@ function release(made: MergeBench): RequestOutcome {
   return request(made, ['release', '--card', String(CARD)])
 }
 
-function withdrawAnswer(made: MergeBench, reason: string): void {
-  const lease = leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
+type AnswerLease = NonNullable<ReturnType<typeof leaseNext>>
+
+function leaseAnswer(made: MergeBench): AnswerLease {
+  return leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1')!
+}
+
+function failAnswer(made: MergeBench, lease: AnswerLease, reason: string): void {
   failTask(made.db, cardTransitions(), made.clock.now().toISOString(), lease, { reason, withdraw: true }, SILENT_MS)
+}
+
+function withdrawAnswer(made: MergeBench, reason: string): void {
+  failAnswer(made, leaseAnswer(made), reason)
+}
+
+function heldWhileLeased(made: MergeBench, reason: string): void {
+  const lease = leaseAnswer(made)
+  hold(made)
+  failAnswer(made, lease, reason)
 }
 
 function answerStatesOf(made: MergeBench): string[] {
@@ -68,10 +83,19 @@ function answerStatesOf(made: MergeBench): string[] {
 }
 
 describe('the release of a card a plain hold stopped', () => {
-  it('a release queues again the answer task a plain hold withdrew', () => {
+  it('a release queues again the queued answer task a plain hold withdrew', () => {
     const made = cardWithAQueuedAnswer()
     hold(made)
-    withdrawAnswer(made, 'held_for_owner')
+    expect(answerStatesOf(made)).toEqual(['withdrawn'])
+
+    expect(release(made).detail).toContain(QUEUED_AGAIN)
+
+    expect(answerStatesOf(made)).toEqual(['queued'])
+  })
+
+  it('a release queues again the answer task leased at the hold and withdrawn for the owner', () => {
+    const made = cardWithAQueuedAnswer()
+    heldWhileLeased(made, 'held_for_owner')
     expect(answerStatesOf(made)).toEqual(['withdrawn'])
 
     expect(release(made).detail).toContain(QUEUED_AGAIN)
@@ -81,8 +105,7 @@ describe('the release of a card a plain hold stopped', () => {
 
   it('a release leaves an answer task withdrawn for another reason withdrawn', () => {
     const made = cardWithAQueuedAnswer()
-    hold(made)
-    withdrawAnswer(made, 'nothing_to_answer')
+    heldWhileLeased(made, 'nothing_to_answer')
 
     expect(release(made).detail).not.toContain(QUEUED_AGAIN)
 
@@ -101,8 +124,7 @@ describe('the release of a card a plain hold stopped', () => {
 
   it('a second hold on an open hold does not strand the answer the first one withdrew', () => {
     const made = cardWithAQueuedAnswer()
-    hold(made)
-    withdrawAnswer(made, 'held_for_owner')
+    heldWhileLeased(made, 'held_for_owner')
     hold(made)
 
     expect(release(made).detail).toContain(QUEUED_AGAIN)
@@ -112,8 +134,7 @@ describe('the release of a card a plain hold stopped', () => {
 
   it('a second release queues nothing: the hold it would answer is closed', () => {
     const made = cardWithAQueuedAnswer()
-    hold(made)
-    withdrawAnswer(made, 'held_for_owner')
+    heldWhileLeased(made, 'held_for_owner')
     release(made)
     withdrawAnswer(made, 'held_for_owner')
 
