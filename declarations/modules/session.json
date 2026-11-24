@@ -17,6 +17,7 @@
     "scripts/core/cadence.ts",
     "src/card/closed.ts",
     "scripts/cli/slot.ts",
+    "scripts/cli/task-start.ts",
     "src/commands/liveness.ts",
     "scripts/supervisor/"
   ],
