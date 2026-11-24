@@ -5,6 +5,7 @@ import type { LadderRunPort } from '../../src/commands/run-record.js'
 import type { BusPorts } from '../../src/program.js'
 import type { CreatesOwnerRefusal, ModuleDeclaration } from '../core/declarations.js'
 import type { RecomputeFigures, RecomputeLedger, TableOrder } from '../nodes/merge/weights-drift.js'
+import type { EventSlice } from '../ports/bus-read.js'
 import type { GitHub } from '../ports/github.js'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
@@ -25,6 +26,7 @@ import { BUS_CONTRACT } from '../core/bus-adapter.js'
 import { BUS_DB_VARIABLE, ForeignBusRefused } from '../core/bus-path.js'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.js'
 import { admittedBodyText, appendCardEvent, laid } from '../core/card-bodies.js'
+import { heldCardStates } from '../core/card-readings.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, inTransaction, openBus } from '../core/db.js'
 import { createsOwnerRefusals, MODULE_FILES, MODULES_KIND, readDeclarations } from '../core/declarations.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_MOVED, CARD_PLANNED, CARD_UNPLANNED, LADDER_RUN, NUMBERS_FOREIGN, PLAN_CLOSED, PLAN_OPENED, PR_OPENED } from '../core/events.js'
@@ -53,23 +55,11 @@ const JOHNNY_FLAG = '--johnny'
 const RELEASE_FLAG = '--release'
 const OPEN_A_RELEASE = pnpmCommand('bus:request', 'plan --op open')
 
-const INTAKE_ADMISSIONS = `
-  SELECT id, ts, card_id, payload FROM events
-  WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND actor LIKE '${INTAKE_ACTOR_PREFIX}%' AND card_id IS NOT NULL
-  ORDER BY id
-`
-
-const ANY_ADMISSION = `SELECT 1 FROM events WHERE type = '${CARD_ADMITTED}' AND card_id = ? LIMIT 1`
-
-const HELD_CARDS = `
-  SELECT card_id, state FROM cards WHERE state IS NOT NULL
-  UNION ALL
-  SELECT DISTINCT card_id, NULL FROM events WHERE card_id IS NOT NULL AND card_id NOT IN (SELECT card_id FROM cards WHERE state IS NOT NULL)
-`
-
 const HELD_WITHOUT_STATE = 'held'
 
-const FOREIGN_NUMBERS = `SELECT DISTINCT listed.value AS id FROM events, json_each(events.payload, '$.ids') AS listed WHERE events.legacy = 0 AND events.type = '${NUMBERS_FOREIGN}'`
+const ADMISSION_FIELDS = ['card', 'bodySha', 'confirmation', 'source', 'corrections'] as const
+
+type AdmissionSlice = EventSlice<typeof CARD_ADMITTED, typeof ADMISSION_FIELDS[number]>
 
 export interface IntakeAdmission extends RecordedIntake {
   task: string
@@ -77,22 +67,23 @@ export interface IntakeAdmission extends RecordedIntake {
   event: number
 }
 
-interface AdmissionRow { id: number, ts: string | null, card_id: number, payload: string }
-
-function admissionOf(row: AdmissionRow): IntakeAdmission | null {
-  try {
-    const payload = JSON.parse(row.payload) as Record<string, unknown> | null
-    if (typeof payload?.card !== 'string' || payload.bodySha === undefined)
-      return null
-    return { task: String(row.card_id), card: payload.card, bodySha: payload.bodySha, ts: row.ts, confirmation: payload.confirmation, source: payload.source, corrections: payload.corrections, event: row.id }
-  }
-  catch {
+function admissionOf({ id, ts, card, fields }: AdmissionSlice): IntakeAdmission | null {
+  if (typeof fields.card !== 'string' || fields.bodySha === undefined)
     return null
-  }
+  return { task: String(card), card: fields.card, bodySha: fields.bodySha, ts, confirmation: fields.confirmation, source: fields.source, corrections: fields.corrections, event: id }
 }
 
 export function intakeAdmissions(db: DatabaseSync): IntakeAdmission[] {
-  return (db.prepare(INTAKE_ADMISSIONS).all() as unknown as AdmissionRow[]).flatMap(row => admissionOf(row) ?? [])
+  return new BusRead(db).where({ card: ANY, actor: INTAKE_ACTOR_PREFIX }).slice(CARD_ADMITTED, ADMISSION_FIELDS).flatMap(slice => admissionOf(slice) ?? [])
+}
+
+function hasAnAdmission(db: DatabaseSync, cardId: number): boolean {
+  return new BusRead(db).where({ card: cardId, legacy: true }).slice(CARD_ADMITTED, [], 'last').length > 0
+}
+
+function foreignNumbers(db: DatabaseSync): Set<number> {
+  const listed = new BusRead(db).slice(NUMBERS_FOREIGN, ['ids']).flatMap(slice => Array.isArray(slice.fields.ids) ? slice.fields.ids as number[] : [])
+  return new Set(listed)
 }
 
 export function busIntakeAdmissions(busPath: string): IntakeAdmission[] {
@@ -142,9 +133,13 @@ function admissionOfMove(db: DatabaseSync, move: CardEvent): CardEvent | null {
   }
 }
 
-const PLAN_OPENED_BEFORE = `SELECT 1 FROM events WHERE legacy = 0 AND type = '${PLAN_OPENED}' AND json_extract(payload, '$.id') = ? LIMIT 1`
+function planOpenedBefore(db: DatabaseSync, release: string): boolean {
+  return new BusRead(db).slice(PLAN_OPENED, ['id']).some(opened => opened.fields.id === release)
+}
 
-const PLAN_CLOSED_BEFORE = `SELECT 1 FROM events WHERE legacy = 0 AND type = '${PLAN_CLOSED}' AND json_extract(payload, '$.plan') = ? LIMIT 1`
+function planClosedBefore(db: DatabaseSync, release: string): boolean {
+  return new BusRead(db).slice(PLAN_CLOSED, ['plan']).some(closed => closed.fields.plan === release)
+}
 
 interface AdmittedPlan { id: string, title: string, goal: string, file: string }
 
@@ -155,14 +150,14 @@ function admittedPlan(value: unknown): AdmittedPlan | null {
 }
 
 export function isOpenRelease(db: DatabaseSync, release: string): boolean {
-  return db.prepare(PLAN_OPENED_BEFORE).get(release) !== undefined && db.prepare(PLAN_CLOSED_BEFORE).get(release) === undefined
+  return planOpenedBefore(db, release) && !planClosedBefore(db, release)
 }
 
-const LATEST_PLANNING_OF_CARD = `SELECT type, json_extract(payload, '$.release') AS release FROM events WHERE legacy = 0 AND card_id = ? AND type IN ('${CARD_PLANNED}', '${CARD_UNPLANNED}') ORDER BY id DESC LIMIT 1`
-
 function plannedRelease(db: DatabaseSync, cardId: number): unknown {
-  const latest = db.prepare(LATEST_PLANNING_OF_CARD).get(cardId) as { type: string, release: unknown } | undefined
-  return latest?.type === CARD_PLANNED ? latest.release : null
+  const ofCard = new BusRead(db).where({ card: cardId })
+  const planned = ofCard.slice(CARD_PLANNED, ['release'], 'last')[0]
+  const unplanned = ofCard.slice(CARD_UNPLANNED, [], 'last')[0]
+  return planned !== undefined && planned.id > (unplanned?.id ?? 0) ? planned.fields.release ?? null : null
 }
 
 function releaseInBody(event: CardEvent): string | null {
@@ -191,7 +186,7 @@ function registerPlan(db: DatabaseSync, event: CardEvent, release: string | unde
     return
   const plan = admittedPlan(event.payload[PLAN_FIELD])
   const recorded = { ts: event.ts, actor: OWNER, pr: null, head: null, legacy: false }
-  if (plan !== null && db.prepare(PLAN_OPENED_BEFORE).get(plan.id) === undefined)
+  if (plan !== null && !planOpenedBefore(db, plan.id))
     appendEvent(db, { ...recorded, type: PLAN_OPENED, cardId: null, dedupeKey: `${PLAN_OPENED}:intake:${plan.id}`, payload: { id: plan.id, title: plan.title, goal: plan.goal, plan_file: plan.file } })
   const into = releaseToEnter(db, event, release, plan?.id)
   if (into !== undefined)
@@ -240,7 +235,7 @@ export function busCardEvents(db: DatabaseSync, session: string = SESSION_BY_HAN
     }
   }
   const record = (event: CardEvent): void => {
-    if (needsAnAdmission(event) && db.prepare(ANY_ADMISSION).get(event.cardId) === undefined)
+    if (needsAnAdmission(event) && !hasAnAdmission(db, event.cardId))
       throw new Error(`Refused: #${event.cardId} has no card.admitted in the bus, so the bus cannot hold its move; admit it first. Nothing was moved.`)
     appendCardEvent(BUS_CONTRACT, db, actor, laid(db, event))
     registerPlan(db, event, release)
@@ -257,10 +252,9 @@ export function busCardEvents(db: DatabaseSync, session: string = SESSION_BY_HAN
 }
 
 export function busHeldCards(db: DatabaseSync): CardsOfTheBus {
-  const rows = db.prepare(HELD_CARDS).all() as unknown as { card_id: number, state: string | null }[]
-  const held = new Map(rows.map(row => [String(row.card_id), row.state ?? HELD_WITHOUT_STATE]))
-  const foreign = db.prepare(FOREIGN_NUMBERS).all() as unknown as { id: number }[]
-  return foreign.length === 0 ? held : Object.assign(held, { foreign: new Set(foreign.map(row => row.id)) })
+  const held = new Map([...heldCardStates(db)].map(([card, state]) => [String(card), state ?? HELD_WITHOUT_STATE]))
+  const foreign = foreignNumbers(db)
+  return foreign.size === 0 ? held : Object.assign(held, { foreign })
 }
 
 export const WEIGHTS_DRIFT_SOURCE = 'weights-drift'

@@ -1,9 +1,7 @@
 [
-  "scripts/ci/card-runs.ts",
   "scripts/cli/board-page.ts",
   "scripts/cli/board-warnings.ts",
   "scripts/cli/card-chain.ts",
-  "scripts/cli/check-catalog.ts",
   "scripts/core/chain.ts",
   "scripts/core/journal.ts",
   "scripts/core/legacy-history.ts",
@@ -12,7 +10,6 @@
   "scripts/core/queue.ts",
   "scripts/core/report.ts",
   "scripts/core/tasks.ts",
-  "scripts/intake/intake.ts",
   "scripts/intake/parking-reads.ts",
   "scripts/intake/witness-fields-backfill.ts",
   "scripts/ladder/ledger.ts",
