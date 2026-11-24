@@ -65,8 +65,13 @@ function selected(db: DatabaseSync, filter: TaskFilter): TaskRow[] {
   add('queue = ?', filter.queue)
   add('state = ?', filter.state)
   add('event_id > ?', filter.after)
-  const rows = db.prepare(`SELECT id, task_key, queue, card_id, pr, head, state, lease_gen, lease_until, failures, event_id FROM tasks WHERE ${where.join(' AND ')} ORDER BY event_id, id`).all(...values) as StoredTask[]
+  const condition = where.length === 0 ? '' : ` WHERE ${where.join(' AND ')}`
+  const rows = db.prepare(`SELECT id, task_key, queue, card_id, pr, head, state, lease_gen, lease_until, failures, event_id FROM tasks${condition} ORDER BY event_id, id`).all(...values) as StoredTask[]
   return rows.map(taskOf)
+}
+
+export function all(db: DatabaseSync): TaskRow[] {
+  return selected(db, {})
 }
 
 export function byKey(db: DatabaseSync, taskKey: string): TaskRow | null {
