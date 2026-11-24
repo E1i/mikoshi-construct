@@ -5,9 +5,10 @@ import { CONCEPTS } from '../../../contract/factory/concepts.js'
 import { findSites } from '../../../contract/factory/overlaps.js'
 import { repositoryReport } from '../../../contract/module-graph/report.js'
 import { CLOSED_WAIT, OPEN_WAIT } from '../../../core/bus-readings.js'
+import { openDecisionWaitsOfCard } from '../../../core/card-readings.js'
 import { appendEvent, openBus } from '../../../core/db.js'
 import { CARD_RELEASED, CARD_STOPPED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED } from '../../../core/events.js'
-import { COMPLETED, latestAnswerOf, latestReleaseOf, latestWidenStopOf, LEASED, openDecisionWaitsOfCard, QUEUED, reviewsInFlightOn, widenedOnTheAdmission } from '../../../core/queue.js'
+import { COMPLETED, latestAnswerOf, latestReleaseOf, latestWidenStopOf, LEASED, QUEUED, reviewsInFlightOn, widenedOnTheAdmission } from '../../../core/queue.js'
 
 const REPO_RUN_TIMEOUT = 180_000
 const ROOT = path.resolve(import.meta.dirname, '../../../..')

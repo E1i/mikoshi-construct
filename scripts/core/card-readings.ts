@@ -1,8 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { LastReduced, OwnerWait } from './bus-readings.js'
 import { CLOSED_WAIT, OPEN_WAIT, OWNER_WAITS, readLastReduced } from './bus-readings.js'
-import { cardIdsInEvents, EITHER_JOURNAL, events, latest } from './events-query.js'
-import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED } from './events.js'
+import { cardIdsInEvents, EITHER_JOURNAL, events, eventsWhere, latest } from './events-query.js'
+import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, QUESTION_AGENT, WITNESS_DOWNGRADE } from './events.js'
+import { latestTurnOf } from './queue.js'
 
 const OPEN_OWNER_WAITS = `
   SELECT id, need, text, command, card_id AS card, pr, opened_at AS since
@@ -196,4 +197,37 @@ export function openWaitEventsByCard(db: DatabaseSync): Map<number, number[]> {
     byCard.set(card, [...byCard.get(card) ?? [], Number(row.event_id)])
   }
   return byCard
+}
+
+export function openDecisionWaitsOf(card: string): string {
+  return `SELECT id, text FROM ${OWNER_WAITS} WHERE need = 'decision' AND state = '${OPEN_WAIT}' AND card_id = ${card}`
+}
+
+const OPEN_DECISION_WAITS_OF_THE_CARD = `${openDecisionWaitsOf('?')} ORDER BY opened_at, id`
+
+export interface OpenDecisionWait {
+  id: string
+  text: string
+}
+
+export function openDecisionWaitsOfCard(db: DatabaseSync, cardId: number): OpenDecisionWait[] {
+  return db.prepare(OPEN_DECISION_WAITS_OF_THE_CARD).all(cardId) as unknown as OpenDecisionWait[]
+}
+
+const OPEN_WAIT_EVENTS_OF_THE_CARD = `SELECT event_id FROM ${OWNER_WAITS} WHERE card_id = ? AND state = '${OPEN_WAIT}'`
+
+export function downgradeWaitOpenOn(db: DatabaseSync, cardId: number): boolean {
+  const asked = (db.prepare(OPEN_WAIT_EVENTS_OF_THE_CARD).all(cardId) as { event_id: number }[]).map(row => Number(row.event_id))
+  return events(db, { ids: asked, types: [CARD_WAITING], legacy: EITHER_JOURNAL }).some(event => event.data?.reason === WITNESS_DOWNGRADE)
+}
+
+export function aDowngradeWaitOpenOn(card: string): string {
+  const asked = eventsWhere('asked', '1', `asked.id = wait.event_id AND asked.type = '${CARD_WAITING}' AND json_extract(asked.payload, '$.reason') = '${WITNESS_DOWNGRADE}'`)
+  return `EXISTS (SELECT 1 FROM ${OWNER_WAITS} AS wait WHERE wait.card_id = ${card} AND wait.state = '${OPEN_WAIT}' AND EXISTS (${asked}))`
+}
+
+export function latestQuestionStopsWithTheirCard(): string {
+  const stops = eventsWhere('stop', '*', `stop.type = '${CARD_STOPPED}' AND stop.legacy = 0 AND stop.card_id IS NOT NULL
+    AND json_extract(stop.payload, '$.reason') = '${QUESTION_AGENT}' AND stop.id = ${latestTurnOf('stop.card_id')}`)
+  return `(${stops}) AS stop LEFT JOIN cards ON cards.card_id = stop.card_id`
 }

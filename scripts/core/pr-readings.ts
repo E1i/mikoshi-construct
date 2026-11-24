@@ -79,3 +79,13 @@ export function mainsSinceLastMechanics(db: DatabaseSync): MainsSinceMechanics |
 export function mergedCards(db: DatabaseSync): number[] {
   return (db.prepare(`SELECT DISTINCT card_id FROM prs WHERE state = 'merged' AND card_id IS NOT NULL ORDER BY card_id`).all() as { card_id: number }[]).map(row => Number(row.card_id))
 }
+
+export function latestQuestionStops(stopsWithTheirCard: string, columns: string, condition: string): string {
+  return `
+  SELECT ${columns} FROM ${stopsWithTheirCard}
+  LEFT JOIN prs ON prs.pr = coalesce(stop.pr, cards.pr)
+  WHERE (prs.pr IS NULL OR prs.state = 'open')
+    AND ${condition}
+  ORDER BY stop.card_id
+`
+}

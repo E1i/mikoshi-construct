@@ -5,7 +5,7 @@ import { messageOf } from './errors.js'
 import { byId, events, latest, ofCard, perCard } from './events-query.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease, waitTask } from './lease.js'
 import { DATABASE_LOCKED, isDatabaseLocked } from './node.js'
-import { keyOf, NEEDS_UPDATE, openDecisionWaitsOfCard, QUESTION_OPEN, QUEUE_ACTOR, reviewsInFlightOn, widenedOnTheAdmission } from './queue.js'
+import { keyOf, NEEDS_UPDATE, QUESTION_OPEN, QUEUE_ACTOR, reviewsInFlightOn, widenedOnTheAdmission } from './queue.js'
 import { openDatabase } from './sqlite.js'
 import * as tasks from './tasks-query.js'
 import { lastEventId, markReduced, reduceProjection, watermarkOf } from './watermark.js'
@@ -33,7 +33,6 @@ export const BUS_CONTRACT = {
   isStaleLease: (error: unknown) => error instanceof StaleLease,
   keyOf,
   openOwnerWait: openBusWait,
-  openDecisionWaitsOfCard,
   reviewsInFlightOn,
   widenedOnTheAdmission,
   messageOf,

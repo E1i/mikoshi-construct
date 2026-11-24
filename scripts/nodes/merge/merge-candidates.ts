@@ -1,7 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Admits, Candidate, CandidateRules, QueuedTask, QueueSource, RequeueRow } from '../../core/queue.js'
+import { openDecisionWaitsOf } from '../../core/card-readings.js'
 import { TASK_FAILED, TASK_REQUEUED } from '../../core/events.js'
-import { candidateRows, decidedPastRoundLimit, holdsTheTurn, MERGE_CANDIDATES, MERGE_CANDIDATES_WITHOUT_PASS, noTurnHeldBeside, openCandidates, openDecisionWaitsOf, QUESTION_OPEN, recordedOrder, WITHDRAWN } from '../../core/queue.js'
+import { decidedPastRoundLimit, holdsTheTurn, mergeCandidateRows, mergeCandidateRowsWithoutPass, noTurnHeldBeside, openCandidates, QUESTION_OPEN, recordedOrder, WITHDRAWN } from '../../core/queue.js'
 
 export interface LaterShards {
   named: string
@@ -39,7 +40,8 @@ function mergeRows(db: DatabaseSync, ts: string, rules: CandidateRules): Candida
   const inTurn: Admits = row => holdsTheTurn(order, row.pr) && !order.needUpdate.has(row.pr!)
   const decided = decidedPastRoundLimit(db, ts, rules)
   const merged = rules.mergedCards(db)
-  return [...candidateRows(db, MERGE_CANDIDATES, inTurn, merged).filter(rules.reviewedUnderTheCardDecision(db, ts)), ...candidateRows(db, MERGE_CANDIDATES_WITHOUT_PASS, row => decided(row) && (inTurn(row) || noTurnHeldBeside(order, row.pr)), merged)]
+  const prs = rules.prs(db)
+  return [...mergeCandidateRows(db, prs, merged).filter(inTurn).filter(rules.reviewedUnderTheCardDecision(db, ts)), ...mergeCandidateRowsWithoutPass(db, prs, merged).filter(row => decided(row) && (inTurn(row) || noTurnHeldBeside(order, row.pr)))]
 }
 
 export function mergeCandidates(db: DatabaseSync, ts: string, rules: CandidateRules): QueuedTask[] {

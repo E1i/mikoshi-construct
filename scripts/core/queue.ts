@@ -3,12 +3,12 @@ import type { BusEvent } from './db.js'
 import type { BoundDecision, Queue, TaskIdentity } from './identifiers.js'
 import type { Fold, StoredEvent } from './stored.js'
 import type { IncrementalProjection } from './watermark.js'
-import { appendEvent, inTransaction, OPEN_WAIT, OWNER_WAITS } from './db.js'
+import { appendEvent, inTransaction } from './db.js'
 import { dependencyWaitOf, mergedCardsBinding } from './dependency-wait.js'
-import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, declaredPart, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_GROUPS, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, WITNESS_DOWNGRADE } from './events.js'
+import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, declaredPart, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_GROUPS, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN } from './events.js'
 import { A_CARD_DECISION_REOPENS, answerDecisionOfKey, BACKFILL_SOURCE, cardDecisionKeyOf, decidedTaskDecisionOfKey, decisionSegment, generationOfKey, isFullSha, MAIN_BRANCH, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
 import { payloadOf, reject } from './stored.js'
-import { markReduced, reduceProjection, watermarkOf } from './watermark.js'
+import { lastEventId, markReduced, reduceProjection, watermarkOf } from './watermark.js'
 
 export const LEASE_MS = 30 * 60_000
 export const SESSION_HELD_QUEUES: readonly Queue[] = ['review']
@@ -37,7 +37,23 @@ export interface RoundTask {
 
 export type MayRequeue = (db: DatabaseSync, ts: string, task: RoundTask) => boolean
 
+export interface CandidatePr {
+  pr: number
+  card_id: number | null
+  base: string | null
+  head: string | null
+  state: string | null
+  mergeable: string | null
+  ci: string | null
+  verdict_on_head: string | null
+  draft: number | null
+  body_sha: string | null
+}
+
+export type ReviewedPr = Pick<CandidatePr, 'pr' | 'head' | 'state' | 'ci' | 'verdict_on_head' | 'body_sha'>
+
 export interface CandidateRules {
+  prs: (db: DatabaseSync) => readonly CandidatePr[]
   mayRequeue: MayRequeue
   decisionsAt: (db: DatabaseSync, ts: string) => readonly BoundDecision[]
   mergeDecided: (db: DatabaseSync, ts: string, pr: number | null, head: string | null) => number | null
@@ -61,40 +77,60 @@ export function cardBodyShaOf(card: string): string {
   return `(${latestBodyAdmission(card, `json_extract(intake.payload, '$.bodySha')`)})`
 }
 
-const REVIEWED_UNDER_AN_INPUT = `EXISTS (
-  SELECT 1 FROM tasks AS reviewed WHERE reviewed.queue = 'review' AND reviewed.pr = prs.pr AND reviewed.head = prs.head AND reviewed.task_key LIKE '%:pr-body-%'
-)`
+const UNDER_A_PR_BODY = ':pr-body-'
+const LIVE_STATES: readonly string[] = [QUEUED, LEASED]
 
-const A_REVIEW_UNDER_A_PLAIN_KEY = `EXISTS (
-  SELECT 1 FROM tasks AS plain WHERE plain.queue = 'review' AND plain.pr = prs.pr AND plain.head = prs.head
-    AND plain.state != '${SUPERSEDED}' AND plain.task_key NOT LIKE '%:pr-body-%'
-)`
+interface ReviewTaskRow extends TaskRow {
+  state: string
+  event_id: number
+}
 
-const REVIEW_CANDIDATES = `
-  SELECT pr, card_id, head, body_sha, ${cardBodyShaOf('prs.card_id')} AS card_body FROM prs
-  WHERE state = 'open' AND ci = 'green' AND card_id IS NOT NULL AND head IS NOT NULL
-    AND (verdict_on_head IS NULL OR (verdict_on_head IN ('changes', 'pass') AND body_sha IS NOT NULL AND ${REVIEWED_UNDER_AN_INPUT}))
-    AND NOT ${A_REVIEW_UNDER_A_PLAIN_KEY}
-  ORDER BY pr
-`
+function reviewTasks(db: DatabaseSync): ReviewTaskRow[] {
+  return db.prepare(`SELECT task_key, queue, card_id, pr, head, state, event_id FROM tasks WHERE queue = 'review' ORDER BY task_key`).all() as unknown as ReviewTaskRow[]
+}
 
-const SUPERSEDED_REVIEWS_ON_THE_CURRENT_HEAD = `
-  SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head, tasks.event_id AS failure, prs.body_sha, ${cardBodyShaOf('tasks.card_id')} AS card_body FROM tasks
-  JOIN prs ON prs.pr = tasks.pr
-  WHERE tasks.queue = 'review' AND tasks.state = '${SUPERSEDED}' AND tasks.head = prs.head AND prs.state = 'open'
-    AND prs.ci = 'green' AND (prs.verdict_on_head IS NULL OR prs.verdict_on_head = 'changes')
-    AND prs.body_sha IS NOT NULL AND tasks.task_key LIKE '%:pr-body-%'
-    AND NOT EXISTS (SELECT 1 FROM tasks AS live WHERE live.queue = 'review' AND live.pr = tasks.pr AND live.state IN ('queued', 'leased'))
-  ORDER BY tasks.task_key
-`
+function onTheHead(task: { pr: number | null, head: string | null }, pr: { pr: number, head: string | null }): boolean {
+  return task.pr === pr.pr && task.head !== null && task.head === pr.head
+}
 
-const REVIEWS_OF_AN_OLD_INPUT = `
-  SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head, prs.body_sha, ${cardBodyShaOf('tasks.card_id')} AS card_body FROM tasks
-  JOIN prs ON prs.pr = tasks.pr
-  WHERE tasks.queue = 'review' AND tasks.state IN ('queued', 'leased') AND tasks.head = prs.head
-    AND prs.body_sha IS NOT NULL AND tasks.task_key LIKE '%:pr-body-%'
-  ORDER BY tasks.task_key
-`
+function inPrOrder<Pr extends { pr: number }>(prs: readonly Pr[]): Pr[] {
+  return [...prs].sort((left, right) => left.pr - right.pr)
+}
+
+function withTheCardBody<Row extends { card_id: number }>(db: DatabaseSync, row: Row): Row & { card_body: string | null } {
+  return { ...row, card_body: cardBodyShaOfCard(db, row.card_id) }
+}
+
+function reviewCandidateRows(db: DatabaseSync, prs: readonly CandidatePr[]): Candidate[] {
+  const reviews = reviewTasks(db)
+  return inPrOrder(prs).flatMap((pr) => {
+    const onIt = reviews.filter(task => onTheHead(task, pr))
+    const reviewedUnderAnInput = pr.body_sha !== null && onIt.some(task => task.task_key.includes(UNDER_A_PR_BODY))
+    const due = pr.verdict_on_head === null || ((pr.verdict_on_head === 'changes' || pr.verdict_on_head === 'pass') && reviewedUnderAnInput)
+    const plainReview = onIt.some(task => task.state !== SUPERSEDED && !task.task_key.includes(UNDER_A_PR_BODY))
+    return pr.state === 'open' && pr.ci === 'green' && pr.card_id !== null && pr.head !== null && due && !plainReview ? [withTheCardBody(db, { pr: pr.pr, card_id: pr.card_id, head: pr.head, body_sha: pr.body_sha })] : []
+  })
+}
+
+function reviewsOnTheHeadUnderABody(db: DatabaseSync, prs: readonly ReviewedPr[], admits: (task: ReviewTaskRow, pr: ReviewedPr) => boolean): (ReviewRow & { event_id: number })[] {
+  const known = new Map(prs.map(pr => [pr.pr, pr]))
+  return reviewTasks(db).flatMap((task) => {
+    const pr = task.pr === null ? undefined : known.get(task.pr)
+    if (pr === undefined || pr.body_sha === null || !onTheHead(task, pr) || !task.task_key.includes(UNDER_A_PR_BODY) || !admits(task, pr))
+      return []
+    return [withTheCardBody(db, { task_key: task.task_key, queue: task.queue, card_id: task.card_id, pr: task.pr, head: task.head, event_id: task.event_id, body_sha: pr.body_sha })]
+  })
+}
+
+function supersededReviewsOnTheCurrentHead(db: DatabaseSync, prs: readonly ReviewedPr[]): SupersededReviewRow[] {
+  const live = new Set(reviewTasks(db).filter(task => LIVE_STATES.includes(task.state)).map(task => task.pr))
+  const due = (task: ReviewTaskRow, pr: ReviewedPr): boolean => task.state === SUPERSEDED && pr.state === 'open' && pr.ci === 'green' && (pr.verdict_on_head === null || pr.verdict_on_head === 'changes') && !live.has(task.pr)
+  return reviewsOnTheHeadUnderABody(db, prs, due).map(({ event_id, ...row }) => ({ ...row, failure: Number(event_id) }))
+}
+
+function reviewsOfAnOldInputRows(db: DatabaseSync, prs: readonly ReviewedPr[]): ReviewRow[] {
+  return reviewsOnTheHeadUnderABody(db, prs, task => LIVE_STATES.includes(task.state)).map(({ event_id: _event, ...row }) => row)
+}
 
 const ANSWER_TASK_COLUMNS = 'task_key, queue, card_id, pr, head, state'
 
@@ -139,19 +175,27 @@ export const A_MERGE_SENT_TO_UPDATE_ON_THE_HEAD = `(SELECT max(denied.id) FROM e
     WHERE denied.type = '${POLICY_DENIED}' AND denied.legacy = 0 AND denied.pr = prs.pr AND denied.head = prs.head
     AND json_extract(denied.payload, '$.command') = 'merge' AND json_extract(denied.payload, '$.reason') = '${NEEDS_UPDATE}')`
 
-function mergeCandidatesWhere(verdict: string, mergeable: string): string {
-  return `
-  SELECT pr, card_id, head, body_sha, ${cardBodyShaOf('prs.card_id')} AS card_body FROM prs
-  WHERE state = 'open' AND base = '${MAIN_BRANCH}' AND ci = 'green' AND ${verdict} AND ${mergeable} AND draft = 0 AND card_id IS NOT NULL AND head IS NOT NULL
-    AND NOT ${A_DEPENDENCY_UNMERGED} AND NOT ${aTaskInFlight('review', 'live.pr = prs.pr AND live.head = prs.head')}
-    AND ${A_MERGE_SENT_TO_UPDATE_ON_THE_HEAD} IS NULL
-  ORDER BY pr
-`
+const MERGE_SENT_TO_UPDATE_ON_A_HEAD = `SELECT max(id) AS id FROM events WHERE type = '${POLICY_DENIED}' AND legacy = 0 AND pr = ? AND head = ?
+    AND json_extract(payload, '$.command') = 'merge' AND json_extract(payload, '$.reason') = '${NEEDS_UPDATE}'`
+
+function mergeCandidatesWhere(db: DatabaseSync, prs: readonly CandidatePr[], mergedCards: readonly number[], verdict: (verdict: string | null) => boolean, mergeable: readonly string[]): Candidate[] {
+  const inFlight = reviewTasks(db).filter(task => LIVE_STATES.includes(task.state))
+  const sentToUpdate = (pr: number, head: string): boolean => (db.prepare(MERGE_SENT_TO_UPDATE_ON_A_HEAD).get(pr, head) as { id: number | null }).id !== null
+  return inPrOrder(prs).flatMap((pr) => {
+    const gated = pr.state === 'open' && pr.base === MAIN_BRANCH && pr.ci === 'green' && verdict(pr.verdict_on_head) && pr.mergeable !== null && mergeable.includes(pr.mergeable) && pr.draft === 0
+    if (!gated || pr.card_id === null || pr.head === null || unmergedDependenciesOf(db, mergedCards, pr.card_id).length > 0 || inFlight.some(task => onTheHead(task, pr)) || sentToUpdate(pr.pr, pr.head))
+      return []
+    return [withTheCardBody(db, { pr: pr.pr, card_id: pr.card_id, head: pr.head, body_sha: pr.body_sha })]
+  })
 }
 
-export const MERGE_CANDIDATES = mergeCandidatesWhere(`verdict_on_head = 'pass'`, `mergeable IN ('clean', 'behind')`)
+export function mergeCandidateRows(db: DatabaseSync, prs: readonly CandidatePr[], mergedCards: readonly number[]): Candidate[] {
+  return mergeCandidatesWhere(db, prs, mergedCards, verdict => verdict === 'pass', ['clean', 'behind'])
+}
 
-export const MERGE_CANDIDATES_WITHOUT_PASS = mergeCandidatesWhere(`verdict_on_head IS NOT 'pass'`, `mergeable IN ('clean', 'blocked')`)
+export function mergeCandidateRowsWithoutPass(db: DatabaseSync, prs: readonly CandidatePr[], mergedCards: readonly number[]): Candidate[] {
+  return mergeCandidatesWhere(db, prs, mergedCards, verdict => verdict !== 'pass', ['clean', 'blocked'])
+}
 
 const LATEST = 'id DESC LIMIT 1'
 
@@ -244,31 +288,17 @@ export const MERGE_REFUSED = 'merge_refused'
 
 export const QUESTION_OPEN = 'owner_question_open'
 
-export function openDecisionWaitsOf(card: string): string {
-  return `SELECT id, text FROM ${OWNER_WAITS} WHERE need = 'decision' AND state = '${OPEN_WAIT}' AND card_id = ${card}`
+const VERIFICATIONS = `SELECT pr, card_id, max(json_type(payload, '$.sharedBy') = 'text') AS shared FROM events
+  WHERE type = '${CARD_VERIFIED}' AND legacy = 0 AND card_id IS NOT NULL AND pr IS NOT NULL GROUP BY pr, card_id ORDER BY pr, card_id`
+
+function closeCandidateRows(db: DatabaseSync, prs: readonly CandidatePr[]): Candidate[] {
+  const merged = new Map(prs.filter(pr => pr.state === 'merged' && pr.card_id !== null && pr.head !== null).map(pr => [pr.pr, pr]))
+  const closed = new Set((db.prepare(`SELECT card_id FROM events WHERE type = '${CARD_CLOSED}' AND card_id IS NOT NULL`).all() as { card_id: number }[]).map(row => Number(row.card_id)))
+  return (db.prepare(VERIFICATIONS).all() as { pr: number, card_id: number, shared: number }[]).flatMap((row) => {
+    const pr = merged.get(Number(row.pr))
+    return pr !== undefined && (Number(row.card_id) === pr.card_id || row.shared === 1) && !closed.has(Number(row.card_id)) ? [{ pr: pr.pr, card_id: Number(row.card_id), head: pr.head }] : []
+  })
 }
-
-const OPEN_DECISION_WAITS_OF_THE_CARD = `${openDecisionWaitsOf('?')} ORDER BY opened_at, id`
-
-export interface OpenDecisionWait {
-  id: string
-  text: string
-}
-
-export function openDecisionWaitsOfCard(db: DatabaseSync, cardId: number): OpenDecisionWait[] {
-  return db.prepare(OPEN_DECISION_WAITS_OF_THE_CARD).all(cardId) as unknown as OpenDecisionWait[]
-}
-
-const VERIFIED_ON_ITS_OWN_OR_A_SHARED_PR = `verified.type = '${CARD_VERIFIED}' AND verified.legacy = 0 AND verified.pr = prs.pr AND verified.card_id IS NOT NULL
-  AND (verified.card_id = prs.card_id OR json_type(verified.payload, '$.sharedBy') = 'text')`
-
-const CLOSE_CANDIDATES = `
-  SELECT DISTINCT prs.pr, verified.card_id, prs.head FROM prs
-  JOIN events AS verified ON ${VERIFIED_ON_ITS_OWN_OR_A_SHARED_PR}
-  WHERE prs.state = 'merged' AND prs.card_id IS NOT NULL AND prs.head IS NOT NULL
-    AND NOT EXISTS (SELECT 1 FROM events WHERE events.type = '${CARD_CLOSED}' AND events.card_id = verified.card_id)
-  ORDER BY prs.pr, verified.card_id
-`
 
 const CARD_TURNS = `'${CARD_STOPPED}', '${CARD_ANSWERED}', '${CARD_STARTED}'`
 
@@ -301,35 +331,7 @@ export const LAUNCH_STOP_WITH_NO_PULL_REQUEST = `${CARD_STOPPED}:no-pull-request
 
 export const A_LAUNCH_STOP_WITH_NO_PULL_REQUEST = `(stop.pr IS NULL AND substr(stop.dedupe_key, 1, ${LAUNCH_STOP_WITH_NO_PULL_REQUEST.length}) = '${LAUNCH_STOP_WITH_NO_PULL_REQUEST}')`
 
-export function latestQuestionStops(columns: string, condition: string): string {
-  return `
-  SELECT ${columns} FROM events AS stop
-  LEFT JOIN cards ON cards.card_id = stop.card_id
-  LEFT JOIN prs ON prs.pr = coalesce(stop.pr, cards.pr)
-  WHERE stop.type = '${CARD_STOPPED}' AND stop.legacy = 0 AND stop.card_id IS NOT NULL
-    AND json_extract(stop.payload, '$.reason') = '${QUESTION_AGENT}'
-    AND stop.id = ${latestTurnOf('stop.card_id')}
-    AND (prs.pr IS NULL OR prs.state = 'open')
-    AND ${condition}
-  ORDER BY stop.card_id
-`
-}
-
 export const DOWNGRADE_WAIT_OPEN = 'downgrade_wait_open'
-
-export function aDowngradeWaitOpenOn(card: string): string {
-  return `EXISTS (
-    SELECT 1 FROM ${OWNER_WAITS} AS wait JOIN events AS asked ON asked.id = wait.event_id
-    WHERE wait.card_id = ${card} AND wait.state = '${OPEN_WAIT}' AND asked.type = '${CARD_WAITING}'
-      AND json_extract(asked.payload, '$.reason') = '${WITNESS_DOWNGRADE}'
-  )`
-}
-
-const A_DOWNGRADE_WAIT_OF_THE_CARD = `SELECT ${aDowngradeWaitOpenOn('?')} AS open`
-
-export function downgradeWaitOpenOn(db: DatabaseSync, cardId: number): boolean {
-  return (db.prepare(A_DOWNGRADE_WAIT_OF_THE_CARD).get(cardId) as { open: number }).open === 1
-}
 
 export function anOpenQuestion(answered: QuestionAnswered): string {
   return `(
@@ -471,12 +473,12 @@ export function openCandidates(db: DatabaseSync, ts: string, queue: Queue, rows:
 
 export function reviewCandidates(db: DatabaseSync, ts: string, rules: CandidateRules): QueuedTask[] {
   const reviewed = rules.reviewedUnderTheCardDecision(db, ts)
-  const merged = rules.mergedCards(db)
-  return [...openCandidates(db, ts, 'review', candidateRows(db, REVIEW_CANDIDATES, everyRow, merged), rules), ...openCandidates(db, ts, 'review', candidateRows(db, MERGE_CANDIDATES, everyRow, merged).filter(row => !reviewed(row)), rules)]
+  const prs = rules.prs(db)
+  return [...openCandidates(db, ts, 'review', reviewCandidateRows(db, prs), rules), ...openCandidates(db, ts, 'review', mergeCandidateRows(db, prs, rules.mergedCards(db)).filter(row => !reviewed(row)), rules)]
 }
 
 export function closeCandidates(db: DatabaseSync, ts: string, rules: CandidateRules): QueuedTask[] {
-  return openCandidates(db, ts, 'close', candidateRows(db, CLOSE_CANDIDATES, everyRow, rules.mergedCards(db)), rules)
+  return openCandidates(db, ts, 'close', closeCandidateRows(db, rules.prs(db)), rules)
 }
 
 export interface Derived {
@@ -633,10 +635,6 @@ const TASKS_FOLDS: Record<string, Fold> = { ...QUEUE_FOLDS, ...LEASE_TASK_FOLDS 
 
 export const TASKS_PROJECTION: IncrementalProjection = { table: 'tasks', folds: TASKS_FOLDS }
 
-function lastEventId(db: DatabaseSync): number {
-  return Number((db.prepare('SELECT coalesce(max(id), 0) AS id FROM events').get() as { id: number }).id)
-}
-
 function reduceTasksAfter(db: DatabaseSync, current: number): void {
   if (watermarkOf(db, TASKS_PROJECTION.table) === 0)
     markReduced(db, TASKS_PROJECTION.table, current)
@@ -719,8 +717,8 @@ export function cardBodyShaOfCard(db: DatabaseSync, cardId: number): string | nu
   return cardBodyAdmissionOf(db, cardId)?.bodySha ?? null
 }
 
-export function reviewsOfAnOldInput(db: DatabaseSync): TaskRow[] {
-  return (db.prepare(REVIEWS_OF_AN_OLD_INPUT).all() as unknown as ReviewRow[]).filter(row => !underCurrentInput(row))
+export function reviewsOfAnOldInput(db: DatabaseSync, prs: readonly ReviewedPr[]): TaskRow[] {
+  return reviewsOfAnOldInputRows(db, prs).filter(row => !underCurrentInput(row))
 }
 
 function keyedOnAnOldCardBody(key: string, row: Pick<Candidate, 'card_body'>): boolean {
@@ -745,16 +743,16 @@ export function supersededAnswerWithinItsLease(db: DatabaseSync, cardId: number,
   return db.prepare(A_SUPERSEDED_ANSWER_WITHIN_ITS_LEASE).get(cardId, ts) !== undefined
 }
 
-export function reviewKeysOfAnOldInput(db: DatabaseSync): string[] {
-  return reviewsOfAnOldInput(db).map(row => row.task_key)
+export function reviewKeysOfAnOldInput(db: DatabaseSync, prs: readonly ReviewedPr[]): string[] {
+  return reviewsOfAnOldInput(db, prs).map(row => row.task_key)
 }
 
-export function reviewsOfTheCurrentInputAgain(db: DatabaseSync): RequeueRow[] {
-  return (db.prepare(SUPERSEDED_REVIEWS_ON_THE_CURRENT_HEAD).all() as unknown as SupersededReviewRow[]).filter(underCurrentInput)
+export function reviewsOfTheCurrentInputAgain(db: DatabaseSync, prs: readonly ReviewedPr[]): RequeueRow[] {
+  return supersededReviewsOnTheCurrentHead(db, prs).filter(underCurrentInput)
 }
 
-export function reviewKeysOfTheCurrentInputAgain(db: DatabaseSync): string[] {
-  return reviewsOfTheCurrentInputAgain(db).map(row => row.task_key)
+export function reviewKeysOfTheCurrentInputAgain(db: DatabaseSync, prs: readonly ReviewedPr[]): string[] {
+  return reviewsOfTheCurrentInputAgain(db, prs).map(row => row.task_key)
 }
 
 function underCurrentInput(row: ReviewRow): boolean {
