@@ -4671,6 +4671,7 @@
         ],
         "functions": {
           "allowRule": "(command: string): string",
+          "cardTreeGitWrites": "(gitDir: string, commonDir: string): string[]",
           "daemonProgram": "(command: string): string | null",
           "declaredCommands": "(text: string, home: string = homedir()): string[]",
           "frontmatterFields": "(text: string): Array<readonly [ string, string ]>",
@@ -4702,12 +4703,9 @@
         }
       },
       "src/commands/attach/settings.ts": {
-        "constants": [
-          "PROCESS_TABLE_COMMAND"
-        ],
+        "constants": [],
         "functions": {
-          "browserLabInstalledScript": "(home: string = homedir()): string",
-          "cardTreeGitWrites": "(gitDir: string, commonDir: string): string[]"
+          "browserLabInstalledScript": "(home: string = homedir()): string"
         },
         "reexports": [],
         "types": {}
