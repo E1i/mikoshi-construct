@@ -1,6 +1,6 @@
 import type { ShiftTask } from '../../../src/card/task-file.js'
 import type { ProcessIdentity } from '../../core/node.js'
-import type { JournalChange, SessionSpec } from '../../ports/client/contract.js'
+import type { SessionSpec } from '../../ports/client/contract.js'
 import type { ProcessTable } from '../../ports/process-table.js'
 import type { FreshTree } from '../../ports/worktree.js'
 import type { CardStart, CardStarter, ChildExit, HeldTree, QueuedCard, StartedCard } from './launch-executor.js'
@@ -23,7 +23,7 @@ import { restoreReport, shellWord } from '../../ports/tree-publish.js'
 import { freshenCardTree, gitIn } from '../../ports/worktree.js'
 import { HELD_TREE_CHANGED, technical } from './launch-executor.js'
 import { continuationBody } from './prompt.js'
-import { journalDoubt, parseSessionJournal } from './session-journal.js'
+import { journalDoubt, parseSessionJournal, sessionResult, withEscapesDecoded } from './session-journal.js'
 
 export interface DetachedSpawn {
   command: string
@@ -131,25 +131,13 @@ export function pathTokens(text: string): Set<string> {
   return new Set(text.split(PATH_DELIMITERS).map(token => token.replace(/[.:]+$/, '')).filter(token => token !== ''))
 }
 
-export function sessionResult(changes: readonly JournalChange[]): string | null {
-  const lastWrite = changes.map(change => change.kind).lastIndexOf('write')
-  const written = changes[lastWrite]
-  if (written?.kind !== 'write')
-    return null
-  let text = written.content
-  for (const edit of changes.slice(lastWrite + 1)) {
-    if (edit.kind !== 'edit' || edit.oldString === '' || !text.includes(edit.oldString))
-      return null
-    text = edit.replaceAll ? text.split(edit.oldString).join(edit.newString) : text.replace(edit.oldString, () => edit.newString)
-  }
-  return text
-}
-
 const ESLINT_FIX_DRY_RUN = ['exec', 'eslint', '--fix-dry-run', '--format', 'json', '--stdin', '--stdin-filename'] as const
 
-export function eslintFixed(worktree: string, relative: string, content: string): string | null {
-  const run = spawnSync('pnpm', [...ESLINT_FIX_DRY_RUN, relative], { cwd: worktree, input: content, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
-  if (run.error !== undefined || run.stdout === '')
+export const ESLINT_FIX_TIMEOUT_MS = 60_000
+
+export function eslintFixed(worktree: string, relative: string, content: string, timeoutMs: number = ESLINT_FIX_TIMEOUT_MS): string | null {
+  const run = spawnSync('pnpm', [...ESLINT_FIX_DRY_RUN, relative], { cwd: worktree, input: content, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: timeoutMs, killSignal: 'SIGKILL' })
+  if (run.error !== undefined || run.signal !== null || run.stdout === '')
     return null
   try {
     const [linted] = JSON.parse(run.stdout) as { output?: unknown }[]
@@ -285,7 +273,7 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
     const result = sessionResult(journal.changes.get(relative) ?? [])
     if (result === null)
       return false
-    return (this.ports.lintFixed ?? eslintFixed)(worktree, relative, result) === file.content
+    return (this.ports.lintFixed ?? eslintFixed)(worktree, relative, result) === withEscapesDecoded(file.content)
   }
 
   private journalOf(worktree: string, session: string): SessionJournal | string {

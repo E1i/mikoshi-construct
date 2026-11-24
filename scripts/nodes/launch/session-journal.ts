@@ -11,11 +11,11 @@ export interface TreeFile {
 
 const UNICODE_ESCAPE = /\\u([0-9a-f]{4})/gi
 
-function withEscapesDecoded(text: string): string {
+export function withEscapesDecoded(text: string): string {
   return text.replace(UNICODE_ESCAPE, (_escape, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)))
 }
 
-function replayed(content: string, edits: JournalChange[]): string | null {
+function replayed(content: string, edits: readonly JournalChange[]): string | null {
   let text = withEscapesDecoded(content)
   for (const edit of edits) {
     if (edit.kind !== 'edit' || edit.oldString === '')
@@ -27,6 +27,14 @@ function replayed(content: string, edits: JournalChange[]): string | null {
     text = edit.replaceAll ? text.split(oldText).join(newText) : text.replace(oldText, () => newText)
   }
   return text
+}
+
+export function sessionResult(changes: readonly JournalChange[]): string | null {
+  const lastWrite = changes.map(change => change.kind).lastIndexOf('write')
+  const written = changes[lastWrite]
+  if (written?.kind !== 'write')
+    return null
+  return replayed(written.content, changes.slice(lastWrite + 1))
 }
 
 function changedInACommandRun(journal: SessionJournal, mtimeMs: number): boolean {
