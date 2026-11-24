@@ -4,15 +4,16 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeF
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { boundaryNumbers, boundaryReport } from '../scripts/contract/module-graph/boundary.js'
 import { OWNER_AGENT_FILE, repoIdOf } from '../scripts/core/bus-path.js'
 import { openBus } from '../scripts/core/db.js'
 import { HANDOFF_DIR_VARIABLE } from '../scripts/core/handoff-dir.js'
 import { OWNER_CHANNEL_HOME } from '../scripts/owner/channel.js'
 import { windowCommand } from '../scripts/ports/client/claude/adapter.js'
 import { shiftSettings } from '../scripts/ports/shift-settings.js'
-import { allowRule, shippedDaemonCommands } from '../src/commands/attach/daemon-commands.js'
+import { allowRule, cardTreeGitWrites, shippedDaemonCommands } from '../src/commands/attach/daemon-commands.js'
 import { excludedBrowserLabInTheConstruct, settledProjectSettings } from '../src/commands/attach/index.js'
-import { browserLabExcludedCommand, browserLabInstalledScript, cardTreeGitWrites, GITHUB_API_DOMAIN, OWNER_CHANNEL_ENTRY, PROCESS_TABLE_COMMAND, RECORDED_BY_AN_EARLIER_ATTACH, ROLE_DOMAINS, SETTINGS_FILE, wroteLocally } from '../src/commands/attach/settings.js'
+import { browserLabExcludedCommand, browserLabInstalledScript, GITHUB_API_DOMAIN, OWNER_CHANNEL_ENTRY, PROCESS_TABLE_COMMAND, RECORDED_BY_AN_EARLIER_ATTACH, ROLE_DOMAINS, SETTINGS_FILE, wroteLocally } from '../src/commands/attach/settings.js'
 import { browserLabStep, cardFirstSteps, factoryChecklist, LAB_ROLES, readStep, roleSituations, windowFirstSteps } from '../src/commands/doctor/factory.js'
 import { FileReadings } from '../src/commands/doctor/readings.js'
 import { printFactoryChecklist } from '../src/commands/doctor/report.js'
@@ -31,6 +32,9 @@ const INSTALLED_PREFIX = '<home>/.construct/browser-lab/bin/'
 const LAB_CALL = /(\S*)browser-lab\.mjs(?= [^`\n]*\S)/g
 const NOT_A_CALLER = new Set(['templates/ai/claude/scripts/construct/browser-lab.mjs', 'templates/attach/earlier-carriers.json'])
 const NOW = new Date('2026-11-23T12:00:00.000Z')
+const SHIFT_SETTINGS_SOURCE = 'scripts/ports/shift-settings.ts'
+const ATTACH_SETTINGS_SOURCE = 'src/commands/attach/settings.ts'
+const RATCHET_FILE = 'contract/ratchet.json'
 
 type Json = Record<string, any>
 
@@ -345,6 +349,14 @@ describe('a card session of a consumer commits in a tree whose git data lives in
     git(card.tree, 'commit', '-q', '--allow-empty', '-m', 'step')
     expect(git(made.dir, 'log', '-1', '--format=%s', 'card').trim()).toBe('step')
   })
+
+  it('boundary:ports->project counts 9 once cardTreeGitWrites leaves the attach settings', () => {
+    const report = boundaryReport()
+    const row = 'boundary:ports->project'
+    expect(report.graph.filter(edge => edge.from === SHIFT_SETTINGS_SOURCE).map(edge => edge.to)).not.toContain(ATTACH_SETTINGS_SOURCE)
+    expect(boundaryNumbers(report.violations)[row]).toBe(9)
+    expect(json(REPO_ROOT, RATCHET_FILE)[row]).toBe(9)
+  }, 120_000)
 })
 
 describe('the owner channel the environment keeps out of every write', () => {

@@ -90,7 +90,6 @@ export const HOME_PREFIX = '~/'
 export const OWNER_CHANNEL_ENTRY = `${HOME_PREFIX}.construct-owner`
 const GIT_DIRECTORY = '.git'
 const GIT_DATA_RUNNING_CODE = ['hooks', 'config'] as const
-const CARD_TREE_SHARED_GIT_DATA = ['objects', 'refs', 'logs'] as const
 const GITHUB_DOMAIN = 'github.com'
 export const GITHUB_API_DOMAIN = `api.${GITHUB_DOMAIN}`
 export const ROLE_DOMAINS = [GITHUB_DOMAIN, GITHUB_API_DOMAIN, 'registry.npmjs.org'] as const
@@ -123,10 +122,6 @@ export function roleEnvironmentAt(factory: string): RoleEnvironment {
       network: { allowedDomains: [...ROLE_DOMAINS] },
     },
   }
-}
-
-export function cardTreeGitWrites(gitDir: string, commonDir: string): string[] {
-  return [gitDir, ...CARD_TREE_SHARED_GIT_DATA.map(entry => path.join(commonDir, entry))]
 }
 
 function objectAt(parent: JsonObject, key: string): JsonObject {
