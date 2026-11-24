@@ -90,12 +90,41 @@ function createdAs(created: unknown, wanted: string): boolean {
   return trimmed === wanted || trimmed.slice(0, wanted.length + 2) === `${wanted} (`
 }
 
-function widenedByAnAmend(db: DatabaseSync, stop: Stop): boolean {
+function widenAsked(stop: Stop): unknown[] | null {
   const widen = stop.data?.widen
-  if (stop.card_id === null || !Array.isArray(widen) || widen.length === 0)
+  return Array.isArray(widen) && widen.length > 0 ? widen : null
+}
+
+function widenedByAnAmend(db: DatabaseSync, stop: Stop): boolean {
+  const widen = widenAsked(stop)
+  if (stop.card_id === null || widen === null)
     return false
   const amended = bodyAdmittedAfter(db, stop.card_id, stop.id)
   return amended !== null && widen.every(wanted => amended.touches.some(touched => withinTouches(touched, String(wanted))) || amended.creates.some(created => createdAs(created, String(wanted))))
+}
+
+function stopOf(event: EventRow): Stop {
+  return { id: event.id, card_id: event.card_id, pr: event.pr, data: event.data }
+}
+
+function latestOwnerStopBetween(db: DatabaseSync, cardId: number, after: number, before: number): Stop | null {
+  const stop = events(db, { types: [CARD_STOPPED], card: cardId, since: after, before, newestFirst: true }).find(each => each.data?.reason === QUESTION_OWNER)
+  return stop === undefined ? null : stopOf(stop)
+}
+
+export function amendLeavesTheWidenOfTheWaitUncovered(db: DatabaseSync, cardId: number, waitOpened: number, amend: number): boolean {
+  const stop = latestOwnerStopBetween(db, cardId, waitOpened, amend)
+  return stop !== null && widenAsked(stop) !== null && !widenedByAnAmend(db, stop)
+}
+
+function waitClosedAt(db: DatabaseSync, wait: string, eventId: number): boolean {
+  return waitClosedBefore(db, wait, eventId + 1) && !waitClosedBefore(db, wait, eventId)
+}
+
+function waitClosedByAnAmend(db: DatabaseSync, stop: Stop, wait: unknown): boolean {
+  if (stop.card_id === null || wait === null || widenAsked(stop) !== null)
+    return false
+  return events(db, { types: [CARD_ADMITTED], card: stop.card_id, since: stop.id }).some(amend => waitClosedAt(db, String(wait), amend.id))
 }
 
 function liftedByTheWindow(db: DatabaseSync, stop: Stop): boolean {
@@ -168,11 +197,11 @@ export function ownerQuestionAnsweredAt(db: DatabaseSync, stopId: number, prs: I
   const event = byId(db, stopId)
   if (event === null)
     return false
-  const stop: Stop = { id: event.id, card_id: event.card_id, pr: event.pr, data: event.data }
+  const stop = stopOf(event)
   if (decidedAfter(db, stop) || liftedByTheWindow(db, stop) || widenedByAnAmend(db, stop))
     return true
   const wait = waitOpenedForTheStop(db, stop)
-  return answeredThroughTheOwnerChannel(db, stop, wait) || namedAsTheAnswerByAnAmend(db, stop, wait) || everyBlockerMergedAfter(db, stop, prs)
+  return answeredThroughTheOwnerChannel(db, stop, wait) || waitClosedByAnAmend(db, stop, wait) || namedAsTheAnswerByAnAmend(db, stop, wait) || everyBlockerMergedAfter(db, stop, prs)
 }
 
 export function ownerQuestionAnswered(stop: string): string {
