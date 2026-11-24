@@ -130,6 +130,12 @@ describe('z8: a session stop is recorded in the bus and decides the continuation
     await relaunched(run, 'admission-2', [TOUCHED])
 
     expect(run.starter.started).toBe(1)
+    expect(waitReasons(run)).toEqual([])
+
+    queueTask(run.made.db, run.made.clock.now().toISOString(), { queue: 'launch', cardId: CARD, generation: 'admission-2' })
+    await round(run.node, run.made)
+
+    expect(run.starter.started).toBe(1)
     expect(waitReasons(run)).toContain(OUTSIDE_TOUCHES)
 
     run.made.clock.advance(3_600_000)
