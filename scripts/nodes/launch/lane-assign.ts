@@ -17,7 +17,7 @@ import { cardBodyText } from '../../core/card-bodies.js'
 import { cardsWithAState, openWaitPrsOf } from '../../core/card-readings.js'
 import { appendEvent } from '../../core/db.js'
 import { BY_CARD, events, lastPer, latest } from '../../core/events-query.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_DROPPED, LANE_ASSIGNED, LANE_OVERLAP, POLICY_DENIED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, LANE_ASSIGNED, LANE_OVERLAP, POLICY_DENIED } from '../../core/events.js'
 import { prOf } from '../../core/identifiers.js'
 import { effectivePaths, orderDeclarationsAt } from '../../core/order/overlap.js'
 import * as prs from '../../core/pr-readings.js'
@@ -460,6 +460,24 @@ export function assignMovedLane(db: DatabaseSync, cardId: number, lane: string, 
   return admission !== null && assign(db, cardId, admission, { lane, reason: 'moved', after: [] }, count, ts, actor)
 }
 
+function movedLane(to: unknown): string | null {
+  return typeof to === 'string' && to.trim() !== '' ? path.basename(to.trim()) : null
+}
+
+function applyMoves(db: DatabaseSync, count: number, ts: string, actor: string): number {
+  const moves = new Map(lastPer(db, BY_CARD, { types: [CARD_MOVED], withCard: true }).map(row => [row.card_id!, row]))
+  let applied = 0
+  for (const row of liveRows(db).filter(each => each.state !== DEFERRED_CARD)) {
+    const move = moves.get(row.card_id)
+    const lane = movedLane(move?.data?.to)
+    if (move === undefined || lane === null || !withinCount(lane, count) || move.id < (latestAssignment(db, row.card_id)?.id ?? 0))
+      continue
+    if (assignMovedLane(db, row.card_id, lane, count, ts, actor))
+      applied += 1
+  }
+  return applied
+}
+
 export function layOutLanes(db: DatabaseSync, count: number, ts: string, actor: string, shared: readonly string[]): number {
   let assigned = 0
   const rows = liveRows(db)
@@ -630,13 +648,28 @@ export function touchesChanged(db: DatabaseSync, cardId: number): boolean {
   return previous !== undefined && JSON.stringify(touchesOf(latest, cardId)) !== JSON.stringify(touchesOf(previous, cardId))
 }
 
+function laneElsewhere(card: LaneCard, live: readonly LiveLane[], count: number, current: string, waitingOnOwner: ReadonlySet<number>, shared: readonly string[]): LaneChoice {
+  const choice = chooseLane(card, live, count, null, live, waitingOnOwner, shared)
+  if (choice.lane !== current)
+    return choice
+  const occupants = live.filter(other => other.cardId !== card.cardId && other.deferred !== true)
+  const others = lanesClearOfOwnerMerge(count, occupants, waitingOnOwner).filter(number => chainLaneName(number) !== current)
+  if (others.length === 0)
+    return choice
+  const load = new Map(others.map(number => [number, occupants.filter(other => other.lane === chainLaneName(number)).length]))
+  return { lane: chainLaneName(leastLoaded(load, others)), reason: 'least-loaded', after: [] }
+}
+
 export function relayAmended(db: DatabaseSync, cardId: number, count: number, ts: string, actor: string, shared: readonly string[]): boolean {
   const current = currentLane(db, cardId)
   const latest = textAdmissions(db, cardId)[0]
   if (current === null || latest === undefined || !touchesChanged(db, cardId))
     return false
   const live = launchableLanes(db)
-  const choice = chooseLane(laneCardOf(db, cardId), live, count, current, live, ownerMergeHolders(db), shared)
+  const card = laneCardOf(db, cardId)
+  const stays = chooseLane(card, live, count, current, live, ownerMergeHolders(db), shared)
+  const unchained = stays.reason === 'kept' && latestAssignment(db, cardId)?.reason === 'chain'
+  const choice = unchained ? laneElsewhere(card, live, count, current, ownerMergeHolders(db), shared) : stays
   return choice.lane !== current && assign(db, cardId, Number(latest.id), choice, count, ts, actor)
 }
 
@@ -688,7 +721,7 @@ function rechainByRelease(db: DatabaseSync, count: number, ts: string, actor: st
 }
 
 export function layLanes(db: DatabaseSync, count: number, ts: string, actor: string, amended: number | null = null, shared: readonly string[] = sharedAppendFiles()): number {
-  const moved = amended !== null && relayAmended(db, amended, count, ts, actor, shared) ? 1 : 0
+  const moved = applyMoves(db, count, ts, actor) + (amended !== null && relayAmended(db, amended, count, ts, actor, shared) ? 1 : 0)
   const laid = moved + layOutLanes(db, count, ts, actor, shared)
   const stalls = stalledCards(db)
   raiseStallAlarms(db, stalls, ts, actor)

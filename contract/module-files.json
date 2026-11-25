@@ -478,6 +478,7 @@
     "scripts/tests/bus/import.test.ts",
     "scripts/tests/bus/inbox.test.ts",
     "scripts/tests/bus/independent-card-leaves-a-chain.test.ts",
+    "scripts/tests/bus/intake-move-sets-the-bus-lane.test.ts",
     "scripts/tests/bus/intake.test.ts",
     "scripts/tests/bus/journal-guard.test.ts",
     "scripts/tests/bus/journal-outside.test.ts",
