@@ -19,6 +19,12 @@
     "scripts/cli/slot.ts",
     "scripts/cli/task-start.ts",
     "src/commands/liveness.ts",
+    "scripts/window/eddies-measure.ts",
+    "scripts/nodes/launch/continuation.ts",
+    "scripts/window/handoff-check.ts",
+    "scripts/nodes/restart/chain-process.ts",
+    "scripts/ports/result.ts",
+    "scripts/quality/lock.ts",
     "scripts/supervisor/"
   ],
   "exclude": [],

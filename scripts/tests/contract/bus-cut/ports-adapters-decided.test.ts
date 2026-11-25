@@ -42,7 +42,10 @@ describe('ports-adapters is a decided module (D-503)', () => {
     expect(adapters).toEqual({ owns: PURE_ADAPTERS, contract: PURE_ADAPTERS, may_use: ['layout'], status: 'decided' })
     expect(ports?.status).toBe('decided')
     expect(ports?.may_use).toEqual(['layout', 'ports-adapters'])
-    expect(ports?.owns.filter(glob => glob.startsWith('!scripts/ports/')).map(glob => glob.slice(1)).sort()).toEqual([...PURE_ADAPTERS].sort())
+    const carvedOutOfPorts = ports?.owns.filter(glob => glob.startsWith('!scripts/ports/')).map(glob => glob.slice(1)) ?? []
+    expect(carvedOutOfPorts.filter(file => adapters?.owns.includes(file)).sort()).toEqual([...PURE_ADAPTERS].sort())
+    expect(carvedOutOfPorts.filter(file => !adapters?.owns.includes(file))).toEqual(['scripts/ports/result.ts'])
+    expect(MODULE_GRAPH.modules.session?.owns).toContain('scripts/ports/result.ts')
   })
 
   it('the decided importers of the adapters are granted ports-adapters, and card-record keeps the ports grant D-778 gives it', () => {

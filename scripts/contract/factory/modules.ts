@@ -52,17 +52,22 @@ const SESSION_CONTRACT = [
   'src/card/closed.ts',
   factory('cli/slot.ts'),
   'src/commands/liveness.ts',
+  ...within(factory('window'), 'eddies-measure.ts', 'handoff-check.ts'),
+  factory('nodes/launch/continuation.ts'),
+  factory('nodes/restart/chain-process.ts'),
+  factory('ports/result.ts'),
+  factory('quality/lock.ts'),
   ...supervisor('bg', 'heartbeat', 'liveness-sites', 'scheduler', 'stamp', 'supervisor', 'workers'),
 ]
 
 const INTAKE_CONTRACT = [...within(factory('intake'), 'lane-json.ts', 'parking-reads.ts'), 'src/commands/intake/**']
 
 const PORTS_CONTRACT = [
-  ...within(factory('ports'), 'bus-read.ts', 'card-tree.ts', 'ci-reading.ts', 'client/claude/adapter.ts', 'client/index.ts', 'diff.ts', 'gh.ts', 'github-status.ts', 'github.ts', 'isolation.ts', 'main-merge.ts', 'meter.ts', 'netwatch.ts', 'prepare-tree.ts', 'process-table.ts', 'result.ts', 'review-planner.ts', 'serve-record.ts', 'session.ts', 'shift-settings.ts', 'snapshot.ts', 'task-start.ts', 'tree-publish.ts', 'witnesses.ts', 'worktree-home.ts', 'worktree.ts'),
+  ...within(factory('ports'), 'bus-read.ts', 'card-tree.ts', 'ci-reading.ts', 'client/claude/adapter.ts', 'client/index.ts', 'diff.ts', 'gh.ts', 'github-status.ts', 'github.ts', 'isolation.ts', 'main-merge.ts', 'meter.ts', 'netwatch.ts', 'prepare-tree.ts', 'process-table.ts', 'review-planner.ts', 'serve-record.ts', 'session.ts', 'shift-settings.ts', 'snapshot.ts', 'task-start.ts', 'tree-publish.ts', 'witnesses.ts', 'worktree-home.ts', 'worktree.ts'),
   ...core('bus-contract.ts'),
 ]
 
-const WINDOW_CONTRACT = within(factory('window'), 'board.ts', 'eddies-measure.ts', 'handoff-check.ts', 'loop.ts', 'tab.ts', 'takeover-push-release.ts', 'watch.ts', 'window-heartbeat.ts', 'window-prs.ts', 'window-request-tools.ts', 'window-requests.ts', 'window-session-end.ts', 'window-subagents.ts')
+const WINDOW_CONTRACT = within(factory('window'), 'board.ts', 'loop.ts', 'tab.ts', 'takeover-push-release.ts', 'watch.ts', 'window-heartbeat.ts', 'window-prs.ts', 'window-request-tools.ts', 'window-requests.ts', 'window-session-end.ts', 'window-subagents.ts')
 
 export const COMPOSITION_MODULE = factory('supervisor/composition.ts')
 
