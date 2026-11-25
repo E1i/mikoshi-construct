@@ -1221,6 +1221,7 @@
     "declarations/entries/busComposition.json",
     "declarations/entries/busDatabase.json",
     "declarations/entries/busErrors.json",
+    "declarations/entries/busEventsQuery.json",
     "declarations/entries/busLease.json",
     "declarations/entries/busMergeExecutor.json",
     "declarations/entries/busNode.json",
