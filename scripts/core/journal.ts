@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import process from 'node:process'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
+import { events } from './events-query.js'
 import { declaredPayload, GHOST_LINE } from './events.js'
 import { cardIdOf } from './identifiers.js'
 import { legacyHistory } from './legacy-history.js'
@@ -40,8 +41,6 @@ export interface JournalEntry {
 
 export type GhostLine = Record<string, unknown>
 
-const GHOST_LINES = `SELECT payload FROM events WHERE type = '${GHOST_LINE}' AND legacy = 0 ORDER BY id`
-
 export function recordGhostLine(writer: string, line: object, busPath: string = defaultBusPath()): void {
   const fields = line as GhostLine
   const db = openBus(busPath)
@@ -68,7 +67,7 @@ export function ghostLines(busPath: string = defaultBusPath()): GhostLine[] {
     return []
   const db = openBus(busPath)
   try {
-    return (db.prepare(GHOST_LINES).all() as { payload: string }[]).map(row => JSON.parse(row.payload) as GhostLine)
+    return events(db, { types: [GHOST_LINE] }).map(row => JSON.parse(row.payload) as GhostLine)
   }
   finally {
     db.close()

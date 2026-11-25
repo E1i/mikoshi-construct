@@ -1,8 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { LastReduced, OwnerWait } from './bus-readings.js'
+import type { EventRow } from './events-query.js'
 import { CLOSED_WAIT, OPEN_WAIT, OWNER_WAITS, readLastReduced } from './bus-readings.js'
 import { cardIdsInEvents, EITHER_JOURNAL, events, eventsWhere, latest } from './events-query.js'
-import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, QUESTION_AGENT, WITNESS_DOWNGRADE } from './events.js'
+import { CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, LADDER_RUN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_CLOSED, QUESTION_AGENT, WITNESS_DOWNGRADE } from './events.js'
 
 const OPEN_OWNER_WAITS = `
   SELECT id, need, text, command, card_id AS card, pr, opened_at AS since
@@ -116,6 +117,75 @@ const ENTERED_STATE_AMONG = `SELECT card_id, event_id FROM cards WHERE state = ?
 export function stateEventsAmong(db: DatabaseSync, state: string, cardIds: readonly number[]): Map<number, number> {
   const rows = db.prepare(ENTERED_STATE_AMONG).all(state, JSON.stringify(cardIds)) as { card_id: number, event_id: number }[]
   return new Map(rows.map(row => [Number(row.card_id), Number(row.event_id)]))
+}
+
+const CARD_LINES_OF_HELD_BODIES = `SELECT cards.card_id, body.card_line FROM cards JOIN ${CARD_BODIES} AS body ON body.card_id = cards.card_id ORDER BY cards.card_id`
+
+function cardLinesOfHeldBodies(db: DatabaseSync): Map<number, string | null> {
+  const rows = db.prepare(CARD_LINES_OF_HELD_BODIES).all() as { card_id: number, card_line: string | null }[]
+  return new Map(rows.map(row => [Number(row.card_id), row.card_line === null ? null : String(row.card_line)]))
+}
+
+export interface CardEnd {
+  card_id: number
+  card_line: string | null
+  ended: string
+  end_type: string
+  end_payload: string
+}
+
+export interface CardTurn {
+  card_id: number
+  type: string
+  ts: string
+  payload: string
+}
+
+const MERGED_FLAGS: readonly unknown[] = [true, 1]
+
+function prsOfCards(db: DatabaseSync): Map<number, Set<number>> {
+  const byCard = new Map<number, Set<number>>()
+  const link = (card: number, pr: number): void => {
+    byCard.set(card, (byCard.get(card) ?? new Set<number>()).add(pr))
+  }
+  for (const [card, pr] of linkedPrs(db))
+    link(card, pr)
+  for (const row of events(db, { withCard: true, withPr: true }))
+    link(row.card_id!, row.pr!)
+  return byCard
+}
+
+function lastWhere(rows: readonly EventRow[], matches: (row: EventRow) => boolean): EventRow | undefined {
+  let found: EventRow | undefined
+  for (const row of rows) {
+    if (matches(row))
+      found = row
+  }
+  return found
+}
+
+export function cardEnds(db: DatabaseSync): CardEnd[] {
+  const prsOf = prsOfCards(db)
+  const merges = events(db, { types: [PR_CLOSED] }).filter(row => MERGED_FLAGS.includes(row.data?.merged))
+  const closes = events(db, { types: [CARD_CLOSED], withCard: true, legacy: EITHER_JOURNAL })
+  return [...cardLinesOfHeldBodies(db)].flatMap(([card, line]) => {
+    const prs = prsOf.get(card) ?? new Set<number>()
+    const end = lastWhere(merges, row => row.card_id === card || (row.pr !== null && prs.has(row.pr))) ?? lastWhere(closes, row => row.card_id === card)
+    return end === undefined || end.ts === null ? [] : [{ card_id: card, card_line: line, ended: end.ts, end_type: end.type, end_payload: end.payload }]
+  })
+}
+
+export function cardTurnsOf(db: DatabaseSync, types: readonly string[]): CardTurn[] {
+  return events(db, { types, withCard: true }).flatMap(row =>
+    row.card_id === null || row.ts === null ? [] : [{ card_id: row.card_id, type: row.type, ts: row.ts, payload: row.payload }])
+}
+
+export function ladderRunPayloads(db: DatabaseSync): string[] {
+  return events(db, { types: [LADDER_RUN], legacy: EITHER_JOURNAL }).map(row => row.payload)
+}
+
+export function legacyLinePayloads(db: DatabaseSync): string[] {
+  return events(db, { legacy: true }).map(row => row.payload)
 }
 
 const LINKED_PR = 'SELECT pr FROM cards WHERE card_id = ?'

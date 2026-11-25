@@ -8,6 +8,7 @@ import process from 'node:process'
 import { LEDGER_FILE, parseLedgerLine } from '../../src/commands/cost/ledger.js'
 import { wiredBusOf } from '../../src/commands/run-record.js'
 import { BUSY_TIMEOUT_MS } from '../core/db.js'
+import { EITHER_JOURNAL, lastEventId, latest } from '../core/events-query.js'
 import { LADDER_RUN } from '../core/events.js'
 import { openDatabase } from '../core/sqlite.js'
 import { readLedgerStage } from './watch-ledger.js'
@@ -17,8 +18,6 @@ export const NO_LADDER_RUN = 'no ladder run'
 
 const LEDGER_ROW_SCHEMA = 'contract/contours/ledger-row.schema.json'
 const RUN_MISSING = 'missing or invalid: run'
-const LAST_EVENT_ID = 'SELECT coalesce(max(id), 0) AS id FROM events'
-const LAST_RUN_OF_CARD = 'SELECT id, payload FROM events WHERE type = ? AND card_id = ? AND id > ? ORDER BY id DESC LIMIT 1'
 
 export type RunSource
   = | { kind: 'bus', busPath: string, card: number, runsPath: string }
@@ -72,7 +71,7 @@ export function ladderRunMark(source: RunSource): RunMark {
   const line = ledgerLines(source.runsPath).length
   if (source.kind === 'file')
     return { event: 0, line }
-  return { event: withReadOnlyBus(source.busPath, db => Number((db.prepare(LAST_EVENT_ID).get() as { id: number }).id)), line }
+  return { event: withReadOnlyBus(source.busPath, lastEventId), line }
 }
 
 function lastLineOf(runsPath: string, after: number): RunRow | null {
@@ -81,7 +80,10 @@ function lastLineOf(runsPath: string, after: number): RunRow | null {
 }
 
 function lastEventOf(source: Extract<RunSource, { kind: 'bus' }>, after: number): RunRow | null {
-  return withReadOnlyBus(source.busPath, db => (db.prepare(LAST_RUN_OF_CARD).get(LADDER_RUN, source.card, after) as RunRow | undefined) ?? null)
+  return withReadOnlyBus(source.busPath, (db) => {
+    const run = latest(db, { types: [LADDER_RUN], card: source.card, since: after, legacy: EITHER_JOURNAL })
+    return run === null ? null : { id: run.id, payload: run.payload }
+  })
 }
 
 function lastRunOf(source: RunSource, after: RunMark): RunRow | null {
