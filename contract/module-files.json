@@ -770,6 +770,7 @@
     "scripts/tests/contract/queue-contour.test.ts",
     "scripts/tests/contract/ratchet-threshold-set.test.ts",
     "scripts/tests/contract/reducer-contour.test.ts",
+    "scripts/tests/contract/session-takes-window-and-launch-files.test.ts",
     "scripts/tests/conveyor/measures.test.ts",
     "scripts/tests/core/card-decisions.test.ts",
     "scripts/tests/core/core-runs-no-git.test.ts",
