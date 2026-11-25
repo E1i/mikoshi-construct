@@ -31,7 +31,7 @@ import { gitDepthSources, gitTestSource, provenWitnesses } from './depth-sources
 import { gitReachSource, unreachedFinding, unreachedModules, withUnreached } from './reachability.js'
 import { freshDenial, recordVerdict } from './record-verdict.js'
 import { fullReview } from './review-depth.js'
-import { PREFIX, REVIEW_BAR_LINE, REVIEW_CEILING, REVIEW_CEILING_MINUTES, ReviewFailed } from './reviewer.js'
+import { PREFIX, REVIEW_BAR_LINE, REVIEW_CEILING, REVIEW_CEILING_MINUTES, ReviewFailed, withBusFindings } from './reviewer.js'
 import { mutationOnlyFindings } from './tail-card.js'
 
 const CI_NOT_READY = 'ci_not_ready'
@@ -417,7 +417,7 @@ export class ReviewExecutor {
     try {
       const started = clock().getTime()
       const card = cardBodyText(db, lease.cardId)
-      const review = await this.parts.reviewer(lease, plan, card, provenWitnesses(db, lease, card, this.parts.testSource ?? gitTestSource(process.cwd())), [], unreached === null ? [] : [unreached])
+      const review = await this.parts.reviewer(lease, withBusFindings(plan, unreached === null ? [] : [unreached]), card, provenWitnesses(db, lease, card, this.parts.testSource ?? gitTestSource(process.cwd())))
       return { outcome: { review, plan, ms: clock().getTime() - started, isolation, card, unreached }, held: review.tree ?? null }
     }
     catch (error) {

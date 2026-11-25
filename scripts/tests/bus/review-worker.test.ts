@@ -1489,13 +1489,13 @@ describe('the review executor and the reach of new code', () => {
     bench.db.close()
   })
 
-  it('puts the reachability finding into the reviewer\'s prompt as a bus finding no opinion clears', async () => {
+  it('puts the reachability finding into the reviewer\'s prompt as a bus finding no opinion clears, through the keyed-body wrapper', async () => {
     const bench = setUp()
     bench.gitHub.open({ number: 2239 })
     bench.tick()
     const prompts: string[] = []
-    const capturing: Reviewer = async (lease, plan, card, proven, decisions, busFindings) => {
-      prompts.push(reviewPrompt(lease, plan, '/tmp/t', '/tmp/v.json', card ?? null, null, proven, decisions, busFindings))
+    const capturing: Reviewer = async (lease, plan, card, proven, decisions) => {
+      prompts.push(reviewPrompt(lease, plan, '/tmp/t', '/tmp/v.json', card ?? null, null, proven, decisions))
       return { verdict: 'pass', findings: [], session: 'reviewer-1' }
     }
 

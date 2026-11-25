@@ -79,7 +79,7 @@ export interface CardDecision {
   text: string
 }
 
-export type Reviewer = (lease: Lease, plan: ReviewPlan, card?: string | null, proven?: readonly ProvenWitness[], decisions?: readonly CardDecision[], busFindings?: readonly string[]) => Promise<Review>
+export type Reviewer = (lease: Lease, plan: ReviewPlan, card?: string | null, proven?: readonly ProvenWitness[], decisions?: readonly CardDecision[]) => Promise<Review>
 
 export interface TreeTools {
   git: (cwd: string, args: string[]) => void
@@ -235,13 +235,20 @@ function prBodyLines(prBody: string | null): string[] {
 
 export const BUS_FINDINGS_LINE = 'The bus checked the head before this session and recorded the findings between the bus-finding markers. Each stands as a finding of this review whatever you find: the bus adds it to the verdict itself, and no opinion clears it. Read it, and do not repeat it in your findings.'
 
-function busFindingLines(busFindings: readonly string[]): string[] {
+export type BusCheckedPlan = ReviewPlan & { busFindings?: readonly string[] }
+
+export function withBusFindings(plan: ReviewPlan, busFindings: readonly string[]): BusCheckedPlan {
+  return busFindings.length === 0 ? plan : { ...plan, busFindings }
+}
+
+function busFindingLines(plan: BusCheckedPlan): string[] {
+  const busFindings = plan.busFindings ?? []
   if (busFindings.length === 0)
     return []
   return [BUS_FINDINGS_LINE, '<bus-findings>', ...busFindings, '</bus-findings>']
 }
 
-export function reviewPrompt(lease: Lease, plan: ReviewPlan, tree: string, verdictPath: string, card: string | null = null, prBody: string | null = null, proven: readonly ProvenWitness[] = [], decisions: readonly CardDecision[] = [], busFindings: readonly string[] = []): string {
+export function reviewPrompt(lease: Lease, plan: ReviewPlan, tree: string, verdictPath: string, card: string | null = null, prBody: string | null = null, proven: readonly ProvenWitness[] = [], decisions: readonly CardDecision[] = []): string {
   return [
     `[review:${lease.taskKey}]`,
     `Act as the review role defined in .claude/agents/review.md. Pull request #${lease.pr} of card #${lease.cardId} is checked out at ${tree}, at its head ${lease.head}; read it there.`,
@@ -251,7 +258,7 @@ export function reviewPrompt(lease: Lease, plan: ReviewPlan, tree: string, verdi
     ...prBodyLines(prBody),
     ...depthLines(lease, plan),
     ...witnessLines(lease, proven),
-    ...busFindingLines(busFindings),
+    ...busFindingLines(plan),
     VERDICT_ENDS_LINE,
     `Finish by writing ${verdictPath} as JSON: {"verdict": "pass" | "changes", "findings": ["one finding per string"], "survivingMutations": ["a finding string, repeated exactly"], "advice": ["a finding string, repeated exactly"]}.`,
     SURVIVING_MUTATIONS_LINE,
@@ -395,14 +402,14 @@ export class ReviewTrees {
   }
 }
 
-export function reviewSession(repo: string, dir: string, session: string, lease: Lease, plan: ReviewPlan, env: NodeJS.ProcessEnv = process.env, card: string | null = null, prBody: string | null = null, proven: readonly ProvenWitness[] = [], decisions: readonly CardDecision[] = [], busFindings: readonly string[] = []): SpawnSessionParams & { tree: string, verdictPath: string } {
+export function reviewSession(repo: string, dir: string, session: string, lease: Lease, plan: ReviewPlan, env: NodeJS.ProcessEnv = process.env, card: string | null = null, prBody: string | null = null, proven: readonly ProvenWitness[] = [], decisions: readonly CardDecision[] = []): SpawnSessionParams & { tree: string, verdictPath: string } {
   const tree = path.join(dir, session)
   const verdictPath = path.join(dir, `${session}.verdict.json`)
   return {
     cwd: repo,
     addDirs: [dir],
     sessionId: session,
-    prompt: reviewPrompt(lease, plan, tree, verdictPath, card, prBody, proven, decisions, busFindings),
+    prompt: reviewPrompt(lease, plan, tree, verdictPath, card, prBody, proven, decisions),
     stdoutPath: path.join(dir, `${session}.out.jsonl`),
     stderrPath: path.join(dir, `${session}.err.log`),
     model: reviewModelOf(env),
@@ -658,11 +665,11 @@ export function realReviewStart(busPath: string = defaultBusPath()): ReviewStart
 
 export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionParams) => Promise<number> = spawnSession, pulse: SessionPulse = () => {}, beatMs = REVIEW_BEAT_MS, prBodyOf: PrBodyOf = NO_PR_BODY, start: ReviewStart = realReviewStart()): Reviewer {
   const review = reviewerOfTree(trees, spawn, pulse, beatMs, prBodyOf, start)
-  return async (lease, plan, card = null, proven = [], decisions = [], busFindings = []) => {
+  return async (lease, plan, card = null, proven = [], decisions = []) => {
     if (!await start.gate.start(lease.cardId, () => start.keep(lease)))
       throw new Error(`the review task ${lease.taskKey} was superseded or withdrawn while it waited for a session on this machine`)
     try {
-      return await review(lease, plan, card, proven, decisions, busFindings)
+      return await review(lease, plan, card, proven, decisions)
     }
     finally {
       start.gate.release(lease.cardId)
@@ -671,9 +678,9 @@ export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionP
 }
 
 function reviewerOfTree(trees: ReviewTrees, spawn: (params: SpawnSessionParams) => Promise<number>, pulse: SessionPulse, beatMs: number, prBodyOf: PrBodyOf, start: ReviewStart): Reviewer {
-  return async (lease, plan, card = null, proven = [], decisions = [], busFindings = []) => {
+  return async (lease, plan, card = null, proven = [], decisions = []) => {
     const session = randomUUID()
-    const { tree, verdictPath, ...params } = reviewSession(trees.repo, trees.dir, session, lease, plan, process.env, card, lease.pr === null ? null : prBodyOf(lease.pr), proven, decisions, busFindings)
+    const { tree, verdictPath, ...params } = reviewSession(trees.repo, trees.dir, session, lease, plan, process.env, card, lease.pr === null ? null : prBodyOf(lease.pr), proven, decisions)
     mkdirSync(trees.dir, { recursive: true })
     trees.fetch(`pull/${lease.pr}/head`)
     const held: HeldTree = { path: tree, release: () => trees.release(tree) }

@@ -126,6 +126,23 @@ describe('unreachedModules', () => {
     expect(unreachedModules(headOf(tree, [NEW_MODULE]))).toEqual([{ packageDir: '', modules: [NEW_MODULE], entries: [{ kind: 'bin', path: 'dist/cli.js' }, { kind: 'main', path: 'dist/cli.js' }] }])
   })
 
+  it('leaves an added file that a convention names an entry point to that convention, even where no package scans it', () => {
+    const page = 'packages/loose/pages/about.tsx'
+    const tree = { ...productTree(false), [page]: 'export default 1\n' }
+
+    expect(unreachedModules(headOf(tree, [page]))).toEqual([])
+  })
+
+  it('walks a committed built entry as itself when no source of it exists', () => {
+    const tree = {
+      'package.json': JSON.stringify({ bin: { tool: 'dist/tool.mjs' } }),
+      'dist/tool.mjs': `import '../${NEW_MODULE.replace(/\.ts$/, '.js')}'\n`,
+      [NEW_MODULE]: 'export {}\n',
+    }
+
+    expect(unreachedModules(headOf(tree, [NEW_MODULE]))).toEqual([])
+  })
+
   it('reads no file of the head when nothing added is product code', () => {
     const files = vi.fn(() => [])
 
@@ -137,6 +154,19 @@ describe('unreachedModules', () => {
 describe('the finding and its place in the verdict', () => {
   it('names no finding when every new module is reached', () => {
     expect(unreachedFinding([])).toBeNull()
+  })
+
+  it('names at most five entry points of a package and marks the rest as cut', () => {
+    const pages = ['a', 'b', 'c', 'd', 'e', 'f'].map(name => `src/pages/${name}.tsx`)
+    const tree = { 'package.json': JSON.stringify({ name: 'web' }), ...Object.fromEntries(pages.map(page => [page, ''])), [NEW_MODULE]: '' }
+    const finding = unreachedFinding(unreachedModules(headOf(tree, [NEW_MODULE])))
+
+    expect(finding).toContain(`(entry points: ${pages.slice(0, 5).map(page => `page ${page}`).join(', ')}, …)`)
+    expect(finding).not.toContain(pages[5])
+  })
+
+  it('closes the named entry points without a mark when the package has five or fewer', () => {
+    expect(unreachedFinding(unreachedModules(headOf(productTree(false), [NEW_MODULE])))).toContain('(entry points: bin dist/cli.js)')
   })
 
   it('turns a pass into changes and leaves a review with no finding unchanged', () => {
