@@ -4960,12 +4960,6 @@
       "scripts/nodes/close/ended-card-trees.ts": 2,
       "scripts/nodes/close/task-close.ts": 4,
       "scripts/nodes/close/task-merged.ts": 1,
-      "scripts/nodes/launch/lane-assign.ts": 7,
-      "scripts/nodes/launch/launch-candidates.ts": 15,
-      "scripts/nodes/launch/launch-executor.ts": 1,
-      "scripts/nodes/launch/launch-withdraw.ts": 1,
-      "scripts/nodes/launch/launch-worker.ts": 14,
-      "scripts/nodes/launch/tree-pr-cli.ts": 3,
       "scripts/nodes/merge/merge-candidates.ts": 2,
       "scripts/nodes/restart/restart-executor.ts": 3,
       "scripts/nodes/restart/role.ts": 6,
@@ -5029,8 +5023,7 @@
     "owner-commands": {},
     "owner-decisions": {
       "scripts/core/bus-path.ts": 1,
-      "scripts/core/inbox.ts": 1,
-      "scripts/nodes/launch/launch-candidates.ts": 1
+      "scripts/core/inbox.ts": 1
     },
     "pid-liveness": {
       "scripts/ladder/cleanup.ts": 1,

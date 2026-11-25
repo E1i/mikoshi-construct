@@ -11,13 +11,17 @@ import { parseParkingFile, PRIORITIES, WINDOW_WHO } from '../../../src/card/park
 import { ATTACH_RECORD_FILE } from '../../../src/commands/attach/record.js'
 import { DEFAULT_LANES, isLaneCount, MANIFEST_FILE } from '../../../src/manifest.js'
 import { BUS_CONTRACT } from '../../core/bus-adapter.js'
-import { currentLane, latestAssignment, OPEN_WAIT, OWNER_WAITS } from '../../core/bus-readings.js'
+import { currentLane, latestAssignment } from '../../core/bus-readings.js'
 import { DEFERRED_CARD, RUNNING_CARD, unsatisfiedDependencies } from '../../core/card-automaton.js'
 import { cardBodyText } from '../../core/card-bodies.js'
+import { cardsWithAState, openWaitPrsOf } from '../../core/card-readings.js'
 import { appendEvent } from '../../core/db.js'
+import { BY_CARD, events, lastPer, latest } from '../../core/events-query.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_DROPPED, LANE_ASSIGNED, LANE_OVERLAP, POLICY_DENIED } from '../../core/events.js'
 import { prOf } from '../../core/identifiers.js'
 import { effectivePaths, orderDeclarationsAt } from '../../core/order/overlap.js'
+import * as prs from '../../core/pr-readings.js'
+import { all as allTasks } from '../../core/tasks-query.js'
 import { processGit } from '../../ports/git.js'
 import { dependencyReadings, droppedCards, holdReason, laneHeadHolds, startableCards } from './launch-candidates.js'
 import { taskConflicts } from './overlap.js'
@@ -36,47 +40,26 @@ export const STALLED = 'stalled'
 
 export const OWNER_MERGE = 'owner_merge'
 
-const STALLED_PRS = `
-  SELECT prs.card_id, prs.pr, prs.head FROM prs
-  WHERE prs.state = 'open' AND prs.card_id IS NOT NULL
-    AND NOT EXISTS (SELECT 1 FROM tasks AS moving WHERE moving.card_id = prs.card_id AND moving.state IN ('queued', 'leased'))
-    AND (
-      EXISTS (SELECT 1 FROM ${OWNER_WAITS} AS wait WHERE wait.need = 'merge' AND wait.state = '${OPEN_WAIT}' AND wait.pr = prs.pr)
-      OR EXISTS (SELECT 1 FROM tasks AS merge WHERE merge.queue = 'merge' AND merge.pr = prs.pr AND merge.head = prs.head AND merge.state = 'withdrawn')
-    )
-  ORDER BY prs.card_id
-`
+const MOVING_TASK_STATES: readonly string[] = ['queued', 'leased']
+const MERGE_NEED = 'merge'
 
-const OWNER_MERGE_HOLDERS = `
-  SELECT DISTINCT prs.card_id FROM prs
-  WHERE prs.state = 'open' AND prs.card_id IS NOT NULL
-    AND EXISTS (SELECT 1 FROM ${OWNER_WAITS} AS wait WHERE wait.need = 'merge' AND wait.state = '${OPEN_WAIT}' AND wait.pr = prs.pr)
-`
+type CardPr = prs.PrRow & { card_id: number }
 
-const LATEST_MERGE_DENIAL = `
-  SELECT payload FROM events
-  WHERE legacy = 0 AND type = '${POLICY_DENIED}' AND card_id = ? AND pr = ? AND head IS ? AND json_valid(payload) AND json_extract(payload, '$.command') = 'merge'
-  ORDER BY id DESC LIMIT 1
-`
+function openCardPrs(db: DatabaseSync): CardPr[] {
+  return prs.all(db).filter((row): row is CardPr => row.state === 'open' && row.card_id !== null)
+}
 
-const ADMITTED_CARDS = `
-  SELECT admitted.card_id, max(admitted.id) AS admission, cards.state FROM events AS admitted
-  LEFT JOIN cards ON cards.card_id = admitted.card_id
-  WHERE admitted.legacy = 0 AND admitted.type = '${CARD_ADMITTED}' AND admitted.card_id IS NOT NULL
-  GROUP BY admitted.card_id
-  HAVING coalesce((SELECT max(dropped.id) FROM events AS dropped WHERE dropped.legacy = 0 AND dropped.type = '${CARD_DROPPED}' AND dropped.card_id = admitted.card_id), 0) < max(admitted.id)
-  ORDER BY admitted.card_id
-`
+function stalledPrs(db: DatabaseSync): StalledPr[] {
+  const tasks = allTasks(db)
+  const moving = new Set(tasks.filter(task => MOVING_TASK_STATES.includes(task.state)).map(task => task.card_id))
+  const ownerMerges = openWaitPrsOf(db, MERGE_NEED)
+  const withdrawnMerge = (row: CardPr): boolean => tasks.some(task => task.queue === MERGE_NEED && task.state === 'withdrawn' && task.pr === row.pr && row.head !== null && task.head === row.head)
+  return openCardPrs(db).filter(row => !moving.has(row.card_id) && (ownerMerges.has(row.pr) || withdrawnMerge(row))).sort((a, b) => a.card_id - b.card_id).map(row => ({ card_id: row.card_id, pr: row.pr, head: row.head }))
+}
 
-const TEXT_ADMISSIONS = `
-  SELECT id, payload FROM events
-  WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? AND json_valid(payload) AND json_type(payload, '$.text') = 'text'
-  ORDER BY id DESC LIMIT 2
-`
-
-const OPEN_PR_CARDS = `SELECT DISTINCT card_id FROM prs WHERE state = 'open' AND card_id IS NOT NULL`
-
-const LATEST_ADMISSION = `SELECT max(id) AS id FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ?`
+function openPrCards(db: DatabaseSync): Set<number> {
+  return new Set(openCardPrs(db).map(row => row.card_id))
+}
 
 export type LaneReason = 'chain' | 'kept' | 'free' | 'least-loaded' | 'moved' | 'reflowed'
 
@@ -156,8 +139,8 @@ export interface Stall {
 interface StalledPr { card_id: number, pr: number, head: string | null }
 
 function denialOf(db: DatabaseSync, row: StalledPr): Pick<Stall, 'cause' | 'detail'> {
-  const denial = db.prepare(LATEST_MERGE_DENIAL).get(row.card_id, row.pr, row.head) as { payload: string } | undefined
-  const payload = denial === undefined ? {} : parsed(denial.payload)
+  const denial = events(db, { card: row.card_id, pr: row.pr, types: [POLICY_DENIED], newestFirst: true }).find(denied => denied.head === row.head && denied.data?.command === MERGE_NEED)
+  const payload = denial?.data ?? {}
   const cause = payload.rule ?? payload.reason
   return {
     cause: typeof cause === 'string' ? cause : OWNER_MERGE,
@@ -166,7 +149,7 @@ function denialOf(db: DatabaseSync, row: StalledPr): Pick<Stall, 'cause' | 'deta
 }
 
 export function stalledCards(db: DatabaseSync): Stall[] {
-  return (db.prepare(STALLED_PRS).all() as unknown as StalledPr[]).map(row => ({ cardId: row.card_id, pr: row.pr, head: row.head, ...denialOf(db, row) }))
+  return stalledPrs(db).map(row => ({ cardId: row.card_id, pr: row.pr, head: row.head, ...denialOf(db, row) }))
 }
 
 export function raiseStallAlarms(db: DatabaseSync, stalls: readonly Stall[], ts: string, actor: string): number {
@@ -262,7 +245,8 @@ function lanesClearOfOwnerMerge(count: number, occupants: readonly LiveLane[], w
 }
 
 export function ownerMergeHolders(db: DatabaseSync): Set<number> {
-  return new Set((db.prepare(OWNER_MERGE_HOLDERS).all() as { card_id: number }[]).map(row => row.card_id))
+  const ownerMerges = openWaitPrsOf(db, MERGE_NEED)
+  return new Set(openCardPrs(db).filter(row => ownerMerges.has(row.pr)).map(row => row.card_id))
 }
 
 export function chooseLane(card: LaneCard, live: readonly LiveLane[], count: number, current: string | null = null, occupying: readonly LiveLane[] = live, waitingOnOwner: ReadonlySet<number> = new Set(), shared: readonly string[] = []): LaneChoice {
@@ -314,7 +298,7 @@ function dependsOf(payload: Record<string, unknown>): number[] {
 }
 
 function textAdmissions(db: DatabaseSync, cardId: number): AdmissionRow[] {
-  return db.prepare(TEXT_ADMISSIONS).all(cardId) as unknown as AdmissionRow[]
+  return events(db, { card: cardId, types: [CARD_ADMITTED], newestFirst: true }).filter(row => typeof row.data?.text === 'string').slice(0, 2).map(row => ({ id: row.id, payload: row.payload }))
 }
 
 function latestPayload(db: DatabaseSync, cardId: number): Record<string, unknown> {
@@ -402,7 +386,13 @@ export { currentLane }
 interface AdmittedRow { card_id: number, admission: number, state: string | null }
 
 function liveRows(db: DatabaseSync): AdmittedRow[] {
-  return (db.prepare(ADMITTED_CARDS).all() as unknown as AdmittedRow[]).filter(row => row.state === null || !ENDED_STATES.includes(row.state))
+  const states = cardsWithAState(db)
+  const dropped = new Map(lastPer(db, BY_CARD, { types: [CARD_DROPPED], withCard: true }).map(row => [row.card_id!, row.id]))
+  return lastPer(db, BY_CARD, { types: [CARD_ADMITTED], withCard: true })
+    .filter(row => (dropped.get(row.card_id!) ?? 0) < row.id)
+    .map(row => ({ card_id: row.card_id!, admission: row.id, state: states.get(row.card_id!) ?? null }))
+    .sort((a, b) => a.card_id - b.card_id)
+    .filter(row => row.state === null || !ENDED_STATES.includes(row.state))
 }
 
 function deferredRow(db: DatabaseSync, row: AdmittedRow): boolean {
@@ -466,8 +456,8 @@ function releasedChoice(db: DatabaseSync, card: LaneCard, rows: readonly Admitte
 }
 
 export function assignMovedLane(db: DatabaseSync, cardId: number, lane: string, count: number, ts: string, actor: string): boolean {
-  const admission = (db.prepare(LATEST_ADMISSION).get(cardId) as { id: number | null }).id
-  return admission !== null && assign(db, cardId, Number(admission), { lane, reason: 'moved', after: [] }, count, ts, actor)
+  const admission = latest(db, { card: cardId, types: [CARD_ADMITTED] })?.id ?? null
+  return admission !== null && assign(db, cardId, admission, { lane, reason: 'moved', after: [] }, count, ts, actor)
 }
 
 export function layOutLanes(db: DatabaseSync, count: number, ts: string, actor: string, shared: readonly string[]): number {
@@ -584,7 +574,7 @@ function reflowLanes(db: DatabaseSync, count: number, ts: string, actor: string,
   const cards = reflowCards(db, rows)
   const occupied = new Set(cards.filter(card => card.deferred !== true).map(card => card.lane))
   const empty = laneNumbers(count).map(chainLaneName).filter(lane => !occupied.has(lane))
-  const holders = touchHolders(cards, rows, cardIds(db, OPEN_PR_CARDS))
+  const holders = touchHolders(cards, rows, openPrCards(db))
   const waitingOnOwner = ownerMergeHolders(db)
   const seen = new Set<number>()
   let moved = 0
@@ -605,10 +595,6 @@ function reflowLanes(db: DatabaseSync, count: number, ts: string, actor: string,
     }
   }
   return moved
-}
-
-function cardIds(db: DatabaseSync, query: string): Set<number> {
-  return new Set((db.prepare(query).all() as { card_id: number }[]).map(row => row.card_id))
 }
 
 export class SkipLog {
