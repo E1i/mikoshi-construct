@@ -143,6 +143,10 @@ export function eventsWhere(alias: string, columns: string, condition: string): 
   return eventsSql({ columns, alias, where: ` WHERE ${condition}`, newestFirst: false, limit: '' })
 }
 
+export function anEventWhere(alias: string, condition: string): string {
+  return `EXISTS (${eventsWhere(alias, '1', condition)})`
+}
+
 export function latestEventIdWhere(alias: string, condition: string): string {
   return `(SELECT max(${alias}.id) FROM events AS ${alias} WHERE ${condition})`
 }
