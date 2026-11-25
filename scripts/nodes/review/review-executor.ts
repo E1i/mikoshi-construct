@@ -7,9 +7,9 @@ import type { StatusPublisher } from '../../ports/github-status.js'
 import type { GitHub } from '../../ports/github.js'
 import type { Isolation, IsolationReader } from '../../ports/isolation.js'
 import type { SessionInput } from '../../ports/prompt-store.js'
-import type { GitRun, TestSource } from './depth-sources.js'
+import type { TestSource } from './depth-sources.js'
 import type { RoundLimitAt, RoundLimitRecut } from './pr-close.js'
-import type { HeadReading } from './reachability.js'
+import type { ReachSource } from './reachability.js'
 import type { Denial, VerdictWord } from './record-verdict.js'
 import type { EarlierVerdict, ReviewDepth, ReviewPlan, ReviewPlanner } from './review-depth.js'
 import type { HeldTree, LeftoverTree, Review, Reviewer } from './reviewer.js'
@@ -25,11 +25,10 @@ import { pnpmCommand } from '../../core/owner-commands.js'
 import { allFindingsRepeat } from '../../policy/repeat-finding.js'
 import { BODIES_OWNER_AMENDED_FOR_A_PR, changesRoundsOf, limitRuleOf, ownerAmendedSinceThePreviousReview, REPEAT_FINDINGS, REVIEWS_OF_A_PR } from '../../policy/round-limit-decision.js'
 import { activeDecisionsShard } from '../../policy/shards.js'
-import { processGit } from '../../ports/git.js'
 import { NO_ISOLATION } from '../../ports/isolation.js'
 import { storedInput } from '../../ports/prompt-store.js'
 import { gitDepthSources, gitTestSource, provenWitnesses } from './depth-sources.js'
-import { unreachedFinding, unreachedModules } from './reachability.js'
+import { gitReachSource, unreachedFinding, unreachedModules, withUnreached } from './reachability.js'
 import { freshDenial, recordVerdict } from './record-verdict.js'
 import { fullReview } from './review-depth.js'
 import { PREFIX, REVIEW_BAR_LINE, REVIEW_CEILING, REVIEW_CEILING_MINUTES, ReviewFailed } from './reviewer.js'
@@ -139,28 +138,6 @@ export interface ExecutorParts {
   testSource?: TestSource
   tail?: TailIntake
   reach?: ReachSource
-}
-
-export type ReachSource = (head: string) => HeadReading
-
-function zList(output: string): string[] {
-  return output.split('\0').filter(file => file !== '')
-}
-
-export function gitReachSource(repo: string, run: GitRun = (at, args) => processGit.read(at, args)): ReachSource {
-  const show = gitTestSource(repo, run)
-  return (head) => {
-    const base = run(repo, ['merge-base', 'origin/main', head]).trim()
-    return {
-      added: zList(run(repo, ['diff', '--no-renames', '--diff-filter=A', '--name-only', '-z', base, head])),
-      files: () => zList(run(repo, ['ls-tree', '-r', '--name-only', '-z', head])),
-      read: file => show(head, file),
-    }
-  }
-}
-
-export function withUnreached(review: Review, finding: string | null): Review {
-  return finding === null ? review : { ...review, verdict: 'changes', findings: [finding, ...review.findings.filter(each => each !== finding)] }
 }
 
 interface Reviewed {

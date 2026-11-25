@@ -30,6 +30,16 @@ const RELATIVE_SPECIFIER = /\b(?:from|import|require)\s*(?:\(\s*)?['"](\.{1,2}\/
 const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.vue', '.svelte', '.astro']
 const COMPILED_TWIN: Readonly<Record<string, string[]>> = { '.js': ['.ts', '.tsx'], '.mjs': ['.mts'], '.cjs': ['.cts'], '.jsx': ['.tsx'] }
 
+const PRODUCT_CODE = /\.(?:[cm]?[jt]sx?|vue|svelte|astro)$/
+const TEST_NAMED = /\.(?:test|spec)\.[^/]+$/
+const TEST_SEGMENTS: ReadonlySet<string> = new Set(['tests', 'test', '__tests__', 'e2e', 'fixtures'])
+const NON_PRODUCT_ROOTS: ReadonlySet<string> = new Set(['scripts', 'docs'])
+
+export function isProductSource(file: string): boolean {
+  const segments = file.split('/')
+  return PRODUCT_CODE.test(file) && !TEST_NAMED.test(file) && !NON_PRODUCT_ROOTS.has(segments[0]!) && !segments.some(segment => TEST_SEGMENTS.has(segment))
+}
+
 export function entryPointKindOf(relative: string): EntryPointKind | null {
   return CONVENTIONS.find(([, pattern]) => pattern.test(relative))?.[0] ?? null
 }

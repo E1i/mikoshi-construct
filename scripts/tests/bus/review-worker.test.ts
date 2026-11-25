@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../core/lease.js'
+import type { HeadReading } from '../../nodes/review/reachability.js'
 import type { DepthSources, ReviewDepth, ReviewPlan, ReviewPlanner } from '../../nodes/review/review-depth.js'
 import type { ReviewRun } from '../../nodes/review/review-worker.js'
 import type { LeftoverTree, Reviewer, TreeTools } from '../../nodes/review/reviewer.js'
@@ -23,6 +24,7 @@ import { all as pullRequests } from '../../core/pr-readings.js'
 import { keyOf, queueTaskWithin, reviewCandidates } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { importJournal } from '../../intake/import.js'
+import { UNREACHED_FINDING_HEAD } from '../../nodes/review/reachability.js'
 import { authorSessions } from '../../nodes/review/record-verdict.js'
 import { fullReview, planReview } from '../../nodes/review/review-depth.js'
 import { REVIEW_RULES_VERSION } from '../../nodes/review/review-executor.js'
@@ -1459,5 +1461,44 @@ describe('review depth by MORSE', () => {
 describe('the review isolation command', () => {
   it('is claude with the headless flags the reviewer is spawned with', () => {
     expect(reviewIsolationCommand()).toEqual(['claude', '-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto', '--permission-prompts', 'none', '--strict-mcp-config', '--session-id'])
+  })
+})
+
+describe('the review executor and the reach of new code', () => {
+  const unreachedHead: HeadReading = {
+    added: ['src/feature/shiny.ts'],
+    files: () => ['package.json', 'src/cli.ts', 'src/feature/shiny.ts'],
+    read: file => file === 'package.json' ? JSON.stringify({ bin: { demo: 'dist/cli.js' } }) : '',
+  }
+
+  function reachWorker(bench: Bench, reviewer: Reviewer, head: HeadReading | (() => never), said: string[] = []): ReviewWorker {
+    return new ReviewWorker({ silentMs: SILENT_MS, db: bench.db, gitHub: bench.gitHub.client, publish: () => {}, reviewer, plan: fixedPlan, clock: bench.clock.now, session: 'worker-1', isolation: sandboxed, say: line => said.push(line), reach: typeof head === 'function' ? head : () => head })
+  }
+
+  it('records changes with the reachability finding over a reviewer pass, and says it before the session', async () => {
+    const bench = setUp()
+    bench.gitHub.open({ number: 2237 })
+    bench.tick()
+    const said: string[] = []
+
+    expect(await reachWorker(bench, reviewing(), unreachedHead, said).step()).toMatchObject({ kind: 'recorded', verdict: 'changes' })
+    const [recorded] = events(bench.db, 'review.recorded') as { findings: string[] }[]
+    expect(recorded!.findings).toEqual([expect.stringContaining(UNREACHED_FINDING_HEAD)])
+    expect(recorded!.findings[0]).toContain('src/feature/shiny.ts')
+    expect(said.some(line => line.includes(UNREACHED_FINDING_HEAD))).toBe(true)
+    bench.db.close()
+  })
+
+  it('a head whose reading fails keeps the reviewer\'s verdict and says why on stderr', async () => {
+    const bench = setUp()
+    bench.gitHub.open({ number: 2238 })
+    bench.tick()
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    expect(await reachWorker(bench, reviewing(), () => {
+      throw new Error('no such ref')
+    }).step()).toMatchObject({ kind: 'recorded', verdict: 'pass' })
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('could not be read'))
+    bench.db.close()
   })
 })

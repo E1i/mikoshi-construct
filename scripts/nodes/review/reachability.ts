@@ -1,7 +1,7 @@
 import type { EntryPointKind } from '../../../src/detect/entry-points.js'
 import path from 'node:path'
-import { isProductSource } from '../../../src/commands/intake/check.js'
-import { entryPointKindOf } from '../../../src/detect/entry-points.js'
+import { entryPointKindOf, isProductSource } from '../../../src/detect/entry-points.js'
+import { processGit } from '../../ports/git.js'
 
 export interface HeadReading {
   added: readonly string[]
@@ -137,4 +137,45 @@ export function unreachedFinding(unreached: readonly UnreachedPackage[]): string
   if (unreached.length === 0)
     return null
   return `${UNREACHED_FINDING_HEAD}: ${unreached.map(packageLine).join('; ')}. The bus walked the relative imports from every entry point of the package at the head and none reaches these modules, so no user runs this code and a witness can pass on code nobody uses; import each from a module an entry point reaches, or declare it as an entry point.`
+}
+
+export interface Verdicted {
+  verdict: 'pass' | 'changes'
+  findings: string[]
+}
+
+export function withUnreached<R extends Verdicted>(review: R, finding: string | null): R {
+  return finding === null ? review : { ...review, verdict: 'changes', findings: [finding, ...review.findings.filter(each => each !== finding)] }
+}
+
+export function reviewedOnTheHead<R extends Verdicted>(review: R, head: HeadReading): R {
+  return withUnreached(review, unreachedFinding(unreachedModules(head)))
+}
+
+export type ReachSource = (head: string) => HeadReading
+
+export type ReachGit = (repo: string, args: string[]) => string
+
+function zList(output: string): string[] {
+  return output.split('\0').filter(file => file !== '')
+}
+
+function shown(run: ReachGit, repo: string, head: string, file: string): string | null {
+  try {
+    return run(repo, ['show', `${head}:${file}`])
+  }
+  catch {
+    return null
+  }
+}
+
+export function gitReachSource(repo: string, run: ReachGit = (at, args) => processGit.read(at, args)): ReachSource {
+  return (head) => {
+    const base = run(repo, ['merge-base', 'origin/main', head]).trim()
+    return {
+      added: zList(run(repo, ['diff', '--no-renames', '--diff-filter=A', '--name-only', '-z', base, head])),
+      files: () => zList(run(repo, ['ls-tree', '-r', '--name-only', '-z', head])),
+      read: file => shown(run, repo, head, file),
+    }
+  }
 }

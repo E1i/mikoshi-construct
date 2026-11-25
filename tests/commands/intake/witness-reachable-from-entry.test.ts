@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { InMemoryDecisions } from '../../../scripts/policy/decisions/decisions.js'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
-import { isProductSource, unreachableCreatesRefusal } from '../../../src/commands/intake/check.js'
+import { unreachableCreatesRefusal } from '../../../src/commands/intake/check.js'
+import { isProductSource } from '../../../src/detect/entry-points.js'
 
 const NOW = new Date('2026-11-24T10:00:00.000Z')
 const CARD = 4236

@@ -1,33 +1,12 @@
-import type { HeadReading } from '../../nodes/review/reachability.js'
-import type { Review, Reviewer } from '../../nodes/review/reviewer.js'
-import type { MergeBench } from '../bus/merge-bench.js'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { parkingFileText, parseParkingFile } from '../../../src/card/parking.js'
-import { admittedRecord } from '../../../src/commands/intake/index.js'
-import { BUS_CONTRACT } from '../../core/bus-adapter.js'
-import { appendCardEvent } from '../../core/card-bodies.js'
-import { REVIEW_RECORDED } from '../../core/events.js'
-import { UNREACHED_FINDING_HEAD, unreachedFinding, unreachedModules } from '../../nodes/review/reachability.js'
-import { fullReview } from '../../nodes/review/review-depth.js'
-import { gitReachSource, withUnreached } from '../../nodes/review/review-executor.js'
-import { ReviewWorker } from '../../nodes/review/review-worker.js'
-import { SILENT_MS } from '../../supervisor/liveness-sites.js'
-import { cardBody, sha } from '../bus/github-fake.js'
-import { eventsOf, liveBench } from '../bus/merge-bench.js'
+import type { HeadReading, Verdicted } from '../../nodes/review/reachability.js'
+import { describe, expect, it, vi } from 'vitest'
+import { gitReachSource, reviewedOnTheHead, UNREACHED_FINDING_HEAD, unreachedFinding, unreachedModules, withUnreached } from '../../nodes/review/reachability.js'
 
-const PR = 2237
-const CARD = PR + 100
-const HEAD = sha('a')
+const HEAD = 'a'.repeat(40)
 const NEW_MODULE = 'src/feature/shiny.ts'
 const MANIFEST = JSON.stringify({ name: 'demo', bin: { demo: 'dist/cli.js' } })
 const REVIEWER_FINDING = 'src/program.ts:3 drops the second row'
-const cleanups: (() => void)[] = []
-
-afterEach(() => {
-  vi.restoreAllMocks()
-  for (const cleanup of cleanups.splice(0))
-    cleanup()
-})
+const PASS: Verdicted = { verdict: 'pass', findings: [] }
 
 function headOf(tree: Record<string, string>, added: readonly string[]): HeadReading {
   return { added, files: () => Object.keys(tree), read: file => tree[file] ?? null }
@@ -42,89 +21,26 @@ function productTree(programImportsTheModule: boolean): Record<string, string> {
   }
 }
 
-function cardText(): string {
-  return parkingFileText({
-    card: `#${CARD} reachable [implement/construct/S/cheap/auto] · depends — · blocks —`,
-    branch: `feat/card-${CARD}`,
-    touches: ['src/program.ts'],
-    continue: 'stop',
-    who: 'shift',
-    body: ['Make it reachable.', '', 'Witnesses:', '- pnpm exec vitest run tests/program.test.ts'].join('\n'),
-  })
-}
-
-function benchWith(reviewer: Reviewer, head: HeadReading): { bench: MergeBench, worker: ReviewWorker, said: string[] } {
-  vi.spyOn(console, 'log').mockImplementation(() => {})
-  vi.spyOn(console, 'error').mockImplementation(() => {})
-  const bench = liveBench()
-  cleanups.push(() => bench.close())
-  const text = cardText()
-  const parsed = parseParkingFile(`${CARD}.md`, text)
-  if (parsed.kind === 'refused')
-    throw new Error(parsed.reason)
-  appendCardEvent(BUS_CONTRACT, bench.db, 'worker:intake:test', admittedRecord({ id: CARD, file: `${CARD}.md`, line: parsed.parked.task.card.line, who: parsed.parked.who, unclear: [], corrections: [], seam: [], risk: [], slices: [], text }, 'auto', bench.clock.now()))
-  bench.tick()
-  bench.gitHub.open({ number: PR, head: HEAD, ref: `feat/card-${CARD}`, body: cardBody(PR) })
-  bench.tick()
-  const said: string[] = []
-  const worker = new ReviewWorker({ silentMs: SILENT_MS, isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }), db: bench.db, gitHub: bench.gitHub.client, publish: bench.gitHub.publish, reviewer, plan: () => fullReview('a fixed plan'), clock: bench.clock.now, session: 'worker-1', say: line => said.push(line), reach: () => head })
-  return { bench, worker, said }
-}
-
-function reviewerSaying(review: Omit<Review, 'session'>): Reviewer {
-  return async () => ({ ...review, session: 'reviewer-1' })
-}
-
-function recordedFindings(bench: MergeBench): unknown[] {
-  return eventsOf(bench.db, REVIEW_RECORDED).map(payload => [payload.verdict, payload.findings])
-}
-
 describe('the review checks that new code is reachable from an entry point', () => {
-  it('the review refuses a pull request whose new module no entry point reaches', async () => {
-    const { bench, worker, said } = benchWith(reviewerSaying({ verdict: 'pass', findings: [] }), headOf(productTree(false), [NEW_MODULE]))
+  it('the review refuses a pull request whose new module no entry point reaches', () => {
+    const reviewed = reviewedOnTheHead(PASS, headOf(productTree(false), [NEW_MODULE]))
 
-    expect(await worker.step()).toMatchObject({ kind: 'recorded', verdict: 'changes' })
-
-    const [[verdict, findings]] = recordedFindings(bench) as [[string, string[]]]
-    expect(verdict).toBe('changes')
-    expect(findings).toHaveLength(1)
-    expect(findings[0]).toContain(UNREACHED_FINDING_HEAD)
-    expect(findings[0]).toContain(NEW_MODULE)
-    expect(findings[0]).toContain('bin dist/cli.js')
-    expect(said.some(line => line.includes(UNREACHED_FINDING_HEAD))).toBe(true)
+    expect(reviewed.verdict).toBe('changes')
+    expect(reviewed.findings).toHaveLength(1)
+    expect(reviewed.findings[0]).toContain(UNREACHED_FINDING_HEAD)
+    expect(reviewed.findings[0]).toContain(NEW_MODULE)
+    expect(reviewed.findings[0]).toContain('bin dist/cli.js')
   })
 
-  it('the review passes a pull request whose new module an entry point imports', async () => {
-    const { bench, worker } = benchWith(reviewerSaying({ verdict: 'pass', findings: [] }), headOf(productTree(true), [NEW_MODULE]))
-
-    expect(await worker.step()).toMatchObject({ kind: 'recorded', verdict: 'pass' })
-
-    expect(recordedFindings(bench)).toEqual([['pass', []]])
+  it('the review passes a pull request whose new module an entry point imports', () => {
+    expect(reviewedOnTheHead(PASS, headOf(productTree(true), [NEW_MODULE]))).toEqual(PASS)
   })
 
-  it('keeps the reviewer\'s own findings beside the reachability finding', async () => {
-    const { bench, worker } = benchWith(reviewerSaying({ verdict: 'changes', findings: [REVIEWER_FINDING] }), headOf(productTree(false), [NEW_MODULE]))
+  it('keeps the reviewer\'s own findings beside the reachability finding', () => {
+    const reviewed = reviewedOnTheHead({ verdict: 'changes', findings: [REVIEWER_FINDING] }, headOf(productTree(false), [NEW_MODULE]))
 
-    await worker.step()
-
-    const [[, findings]] = recordedFindings(bench) as [[string, string[]]]
-    expect(findings.slice(1)).toEqual([REVIEWER_FINDING])
-    expect(findings[0]).toContain(UNREACHED_FINDING_HEAD)
-  })
-
-  it('a reading of the head that fails records no reachability finding and keeps the reviewer\'s verdict', async () => {
-    const failing: HeadReading = {
-      added: [NEW_MODULE],
-      files: () => {
-        throw new Error('no such ref')
-      },
-      read: () => null,
-    }
-    const { bench, worker } = benchWith(reviewerSaying({ verdict: 'pass', findings: [] }), failing)
-
-    expect(await worker.step()).toMatchObject({ kind: 'recorded', verdict: 'pass' })
-    expect(recordedFindings(bench)).toEqual([['pass', []]])
-    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('could not be read'))
+    expect(reviewed.findings[0]).toContain(UNREACHED_FINDING_HEAD)
+    expect(reviewed.findings.slice(1)).toEqual([REVIEWER_FINDING])
   })
 })
 
@@ -183,7 +99,7 @@ describe('the finding and its place in the verdict', () => {
   })
 
   it('turns a pass into changes and leaves a review with no finding unchanged', () => {
-    const review: Review = { verdict: 'pass', findings: [], session: 's' }
+    const review: Verdicted = { verdict: 'pass', findings: [] }
 
     expect(withUnreached(review, null)).toBe(review)
     expect(withUnreached(review, 'f')).toEqual({ ...review, verdict: 'changes', findings: ['f'] })

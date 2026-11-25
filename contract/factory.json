@@ -5545,7 +5545,6 @@
           "cardRiskOf": "(cardId: number, card: string | null): RiskLevel | null",
           "correctionText": "(correction: Correction): string",
           "isChangeWitness": "(witness: string): boolean",
-          "isProductSource": "(file: string): boolean",
           "movingRefRefusal": "(witnesses: readonly NamedCommand[]): string | null",
           "ownerPathsOf": "(ownerMergesText: string): OwnerPaths",
           "publishedRootsOf": "(packageManifestText: string): string[] | undefined",
@@ -5718,7 +5717,8 @@
       "src/detect/entry-points.ts": {
         "constants": [],
         "functions": {
-          "entryPointKindOf": "(relative: string): EntryPointKind | null"
+          "entryPointKindOf": "(relative: string): EntryPointKind | null",
+          "isProductSource": "(file: string): boolean"
         },
         "reexports": [],
         "types": {
