@@ -114,6 +114,10 @@ export function ownerAnswerCommand(wait: OwnerWaitFacts): string {
 
 const OWNER_SAYS = `${constructCommand('say')} `
 
+export function shardRenewalCommand(hours: number): string {
+  return `${constructCommand('say')} "ghost-protocol ${hours}h" && construct-factory --mode ghost-protocol`
+}
+
 function standingCommandOf(asked: string | null): string | null {
   return asked === MIKO_COMMAND || asked?.startsWith(OWNER_SAYS) === true ? asked : windowCommandOf(asked)
 }

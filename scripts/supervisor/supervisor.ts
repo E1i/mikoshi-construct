@@ -33,7 +33,7 @@ import { WindowSessionEnds } from '../window/window-session-end.js'
 import { BUILD_DIR, BUILT_MODULE, flagsInArgs, instancesOf, launchName, PREFIX, printBg, provenOnBus, runBusBg, runningInstance, stampedOtherwise, startDetached, thisBus, withBuses } from './bg.js'
 import { BusHealer, CorruptionWatch, RecordedNodes } from './bus-heal.js'
 import { BusSnapshot } from './bus-snapshot.js'
-import { busOrderTick, busProjections, cardTransitions, recordOwnStart, reviewLaunch } from './composition.js'
+import { busOrderTick, busProjections, cardTransitions, recordOwnStart, reviewLaunch, shardTermTick } from './composition.js'
 import { freeLeasesOf, judgedLeaseLines, workerKindsOf } from './executor-lease.js'
 import { DRAIN_LIMIT_MS, DRAIN_WHY, GenerationHandover, recordRestarted, RETIRING_WORKERS } from './generation-handover.js'
 import { CARD_PROCESS, lastProcessBeats, ownStart, recordProcessHeartbeat, retiredRowsLines, retirePreviousGeneration } from './heartbeat.js'
@@ -41,7 +41,6 @@ import { beatsLive, SILENT_MS } from './liveness-sites.js'
 import { installedGeneration, ownPackage } from './package-generation.js'
 import { generationEnv, identifiedOnBus, identifiedProcesses, readableRows, recordedPidLives, runningAs } from './recorded-worker.js'
 import { busShadowProblems, startReviewWorker } from './review-bg.js'
-import { ShardTerm } from './shard-term.js'
 import { NOTHING_RECORDED, recordedThenSent, RESTART_WHY, signalLog, stopSending } from './signal-sent.js'
 import { stampLogOutput } from './stamp.js'
 import { WindowSubagentTick } from './window-subagent-tick.js'
@@ -876,7 +875,7 @@ export interface SupervisingParts {
   snapshot?: BusSnapshot
   windowEnds?: WindowSessionEnds
   windowSubagents?: Pick<WindowSubagentTick, 'step'>
-  shardTerm?: Pick<ShardTerm, 'step'>
+  shardTerm?: { step: () => string[] }
   order?: { step: () => string[] }
   handover?: Pick<GenerationHandover, 'step'>
   relaunch: Readonly<{ busDir: string, start?: NonNullable<AgentHand['start']>, generation?: Pick<BusCode, 'head'> | null }>
@@ -1022,7 +1021,7 @@ async function supervise(busDir: string, cwd: string, reviewOfTheBus: DetachedLa
       judge: new LivenessJudge(db, () => Date.now(), () => expectedRunning(db, wanted()), restartJudged, psStartOf),
       windowEnds: new WindowSessionEnds(db, cwd, () => Date.now(), PREFIX),
       windowSubagents: new WindowSubagentTick(db, cwd, () => Date.now(), PREFIX),
-      shardTerm: new ShardTerm(db, () => new Date(), PREFIX),
+      shardTerm: shardTermTick(db),
       order: busOrderTick(db, cwd),
       handover: new GenerationHandover(db, livesIn(), () => Date.now(), running => stopInstance(running, readableRows(), sleep, signalLog(db, DRAIN_WHY))),
       heal: new BusHealer({ busPath, nodes, now: () => new Date(), projections: busProjections(), watch: new CorruptionWatch(busLaunches(reviewOfTheBus).map(launch => path.join(busDir, launch.log))) }),
@@ -1069,7 +1068,9 @@ export interface AgentHand {
 
 function restampable(instance: RunningProcess, hand: AgentHand): boolean {
   const root = packageOfBusProcess(instance.args)
-  return provenOnBus(instance, thisBus(hand.env)) && (root === null || path.resolve(root) === path.resolve(hand.ownPackage)) && stampedOtherwise(instance, hand.env)
+  return provenOnBus(instance, thisBus(hand.env))
+    && (root === null || path.resolve(root) === path.resolve(hand.ownPackage))
+    && stampedOtherwise(instance, hand.env)
 }
 
 export async function startUnderAgentEnv(busDir: string, launches: DetachedLaunch[], hand: AgentHand): Promise<BgResult> {
