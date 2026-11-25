@@ -89,3 +89,10 @@ export function latestQuestionStops(stopsWithTheirCard: string, columns: string,
   ORDER BY stop.card_id
 `
 }
+
+const PR_HEAD = 'SELECT head FROM prs WHERE pr = ?'
+
+export function headOf(db: DatabaseSync, pr: number): string | null {
+  const row = db.prepare(PR_HEAD).get(pr) as { head: string | null } | undefined
+  return row?.head ?? null
+}

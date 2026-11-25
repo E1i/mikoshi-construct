@@ -32,12 +32,14 @@ import { currentVersion, interfaceVersion } from '../../src/version.js'
 import { cardRunsOf, catalogLayersByTest, catalogModuleLayers } from '../ci/card-runs.js'
 import { builtEntry } from '../core/built-entry.js'
 import { staleLine } from '../core/bus-readings.js'
+import { linkedPrs } from '../core/card-readings.js'
 import { BOARD_STALE_TICKS, BOARD_TIMER_PERIOD_MS, BUSY_TIMEOUT_MS, defaultBusPath, openBoardBeatWriter, recordBoardBeat } from '../core/db.js'
 import { ANSWER_STEP, CARD_HELD, CARD_RELEASED, TASK_LEASED } from '../core/events.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { statusLineOf } from '../core/handoff-status.js'
 import { readLayerMap } from '../core/layer-map.js'
 import { constructCommand, pnpmCommand } from '../core/owner-commands.js'
+import { headOf } from '../core/pr-readings.js'
 import { openDatabase } from '../core/sqlite.js'
 import { cardContract } from '../intake/card-contract.js'
 import { recordedWitnessFieldsBackfill, witnessTableOf } from '../intake/witness-fields-backfill.js'
@@ -222,11 +224,6 @@ export function readHandoff(file: string = HANDOFF_FILE): Handoff {
   }
 }
 
-function cardPrs(db: DatabaseSync): Map<number, number> {
-  const rows = db.prepare('SELECT card_id, pr FROM cards WHERE pr IS NOT NULL').all() as { card_id: number, pr: number }[]
-  return new Map(rows.map(row => [Number(row.card_id), Number(row.pr)]))
-}
-
 function writtenEntries(named: readonly string[], masks: readonly string[]): string[] {
   return [...named, ...masks.map(mask => `${LAYER_ENTRY}${mask}`)]
 }
@@ -246,14 +243,14 @@ export function runsReadingOf(touches: readonly string[], named: readonly string
 }
 
 function cardDetails(db: DatabaseSync, facts: BusFacts): Map<number, CardDetail> {
-  const prs = cardPrs(db)
+  const prs = linkedPrs(db)
   const backfill = recordedWitnessFieldsBackfill(db)
   const catalog: CheckCatalog = { testLayers: catalogLayersByTest(db), moduleLayers: catalogModuleLayers(db) }
   const map = readLayerMap()
   return new Map(facts.cards.map((card) => {
     const contract = cardContract(db, card.id)
     const pr = prs.get(card.id) ?? null
-    const witnessTable = witnessTableOf(db, contract, pr, backfill)
+    const witnessTable = witnessTableOf(db, contract, pr, number => headOf(db, number), backfill)
     const named = witnessTable?.runs ?? contract?.runs ?? []
     const runs = contract === null
       ? null
@@ -982,7 +979,7 @@ export function busDownText(down: BusDown): string {
 
 export function busJson(db: DatabaseSync, now: Date, liveOnly = false): string {
   const facts = busFacts(db, now)
-  const prs = cardPrs(db)
+  const prs = linkedPrs(db)
   const events = latestCardEvents(db, EVENTS_PER_CARD)
   return `${JSON.stringify({ status: 'live', at: facts.at, pulse: facts.pulse, waits: facts.waits, waitsStale: facts.waitsStale ?? null, cardsStale: facts.cardsStale ?? null, tally: taskTally(facts.cards.filter(isLive)), cards: (liveOnly ? facts.cards.filter(isLive) : facts.cards).map(card => ({ id: card.id, stage: card.stage, state: card.state, pr: prs.get(card.id) ?? null, line: card.line, parent: card.parent ?? null, mark: sliceMark(card), events: events.get(card.id) ?? [] })), tasks: openTasks(db) }, null, 2)}\n`
 }

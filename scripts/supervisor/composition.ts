@@ -44,6 +44,7 @@ import { appendedOnCard, cardFolds, cardLinkObserved, cardPrMerged, cardPrOpened
 import { admittedCardVersion, backfillPendingSliceParents, cardOfBranch } from '../core/card-bodies.js'
 import { cardDecisionReads, reviewedUnderTheCardDecision, reviewsTheCardDecisionReopens, withDecidedContinuations } from '../core/card-decisions.js'
 import { openDecisionWaitsOfCard, openOwnerWaits } from '../core/card-readings.js'
+import { cardsNobodyHolds } from '../core/cards-nobody-holds.js'
 import { CHAINS_PROJECTION } from '../core/chain.js'
 import { defaultBusPath, openBus } from '../core/db.js'
 import { byId, EITHER_JOURNAL, events, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } from '../core/events-query.js'
@@ -497,7 +498,7 @@ export function deadEndEvents(db: DatabaseSync): DeadEndEvents {
       return typeof reason === 'string' ? reason : null
     },
     cardsOfUnclosedOwnerWaits: () => openOwnerWaitCards(db),
-    cardsNobodyHolds: (heldElsewhere, ignoredActor) => read.cardsNobodyHolds(heldElsewhere, ignoredActor),
+    cardsNobodyHolds: (heldElsewhere, ignoredActor) => cardsNobodyHolds(db, heldElsewhere, ignoredActor),
     latestTaskKey: (card) => {
       const named = TASK_KEY_NAMED_BY.flatMap(type => read.where({ card, present: TASK_KEY_FIELD }).slice(type, TASK_KEY_FIELD, 'last'))
       const key = named.sort((a, b) => b.id - a.id)[0]?.fields.task_key

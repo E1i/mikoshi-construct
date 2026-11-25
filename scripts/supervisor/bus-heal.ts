@@ -9,10 +9,10 @@ import path from 'node:path'
 import process from 'node:process'
 import { backupsDirOf, BUS_FILE, busDirOf } from '../core/bus-path.js'
 import { appendEvent, BUSY_TIMEOUT_MS, openOwnerWait } from '../core/db.js'
+import { duplicateKeyUnindexed, eventRowsUnindexed, lastEventIdUnindexed, watermarkRows } from '../core/events-query.js'
 import { BUS_HEAL_HELD, BUS_HEALED } from '../core/events.js'
 import { reduce } from '../core/reducer.js'
 import { openDatabase } from '../core/sqlite.js'
-import { WATERMARKS } from '../core/watermark.js'
 import { PREFIX } from './bg.js'
 import { backupInto } from './bus-snapshot.js'
 
@@ -220,14 +220,11 @@ export interface EventsControl {
   digest: string
 }
 
-const EVENT_ROWS = 'SELECT id, ts, type, actor, card_id, pr, head, dedupe_key, payload, legacy FROM events NOT INDEXED WHERE id <= ? ORDER BY id'
-const DUPLICATE_KEYS = 'SELECT dedupe_key FROM events NOT INDEXED GROUP BY dedupe_key HAVING count(*) > 1 LIMIT 1'
-
 export function eventsControl(db: DatabaseSync, throughId = Number.MAX_SAFE_INTEGER): EventsControl {
   const hash = createHash('sha256')
   let maxId = 0
   let count = 0
-  for (const row of db.prepare(EVENT_ROWS).iterate(throughId)) {
+  for (const row of eventRowsUnindexed(db, throughId)) {
     hash.update(`${JSON.stringify(Object.values(row))}\n`)
     maxId = Math.max(maxId, Number(row.id))
     count += 1
@@ -239,14 +236,10 @@ export function integrityOf(db: DatabaseSync): string[] {
   return (db.prepare(`PRAGMA integrity_check(${BROKEN_SHOWN})`).all() as { integrity_check: string }[]).map(row => row.integrity_check)
 }
 
-function maxEventId(db: DatabaseSync): number {
-  return Number((db.prepare('SELECT coalesce(max(id), 0) AS id FROM events NOT INDEXED').get() as { id: number }).id)
-}
-
 export function laggingWatermarks(db: DatabaseSync): string[] {
-  const through = maxEventId(db)
+  const through = lastEventIdUnindexed(db)
   const reduced = Number((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version)
-  const rows = db.prepare(`SELECT projection, through_event_id FROM ${WATERMARKS} ORDER BY projection`).all() as { projection: string, through_event_id: number }[]
+  const rows = watermarkRows(db)
   return [
     ...reduced === through ? [] : [`user_version ${reduced}`],
     ...rows.filter(row => Number(row.through_event_id) !== through).map(row => `${row.projection} ${row.through_event_id}`),
@@ -312,8 +305,8 @@ function readBackup(dir: string): BackupReading {
   try {
     const control = step('reading the events table of the backup whole NOT INDEXED', () => eventsControl(copy))
     writeFileSync(path.join(dir, CONTROL_FILE), `${JSON.stringify({ max_id: control.maxId, count: control.count, digest: control.digest })}\n`)
-    const duplicate = step('looking for a duplicate dedupe_key', () => copy.prepare(DUPLICATE_KEYS).get() as { dedupe_key: string } | undefined)
-    demand(duplicate === undefined, `the events table holds the dedupe_key ${duplicate?.dedupe_key} twice, so REINDEX cannot rebuild its unique index`)
+    const duplicate = step('looking for a duplicate dedupe_key', () => duplicateKeyUnindexed(copy))
+    demand(duplicate === null, `the events table holds the dedupe_key ${duplicate} twice, so REINDEX cannot rebuild its unique index`)
     return { control, broken: integrityOf(copy).filter(line => line !== INTEGRITY_OK) }
   }
   finally {

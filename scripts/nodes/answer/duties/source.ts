@@ -5,6 +5,7 @@ import type { TreeMerge } from './tree.js'
 import { CLOSED_WAIT, OWNER_WAITS } from '../../../core/bus-readings.js'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../../../core/card-automaton.js'
 import { closedWaitIds, openDecisionWaitsOfCard, openOwnerWaits } from '../../../core/card-readings.js'
+import { cardsNobodyHolds } from '../../../core/cards-nobody-holds.js'
 import { closeOwnerWait, inTransaction, openBusWait } from '../../../core/db.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_DROPPED, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, WITNESS_RECORDED } from '../../../core/events.js'
 import { mergedCards, ofPr as pullRequestOf } from '../../../core/pr-readings.js'
@@ -109,7 +110,7 @@ export function strandedAnswerOf(db: DatabaseSync, cardId: number, head: string)
 export function strandedAnswers(db: DatabaseSync): { card: number, answer: StrandedAnswer }[] {
   const read = new BusRead(db)
   const waited = underAnOpenOwnerWait(db, read)
-  return read.cardsNobodyHolds(CARD_ENDS, NOBODY_IGNORED).filter(card => card.pr === null).flatMap((card) => {
+  return cardsNobodyHolds(db, CARD_ENDS, NOBODY_IGNORED).filter(card => card.pr === null).flatMap((card) => {
     const answer = strandedAnswerIn(read, waited, card.card)
     return answer === null ? [] : [{ card: card.card, answer }]
   })

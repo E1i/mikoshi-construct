@@ -4,6 +4,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import { CARDS, staleLine } from '../../core/bus-readings.js'
+import { cardsNobodyHolds } from '../../core/cards-nobody-holds.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_STARTED, EVENT_PAYLOADS, SESSION_HEARTBEAT, SHARD_DECIDED, WINDOW_HEARTBEAT } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
@@ -113,10 +114,10 @@ describe('the bus read port', () => {
     placed(10, 'stopped', 'merged-pr')
     db.prepare('INSERT INTO prs (pr, card_id, state, event_id) VALUES (?, ?, ?, 1)').run(4242, 10, 'merged')
 
-    const unheld = new BusRead(db).cardsNobodyHolds(['merged'], 'worker:test:ignored')
+    const unheld = cardsNobodyHolds(db, ['merged'], 'worker:test:ignored')
 
     expect(unheld.map(card => ({ card: card.card, state: card.state, type: card.lastEvent.type, ts: card.lastEvent.ts }))).toEqual([{ card: CARD, state: 'in_review', type: CARD_STARTED, ts: TS }])
-    expect(new BusRead(db).cardsNobodyHolds(['merged'], 'nobody').map(card => card.lastEvent.type)).toEqual([SESSION_HEARTBEAT])
+    expect(cardsNobodyHolds(db, ['merged'], 'nobody').map(card => card.lastEvent.type)).toEqual([SESSION_HEARTBEAT])
   })
 
   it('reads only: a read-only bus answers, and the port holds no SQL that writes', () => {

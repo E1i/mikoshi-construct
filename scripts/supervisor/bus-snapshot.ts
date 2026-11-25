@@ -4,6 +4,7 @@ import { mkdirSync, renameSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { BUSY_TIMEOUT_MS } from '../core/db.js'
+import { EITHER_JOURNAL, EVENTS_COUNT_UNINDEXED, latest } from '../core/events-query.js'
 import { MERGE_DONE } from '../core/events.js'
 import { PREFIX } from './bg.js'
 
@@ -14,8 +15,7 @@ const UNPUBLISHED = '.publishing'
 const SHELL_QUOTE = '\''
 const INTEGRITY_OK = 'ok'
 const MISSING_PROGRAM = 'ENOENT'
-const EVENTS_READ = 'PRAGMA integrity_check; SELECT count(*) FROM events NOT INDEXED;'
-const LAST_MERGE = `SELECT coalesce(max(id), 0) AS id FROM events WHERE type = '${MERGE_DONE}'`
+const EVENTS_READ = `PRAGMA integrity_check; ${EVENTS_COUNT_UNINDEXED}`
 
 const execShell = promisify(execFile)
 
@@ -79,7 +79,7 @@ export interface SnapshotParts {
 }
 
 function lastMerge(db: DatabaseSync): number {
-  return Number((db.prepare(LAST_MERGE).get() as { id: number }).id)
+  return latest(db, { types: [MERGE_DONE], legacy: EITHER_JOURNAL })?.id ?? 0
 }
 
 export class BusSnapshot {

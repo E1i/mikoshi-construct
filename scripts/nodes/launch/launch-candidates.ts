@@ -768,7 +768,7 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
       }
       continue
     }
-    if (!isQueued(life, settled) || (life.lane !== null && (outsideTheLanes(life.lane, laneLimit) || busy.some(holder => holder.lane === life.lane && HOLDS.holdsAgainst(holder, life)) || heldByStall(life, (heldByStalls.get(life.lane) ?? []).filter(holder => HOLDS.holdsAgainst(holder, life)), shared))) || unsatisfied(life.depends).length > 0 || heldOutside(life, openPrs, trees, beating))
+    if (!isQueued(life, settled) || (life.lane !== null && (outsideTheLanes(life.lane, laneLimit) || busy.some(holder => holder.lane === life.lane && HOLDS.holdsAgainst(holder, life)) || heldByStall(life, (heldByStalls.get(life.lane) ?? []).filter(holder => HOLDS.holdsAgainst(holder, life)), shared))) || unsatisfied(life.depends).length > 0 || heldOutside(life, openPrs, trees, beating) || heldSessionStop(db, life.cardId)?.code === OUTSIDE_TOUCHES)
       continue
     if (bodyNotFoldedYet(BUS_CONTRACT, db, life.cardId))
       continue

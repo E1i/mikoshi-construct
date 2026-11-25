@@ -162,6 +162,7 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/core/merge-event.ts`,
     `${FACTORY_ROOT}/core/pr-folds.ts`,
     `${FACTORY_ROOT}/core/pr-readings.ts`,
+    `${FACTORY_ROOT}/core/cards-nobody-holds.ts`,
     `${FACTORY_ROOT}/core/pr-status.ts`,
   ],
   'project': [

@@ -5,8 +5,9 @@ import type { SessionGauges } from './eddies-measure.js'
 import type { WindowCrawler } from './window-agents.js'
 import os from 'node:os'
 import process from 'node:process'
-import { appendEvent, HEARTBEATS, openBus } from '../core/db.js'
-import { PROCESS_ENDED, PROCESS_HEARTBEAT, WINDOW_HEARTBEAT } from '../core/events.js'
+import { appendEvent, openBus } from '../core/db.js'
+import { EITHER_JOURNAL, events, processBeats } from '../core/events-query.js'
+import { PROCESS_ENDED, WINDOW_HEARTBEAT } from '../core/events.js'
 import { clientAdapter } from '../ports/client/index.js'
 import { windowModeOf } from '../ports/session.js'
 import { measureSession } from '../supervisor/heartbeat.js'
@@ -23,26 +24,30 @@ const SESSION_ID = /^[^:\s]+$/
 const SQLITE_BUSY = 5
 const PRIMARY_RESULT_CODE = 0xFF
 
-const LAST_LOOP_BEATS = `
-  SELECT beats.name, beats.ts FROM (
-    SELECT process AS name, ts FROM ${HEARTBEATS}
-    WHERE type = '${PROCESS_HEARTBEAT}' AND process LIKE '${LOOP_PROCESS}%'
-  ) AS beats
-  WHERE NOT EXISTS (
-    SELECT 1 FROM events AS ended
-    WHERE ended.type = '${PROCESS_ENDED}' AND json_valid(ended.payload) AND json_extract(ended.payload, '$.process') = beats.name AND ended.ts >= beats.ts
-  )
-  ORDER BY beats.ts DESC
-`
+function jsonText(text: string): string {
+  return JSON.stringify(text).slice(1, -1)
+}
 
-const LAST_WINDOW_BEAT = `SELECT max(ts) AS ts FROM events WHERE type = '${WINDOW_HEARTBEAT}' AND legacy = 0 AND ts > ?`
+function newestFirst(a: { ts: string }, b: { ts: string }): number {
+  return a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0
+}
 
-const LIVE_WINDOW_BEATS = `
-  SELECT json_extract(payload, '$.session') AS session, max(ts) AS ts FROM events
-  WHERE type = '${WINDOW_HEARTBEAT}' AND legacy = 0 AND json_valid(payload) AND json_extract(payload, '$.root') = ? AND json_extract(payload, '$.session') != ?
-  GROUP BY session
-  ORDER BY ts DESC
-`
+function liveWindowBeats(db: DatabaseSync, root: string, ownSession: string): { session: string, ts: string }[] {
+  const latest = new Map<string, string>()
+  for (const beat of events(db, { types: [WINDOW_HEARTBEAT], valid: true, mentions: jsonText(root) })) {
+    const session = beat.data?.session
+    if (beat.data?.root !== root || session === undefined || session === null || session === ownSession)
+      continue
+    const held = latest.get(String(session))
+    if (held === undefined || beat.ts > held)
+      latest.set(String(session), beat.ts)
+  }
+  return [...latest].map(([session, ts]) => ({ session, ts })).sort(newestFirst)
+}
+
+function endedSince(db: DatabaseSync, name: string, ts: string): boolean {
+  return events(db, { types: [PROCESS_ENDED], valid: true, legacy: EITHER_JOURNAL, from: ts, mentions: jsonText(name) }).some(ended => ended.data?.process === name)
+}
 
 export interface WindowSession {
   session: string
@@ -62,8 +67,7 @@ export function windowOf(env: NodeJS.ProcessEnv): WindowSession | null {
 export function otherLiveWindows(db: DatabaseSync, window: WindowSession, nowMs: number): { session: string, ts: string }[] {
   if (window.root === undefined)
     return []
-  const beats = db.prepare(LIVE_WINDOW_BEATS).all(window.root, window.session) as { session: string, ts: string }[]
-  return beats.filter(beat => beatsLive(beat.ts, nowMs))
+  return liveWindowBeats(db, window.root, window.session).filter(beat => beatsLive(beat.ts, nowMs))
 }
 
 export function anotherWindowLine(root: string, others: { session: string, ts: string }[]): string {
@@ -134,10 +138,11 @@ function busLocked(error: unknown): boolean {
 }
 
 export function lastLoopBeats(db: DatabaseSync): { name: string, ts: string }[] {
-  return db.prepare(LAST_LOOP_BEATS).all() as { name: string, ts: string }[]
+  return processBeats(db, LOOP_PROCESS).filter(beat => !endedSince(db, beat.process, beat.ts)).map(beat => ({ name: beat.process, ts: beat.ts })).sort(newestFirst)
 }
 
 export function windowLive(db: DatabaseSync, nowMs: number, windowEnded: string | null): boolean {
-  const lastBeat = (db.prepare(LAST_WINDOW_BEAT).get(windowEnded ?? '') as { ts: string | null }).ts
+  const after = windowEnded ?? ''
+  const lastBeat = events(db, { types: [WINDOW_HEARTBEAT], from: after, newestFirst: true, limit: 2 }).find(beat => beat.ts > after)?.ts ?? null
   return (lastBeat !== null && beatsLive(lastBeat, nowMs)) || lastLoopBeats(db).some(beat => beatsLive(beat.ts, nowMs))
 }

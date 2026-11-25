@@ -5,6 +5,7 @@ import { appendEvent } from './db.js'
 import { events, lastStatusSetOnHead } from './events-query.js'
 import { CARD_STOPPED, COMMAND_EXECUTED, DECISION_RECORDED, MERGE_DONE, POLICY_DENIED, PR_OPENED, PR_STATUS_REFUSED, PR_STATUS_SET, REVIEW_RECORDED, TASK_LEASED, WITNESS_RECORDED } from './events.js'
 import { moveCursor, openCursor } from './node.js'
+import { headOf as headOfPr } from './pr-readings.js'
 
 export const PREFIX = '[bus:pr-status] '
 export const STATUS_CURSOR = 'pr-status'
@@ -102,8 +103,8 @@ function withPrHead(db: DatabaseSync, event: StepEvent): StepEvent {
     return withAllowedPrHead(db, event)
   if (event.type !== PR_OPENED || event.pr === null || headOf(event) !== null)
     return event
-  const row = db.prepare('SELECT head FROM prs WHERE pr = ?').get(event.pr) as { head: string | null } | undefined
-  return row?.head ? { ...event, head: row.head } : event
+  const head = headOfPr(db, event.pr)
+  return head ? { ...event, head } : event
 }
 
 export function stepStatusOf(event: StepEvent): StepStatus | null {
