@@ -2,7 +2,6 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { isProductSource, unreachableCreatesRefusal } from '../../src/commands/intake/check.js'
 import { detectEntryPoints, entryPointKindOf, importReach } from '../../src/detect/entry-points.js'
 
 const roots: string[] = []
@@ -68,44 +67,5 @@ describe('the entry points of the stack are facts of detect', () => {
     })
 
     expect(importReach(root, ['src/cli.ts'])).toEqual(['src/a.ts', 'src/b/index.ts', 'src/c/index.ts', 'src/cli.ts'])
-  })
-})
-
-describe('admit judges a created product module by the entry points', () => {
-  it.each([
-    ['src/feature.ts', true],
-    ['src/feature.test.ts', false],
-    ['tests/feature.ts', false],
-    ['scripts/feature.ts', false],
-    ['docs/feature.md', false],
-  ])('%s is product source: %s', (file, product) => {
-    expect(isProductSource(file)).toBe(product)
-  })
-
-  const product = (): string => tree({
-    'package.json': JSON.stringify({ bin: { tool: 'dist/cli.js' } }),
-    'src/cli.ts': 'import \'./program.js\'\n',
-    'src/program.ts': '',
-    'src/island.ts': '',
-  })
-
-  it('passes a touch of the manifest that declares the entry points', () => {
-    expect(unreachableCreatesRefusal(product(), 1, ['package.json'], ['src/feature.ts'])).toBeNull()
-  })
-
-  it('passes a created module that is itself an entry point', () => {
-    expect(unreachableCreatesRefusal(product(), 1, ['src/island.ts'], ['app/page.tsx'])).toBeNull()
-  })
-
-  it('passes a card that creates no product module', () => {
-    expect(unreachableCreatesRefusal(product(), 1, ['src/island.ts'], ['scripts/tool.ts'])).toBeNull()
-  })
-
-  it('does not judge a repository whose stack names no entry point', () => {
-    expect(unreachableCreatesRefusal(tree({ 'src/island.ts': '' }), 1, ['src/island.ts'], ['src/feature.ts'])).toBeNull()
-  })
-
-  it('passes a prefix touch over a reached module', () => {
-    expect(unreachableCreatesRefusal(product(), 1, ['src/**'], ['src/feature.ts'])).toBeNull()
   })
 })

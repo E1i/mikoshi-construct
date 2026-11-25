@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { InMemoryDecisions } from '../../../scripts/policy/decisions/decisions.js'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
+import { isProductSource, unreachableCreatesRefusal } from '../../../src/commands/intake/check.js'
 
 const NOW = new Date('2026-11-24T10:00:00.000Z')
 const CARD = 4236
@@ -58,5 +59,46 @@ describe('a witness must be reachable from an entry point of the product', () =>
     const result = admit(['src/program.ts'])
 
     expect(result.status).toBe('dryRun')
+  })
+})
+
+describe('admit judges a created product module by the entry points', () => {
+  it.each([
+    ['src/feature.ts', true],
+    ['src/feature.test.ts', false],
+    ['tests/feature.ts', false],
+    ['scripts/feature.ts', false],
+    ['docs/feature.md', false],
+  ])('%s is product source: %s', (file, product) => {
+    expect(isProductSource(file)).toBe(product)
+  })
+
+  const product = (): string => {
+    const root = mkdtempSync(path.join(tmpdir(), 'reachable-from-entry-'))
+    roots.push(root)
+    return productRepository(root)
+  }
+
+  it('passes a touch of the manifest that declares the entry points', () => {
+    expect(unreachableCreatesRefusal(product(), 1, ['package.json'], [CREATED])).toBeNull()
+  })
+
+  it('passes a created module that is itself an entry point', () => {
+    expect(unreachableCreatesRefusal(product(), 1, ['src/island.ts'], ['app/page.tsx'])).toBeNull()
+  })
+
+  it('passes a card that creates no product module', () => {
+    expect(unreachableCreatesRefusal(product(), 1, ['src/island.ts'], ['scripts/tool.ts'])).toBeNull()
+  })
+
+  it('does not judge a repository whose stack names no entry point', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'reachable-from-entry-'))
+    roots.push(root)
+    writeFileSync(path.join(root, 'island.ts'), '')
+    expect(unreachableCreatesRefusal(root, 1, ['island.ts'], [CREATED])).toBeNull()
+  })
+
+  it('passes a prefix touch over a reached module', () => {
+    expect(unreachableCreatesRefusal(product(), 1, ['src/**'], [CREATED])).toBeNull()
   })
 })
