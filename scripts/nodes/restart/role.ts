@@ -1,10 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../core/db.js'
+import type { EventStamp, Signs } from '../../core/events-query.js'
 import type { EventPayload } from '../../core/events.js'
 import type { Fold, StoredEvent } from '../../core/stored.js'
 import type { IncrementalProjection } from '../../core/watermark.js'
 import { closedWaitIds } from '../../core/card-readings.js'
-import { appendEvent, CLOSED_WAIT, inTransaction, openBusWait, OWNER_WAITS } from '../../core/db.js'
+import { appendEvent, inTransaction, openBusWait } from '../../core/db.js'
+import { EITHER_JOURNAL, events, signStampsSince } from '../../core/events-query.js'
 import { OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, ROLE_LEASED, ROLE_RAISE_FAILED, ROLE_RAISED, ROLE_RETURNED, ROLE_STOPPED, ROLE_TO_OWNER, WINDOW_HEARTBEAT } from '../../core/events.js'
 import { LEASE_MS } from '../../core/lease.js'
 import { pnpmCommand } from '../../core/owner-commands.js'
@@ -67,15 +69,46 @@ const STOPPED_AT_A_THRESHOLD = `
   ORDER BY role
 `
 
-const LAST_WINDOW_END = `SELECT max(ts) AS ts FROM events WHERE type = '${ROLE_RETURNED}' AND json_valid(payload) AND json_extract(payload, '$.ended') IS NOT NULL`
+const OWNER_SESSIONS = `SELECT ${ROLE_COLUMNS} FROM roles WHERE state = '${OWNER}' ORDER BY role`
+const WINDOW_SIGNS: Signs = { types: [WINDOW_HEARTBEAT], actorPrefix: WINDOW_ACTOR }
+const WINDOW_BEATS: Signs = { types: [WINDOW_HEARTBEAT, ROLE_RETURNED], actorPrefix: WINDOW_ACTOR }
 
-const SILENT_OWNER_SESSION = `
-  SELECT roles.role, roles.handoff, roles.event_id, max(signs.ts) AS last_sign FROM roles
-  JOIN events AS signs ON signs.id > roles.event_id AND (signs.type = '${WINDOW_HEARTBEAT}' OR signs.actor LIKE '${WINDOW_ACTOR}%')
-  WHERE roles.state = '${OWNER}'
-  GROUP BY roles.role HAVING max(signs.ts) < ?
-  ORDER BY roles.role LIMIT 1
-`
+function latestOf(stamps: readonly string[]): string | null {
+  return stamps.reduce<string | null>((latest, ts) => latest === null || ts > latest ? ts : latest, null)
+}
+
+function earliestOf(stamps: readonly string[]): string | null {
+  return stamps.reduce<string | null>((earliest, ts) => earliest === null || ts < earliest ? ts : earliest, null)
+}
+
+function lastWindowEnd(db: DatabaseSync): string | null {
+  return latestOf(events(db, { types: [ROLE_RETURNED], valid: true, legacy: EITHER_JOURNAL })
+    .flatMap(returned => returned.data?.ended === undefined || returned.data.ended === null ? [] : [returned.ts]))
+}
+
+export interface SilentOwnerSession {
+  role: Role
+  handoff: string
+  event_id: number
+  last_sign: string
+}
+
+export function silentOwnerSession(owned: readonly Pick<RoleRow, 'role' | 'handoff' | 'event_id'>[], signs: readonly EventStamp[], silentSince: string): SilentOwnerSession | null {
+  for (const row of owned) {
+    const lastSign = latestOf(signs.filter(sign => sign.id > row.event_id).map(sign => sign.ts))
+    if (lastSign !== null && lastSign < silentSince)
+      return { role: row.role, handoff: row.handoff, event_id: row.event_id, last_sign: lastSign }
+  }
+  return null
+}
+
+function silentOwnerSessionIn(db: DatabaseSync, silentSince: string): SilentOwnerSession | null {
+  const owned = db.prepare(OWNER_SESSIONS).all() as unknown as RoleRow[]
+  if (owned.length === 0)
+    return null
+  const signs = signStampsSince(db, Math.min(...owned.map(row => row.event_id)), WINDOW_SIGNS)
+  return silentOwnerSession(owned, signs, silentSince)
+}
 
 export interface RoleReading {
   role: Role
@@ -86,7 +119,12 @@ export interface RoleReading {
 }
 
 export function roleReadings(db: DatabaseSync): RoleReading[] {
-  return db.prepare('SELECT roles.role, roles.state, roles.lease_until, roles.pid, events.ts FROM roles JOIN events ON events.id = roles.event_id ORDER BY roles.role').all() as unknown as RoleReading[]
+  const rows = db.prepare('SELECT role, state, lease_until, pid, event_id FROM roles ORDER BY role').all() as unknown as (Omit<RoleReading, 'ts'> & { event_id: number })[]
+  const stamps = new Map(events(db, { ids: rows.map(row => Number(row.event_id)), legacy: EITHER_JOURNAL }).map(event => [event.id, event.ts]))
+  return rows.flatMap(({ event_id, ...row }) => {
+    const ts = stamps.get(Number(event_id))
+    return ts === undefined ? [] : [{ ...row, ts }]
+  })
 }
 
 export function raisedByTheBus(env: NodeJS.ProcessEnv): boolean {
@@ -208,22 +246,31 @@ function ownerDetail(row: RoleRow, start: string | null): string {
 
 const START_COMMANDS = Object.values(ROLE_STARTS).filter((start): start is string => start !== null)
 
-const START_WAITS_A_WINDOW_BEAT_ANSWERED = `
-  SELECT id, beat FROM (
-    SELECT json_extract(opened.payload, '$.id') AS id, (
-      SELECT min(beat.ts) FROM events AS beat
-      WHERE beat.id > opened.id AND (beat.type IN ('${WINDOW_HEARTBEAT}', '${ROLE_RETURNED}') OR beat.actor LIKE '${WINDOW_ACTOR}%')
-    ) AS beat
-    FROM events AS opened
-    WHERE opened.type = '${OWNER_WAIT_OPENED}' AND opened.legacy = 0 AND json_extract(opened.payload, '$.need') = 'command'
-      AND json_extract(opened.payload, '$.command') IN (${START_COMMANDS.map(() => '?').join(', ')})
-      AND NOT EXISTS (SELECT 1 FROM ${OWNER_WAITS} AS wait WHERE wait.id = json_extract(opened.payload, '$.id') AND wait.state = '${CLOSED_WAIT}')
-      AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${OWNER_WAIT_CLOSED}' AND json_extract(closed.payload, '$.id') = json_extract(opened.payload, '$.id'))
-  ) WHERE beat IS NOT NULL ORDER BY id
-`
+interface AnsweredStartWait {
+  id: string
+  beat: string
+}
+
+function byWaitId(a: AnsweredStartWait, b: AnsweredStartWait): number {
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+}
+
+function startWaitsAWindowBeatAnswered(db: DatabaseSync): AnsweredStartWait[] {
+  const opened = events(db, { types: [OWNER_WAIT_OPENED], valid: true })
+    .filter(open => open.data?.need === 'command' && START_COMMANDS.includes(open.data.command as string) && typeof open.data.id === 'string')
+  if (opened.length === 0)
+    return []
+  const closed = new Set<unknown>([...closedWaitIds(db), ...events(db, { types: [OWNER_WAIT_CLOSED], legacy: EITHER_JOURNAL }).map(close => close.data?.id)])
+  const beats = signStampsSince(db, Math.min(...opened.map(open => open.id)), WINDOW_BEATS)
+  return opened.flatMap((open) => {
+    const id = open.data!.id as string
+    const beat = earliestOf(beats.filter(each => each.id > open.id).map(each => each.ts))
+    return closed.has(id) || beat === null ? [] : [{ id, beat }]
+  }).sort(byWaitId)
+}
 
 function closeStartWaitsAWindowBeatAnswered(db: DatabaseSync, ts: string, actor: string): void {
-  for (const { id, beat } of db.prepare(START_WAITS_A_WINDOW_BEAT_ANSWERED).all(...START_COMMANDS) as { id: string, beat: string }[])
+  for (const { id, beat } of startWaitsAWindowBeatAnswered(db))
     appendEvent(db, { ts, type: OWNER_WAIT_CLOSED, actor, cardId: null, pr: null, head: null, dedupeKey: `${OWNER_WAIT_CLOSED}:${id}`, payload: { id, answer: `the window beat again at ${beat}` }, legacy: false })
 }
 
@@ -232,7 +279,7 @@ export function roleToOwner(db: DatabaseSync, ts: string, actor: string): RoleTo
     closeStartWaitsAWindowBeatAnswered(db, ts, actor)
     const stopped = db.prepare(STOPPED_AT_A_THRESHOLD).all() as unknown as RoleRow[]
     const startable = stopped.some(each => ROLE_STARTS[each.role] !== null)
-    const live = startable && windowLive(db, Date.parse(ts), (db.prepare(LAST_WINDOW_END).get() as { ts: string | null }).ts)
+    const live = startable && windowLive(db, Date.parse(ts), lastWindowEnd(db))
     const row = stopped.find(each => !live || ROLE_STARTS[each.role] === null)
     if (row === undefined)
       return null
@@ -247,8 +294,8 @@ export function roleToOwner(db: DatabaseSync, ts: string, actor: string): RoleTo
 export function returnSilentRole(db: DatabaseSync, ts: string, actor: string): RoleReturned | null {
   return inTransaction(db, () => {
     const silentSince = new Date(Date.parse(ts) - LEASE_MS).toISOString()
-    const row = db.prepare(SILENT_OWNER_SESSION).get(silentSince) as { role: Role, handoff: string, event_id: number, last_sign: string } | undefined
-    if (row === undefined)
+    const row = silentOwnerSessionIn(db, silentSince)
+    if (row === null)
       return null
     reduced(db, { ts, type: ROLE_RETURNED, actor, cardId: null, pr: null, head: null, dedupeKey: `${ROLE_RETURNED}:${row.role}:${row.event_id}`, payload: { role: row.role, handoff: row.handoff, last_sign: row.last_sign }, legacy: false })
     return { role: row.role, handoff: row.handoff, lastSign: row.last_sign }

@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../core/db.js'
+import type { EventRow } from '../../core/events-query.js'
 import type { AfterFailure, CardTransitions, Lease } from '../../core/lease.js'
 import type { CardFileStep } from '../../intake/card-archive.js'
 import type { ProcessCwds } from '../../ports/client/contract.js'
@@ -9,7 +10,9 @@ import { existsSync, realpathSync } from 'node:fs'
 import process from 'node:process'
 import { BACKFILL_SOURCE } from '../../core/backfill-source.js'
 import { NOT_MINE, notMine, STOPPED_CARD } from '../../core/card-automaton.js'
+import { cardStatesAmong } from '../../core/card-readings.js'
 import { appendEvent } from '../../core/db.js'
+import { EITHER_JOURNAL, events, latest } from '../../core/events-query.js'
 import { ARTIFACT_KEPT, ARTIFACT_REMOVED, CARD_ADMITTED, CARD_CLOSED, CARD_VERIFIED, POLICY_DENIED } from '../../core/events.js'
 import { assertHeld, completeTask, failTask, StaleLease } from '../../core/lease.js'
 import { VERIFICATION_WORDS } from '../../core/verification.js'
@@ -91,8 +94,7 @@ function dirtyCount(worktree: string): number {
 }
 
 export function treeMayBeReused(db: DatabaseSync, cardId: number, card: CardSession, cwds?: () => ProcessCwds): boolean {
-  const row = db.prepare('SELECT state FROM cards WHERE card_id = ?').get(cardId) as { state: string | null } | undefined
-  return row?.state !== STOPPED_CARD && !liveSessionHolds(card.worktree, cwds)
+  return cardStatesAmong(db, [cardId]).get(cardId) !== STOPPED_CARD && !liveSessionHolds(card.worktree, cwds)
 }
 
 export function parkedOrNull(repo: string, tree: string, capacity: number): string | null {
@@ -135,38 +137,40 @@ function technical(reason: CloseTechnicalReason, detail: string): CloseDenial {
 }
 
 export function cardClosed(db: DatabaseSync, cardId: number): boolean {
-  return db.prepare('SELECT 1 FROM events WHERE type = ? AND card_id = ? LIMIT 1').get(CARD_CLOSED, cardId) !== undefined
+  return latest(db, { types: [CARD_CLOSED], card: cardId, legacy: EITHER_JOURNAL }) !== null
 }
-
-const PROBE_CLOSINGS = `
-  SELECT verified.card_id, verified.payload FROM events AS verified
-  WHERE verified.type = '${CARD_VERIFIED}' AND verified.legacy = 0 AND verified.pr IS NULL AND verified.card_id IS NOT NULL
-    AND json_extract(verified.payload, '$.report') IS NOT NULL
-    AND NOT EXISTS (
-      SELECT 1 FROM events AS closed WHERE closed.type = '${CARD_CLOSED}' AND closed.card_id = verified.card_id
-        AND closed.id > coalesce((
-          SELECT max(admitted.id) FROM events AS admitted
-          WHERE admitted.type = '${CARD_ADMITTED}' AND admitted.legacy = 0 AND admitted.card_id = verified.card_id AND admitted.id < verified.id
-            AND json_extract(admitted.payload, '$.source') IS NOT '${BACKFILL_SOURCE}'
-        ), 0)
-    )
-  ORDER BY verified.id
-`
 
 interface ProbeClosing {
   verification: string | null
   report: string
 }
 
+function idsPerCard(rows: readonly EventRow[]): Map<number | null, number[]> {
+  const ids = new Map<number | null, number[]>()
+  for (const row of rows)
+    ids.set(row.card_id, [...ids.get(row.card_id) ?? [], row.id])
+  return ids
+}
+
+function reportsAReport(row: EventRow): boolean {
+  return row.data !== null && row.data.report !== undefined && row.data.report !== null
+}
+
+function probeClosings(db: DatabaseSync): EventRow[] {
+  const closed = idsPerCard(events(db, { types: [CARD_CLOSED], withCard: true, legacy: EITHER_JOURNAL }))
+  const admitted = idsPerCard(events(db, { types: [CARD_ADMITTED], withCard: true }).filter(row => row.data?.source !== BACKFILL_SOURCE))
+  return events(db, { types: [CARD_VERIFIED], pr: null, withCard: true }).filter(reportsAReport).filter((verified) => {
+    const readmitted = Math.max(0, ...(admitted.get(verified.card_id) ?? []).filter(id => id < verified.id))
+    return !(closed.get(verified.card_id) ?? []).some(id => id > readmitted)
+  })
+}
+
 export function probeClosingCardIds(db: DatabaseSync): number[] {
-  const rows = db.prepare(PROBE_CLOSINGS).all() as unknown as { card_id: number }[]
-  return [...new Set(rows.map(row => row.card_id))]
+  return [...new Set(probeClosings(db).map(row => row.card_id!))]
 }
 
 function probeClosingOf(db: DatabaseSync, cardId: number): ProbeClosing {
-  const rows = db.prepare(PROBE_CLOSINGS).all() as unknown as { card_id: number, payload: string }[]
-  const row = rows.filter(each => each.card_id === cardId).at(-1)
-  const payload = row === undefined ? {} : JSON.parse(row.payload) as { verification?: unknown, report?: unknown }
+  const payload = probeClosings(db).filter(each => each.card_id === cardId).at(-1)?.data ?? {}
   return { verification: typeof payload.verification === 'string' ? payload.verification : null, report: typeof payload.report === 'string' ? payload.report : '' }
 }
 

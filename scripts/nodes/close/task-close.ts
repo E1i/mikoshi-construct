@@ -1,7 +1,9 @@
+import type { DatabaseSync } from 'node:sqlite'
 import type { Card } from '../../../src/card/grammar.js'
 import type { CheapForecast, CheapSession } from '../../../src/commands/cost/cheap.js'
 import type { SignalStyle } from '../../../src/ui/signal.js'
 import type { BusEvent } from '../../core/db.js'
+import type { EventRow } from '../../core/events-query.js'
 import type { EventPayload } from '../../core/events.js'
 import type { Decision } from '../../policy/decisions/decisions.js'
 import type { GhCall, GhCaller, GhRead } from '../../ports/gh.js'
@@ -16,15 +18,16 @@ import { cheapClass, cheapForecastOf, claudeProjectsDir, defaultShiftRoot, proje
 import { formatTokens } from '../../../src/commands/cost/expect.js'
 import { MUTATION_JUDGED_EVENT } from '../../../src/commands/mutate/journal.js'
 import { PLAIN_STYLE, renderSignal, terminalStyle } from '../../../src/ui/signal.js'
-import { NOT_A_BACKFILL } from '../../core/backfill-source.js'
+import { isBackfill } from '../../core/backfill-source.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from '../../core/db.js'
 import { ENTRY_EVENT, entryOf, startedEntryOf } from '../../core/entry.js'
-import { CARD_VERIFIED } from '../../core/events.js'
+import { events } from '../../core/events-query.js'
+import { CARD_ADMITTED, CARD_VERIFIED } from '../../core/events.js'
 import { ghostLines } from '../../core/journal.js'
 import { legacyHistory } from '../../core/legacy-history.js'
 import { pnpmCommand } from '../../core/owner-commands.js'
 import { ghInRepositoryOf } from '../../core/places.js'
-import { ofPr } from '../../core/pr-readings.js'
+import { headOf, ofPr, ofCard as prsOfCard } from '../../core/pr-readings.js'
 import { openDatabase } from '../../core/sqlite.js'
 import { cardStartedLines } from '../../core/tasks.js'
 import { VERIFICATION_WORDS } from '../../core/verification.js'
@@ -41,14 +44,12 @@ const PR_NUMBER = /^[1-9]\d*$/
 const DECISION_REFERENCE = /^D-[1-9]\d*$/
 const CARD_MENTION = /(?<!PR )#([1-9]\d*)/g
 const CLOSER_SESSION_BY_HAND = 'by-hand'
-const CARD_VERIFIED_ROWS = `SELECT id, ts, card_id, pr, payload FROM events WHERE type = '${CARD_VERIFIED}' AND legacy = 0 AND card_id IS NOT NULL ORDER BY id`
 const REPORT_ROOTS = ['reports', 'probes'] as const
 const REPORT_VERIFICATION_LINE = /^verification:\s*(\S+)\s*$/m
 const SURVIVED = 'nothing-red'
 const LADDER_CONTOUR = 'ladder'
 const MS_PER_MINUTE = 60_000
 const OPEN_ISSUE_LIMIT = 1000
-const PULL_REQUEST_OF_CARD = 'SELECT pr FROM prs WHERE card_id = ? ORDER BY pr DESC LIMIT 1'
 
 type Flag = typeof FLAGS[number]
 
@@ -119,8 +120,7 @@ function pullRequestOfCard(busPath: string, id: string): number | null {
     return null
   const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
   try {
-    const row = db.prepare(PULL_REQUEST_OF_CARD).get(Number(id)) as { pr: number } | undefined
-    return row?.pr ?? null
+    return prsOfCard(db, Number(id)).at(-1)?.pr ?? null
   }
   finally {
     db.close()
@@ -177,6 +177,10 @@ function journalLines(journal: string): Record<string, unknown>[] {
   })
 }
 
+function cardVerifiedRows(db: DatabaseSync): EventRow[] {
+  return events(db, { types: [CARD_VERIFIED], withCard: true })
+}
+
 export interface VerifiedClosing {
   task: string
   pr: number | null
@@ -202,8 +206,7 @@ export function cardVerifiedClosings(busPath: string): VerifiedClosing[] {
     return []
   const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
   try {
-    const rows = db.prepare(CARD_VERIFIED_ROWS).all() as unknown as { id: number, card_id: number, pr: number | null, payload: string }[]
-    return rows.flatMap((row) => {
+    return cardVerifiedRows(db).flatMap((row) => {
       const payload = journalLines(row.payload)[0]
       return payload === undefined ? [] : [{ task: String(row.card_id), pr: row.pr, verification: payload.verification, actual: payload.actual, event: row.id }]
     })
@@ -218,8 +221,7 @@ export function closingHistoryLines(busPath: string): Record<string, unknown>[] 
     return []
   const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
   try {
-    const rows = db.prepare(CARD_VERIFIED_ROWS).all() as unknown as { ts: string, card_id: number, payload: string }[]
-    return rows
+    return cardVerifiedRows(db)
       .flatMap(row => journalLines(row.payload).map(payload => ({ event: 'path', task: String(row.card_id), ...payload, ts: row.ts })))
       .filter(line => writtenBeforeHistoryEnds(line))
   }
@@ -253,7 +255,7 @@ function witnessRefusal(busPath: string, id: string, pr: number): string | null 
     return null
   const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
   try {
-    const head = (db.prepare('SELECT head FROM prs WHERE pr = ?').get(pr) as { head: string | null } | undefined)?.head ?? null
+    const head = headOf(db, pr)
     const denial = closeWitnessDenial(db, Number(id), pr, head)
     return denial === null ? null : `#${id} closes PR #${pr} only on a green witness record, not on a reported verification: ${denial.detail}; nothing written`
   }
@@ -282,18 +284,17 @@ function launchStartOf(lines: Record<string, unknown>[], id: string): StartLine 
   return { event: 'path', task: id, path: entry.card.contour, session, card: entry.card }
 }
 
-const LATEST_ADMITTED_WITH_A_CARD = `
-  SELECT payload FROM events
-  WHERE type = 'card.admitted' AND legacy = 0 AND card_id = ? AND ${NOT_A_BACKFILL} AND json_type(payload, '$.card') = 'text'
-  ORDER BY id DESC LIMIT 1
-`
+function latestAdmittedWithACard(db: DatabaseSync, id: number): EventRow | undefined {
+  return events(db, { types: [CARD_ADMITTED], card: id, valid: true, newestFirst: true })
+    .find(row => row.data !== null && !isBackfill(row.data) && typeof row.data.card === 'string')
+}
 
 function admittedCardOf(busPath: string, id: string): Card | undefined {
   if (!existsSync(busPath) || !PR_NUMBER.test(id))
     return undefined
   const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
   try {
-    const row = db.prepare(LATEST_ADMITTED_WITH_A_CARD).get(Number(id)) as { payload: string } | undefined
+    const row = latestAdmittedWithACard(db, Number(id))
     const line = row === undefined ? undefined : journalLines(row.payload)[0]?.card
     const parsed = typeof line === 'string' ? parseCard(line) : undefined
     return parsed?.kind === 'card' ? parsed.card : undefined

@@ -5,10 +5,12 @@ import type { AfterFailure, CardTransitions, Lease } from '../../core/lease.js'
 import type { ProcessTable } from './chain-process.js'
 import type { Role } from './role.js'
 import { CLOSED_CARD, DROPPED_CARD, RUNNING_CARD } from '../../core/card-automaton.js'
+import { cardStatesAmong } from '../../core/card-readings.js'
 import { chainOfCard, chainOfDir, observeChain } from '../../core/chain.js'
 import { inTransaction } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { CARD_STOPPED, POLICY_DENIED } from '../../core/events.js'
+import { EITHER_JOURNAL, events } from '../../core/events-query.js'
+import { CARD_STOPPED, CHAIN_OBSERVED, CHAIN_RESTARTED, POLICY_DENIED } from '../../core/events.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
 import { chainProcess, stopChain } from './chain-process.js'
 
@@ -42,11 +44,27 @@ export function relaunchKey(role: Role): string {
 
 const WITHDRAWN_REASONS: ReadonlySet<RestartReason> = new Set(['no_chain', 'chain_current', 'chain_dead', 'launch_off'])
 
-const CARD_ENDED = `SELECT 1 FROM cards WHERE card_id = ? AND state IN ('${CLOSED_CARD}', '${DROPPED_CARD}')`
+const ENDED_CARD_STATES: readonly (string | null | undefined)[] = [CLOSED_CARD, DROPPED_CARD]
 
-const UNSTOPPED_CHAINS = `SELECT dir, card_id, parking, sha, pid, leader, boundary, state FROM chains WHERE state != 'stopped' ORDER BY dir`
+function cardStateOf(db: DatabaseSync, cardId: number): string | null | undefined {
+  return cardStatesAmong(db, [cardId]).get(cardId)
+}
 
-const CARD_RUNNING = `SELECT 1 FROM cards WHERE card_id = ? AND state = '${RUNNING_CARD}'`
+function byDir(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0
+}
+
+function chainDirsOnTheBus(db: DatabaseSync): string[] {
+  const dirs = events(db, { types: [CHAIN_OBSERVED, CHAIN_RESTARTED], legacy: EITHER_JOURNAL }).map(event => event.data?.dir)
+  return [...new Set(dirs.filter((dir): dir is string => typeof dir === 'string'))].sort(byDir)
+}
+
+function unstoppedChains(db: DatabaseSync): ChainRow[] {
+  return chainDirsOnTheBus(db).flatMap((dir) => {
+    const chain = chainOfDir(db, dir)
+    return chain === undefined || chain.state === 'stopped' ? [] : [chain]
+  })
+}
 
 export class RestartExecutor {
   constructor(private readonly parts: RestartParts) {}
@@ -79,7 +97,7 @@ export class RestartExecutor {
 
   deadChains(actor: string): DeadChain[] {
     const found: DeadChain[] = []
-    for (const chain of this.parts.db.prepare(UNSTOPPED_CHAINS).all() as unknown as ChainRow[]) {
+    for (const chain of unstoppedChains(this.parts.db)) {
       if (!this.processGone(chain))
         continue
       const state = this.cardEnded(chain.card_id) ? 'stopped' : 'fault'
@@ -97,7 +115,7 @@ export class RestartExecutor {
   }
 
   private cardEnded(cardId: number): boolean {
-    return this.parts.db.prepare(CARD_ENDED).get(cardId) !== undefined
+    return ENDED_CARD_STATES.includes(cardStateOf(this.parts.db, cardId))
   }
 
   private dead(lease: Lease, chain: ChainRow): RestartOutcome {
@@ -123,7 +141,7 @@ export class RestartExecutor {
   }
 
   private cardRunning(cardId: number): boolean {
-    return this.parts.db.prepare(CARD_RUNNING).get(cardId) !== undefined
+    return cardStateOf(this.parts.db, cardId) === RUNNING_CARD
   }
 
   private stoppedAtTheBoundary(lease: Lease, seen: ChainRow, boundary: boolean): ChainRow | null {
