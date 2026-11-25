@@ -50,7 +50,6 @@ const SITES_OF_THE_RECONNAISSANCE: Record<string, readonly string[]> = {
   ],
   'live-session': ['scripts/core/machine-sessions.ts'],
   'owner-decisions': [
-    'scripts/nodes/launch/launch-candidates.ts',
     'scripts/core/inbox.ts',
     'scripts/core/bus-path.ts',
   ],
