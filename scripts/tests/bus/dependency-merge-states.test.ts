@@ -2,19 +2,21 @@ import type { FakePull } from './github-fake.js'
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BACKFILL_SOURCE } from '../../core/backfill-source.js'
+import { DROPPED_LANE } from '../../core/card-automaton.js'
 import { appendEvent } from '../../core/db.js'
-import { CARD_ADMITTED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_MOVED, CARD_VERIFIED, REVIEW_RECORDED } from '../../core/events.js'
 import { taskKey } from '../../core/identifiers.js'
 import { completeTask, failTask, leaseNext, leaseQueued } from '../../core/lease.js'
 import { mergedCards, all as pullRequests } from '../../core/pr-readings.js'
 import { dependencyUpdateDueOn, FAILURES_TO_STOP, queueTask, STOPPED, unmergedDependenciesOf, WITHDRAWN } from '../../core/queue.js'
 import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
+import { mergeCandidates } from '../../nodes/merge/merge-candidates.js'
 import { updateCandidates } from '../../nodes/update/update-candidates.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
-import { answerParts, cardTransitions, updateParts } from '../../supervisor/composition.js'
+import { answerParts, candidateRules, cardTransitions, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
-import { MAIN_2, sha } from './github-fake.js'
-import { liveBench, taskState } from './merge-bench.js'
+import { cardBody, MAIN_2, sha } from './github-fake.js'
+import { liveBench, mergeBench, taskState } from './merge-bench.js'
 import { detectUpdate } from './update-detection.js'
 
 const DEPENDENCY_PR = 1756
@@ -175,6 +177,89 @@ describe('a head no dependency merge made due', () => {
     detectUpdate(bench)
     expect(updatesOfThePr(bench)).toEqual([])
     expect(bench.gitHub.pulls.get(PR)!.head).toBe(OLD_HEAD)
+  })
+})
+
+const MERGING_PR = 970
+const MERGING_CARD = MERGING_PR + 100
+const REPORTED_DEPENDENCY = 2156
+
+function mergingDependent(): MergeBench {
+  const bench = mergeBench()
+  benches.push(bench)
+  vi.spyOn(console, 'log').mockImplementation(() => {})
+  appendEvent(bench.db, { ts: now(bench), type: REVIEW_RECORDED, actor: 'worker:review:reviewer-1', cardId: MERGING_CARD, pr: MERGING_PR, head: OLD_HEAD, dedupeKey: `${REVIEW_RECORDED}:live`, payload: { head: OLD_HEAD, verdict: 'pass', reviewer_session: 'reviewer-1', findings: [] }, legacy: false })
+  appendEvent(bench.db, { ts: now(bench), type: CARD_ADMITTED, actor: 'reducer', cardId: MERGING_CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${MERGING_CARD}`, payload: { lane: 'lane-1', decision: 'auto', contour: 'cheap', depends: [REPORTED_DEPENDENCY] }, legacy: false })
+  bench.gitHub.open({ number: MERGING_PR, review: 'success', body: cardBody(MERGING_PR, 'auto') })
+  bench.tick()
+  return bench
+}
+
+interface Verification {
+  cardId: number
+  pr: number | null
+  report: string | null
+  legacy: boolean
+}
+
+const A_REPORT_CLOSE: Verification = { cardId: REPORTED_DEPENDENCY, pr: null, report: '.construct/probes/report.md', legacy: false }
+
+function verified(bench: MergeBench, verification: Verification): void {
+  const payload = verification.report === null ? { verification: 'code-reading' } : { verification: 'code-reading', report: verification.report }
+  appendEvent(bench.db, { ts: now(bench), type: CARD_VERIFIED, actor: 'worker:close:worker-0', cardId: verification.cardId, pr: verification.pr, head: null, dedupeKey: `${CARD_VERIFIED}:${verification.cardId}:${verification.pr}`, payload, legacy: verification.legacy })
+}
+
+function closedByReport(bench: MergeBench): void {
+  verified(bench, A_REPORT_CLOSE)
+}
+
+const VERIFICATIONS_THAT_HOLD: Record<string, Verification> = {
+  'a verification with no report': { ...A_REPORT_CLOSE, report: null },
+  'a verification against a pull request': { ...A_REPORT_CLOSE, pr: MERGING_PR + 1 },
+  'a legacy verification with a report': { ...A_REPORT_CLOSE, legacy: true },
+  'a report close of an unrelated card': { ...A_REPORT_CLOSE, cardId: REPORTED_DEPENDENCY + 1 },
+}
+
+function droppedOut(bench: MergeBench): void {
+  appendEvent(bench.db, { ts: now(bench), type: CARD_MOVED, actor: 'worker:intake:by-hand', cardId: REPORTED_DEPENDENCY, pr: null, head: null, dedupeKey: `${CARD_MOVED}:${REPORTED_DEPENDENCY}`, payload: { lane: DROPPED_LANE }, legacy: false })
+}
+
+function mergesOfTheDependent(bench: MergeBench): (number | null | undefined)[] {
+  return mergeCandidates(bench.db, now(bench), candidateRules()).map(task => task.pr)
+}
+
+describe('a dependency that ended without a merge', () => {
+  it('a dependency closed by report no longer holds its dependent out of the merge candidates', () => {
+    const bench = mergingDependent()
+    expect(mergesOfTheDependent(bench)).toEqual([])
+
+    closedByReport(bench)
+    droppedOut(bench)
+    bench.tick()
+
+    expect(unmergedDependenciesOf(bench.db, mergedCards(bench.db), MERGING_CARD)).toEqual([])
+    expect(mergesOfTheDependent(bench)).toEqual([MERGING_PR])
+  })
+
+  it('a dependency dropped without a report still holds its dependent', () => {
+    const bench = mergingDependent()
+
+    droppedOut(bench)
+    bench.tick()
+
+    expect(unmergedDependenciesOf(bench.db, mergedCards(bench.db), MERGING_CARD)).toEqual([REPORTED_DEPENDENCY])
+    expect(mergesOfTheDependent(bench)).toEqual([])
+  })
+
+  it.each(Object.entries(VERIFICATIONS_THAT_HOLD))('%s still holds the dependent', (_, verification) => {
+    const bench = mergingDependent()
+
+    verified(bench, verification)
+    droppedOut(bench)
+    bench.tick()
+
+    expect(unmergedDependenciesOf(bench.db, mergedCards(bench.db), MERGING_CARD)).toEqual([REPORTED_DEPENDENCY])
+    expect(mergesOfTheDependent(bench)).toEqual([])
   })
 })
 
