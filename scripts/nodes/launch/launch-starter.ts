@@ -6,7 +6,7 @@ import type { FreshTree } from '../../ports/worktree.js'
 import type { CardStart, CardStarter, ChildExit, HeldTree, QueuedCard, StartedCard } from './launch-executor.js'
 import type { PromptPlaces } from './prompt.js'
 import type { SessionJournal, TreeFile } from './session-journal.js'
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { closeSync, cpSync, existsSync, mkdirSync, openSync, readdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
@@ -23,7 +23,7 @@ import { restoreReport, shellWord } from '../../ports/tree-publish.js'
 import { freshenCardTree, gitIn } from '../../ports/worktree.js'
 import { HELD_TREE_CHANGED, technical } from './launch-executor.js'
 import { continuationBody } from './prompt.js'
-import { journalDoubt, parseSessionJournal, sessionResult, withEscapesDecoded } from './session-journal.js'
+import { importsReorderedOnly, journalDoubt, parseSessionJournal, sessionResult, withEscapesDecoded } from './session-journal.js'
 
 export interface DetachedSpawn {
   command: string
@@ -51,7 +51,6 @@ export interface StarterPorts {
   readTranscript: (worktree: string, session: string) => string | null
   treeFile: (file: string) => TreeFile | null
   freshen?: (worktree: string) => FreshTree
-  lintFixed?: (worktree: string, relative: string, content: string) => string | null
 }
 
 export interface StarterPlaces {
@@ -131,23 +130,11 @@ export function pathTokens(text: string): Set<string> {
   return new Set(text.split(PATH_DELIMITERS).map(token => token.replace(/[.:]+$/, '')).filter(token => token !== ''))
 }
 
-const ESLINT_FIX_DRY_RUN = ['exec', 'eslint', '--fix-dry-run', '--format', 'json', '--stdin', '--stdin-filename'] as const
-
-export const ESLINT_FIX_TIMEOUT_MS = 60_000
-
-export function eslintFixed(worktree: string, relative: string, content: string, timeoutMs: number = ESLINT_FIX_TIMEOUT_MS): string | null {
-  const run = spawnSync('pnpm', [...ESLINT_FIX_DRY_RUN, relative], { cwd: worktree, input: content, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: timeoutMs, killSignal: 'SIGKILL' })
-  if (run.error !== undefined || run.signal !== null || run.stdout === '')
-    return null
-  try {
-    const [linted] = JSON.parse(run.stdout) as { output?: unknown }[]
-    if (linted === undefined)
-      return null
-    return typeof linted.output === 'string' ? linted.output : content
-  }
-  catch {
-    return null
-  }
+function importsReorderedBySession(relative: string, journal: SessionJournal, file: TreeFile): boolean {
+  if (file.mtimeMs > journal.end)
+    return false
+  const result = sessionResult(journal.changes.get(relative) ?? [])
+  return result !== null && importsReorderedOnly(result, withEscapesDecoded(file.content))
 }
 
 export interface SessionContinuer {
@@ -260,20 +247,11 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
       const reasons = journals.map(({ session, journal }) => ({ session, reason: journalDoubt(journal, each, file) }))
       if (reasons.some(({ reason }) => reason === null))
         return []
-      if (file !== null && journals.some(({ journal }) => this.lintFixOfSessionResult(worktree, each, journal, file)))
+      if (file !== null && journals.some(({ journal }) => importsReorderedBySession(each, journal, file)))
         return []
       const reason = reasons.length === 1 ? reasons[0]!.reason! : reasons.map(({ session, reason }) => `session ${session}: ${reason}`).join('; ')
       return [{ path: each, reason }]
     })
-  }
-
-  private lintFixOfSessionResult(worktree: string, relative: string, journal: SessionJournal, file: TreeFile): boolean {
-    if (file.mtimeMs > journal.end)
-      return false
-    const result = sessionResult(journal.changes.get(relative) ?? [])
-    if (result === null)
-      return false
-    return (this.ports.lintFixed ?? eslintFixed)(worktree, relative, result) === withEscapesDecoded(file.content)
   }
 
   private journalOf(worktree: string, session: string): SessionJournal | string {

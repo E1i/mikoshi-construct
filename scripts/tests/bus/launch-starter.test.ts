@@ -11,8 +11,8 @@ import { BUS_DB_VARIABLE, GH_ACCOUNT_VARIABLE } from '../../core/bus-path.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED } from '../../core/events.js'
 import { busCardSessions } from '../../nodes/launch/launch-root.js'
-import { eslintFixed, launchArgv, launchEnv, ShiftCardStarter } from '../../nodes/launch/launch-starter.js'
-import { sessionResult } from '../../nodes/launch/session-journal.js'
+import { launchArgv, launchEnv, ShiftCardStarter } from '../../nodes/launch/launch-starter.js'
+import { importsReorderedOnly, sessionResult } from '../../nodes/launch/session-journal.js'
 import { HTTPS_ORIGIN_ENV } from '../../ports/tree-publish.js'
 
 const NO_FILE_CONFIG_ENV = { GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1' }
@@ -74,18 +74,11 @@ const SESSION_JOURNAL = transcript(
   toolCall(10, 'Edit', { file_path: `${TREE}/src/linted.ts`, old_string: '\'./b\'', new_string: '\'./b.js\'', replace_all: false }),
   toolCall(9, 'Write', { file_path: `${TREE}/src/reworked.ts`, content: 'import { b } from \'./b\'\nimport type { A } from \'./a\'\n' }),
   toolCall(9, 'Write', { file_path: `${TREE}/src/dashed.ts`, content: 'import { b } from \'./b\'\nimport type { A } from \'./a\'\nexport const dash = \'\\u2014\'\n' }),
+  toolCall(9, 'Write', { file_path: `${TREE}/src/escaped.ts`, content: 'import { b } from \'./b\'\nimport type { A } from \'./a\'\nexport const dash = \'\\u2014\'\n' }),
+  toolCall(9, 'Write', { file_path: `${TREE}/src/shuffled.ts`, content: 'import { b } from \'./b\'\nexport const x = 1\nexport const y = 2\n' }),
+  toolCall(9, 'Write', { file_path: `${TREE}/src/retargeted.ts`, content: 'import { b } from \'./b\'\nimport type { A } from \'./a\'\n' }),
   toolCall(11, 'Bash', { command: 'pnpm lint:fix' }),
 )
-
-const IMPORT_ORDER_FIXED: Record<string, string> = {
-  'import { b } from \'./b.js\'\nimport type { A } from \'./a\'\n': 'import type { A } from \'./a\'\nimport { b } from \'./b.js\'\n',
-  'import { b } from \'./b\'\nimport type { A } from \'./a\'\n': 'import type { A } from \'./a\'\nimport { b } from \'./b\'\n',
-  'import { b } from \'./b\'\nimport type { A } from \'./a\'\nexport const dash = \'\u2014\'\n': 'import type { A } from \'./a\'\nimport { b } from \'./b\'\nexport const dash = \'\u2014\'\n',
-}
-
-function fakeLintFix(_worktree: string, _relative: string, content: string): string {
-  return IMPORT_ORDER_FIXED[content] ?? content
-}
 
 const TREE_FILES: Record<string, TreeFile> = {
   'src/written.ts': { content: 'one\nthree\n', mtimeMs: at(2) },
@@ -98,6 +91,9 @@ const TREE_FILES: Record<string, TreeFile> = {
   'src/linted.ts': { content: 'import type { A } from \'./a\'\nimport { b } from \'./b.js\'\n', mtimeMs: at(12) },
   'src/dashed.ts': { content: 'import type { A } from \'./a\'\nimport { b } from \'./b\'\nexport const dash = \'\u2014\'\n', mtimeMs: at(12) },
   'src/reworked.ts': { content: 'import type { A } from \'./a\'\nimport { b } from \'./b\'\nexport const added = b\n', mtimeMs: at(12) },
+  'src/escaped.ts': { content: 'import type { A } from \'./a\'\nimport { b } from \'./b\'\nexport const dash = \'\\u2014\'\n', mtimeMs: at(12) },
+  'src/shuffled.ts': { content: 'import { b } from \'./b\'\nexport const y = 2\nexport const x = 1\n', mtimeMs: at(12) },
+  'src/retargeted.ts': { content: 'import type { A } from \'./a\'\nimport { b } from \'./c\'\n', mtimeMs: at(12) },
 }
 
 const EARLIER = 'sess-earlier'
@@ -136,7 +132,6 @@ function heldTree(changed: string[], overrides: Partial<StarterPorts> = {}): { s
     readTranscript: (worktree, session) => worktree === TREE && session === SESSION ? SESSION_JOURNAL : null,
     treeFile: file => TREE_FILES[path.relative(TREE, file)] ?? null,
     freshen: () => ({ kind: 'kept', why: 'the fake tree is not a git tree' }),
-    lintFixed: fakeLintFix,
     ...overrides,
   }
   const starter = new ShiftCardStarter({ launchDir: LAUNCH_DIR, claude: 'claude', treePr: 'true' }, ports)
@@ -360,14 +355,9 @@ describe('the held tree guard reads the session journal', () => {
   })
 
   it('a path the session edited and lint --fix then reordered is owned and the card continues', () => {
-    const linted: string[] = []
-    const held = heldTree(['src/linted.ts'], { lintFixed: (worktree, relative, content) => {
-      linted.push(`${worktree} ${relative}`)
-      return fakeLintFix(worktree, relative, content)
-    } })
+    const held = heldTree(['src/linted.ts'])
 
     expect(held.start()).toMatchObject({ kind: 'started', card: { worktree: TREE } })
-    expect(linted).toEqual([`${TREE} src/linted.ts`])
     expect(held.spawned).toEqual([TREE])
   })
 
@@ -394,10 +384,32 @@ describe('the held tree guard reads the session journal', () => {
     expect(refusedPaths(held.start())).toEqual(['src/linted.ts'])
   })
 
-  it('a linter that cannot run owns nothing', () => {
-    const held = heldTree(['src/linted.ts'], { lintFixed: () => null })
+  it('a path whose disk copy keeps the session\'s literal \\u2014 escape, imports reordered, is owned by the decoded comparison', () => {
+    const held = heldTree(['src/escaped.ts'])
 
-    expect(refusedPaths(held.start())).toEqual(['src/linted.ts'])
+    expect(held.start()).toMatchObject({ kind: 'started', card: { worktree: TREE } })
+    expect(held.spawned).toEqual([TREE])
+  })
+
+  it('a path reordered by lint --fix is owned when an earlier session on the card never touched it', () => {
+    const held = heldTree(['src/earlier.ts', 'src/linted.ts'], earlierSession)
+
+    expect(held.start()).toMatchObject({ kind: 'started', card: { worktree: TREE } })
+    expect(held.spawned).toEqual([TREE])
+  })
+
+  it('a path whose non-import lines were moved after the last Write still refuses the continuation', () => {
+    const held = heldTree(['src/shuffled.ts'])
+
+    expect(refusedPaths(held.start())).toEqual(['src/shuffled.ts'])
+    expect(held.spawned).toEqual([])
+  })
+
+  it('a path whose import line was changed after the last Write still refuses the continuation', () => {
+    const held = heldTree(['src/retargeted.ts'])
+
+    expect(refusedPaths(held.start())).toEqual(['src/retargeted.ts'])
+    expect(held.spawned).toEqual([])
   })
 
   it('a held tree the bus records no session of is refused by name', () => {
@@ -423,24 +435,18 @@ describe('the session result a lint --fix is compared against', () => {
   })
 })
 
-describe('the repository\'s ESLint --fix', () => {
-  it('reorders a type import first, as lint --fix wrote it into the held tree', () => {
-    const written = 'import process from \'node:process\'\nimport type { ShiftTask } from \'../../../src/card/task-file.js\'\n\nexport const probe: ShiftTask | null = process.exitCode === undefined ? null : null\n'
-
-    const fixed = eslintFixed(process.cwd(), 'scripts/nodes/launch/lint-probe.ts', written)
-
-    expect(fixed?.startsWith('import type { ShiftTask } from \'../../../src/card/task-file.js\'\nimport process from \'node:process\'\n')).toBe(true)
-    expect(eslintFixed(process.cwd(), 'scripts/nodes/launch/lint-probe.ts', fixed!)).toBe(fixed)
-  }, 120_000)
-
-  it('a linter that runs past its time owns nothing', () => {
-    const written = 'import process from \'node:process\'\nimport type { ShiftTask } from \'../../../src/card/task-file.js\'\n'
-
-    expect(eslintFixed(process.cwd(), 'scripts/nodes/launch/lint-probe.ts', written, 1)).toBeNull()
+describe('an import block reordered and nothing else', () => {
+  it('holds for the same text and for import lines permuted among themselves', () => {
+    expect(importsReorderedOnly('import a from \'a\'\nx\n', 'import a from \'a\'\nx\n')).toBe(true)
+    expect(importsReorderedOnly('import b from \'b\'\nimport type { A } from \'a\'\nx\n', 'import type { A } from \'a\'\nimport b from \'b\'\nx\n')).toBe(true)
+    expect(importsReorderedOnly('import {\n  b,\n} from \'b\'\nimport a from \'a\'\nx\n', 'import a from \'a\'\nimport {\n  b,\n} from \'b\'\nx\n')).toBe(true)
   })
 
-  it('a tree with no linter gives no result', () => {
-    expect(eslintFixed(path.join(tmpdir(), 'no-such-tree-for-lint'), 'a.ts', 'x\n')).toBeNull()
+  it('fails for a moved non-import line, a changed import line or a different line count', () => {
+    expect(importsReorderedOnly('import a from \'a\'\nx\ny\n', 'import a from \'a\'\ny\nx\n')).toBe(false)
+    expect(importsReorderedOnly('import a from \'a\'\nx\n', 'x\nimport a from \'a\'\n')).toBe(false)
+    expect(importsReorderedOnly('import b from \'b\'\nimport a from \'a\'\n', 'import a from \'a\'\nimport b from \'c\'\n')).toBe(false)
+    expect(importsReorderedOnly('import b from \'b\'\nimport a from \'a\'\n', 'import a from \'a\'\nimport b from \'b\'\nx\n')).toBe(false)
   })
 })
 

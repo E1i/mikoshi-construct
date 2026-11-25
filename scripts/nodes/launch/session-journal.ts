@@ -37,6 +37,54 @@ export function sessionResult(changes: readonly JournalChange[]): string | null 
   return replayed(written.content, changes.slice(lastWrite + 1))
 }
 
+const IMPORT_START = /^import\b/
+const IMPORT_SOURCE = /\bfrom\s*['"]|^import\s*['"]/
+const MULTILINE_IMPORT_END = /^\}\s*from\s*['"]/
+
+function importStatementLines(lines: readonly string[]): Set<number> {
+  const marked = new Set<number>()
+  for (let at = 0; at < lines.length; at++) {
+    if (!IMPORT_START.test(lines[at]!))
+      continue
+    marked.add(at)
+    if (IMPORT_SOURCE.test(lines[at]!))
+      continue
+    while (++at < lines.length) {
+      marked.add(at)
+      if (MULTILINE_IMPORT_END.test(lines[at]!))
+        break
+    }
+  }
+  return marked
+}
+
+function sameLines(left: readonly string[], right: readonly string[]): boolean {
+  const sorted = (lines: readonly string[]): string[] => [...lines].sort()
+  return sorted(left).join('\n') === sorted(right).join('\n')
+}
+
+export function importsReorderedOnly(expected: string, actual: string): boolean {
+  const want = expected.split('\n')
+  const have = actual.split('\n')
+  if (want.length !== have.length)
+    return false
+  let first = 0
+  while (first < want.length && want[first] === have[first])
+    first++
+  if (first === want.length)
+    return true
+  let last = want.length - 1
+  while (want[last] === have[last])
+    last--
+  const wantImports = importStatementLines(want)
+  const haveImports = importStatementLines(have)
+  for (let at = first; at <= last; at++) {
+    if (!wantImports.has(at) || !haveImports.has(at))
+      return false
+  }
+  return sameLines(want.slice(first, last + 1), have.slice(first, last + 1))
+}
+
 function changedInACommandRun(journal: SessionJournal, mtimeMs: number): boolean {
   return journal.commandRuns.some(run => run.startedAt <= mtimeMs && mtimeMs <= run.endedAt)
 }
