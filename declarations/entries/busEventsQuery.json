@@ -1,0 +1,9 @@
+{
+  "entry": "busEventsQuery",
+  "group": "named",
+  "path": "scripts/core/events-query.ts",
+  "layer": null,
+  "lists": [
+    "busShared"
+  ]
+}

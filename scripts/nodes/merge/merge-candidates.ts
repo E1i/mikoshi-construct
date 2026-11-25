@@ -1,8 +1,12 @@
-import type { DatabaseSync } from 'node:sqlite'
+import type { DatabaseSync, SQLInputValue } from 'node:sqlite'
 import type { Admits, Candidate, CandidateRules, QueuedTask, QueueSource, RequeueRow } from '../../core/queue.js'
-import { openDecisionWaitsOf } from '../../core/card-readings.js'
+import type { TaskRow } from '../../core/tasks-query.js'
+import { openDecisionWaitsOfCard } from '../../core/card-readings.js'
+import { byId, EITHER_JOURNAL, events } from '../../core/events-query.js'
 import { TASK_FAILED, TASK_REQUEUED } from '../../core/events.js'
+import { anOpenPrOnTheHead } from '../../core/pr-readings.js'
 import { decidedPastRoundLimit, holdsTheTurn, mergeCandidateRows, mergeCandidateRowsWithoutPass, noTurnHeldBeside, openCandidates, QUESTION_OPEN, recordedOrder, WITHDRAWN } from '../../core/queue.js'
+import { ofQueue } from '../../core/tasks-query.js'
 
 export interface LaterShards {
   named: string
@@ -14,25 +18,40 @@ export interface MergeParts {
   laterShards: LaterShards
 }
 
-const MERGES_PARKED_ON_A_QUESTION_NOW_CLOSED = `
-  SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head, tasks.event_id AS failure FROM tasks
-  JOIN prs ON prs.pr = tasks.pr
-  JOIN events AS parked ON parked.id = tasks.event_id
-  WHERE tasks.queue = 'merge' AND tasks.state = '${WITHDRAWN}' AND prs.state = 'open' AND prs.head = tasks.head
-    AND parked.type = '${TASK_FAILED}' AND json_extract(parked.payload, '$.reason') = '${QUESTION_OPEN}'
-    AND NOT EXISTS (${openDecisionWaitsOf('tasks.card_id')})
-  ORDER BY tasks.task_key
-`
+function byTaskKey(a: TaskRow, b: TaskRow): number {
+  return a.task_key < b.task_key ? -1 : a.task_key > b.task_key ? 1 : 0
+}
 
-function withdrawnMergesALaterShardOf(shards: string): string {
-  return `
-  SELECT tasks.task_key, tasks.queue, tasks.card_id, tasks.pr, tasks.head, tasks.event_id AS failure FROM tasks
-  JOIN prs ON prs.pr = tasks.pr
-  WHERE tasks.queue = 'merge' AND tasks.state = '${WITHDRAWN}' AND prs.state = 'open' AND prs.head = tasks.head
-    AND NOT EXISTS (SELECT 1 FROM events AS requeued WHERE requeued.type = '${TASK_REQUEUED}' AND json_extract(requeued.payload, '$.task_key') = tasks.task_key)
-    AND EXISTS (SELECT 1 FROM (${shards}) AS shard WHERE shard.event_id > tasks.event_id)
-  ORDER BY tasks.task_key
-`
+function withdrawnMergesOnTheirOpenHead(db: DatabaseSync): TaskRow[] {
+  return ofQueue(db, 'merge').filter(task => task.state === WITHDRAWN && anOpenPrOnTheHead(db, task.pr, task.head)).sort(byTaskKey)
+}
+
+function requeueRowOf(task: TaskRow): RequeueRow {
+  return { task_key: task.task_key, queue: 'merge', card_id: task.card_id, pr: task.pr, head: task.head, failure: task.event_id }
+}
+
+function parkedOnAQuestion(db: DatabaseSync, task: TaskRow): boolean {
+  const parked = byId(db, task.event_id)
+  return parked?.type === TASK_FAILED && parked.data?.reason === QUESTION_OPEN
+}
+
+function mergesParkedOnAQuestionNowClosed(db: DatabaseSync): RequeueRow[] {
+  return withdrawnMergesOnTheirOpenHead(db)
+    .filter(task => parkedOnAQuestion(db, task) && openDecisionWaitsOfCard(db, task.card_id).length === 0)
+    .map(requeueRowOf)
+}
+
+function aShardLaterThanTheTask(shards: string): string {
+  return `SELECT EXISTS (SELECT 1 FROM (${shards}) AS shard WHERE shard.event_id > tasks.event_id) AS later
+  FROM (SELECT ? AS card_id, ? AS pr, ? AS event_id) AS tasks`
+}
+
+function withdrawnMergesALaterShardOf(db: DatabaseSync, shards: string, ...shardValues: SQLInputValue[]): RequeueRow[] {
+  const later = db.prepare(aShardLaterThanTheTask(shards))
+  return withdrawnMergesOnTheirOpenHead(db)
+    .filter(task => events(db, { types: [TASK_REQUEUED], task: task.task_key, legacy: EITHER_JOURNAL }).length === 0
+      && Number((later.get(...shardValues, task.card_id, task.pr, task.event_id) as { later: number }).later) === 1)
+    .map(requeueRowOf)
 }
 
 function mergeRows(db: DatabaseSync, ts: string, rules: CandidateRules): Candidate[] {
@@ -49,10 +68,9 @@ export function mergeCandidates(db: DatabaseSync, ts: string, rules: CandidateRu
 }
 
 export function mergeSource(parts: MergeParts): QueueSource {
-  const named = withdrawnMergesALaterShardOf(parts.laterShards.named)
-  const window = withdrawnMergesALaterShardOf(parts.laterShards.window)
+  const { named, window } = parts.laterShards
   return {
     queue: 'merge',
-    requeue: (db, ts) => [...db.prepare(named).all(), ...db.prepare(window).all(ts), ...db.prepare(MERGES_PARKED_ON_A_QUESTION_NOW_CLOSED).all()] as unknown as RequeueRow[],
+    requeue: (db, ts) => [...withdrawnMergesALaterShardOf(db, named), ...withdrawnMergesALaterShardOf(db, window, ts), ...mergesParkedOnAQuestionNowClosed(db)],
   }
 }

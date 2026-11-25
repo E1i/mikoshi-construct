@@ -325,6 +325,22 @@ export function aDowngradeWaitOpenOn(card: string): string {
   return `EXISTS (SELECT 1 FROM ${OWNER_WAITS} AS wait WHERE wait.card_id = ${card} AND wait.state = '${OPEN_WAIT}' AND EXISTS (${asked}))`
 }
 
+export function cardPriorityOf(card: string): string {
+  return `(SELECT body.priority FROM ${CARD_BODIES} AS body WHERE body.card_id = ${card})`
+}
+
+export function cardBodiesWhere(columns: string, condition: string): string {
+  return `
+  SELECT ${columns} FROM ${CARD_BODIES} AS body
+  WHERE ${condition}
+  ORDER BY body.card_id
+`
+}
+
+export function aCardInStates(card: string, states: readonly string[]): string {
+  return `EXISTS (SELECT 1 FROM cards WHERE cards.card_id = ${card} AND cards.state IN (${states.map(state => `'${state}'`).join(', ')}))`
+}
+
 export function notACardOf(who: string): (card: string) => string {
   return card => `NOT EXISTS (SELECT 1 FROM ${CARD_BODIES} AS body WHERE body.card_id = ${card} AND body.who = '${who}')`
 }

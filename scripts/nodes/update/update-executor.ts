@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { BusEvent } from '../../core/db.js'
+import type { EventRow } from '../../core/events-query.js'
 import type { AfterFailure, CardTransitions, Lease } from '../../core/lease.js'
 import type { CardFields } from '../../intake/card-contract.js'
 import type { ReviewStatus, StatusPublisher } from '../../ports/github-status.js'
@@ -15,6 +16,7 @@ import { pathsOutsideTheBody } from '../../core/card-bodies.js'
 import { closedWaitIds, closedWaitTextsOf } from '../../core/card-readings.js'
 import { appendEvent, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
+import { ofPr as eventsOfPr } from '../../core/events-query.js'
 import { CI_RERUN_REQUESTED, COMMAND_EXECUTED, POLICY_ALLOWED, POLICY_DENIED, QUESTION_OWNER, REVIEW_RECORDED, UPDATE_DONE } from '../../core/events.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
 import { rerunDueOn } from '../../core/observations.js'
@@ -132,10 +134,12 @@ export interface RecordedVerdict {
   rulesVersion: number | null
 }
 
-const VERDICT_RECORDS_OF_A_HEAD = `SELECT type, payload FROM events WHERE legacy = 0 AND pr = ? AND ((type = '${REVIEW_RECORDED}' AND head = ?) OR (type = '${UPDATE_DONE}' AND json_extract(payload, '$.to') = ? AND json_extract(payload, '$.carried') IS NOT NULL)) ORDER BY id DESC LIMIT 1`
+function recordsAVerdictOn(head: string): (row: EventRow) => boolean {
+  return row => row.type === REVIEW_RECORDED ? row.head === head : row.data?.to === head && row.data.carried !== undefined && row.data.carried !== null
+}
 
 export function recordedVerdictOn(db: DatabaseSync, pr: number, head: string): RecordedVerdict | null {
-  const row = db.prepare(VERDICT_RECORDS_OF_A_HEAD).get(pr, head, head) as { type: string, payload: string } | undefined
+  const row = eventsOfPr(db, pr, { types: [REVIEW_RECORDED, UPDATE_DONE], newestFirst: true }).find(recordsAVerdictOn(head))
   if (row === undefined)
     return null
   const payload = JSON.parse(row.payload) as { verdict?: unknown, carried?: unknown, rules_version?: unknown }
@@ -374,7 +378,8 @@ export class UpdateExecutor {
   }
 
   private conflictingAt(lease: Lease): boolean {
-    return this.parts.db.prepare(`SELECT 1 FROM prs WHERE pr = ? AND head = ? AND mergeable = 'dirty'`).get(lease.pr, lease.head) !== undefined
+    const pr = lease.pr === null ? null : ofPr(this.parts.db, lease.pr)
+    return lease.head !== null && pr?.head === lease.head && pr.mergeable === 'dirty'
   }
 
   private rerunRequest(lease: Lease): RerunRequest {

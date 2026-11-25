@@ -90,12 +90,25 @@ export function latestQuestionStops(stopsWithTheirCard: string, columns: string,
 `
 }
 
-export function openPrsWhere(columns: string, condition: string): string {
+export function openPrsWhere(columns: string, condition: string, order = 'pr'): string {
   return `
   SELECT ${columns} FROM prs
   WHERE state = 'open' AND ${condition}
-  ORDER BY pr
+  ORDER BY ${order}
 `
+}
+
+export const LATEST_MAIN_SHA = '(SELECT sha FROM mains ORDER BY event_id DESC LIMIT 1)'
+
+export const A_MAIN_RECORDED = 'EXISTS (SELECT 1 FROM mains)'
+
+export function aPrOfCard(card: string): string {
+  return `EXISTS (SELECT 1 FROM prs WHERE prs.card_id = ${card})`
+}
+
+export function anOpenPrOnTheHead(db: DatabaseSync, pr: number | null, head: string | null): boolean {
+  const row = pr === null ? null : ofPr(db, pr)
+  return head !== null && row?.state === 'open' && row.head === head
 }
 
 const PR_HEAD = 'SELECT head FROM prs WHERE pr = ?'
