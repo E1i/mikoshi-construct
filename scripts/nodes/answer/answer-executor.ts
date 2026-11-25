@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { QueueTaskRow } from '../../core/card-hold.js'
 import type { BusEvent } from '../../core/db.js'
 import type { CardTransitions, CarriedTree, Lease } from '../../core/lease.js'
+import type { TwinTree } from '../../policy/touch-scope.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
 import type { IsolationReader } from '../../ports/isolation.js'
 import type { MergeMain } from '../../ports/main-merge.js'
@@ -11,7 +12,7 @@ import type { Answered, Answerer, StepSeconds } from './answerer.js'
 import type { CardConcept } from './concept-scope.js'
 import type { AnswerDenial, Answering, AnswerOutcome, AnswerTechnicalReason, CardPaths, DecidedRound, ShardDecider, StrandedAnswer, TreeMerge, TreePublishing, Widened } from './duties/index.js'
 import type { TreeOwned, TreePushPolicy } from './duties/tree.js'
-import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { riskOf } from '../../../src/card/risk.js'
 import { pathsOutsideTheBody } from '../../core/card-bodies.js'
@@ -25,17 +26,17 @@ import { timeoutUnderLoadOutside } from '../../core/observations.js'
 import { answerOnAnOldCardBody, DOWNGRADE_WAIT_OPEN, latestAnswerOf, latestReleaseOf, latestWidenStopOf, LEASED, QUEUED } from '../../core/queue.js'
 import { OWNER_EVEN_UNDER_THE_DECISION } from '../../policy/policy.js'
 import { matchGlob } from '../../policy/shredder/glob.js'
-import { isRegisteredDerived, pathsIn, pathsOutside } from '../../policy/touch-scope.js'
+import { isRegisteredDerived, pathsIn, pathsOutside, refusedTwinAnswer } from '../../policy/touch-scope.js'
 import { ownerGlobs } from '../../policy/widening.js'
-import { cardTreeOf, CardTreeRefused, realCardTrees } from '../../ports/card-tree.js'
+import { cardTreeOf, cardTreeReading, CardTreeRefused, realCardTrees } from '../../ports/card-tree.js'
 import { conflictingCardOf, mainKeptInTheTree } from '../../ports/main-merge.js'
 import { prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { admittedScopeOf, carriedTreeOf, decisionAnsweringRepeat, ownerHoldOf } from './answer-source.js'
-import { AnswerOutsideTouches, CardTreeGone, liveSessionIn, PREFIX, secondsOf, unprovedFindings } from './answerer.js'
+import { answerCommitMessage, AnswerOutsideTouches, CardTreeGone, followedEvent, liveSessionIn, PREFIX, secondsOf, unprovedFindings } from './answerer.js'
 import { CONCEPT_WIDENING_REASON } from './concept-scope.js'
 import { AnswerOutcomes, AnswerPublishing, AnswerSources, leftNoNewHead, localHead, OwnerQuestions, pendingPathsOf, strandedAnswerOf, treeDirtyOf, treeMergeOf } from './duties/index.js'
-import { carriedTreeState, ownCarriedTree } from './duties/tree.js'
+import { carriedTreeState, ownCarriedTree, git as treeGit } from './duties/tree.js'
 
 export interface AnswerParts {
   db: DatabaseSync
@@ -60,6 +61,7 @@ export interface AnswerParts {
   ownTree?: (card: CardSession, prHead: string, policy: TreePushPolicy) => TreeOwned
   pushPolicy?: (card: CardSession) => TreePushPolicy
   allowances?: (cardId: number) => readonly string[]
+  twins?: AnswerTwins
 }
 
 export const CARRIED_TREE = 'carried-tree'
@@ -137,6 +139,54 @@ export function ratchetGrowthLine(cardId: number, rows: readonly string[], quest
 export function derivedRefusalNote(refused: readonly string[]): string {
   const derived = refused.filter(isRegisteredDerived)
   return derived.length === 0 ? '' : `${derived.join(', ')} ${derived.length === 1 ? 'is a derived file' : 'are derived files'} that the touches never widen to: the rerun of the generator did not reproduce the change, or the change grows the file, and growth is the owner's (D-592); `
+}
+
+export const REGENERATED_TWIN = 'regenerated-twin'
+
+export interface AnswerTwins {
+  tree: (card: CardSession, cardId: number) => TwinTree
+  commit: (card: CardSession, lease: Lease) => string | null
+}
+
+function inHead(worktree: string, file: string): boolean {
+  try {
+    treeGit(worktree, ['cat-file', '-e', `HEAD:${file}`])
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+export function gitTwins(db: DatabaseSync, trees: CardTreeTools): AnswerTwins {
+  return {
+    tree: (card, cardId) => ({
+      drop: files => files.forEach(file => inHead(card.worktree, file) ? treeGit(card.worktree, ['checkout', 'HEAD', '--', file]) : rmSync(path.join(card.worktree, file), { force: true })),
+      reading: () => cardTreeReading(db, cardId, trees),
+      write: (file, text) => text === null ? rmSync(path.join(card.worktree, file), { force: true }) : writeFileSync(path.join(card.worktree, file), text),
+    }),
+    commit: (card, lease) => {
+      try {
+        treeGit(card.worktree, ['add', '-A'])
+        treeGit(card.worktree, ['commit', '-q', '-m', answerCommitMessage(lease)])
+        treeGit(card.worktree, ['push', '-q', '-u', 'origin', `HEAD:refs/heads/${card.branch}`])
+        return localHead(card)
+      }
+      catch (error) {
+        console.error(`${PREFIX}card #${lease.cardId}: the regenerated twin was not pushed: ${messageOf(error)}`)
+        return null
+      }
+    },
+  }
+}
+
+export function restStopLine(refusal: string, twins: readonly string[], rest: readonly string[]): string {
+  return `${refusal}; the bus dropped and regenerated the derived ${twins.join(', ')} in the card tree, which opens no owner wait; the refused changes to ${rest.join(', ')} stay uncommitted in the card tree until the touches are widened or the changes are dropped`
+}
+
+export function twinUnconvergedLine(cardId: number, twins: readonly string[], sources: readonly string[], why: string): string {
+  const source = sources.length === 0 ? 'no changed source of it lies outside the touches, so the window fixes the generator run in the card tree' : `the source ${sources.join(', ')} lies outside the touches, so the window widens the touches to it or drops that change`
+  return `card #${cardId}: the answer left changes to the derived ${twins.join(', ')}; the bus dropped them and reran the generator, which does not reproduce the file (${why}); ${source} (D-592)`
 }
 
 export function changedInTheTreeOf(named: readonly string[], changed: ReadonlySet<string>): string[] {
@@ -471,7 +521,32 @@ export class AnswerExecutor {
       return returned
     if (denial.reason !== 'outside_touches')
       return this.outcomes.denied(lease, denial)
+    const twin = card === undefined ? null : this.twinRegenerated(lease, denial, widened, card)
+    if (twin !== null)
+      return twin
     return this.outcomes.ownersStop(lease, `${denial.detail}; ${derivedRefusalNote(pathsIn(denial.detail))}the refused changes stay uncommitted in the card tree until the touches are widened or the changes are dropped`, widened === null ? [] : [widened.event], undefined, this.refusedPathsToWiden(denial.detail))
+  }
+
+  private twinRegenerated(lease: Lease, denial: AnswerDenial, widened: Widened | null, card: CardSession): AnswerOutcome | null {
+    const admitted = admittedScopeOf(this.parts.db, lease.cardId)
+    if (admitted === null)
+      return null
+    const twins = this.parts.twins ?? gitTwins(this.parts.db, this.parts.trees ?? realCardTrees())
+    const answer = refusedTwinAnswer(pathsIn(denial.detail), admitted, twins.tree(card, lease.cardId), [...this.changedIn(card)])
+    const scopeEvents = widened === null ? [] : [widened.event]
+    if (answer.kind === 'owner')
+      return null
+    if (answer.kind === 'window')
+      return this.outcomes.stopped(lease, QUESTION_AGENT, twinUnconvergedLine(lease.cardId, answer.twins, answer.sources, answer.detail), answer.sources.length === 0 ? {} : { widen: answer.sources }, scopeEvents)
+    const derived = answer.files
+    if (answer.rest.length > 0)
+      return this.outcomes.ownersStop(lease, restStopLine(denial.detail, derived, answer.rest), scopeEvents, undefined, this.refusedPathsToWiden(denial.detail))
+    const head = twins.commit(card, lease)
+    if (head === null)
+      return this.outcomes.denied(lease, { kind: 'technical', reason: 'answer_failed', detail: `card #${lease.cardId}: the bus regenerated ${derived.join(', ')} in ${card.worktree} and could not commit and push it; the answer goes again over that tree` })
+    const payload = { session: card.session, worktree: card.worktree, source: REGENERATED_TWIN, from: lease.head, to: head, regenerated: derived }
+    completeTask(this.parts.db, this.parts.cards, this.ts(), lease, [...scopeEvents, followedEvent(lease, derived, this.ts()), this.outcomes.event(lease, CARD_ANSWERED, payload)])
+    return { kind: 'answered', taskKey: lease.taskKey, session: card.session, resumed: false, head }
   }
 
   private refusedPathsToWiden(refusal: string): string[] {
