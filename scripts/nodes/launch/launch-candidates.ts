@@ -33,6 +33,8 @@ import { chainLaneNumber, currentLane, heldByStall, ownerMergeHolders, repositor
 import { taskConflicts } from './overlap.js'
 import { sharedAppendFiles } from './shared-files.js'
 
+export { cardsWithAState }
+
 export const FALLS_BEFORE_CUT = 2
 export const PLANNED_STALL_MINUTES = 15
 export const HELD_AT_THE_EXIT = 'held'
@@ -251,8 +253,11 @@ function admittedAtOf(db: DatabaseSync, row: LifeRow, payload: Record<string, un
 }
 
 function beforeLaunchWentLive(db: DatabaseSync): (at: number) => boolean {
-  const live = inForceDecisions(db).filter(decision => namesQueueLive(decision.text, 'launch')).map(decision => decision.decisionId)
-  return at => live.length > 0 && live.every(decisionId => decisionRecordedAfter(db, decisionId, at))
+  let live: number[] | undefined
+  return (at) => {
+    live ??= inForceDecisions(db).filter(decision => namesQueueLive(decision.text, 'launch')).map(decision => decision.decisionId)
+    return live.length > 0 && live.every(decisionId => decisionRecordedAfter(db, decisionId, at))
+  }
 }
 
 function cardLives(db: DatabaseSync): Map<number, CardLife> {
