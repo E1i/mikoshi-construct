@@ -7,7 +7,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { latestAssignment } from '../../core/bus-readings.js'
 import { appendEvent, openBus, openOwnerWait } from '../../core/db.js'
 import { events } from '../../core/events-query.js'
-import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, LANE_ASSIGNED, PR_OBSERVED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_DEFERRED, CARD_DROPPED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, LANE_ASSIGNED, PR_OBSERVED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardEvents } from '../../intake/intake.js'
 import { assignMovedLane, currentLane, layLanes } from '../../nodes/launch/lane-assign.js'
@@ -33,6 +33,7 @@ class Bench {
   readonly db: DatabaseSync
   readonly root = mkdtempSync(path.join(tmpdir(), 'intake-move-lane-'))
   private admissions = 0
+  private intakeMoves = 0
 
   constructor(private lanes: number) {
     roots.push(this.root)
@@ -57,9 +58,14 @@ class Bench {
   }
 
   moveByIntake(id: number, lane: string): this {
-    busCardEvents(this.db, 's1')({ type: CARD_MOVED, cardId: id, ts: TS, dedupeKey: `${CARD_MOVED}:${id}:${lane}:intake`, payload: { from: null, to: path.join(this.root, lane), bodySha: 'moved' } })
+    this.intakeMoves += 1
+    busCardEvents(this.db, 's1')({ type: CARD_MOVED, cardId: id, ts: TS, dedupeKey: `${CARD_MOVED}:${id}:${lane}:intake:${this.intakeMoves}`, payload: { from: null, to: path.join(this.root, lane), bodySha: 'moved' } })
     reduce(this.db, 'pending', busProjections())
     return this
+  }
+
+  defer(id: number): this {
+    return this.append(CARD_DEFERRED, id, null, `${CARD_DEFERRED}:${id}`, { from: null, to: path.join(this.root, 'deferred'), bodySha: 'deferred' })
   }
 
   start(id: number): this {
@@ -214,6 +220,15 @@ describe('intake --move and the bus lane', () => {
     expect([bench.lane(2), bench.reason(2)]).toEqual(['lane-2', 'moved'])
   })
 
+  it('a move on a card deferred after it is not applied until a later move releases the card', () => {
+    const bench = chainedBehindARunningHead().moveByIntake(2, 'lane-2').defer(2)
+    const recorded = bench.assignments(2)
+    bench.tick().tick()
+    expect([bench.lane(2), bench.reason(2), bench.assignments(2)]).toEqual(['lane-1', 'chain', recorded])
+    bench.moveByIntake(2, 'lane-2').tick()
+    expect([bench.lane(2), bench.reason(2)]).toEqual(['lane-2', 'moved'])
+  })
+
   it('a move into a lane past the lane count leaves the card where it is', () => {
     const bench = chainedBehindARunningHead().moveByIntake(2, 'lane-5').tick()
     expect([bench.lane(2), bench.reason(2)]).toEqual(['lane-1', 'chain'])
@@ -226,6 +241,20 @@ describe('an amend and the lane of the card it overlapped', () => {
     expect([bench.lane(2), bench.reason(2)]).toEqual(['lane-1', 'chain'])
     bench.admit(2, 'src/b.ts')
     expect(bench.lane(2)).toBe('lane-2')
+  })
+
+  it('an unchaining amend takes the least loaded of the other lanes, not the lowest numbered one', () => {
+    const bench = new Bench(3).admit(1, 'src/a.ts').start(1).admit(5, 'src/y.ts').start(5).admit(6, 'src/y.ts,src/w.ts').start(6).admit(9, 'src/y.ts,src/v.ts').start(9).admit(7, 'src/q.ts').start(7).admit(8, 'src/q.ts,src/r.ts').start(8).admit(2, 'src/a.ts,src/b.ts')
+    expect([bench.lane(1), bench.lane(5), bench.lane(6), bench.lane(9), bench.lane(7), bench.lane(8), bench.lane(2)]).toEqual(['lane-1', 'lane-2', 'lane-2', 'lane-2', 'lane-3', 'lane-3', 'lane-1'])
+    bench.admit(2, 'src/b.ts')
+    expect([bench.lane(2), bench.reason(2)]).toEqual(['lane-3', 'least-loaded'])
+  })
+
+  it('an unchaining amend stays out of a lane whose occupant waits on an owner merge, though that lane is emptier', () => {
+    const bench = new Bench(3).admit(1, 'src/a.ts').start(1).admit(4, 'src/m.ts').waitForOwnerMerge(4).admit(7, 'src/q.ts').start(7).admit(8, 'src/q.ts,src/r.ts').start(8).admit(2, 'src/a.ts,src/b.ts')
+    expect([bench.lane(1), bench.lane(4), bench.lane(7), bench.lane(8), bench.lane(2)]).toEqual(['lane-1', 'lane-2', 'lane-3', 'lane-3', 'lane-1'])
+    bench.admit(2, 'src/b.ts')
+    expect([bench.lane(2), bench.reason(2)]).toEqual(['lane-3', 'least-loaded'])
   })
 
   it('an amend that keeps the overlap leaves the card chained in its lane', () => {
