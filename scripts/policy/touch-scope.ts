@@ -1,6 +1,6 @@
 import type { DerivedReading, DerivedRegistry, DerivedVerdict } from './derived-files.js'
 import { FACTORY_FOLDERS, FACTORY_NAMED, GENERATED_FILES, RATCHET_FILE } from '../core/factory-paths.js'
-import { allowancesOf, cardAllowancesIn, derivedGrowthLine, derivedRefusalLine, isDerived, judgeDerived, removesEntriesOnly, unallowedGrowth } from './derived-files.js'
+import { allowancesOf, cardAllowancesIn, derivedGrowthLine, derivedRefusalLine, isDerived, judgeDerived, removesEntriesOnly, rerunnable, unallowedGrowth } from './derived-files.js'
 
 export type { AllowanceSource, DerivedReading, DerivedRerun, DerivedVerdict, GrownDerived, OwnerAllowance, RefusedDerived } from './derived-files.js'
 export { allowancesOf, cardAllowancesIn, derivedGrowthLine, derivedRefusalLine, removesEntriesOnly, unallowedGrowth }
@@ -123,6 +123,10 @@ export function isRegisteredDerived(file: string): boolean {
   return isDerived(DERIVED_REGISTRY, file)
 }
 
+export function isMeasuredDerived(file: string): boolean {
+  return DERIVED_REGISTRY.rows.some(row => row.path === file && row.measure === true)
+}
+
 export function derivedVerdictOf(files: readonly string[], reading: DerivedReading): DerivedVerdict {
   return judgeDerived(DERIVED_REGISTRY, files, reading)
 }
@@ -144,6 +148,52 @@ export function derivedHoldOf(scope: { touches: readonly string[], creates: read
     return { kind: 'refused', detail: derivedRefusalLine(verdict.refused) }
   const grown = verdict.grown.length === 0 ? [] : unallowedGrowth(verdict.grown, allowances())
   return grown.length === 0 ? null : { kind: 'grown', detail: derivedGrowthLine(grown) }
+}
+
+export interface TwinTree {
+  drop: (files: readonly string[]) => void
+  reading: () => DerivedReading | null
+  write: (file: string, text: string | null) => void
+}
+
+export type TwinRegeneration = { kind: 'regenerated', files: string[] } | DerivedHold
+
+function rerunRowOf(file: string): (DerivedRegistry['rows'][number] & { rebuild: readonly string[] }) | undefined {
+  return DERIVED_REGISTRY.rows.filter(rerunnable).find(row => row.path === file)
+}
+
+function rebuildKey(rebuild: readonly string[]): string {
+  return rebuild.join(' ')
+}
+
+function regenerate(derived: readonly string[], read: DerivedReading, tree: TwinTree): string | null {
+  const rebuilds = new Map(derived.map(file => rerunRowOf(file)!.rebuild).map(rebuild => [rebuildKey(rebuild), rebuild]))
+  for (const [key, rebuild] of rebuilds) {
+    const outputs = DERIVED_REGISTRY.rows.filter(rerunnable).filter(row => rebuildKey(row.rebuild) === key).map(row => row.path)
+    const rerun = read.rerun(rebuild, outputs)
+    if (rerun.kind === 'failed')
+      return `pnpm ${key} could not be rerun on the card's tree: ${rerun.why}`
+    derived.filter(file => rebuildKey(rerunRowOf(file)!.rebuild) === key).forEach(file => tree.write(file, rerun.outputs.get(file) ?? null))
+  }
+  return null
+}
+
+export function regeneratedTwins(scope: { touches: readonly string[], creates: readonly string[] }, files: readonly string[], tree: TwinTree, allowances: () => readonly string[] = () => []): TwinRegeneration {
+  const derived = files.filter(isRegisteredDerived)
+  tree.drop(derived)
+  const read = tree.reading()
+  if (read === null)
+    return { kind: 'refused', detail: `no card tree to rerun the generators of ${derived.join(', ')} on` }
+  const failed = regenerate(derived, read, tree)
+  if (failed !== null)
+    return { kind: 'refused', detail: failed }
+  return derivedHoldOf(scope, derived, () => read, allowances) ?? { kind: 'regenerated', files: derived }
+}
+
+export function twinSourcesOutside(scope: { touches: readonly string[], creates: readonly string[] }, twins: readonly string[], changed: readonly string[]): string[] {
+  const roots = Object.values(GENERATED_FILES).filter(row => twins.includes(row.path)).flatMap(row => row.followSources ?? [])
+  const changedSources = changed.filter(file => !isRegisteredDerived(file) && roots.some(root => under(file, root)))
+  return pathsOutside(scope.touches, scope.creates, changedSources.length > 0 ? changedSources : [...new Set(roots)])
 }
 
 export function textBeforePatch(after: string, patch: string): string | null {
