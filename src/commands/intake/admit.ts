@@ -9,6 +9,7 @@ import type { CardScope } from '../test-runner.js'
 import type { CheckedCard } from './check.js'
 import type { Confirmation } from './confirm.js'
 import type { DraftCard } from './draft.js'
+import type { RepositoryFacts } from './facts.js'
 import type { CardAdmissionsPort, CardEventPort, CardStatesPort, RecordedIntake, RecordedWitnessVerdict } from './index.js'
 import type { SlicedCard } from './slice.js'
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -24,7 +25,7 @@ import { priorityLineOf, withKeptPriority } from '../../card/text-sha.js'
 import { isWitnessFieldLine, renderedWitness, runsFieldLine, runsFieldOf, witnessesOf, witnessFieldsOf, witnessText } from '../../card/witness-fields.js'
 import { readMilestones } from '../../manifest.js'
 import { findsNoTest, namedAbsentOutside, namedPaths, withinScope } from '../test-runner.js'
-import { CARD_REFERENCE, checkDraft, correctionText, FACTORY_TWIN, invalidTestPatterns, isChangeWitness, nonPathTouchRefusals, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf, unreachableCreatesRefusal } from './check.js'
+import { cannotBeRedOnTheBase, CARD_REFERENCE, checkDraft, correctionText, FACTORY_TWIN, invalidTestPatterns, isChangeWitness, nonPathTouchRefusals, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf, unreachableCreatesRefusal } from './check.js'
 import { TEST_NAME_ARGUMENT } from './command-word.js'
 import { admitCorrectionsNeedPerson, bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, isConfirmation, sameHeader, tokenConfirmation, TOUCHES_HEADER, windowShard } from './confirm.js'
 import { withoutWitnessKind } from './draft.js'
@@ -435,8 +436,15 @@ export function deadOnTheBase(witness: string, records: readonly RecordedWitness
   return false
 }
 
-function withoutDead(downgrades: readonly string[], records: readonly RecordedWitnessVerdict[]): string[] {
-  return downgrades.filter(witness => !deadOnTheBase(witness, records))
+function admittedDraft(file: string, text: string | undefined): DraftCard | null {
+  if (text === undefined)
+    return null
+  const parsed = parseParkingFile(file, text)
+  return parsed.kind === 'refused' ? null : draftOf(parsed.parked)
+}
+
+function withoutDead(downgrades: readonly string[], records: readonly RecordedWitnessVerdict[], admitted: DraftCard | null, repository: RepositoryFacts): string[] {
+  return downgrades.filter(witness => !deadOnTheBase(witness, records) && !(admitted !== null && cannotBeRedOnTheBase(admitted, witness, repository)))
 }
 
 function standingReplacementAllowed(decisions: DecisionsPort, cardId: number): boolean {
@@ -705,7 +713,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const unrefined = unreplaced.length > 0 ? withoutRefinements(unreplaced, previous, witnessesOf(admitted.text), scope) : unreplaced
   const unmoved = unrefined.length > 0 ? withoutOwnerMoves(decisions, card.id, unrefined, previous, witnessesOf(admitted.text)) : unrefined
   const untransferredDowngrades = unmoved.length > 0 && witnessTransferIsNoDowngrade(decisions) ? untransferred(unmoved, recorded?.text ?? '', openCardTextsBeside(card.id, cards, options.admissions).flatMap(other => witnessFieldsOf(other) ?? [])) : unmoved
-  const downgrades = withoutDead(untransferredDowngrades, recorded?.witnessRecords ?? [])
+  const downgrades = untransferredDowngrades.length > 0 ? withoutDead(untransferredDowngrades, recorded?.witnessRecords ?? [], admittedDraft(file, recorded?.text), repository) : untransferredDowngrades
   if (downgrades.length > 0 && !ownerAllowed(decisions, card.id, downgrades, previous)) {
     const actions = downgrades.map(witness => downgradeAction(card.id, witness, previous))
     if (!options.dryRun)
