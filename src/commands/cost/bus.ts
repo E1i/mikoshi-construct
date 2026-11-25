@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { cardEnds, cardTurnsOf, legacyLinePayloads } from '../../../scripts/core/card-readings.js'
 import { CARD_ANSWERED, CARD_STARTED, PR_CLOSED } from '../../../scripts/core/events.js'
+import { prsByCard } from '../../../scripts/core/merge-event.js'
 import { parseCard } from '../../card/grammar.js'
 import { projectKey } from './source.js'
 
@@ -22,6 +23,7 @@ interface BusTask {
 }
 
 const SPEND_TURNS = [CARD_STARTED, CARD_ANSWERED]
+const NO_PRS: ReadonlySet<number> = new Set()
 
 function payloadOf(text: string): Record<string, unknown> {
   try {
@@ -77,13 +79,18 @@ function spendByCard(rows: readonly CardTurn[]): Map<number, CardTurn[]> {
   return byCard
 }
 
+export function endedCards(db: DatabaseSync): CardEnd[] {
+  const prsOf = prsByCard(db)
+  return cardEnds(db, card => prsOf.get(card) ?? NO_PRS)
+}
+
 export function readBusTasks(busPath: string): BusTask[] {
   if (!existsSync(busPath))
     return []
   try {
     return withReadOnlyBus(busPath, (db) => {
       const spend = spendByCard(cardTurnsOf(db, SPEND_TURNS))
-      return cardEnds(db).flatMap((row) => {
+      return endedCards(db).flatMap((row) => {
         const task = taskOf(row, spend.get(row.card_id) ?? [])
         return task === null ? [] : [task]
       })

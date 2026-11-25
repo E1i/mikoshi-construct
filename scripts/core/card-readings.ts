@@ -143,18 +143,6 @@ export interface CardTurn {
 
 const MERGED_FLAGS: readonly unknown[] = [true, 1]
 
-function prsOfCards(db: DatabaseSync): Map<number, Set<number>> {
-  const byCard = new Map<number, Set<number>>()
-  const link = (card: number, pr: number): void => {
-    byCard.set(card, (byCard.get(card) ?? new Set<number>()).add(pr))
-  }
-  for (const [card, pr] of linkedPrs(db))
-    link(card, pr)
-  for (const row of events(db, { withCard: true, withPr: true }))
-    link(row.card_id!, row.pr!)
-  return byCard
-}
-
 function lastWhere(rows: readonly EventRow[], matches: (row: EventRow) => boolean): EventRow | undefined {
   let found: EventRow | undefined
   for (const row of rows) {
@@ -164,12 +152,13 @@ function lastWhere(rows: readonly EventRow[], matches: (row: EventRow) => boolea
   return found
 }
 
-export function cardEnds(db: DatabaseSync): CardEnd[] {
-  const prsOf = prsOfCards(db)
+export type PrsOfCard = (card: number) => ReadonlySet<number>
+
+export function cardEnds(db: DatabaseSync, prsOf: PrsOfCard): CardEnd[] {
   const merges = events(db, { types: [PR_CLOSED] }).filter(row => MERGED_FLAGS.includes(row.data?.merged))
   const closes = events(db, { types: [CARD_CLOSED], withCard: true, legacy: EITHER_JOURNAL })
   return [...cardLinesOfHeldBodies(db)].flatMap(([card, line]) => {
-    const prs = prsOf.get(card) ?? new Set<number>()
+    const prs = prsOf(card)
     const end = lastWhere(merges, row => row.card_id === card || (row.pr !== null && prs.has(row.pr))) ?? lastWhere(closes, row => row.card_id === card)
     return end === undefined || end.ts === null ? [] : [{ card_id: card, card_line: line, ended: end.ts, end_type: end.type, end_payload: end.payload }]
   })
