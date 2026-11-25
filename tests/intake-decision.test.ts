@@ -162,9 +162,9 @@ describe('construct intake --admit derives the decision from architecture/owner-
 })
 
 describe('a refused witness downgrade hands the owner the decision admit accepts', () => {
-  const FIRST = '`pnpm exec vitest run tests/a.test.ts` exits 0; red on main'
-  const SECOND = '`pnpm exec vitest run tests/b.test.ts` exits 0; red on main'
-  const KEPT = '`pnpm exec vitest run tests/c.test.ts` exits 0'
+  const FIRST = '`pnpm exec vitest run tests/a.test.ts -t \'the change\'` exits 0; red on main'
+  const SECOND = '`pnpm exec vitest run tests/b.test.ts -t \'the change\'` exits 0; red on main'
+  const KEPT = '`pnpm exec vitest run tests/c.test.ts -t \'the change\'` exits 0'
 
   function body(...witnesses: string[]): string {
     return `Do the thing.\n\nWitnesses:\n${witnesses.map(witness => `- ${witness}`).join('\n')}`

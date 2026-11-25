@@ -17,8 +17,8 @@ import { INTAKE_EXIT } from '../src/commands/intake/index.js'
 
 const NOW = new Date('2026-10-13T09:00:00.000Z')
 const CARD = '#80 amend-card [implement/runner/S/cheap/owner] · depends — · blocks —'
-const ACCEPTANCE = '`pnpm exec vitest run tests/a.test.ts` exits 0; red on main'
-const INVARIANT = '`pnpm exec vitest run tests/a.test.ts` exits 0'
+const ACCEPTANCE = '`pnpm exec vitest run tests/a.test.ts -t \'the change\'` exits 0; red on main'
+const INVARIANT = '`pnpm exec vitest run tests/a.test.ts -t \'the change\'` exits 0'
 const LANE = 'lane-3'
 const roots: string[] = []
 

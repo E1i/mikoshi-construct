@@ -17,9 +17,9 @@ const AT = new Date('2026-10-13T09:00:00.000Z')
 function heldIn(file: string): DecisionsPort {
   return { inForce: () => decisionsOfProjection(existsSync(file) ? readFileSync(file, 'utf8') : '', AT).inForce() }
 }
-const FIRST = '`pnpm exec vitest run tests/a.test.ts` exits 0; red on main'
-const SECOND = '`pnpm exec vitest run tests/b.test.ts` exits 0; red on main'
-const INVARIANT = '`pnpm exec vitest run tests/c.test.ts` exits 0'
+const FIRST = '`pnpm exec vitest run tests/a.test.ts -t \'the change\'` exits 0; red on main'
+const SECOND = '`pnpm exec vitest run tests/b.test.ts -t \'the change\'` exits 0; red on main'
+const INVARIANT = '`pnpm exec vitest run tests/c.test.ts -t \'the change\'` exits 0'
 const roots: string[] = []
 
 afterEach(() => {
