@@ -448,6 +448,25 @@ describe('an import block reordered and nothing else', () => {
     expect(importsReorderedOnly('import b from \'b\'\nimport a from \'a\'\n', 'import a from \'a\'\nimport b from \'c\'\n')).toBe(false)
     expect(importsReorderedOnly('import b from \'b\'\nimport a from \'a\'\n', 'import a from \'a\'\nimport b from \'b\'\nx\n')).toBe(false)
   })
+
+  it('fails when the disk copy is the session\'s result with a line appended after it', () => {
+    expect(importsReorderedOnly('import a from \'a\'\nx\n', 'import a from \'a\'\nx\n\nextra\n')).toBe(false)
+  })
+
+  it('fails when the disk copy keeps the lines but breaks a multi-line import apart', () => {
+    expect(importsReorderedOnly('import {\n  a,\n} from \'x\'\nimport b from \'b\'\n', 'import b from \'b\'\nimport {\n} from \'x\'\n  a,\n')).toBe(false)
+    expect(importsReorderedOnly('import b from \'b\'\nimport {\n} from \'x\'\n  a,\n', 'import {\n  a,\n} from \'x\'\nimport b from \'b\'\n')).toBe(false)
+  })
+
+  it('fails for moved non-import lines after a dynamic import, an import.meta line or an import-equals line', () => {
+    expect(importsReorderedOnly('import a from \'a\'\nimport(\'./setup.js\')\nexport const x = 1\nexport const y = 2\n', 'import a from \'a\'\nimport(\'./setup.js\')\nexport const y = 2\nexport const x = 1\n')).toBe(false)
+    expect(importsReorderedOnly('import.meta.env\nexport const x = 1\nexport const y = 2\n', 'import.meta.env\nexport const y = 2\nexport const x = 1\n')).toBe(false)
+    expect(importsReorderedOnly('import x = require(\'y\')\nexport const x = 1\nexport const y = 2\n', 'import x = require(\'y\')\nexport const y = 2\nexport const x = 1\n')).toBe(false)
+  })
+
+  it('holds for a multi-line import with a default specifier moved past a single-line one', () => {
+    expect(importsReorderedOnly('import d, {\n  a,\n} from \'x\'\nimport b from \'b\'\n', 'import b from \'b\'\nimport d, {\n  a,\n} from \'x\'\n')).toBe(true)
+  })
 })
 
 describe('the sessions of a card on the bus', () => {

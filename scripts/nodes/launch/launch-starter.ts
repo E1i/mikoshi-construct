@@ -23,7 +23,7 @@ import { restoreReport, shellWord } from '../../ports/tree-publish.js'
 import { freshenCardTree, gitIn } from '../../ports/worktree.js'
 import { HELD_TREE_CHANGED, technical } from './launch-executor.js'
 import { continuationBody } from './prompt.js'
-import { importsReorderedOnly, journalDoubt, parseSessionJournal, sessionResult, withEscapesDecoded } from './session-journal.js'
+import { journalDoubt, parseSessionJournal } from './session-journal.js'
 
 export interface DetachedSpawn {
   command: string
@@ -128,13 +128,6 @@ const PATH_DELIMITERS = /[\s`'"(),;<>[\]{}]+/
 
 export function pathTokens(text: string): Set<string> {
   return new Set(text.split(PATH_DELIMITERS).map(token => token.replace(/[.:]+$/, '')).filter(token => token !== ''))
-}
-
-function importsReorderedBySession(relative: string, journal: SessionJournal, file: TreeFile): boolean {
-  if (file.mtimeMs > journal.end)
-    return false
-  const result = sessionResult(journal.changes.get(relative) ?? [])
-  return result !== null && importsReorderedOnly(result, withEscapesDecoded(file.content))
 }
 
 export interface SessionContinuer {
@@ -246,8 +239,6 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
       const file = this.ports.treeFile(path.join(worktree, each))
       const reasons = journals.map(({ session, journal }) => ({ session, reason: journalDoubt(journal, each, file) }))
       if (reasons.some(({ reason }) => reason === null))
-        return []
-      if (file !== null && journals.some(({ journal }) => importsReorderedBySession(each, journal, file)))
         return []
       const reason = reasons.length === 1 ? reasons[0]!.reason! : reasons.map(({ session, reason }) => `session ${session}: ${reason}`).join('; ')
       return [{ path: each, reason }]
