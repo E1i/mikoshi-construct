@@ -8,6 +8,7 @@ export interface EntryPoint {
   kind: EntryPointKind
   path: string
   declaredIn: string | null
+  packageDir: string
 }
 
 const PACKAGE_DIR = '(?:(?:apps|packages|libs|services)/[^/]+/)?'
@@ -24,6 +25,7 @@ const CONVENTIONS: readonly (readonly [EntryPointKind, RegExp])[] = [
 const CONVENTION_ROOTS = ['pages', 'src/pages', 'app', 'src/app', 'src/routes']
 const WORKSPACE_PARENTS = ['apps', 'packages', 'libs', 'services']
 const PACKAGE_MANIFEST = 'package.json'
+const SKIPPED_ENTRIES: ReadonlySet<string> = new Set([...IGNORED_ENTRIES, 'node_modules'])
 const RELATIVE_SPECIFIER = /\b(?:from|import|require)\s*(?:\(\s*)?['"](\.{1,2}\/[^'"]+)['"]/g
 const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.vue', '.svelte', '.astro']
 const COMPILED_TWIN: Readonly<Record<string, string[]>> = { '.js': ['.ts', '.tsx'], '.mjs': ['.mts'], '.cjs': ['.cts'], '.jsx': ['.tsx'] }
@@ -59,7 +61,7 @@ function filesUnder(root: string, relative: string): string[] {
   if (!isDirectory(absolute))
     return []
   return readdirSync(absolute, { withFileTypes: true })
-    .filter(entry => !IGNORED_ENTRIES.has(entry.name))
+    .filter(entry => !SKIPPED_ENTRIES.has(entry.name))
     .sort((a, b) => a.name.localeCompare(b.name))
     .flatMap(entry => entry.isDirectory() ? filesUnder(root, `${relative}/${entry.name}`) : entry.isFile() ? [`${relative}/${entry.name}`] : [])
 }
@@ -91,7 +93,7 @@ function declaredEntries(root: string, dir: string): EntryPoint[] {
   catch {
     return []
   }
-  const declared = (kind: EntryPointKind, value: unknown): EntryPoint[] => stringValues(value).map(file => ({ kind, path: within(dir, file), declaredIn: manifest }))
+  const declared = (kind: EntryPointKind, value: unknown): EntryPoint[] => stringValues(value).map(file => ({ kind, path: within(dir, file), declaredIn: manifest, packageDir: dir }))
   return [...declared('bin', parsed?.bin), ...declared('main', parsed?.main), ...declared('main', parsed?.exports)]
 }
 
@@ -99,8 +101,12 @@ function conventionalEntries(root: string, dir: string): EntryPoint[] {
   const candidates = [within(dir, 'index.html'), ...CONVENTION_ROOTS.flatMap(conventional => filesUnder(root, within(dir, conventional)))]
   return candidates.flatMap((file) => {
     const kind = isFile(path.join(root, file)) ? entryPointKindOf(file) : null
-    return kind === null ? [] : [{ kind, path: file, declaredIn: null }]
+    return kind === null ? [] : [{ kind, path: file, declaredIn: null, packageDir: dir }]
   })
+}
+
+export function packageDirOf(dir: string, relative: string): string {
+  return packageDirs(path.resolve(dir)).find(pkg => pkg !== '' && relative.startsWith(`${pkg}/`)) ?? ''
 }
 
 export function detectEntryPoints(dir: string): EntryPoint[] {

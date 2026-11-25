@@ -52,7 +52,7 @@ describe('a witness must be reachable from an entry point of the product', () =>
     const result = admit(['src/island.ts'])
 
     expect(result.status).toBe('refused')
-    expect(result.status === 'refused' ? result.why : '').toContain(`#${CARD} creates ${CREATED}, a product module, and no touch reaches an entry point of the stack (bin dist/cli.js)`)
+    expect(result.status === 'refused' ? result.why : '').toContain(`#${CARD} creates ${CREATED}, a product module, and no touch reaches an entry point of its package (bin dist/cli.js)`)
   })
 
   it('a card whose new module an entry point named by the stack adapter imports is admitted', () => {
@@ -100,5 +100,39 @@ describe('admit judges a created product module by the entry points', () => {
 
   it('passes a prefix touch over a reached module', () => {
     expect(unreachableCreatesRefusal(product(), 1, ['src/**'], [CREATED])).toBeNull()
+  })
+
+  const workspace = (files: Record<string, string>): string => {
+    const root = mkdtempSync(path.join(tmpdir(), 'reachable-from-entry-'))
+    roots.push(root)
+    for (const [file, text] of Object.entries(files)) {
+      mkdirSync(path.dirname(path.join(root, file)), { recursive: true })
+      writeFileSync(path.join(root, file), text)
+    }
+    return root
+  }
+
+  const LIBRARY = {
+    'packages/core/package.json': JSON.stringify({ name: 'core', exports: { '.': './src/index.ts' } }),
+    'packages/core/src/index.ts': '',
+  }
+
+  it('does not judge an app package that declares no entry point beside a library that does', () => {
+    const root = workspace({ ...LIBRARY, 'apps/web/package.json': JSON.stringify({ name: 'web' }), 'apps/web/src/pages.ts': '' })
+
+    expect(unreachableCreatesRefusal(root, 1, ['apps/web/src/pages.ts'], ['apps/web/src/window-shell.ts'])).toBeNull()
+  })
+
+  it('does not let a touch of another package reach the created module', () => {
+    const root = workspace({ ...LIBRARY, 'apps/web/package.json': JSON.stringify({ name: 'web', bin: 'src/cli.ts' }), 'apps/web/src/cli.ts': '', 'apps/web/src/island.ts': '' })
+
+    expect(unreachableCreatesRefusal(root, 1, ['packages/core/src/index.ts'], ['apps/web/src/window-shell.ts'])).toContain('creates apps/web/src/window-shell.ts, a product module, and no touch reaches an entry point of its package (bin apps/web/src/cli.ts)')
+  })
+
+  it('names five entry points of the package and marks the rest with an ellipsis', () => {
+    const pages = Object.fromEntries(['a', 'b', 'c', 'd', 'e', 'f'].map(name => [`pages/${name}.tsx`, '']))
+    const root = workspace({ ...pages, 'src/island.ts': '' })
+
+    expect(unreachableCreatesRefusal(root, 1, ['src/island.ts'], [CREATED])).toContain('(page pages/a.tsx, page pages/b.tsx, page pages/c.tsx, page pages/d.tsx, page pages/e.tsx, …)')
   })
 })
