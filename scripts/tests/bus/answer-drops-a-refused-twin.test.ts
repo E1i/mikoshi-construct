@@ -39,7 +39,7 @@ describe('the answer node drops a refused generated twin and regenerates it', ()
 
     const answer = refusedTwinAnswer([FACTORY], SCOPE, fake.tree, [TOUCHED, FACTORY])
 
-    expect(answer).toEqual({ kind: 'regenerated', files: [FACTORY] })
+    expect(answer).toEqual({ kind: 'regenerated', files: [FACTORY], rest: [] })
     expect(fake.files.get(FACTORY)).toBe('{"v":2}\n')
   })
 

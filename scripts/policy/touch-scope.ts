@@ -1,6 +1,6 @@
 import type { DerivedReading, DerivedRegistry, DerivedVerdict } from './derived-files.js'
 import { FACTORY_FOLDERS, FACTORY_NAMED, GENERATED_FILES, RATCHET_FILE } from '../core/factory-paths.js'
-import { allowancesOf, cardAllowancesIn, derivedGrowthLine, derivedRefusalLine, isDerived, judgeDerived, removesEntriesOnly, rerunnable, unallowedGrowth } from './derived-files.js'
+import { allowancesOf, cardAllowancesIn, derivedGrowthLine, derivedRefusalLine, isDerived, judgeDerived, removesEntriesOnly, unallowedGrowth } from './derived-files.js'
 
 export type { AllowanceSource, DerivedReading, DerivedRerun, DerivedVerdict, GrownDerived, OwnerAllowance, RefusedDerived } from './derived-files.js'
 export { allowancesOf, cardAllowancesIn, derivedGrowthLine, derivedRefusalLine, removesEntriesOnly, unallowedGrowth }
@@ -156,52 +156,46 @@ export interface TwinTree {
   write: (file: string, text: string | null) => void
 }
 
-export type TwinRegeneration = { kind: 'regenerated', files: string[] } | DerivedHold
+export type RefusedTwinAnswer
+  = | { kind: 'owner' }
+    | { kind: 'regenerated', files: string[], rest: string[] }
+    | { kind: 'window', twins: string[], sources: string[], detail: string }
 
-function rerunRowOf(file: string): (DerivedRegistry['rows'][number] & { rebuild: readonly string[] }) | undefined {
-  return DERIVED_REGISTRY.rows.filter(rerunnable).find(row => row.path === file)
-}
-
-function rebuildKey(rebuild: readonly string[]): string {
-  return rebuild.join(' ')
-}
-
-function regenerate(derived: readonly string[], read: DerivedReading, tree: TwinTree): string | null {
-  const rebuilds = new Map(derived.map(file => rerunRowOf(file)!.rebuild).map(rebuild => [rebuildKey(rebuild), rebuild]))
-  for (const [key, rebuild] of rebuilds) {
-    const outputs = DERIVED_REGISTRY.rows.filter(rerunnable).filter(row => rebuildKey(row.rebuild) === key).map(row => row.path)
-    const rerun = read.rerun(rebuild, outputs)
-    if (rerun.kind === 'failed')
-      return `pnpm ${key} could not be rerun on the card's tree: ${rerun.why}`
-    derived.filter(file => rebuildKey(rerunRowOf(file)!.rebuild) === key).forEach(file => tree.write(file, rerun.outputs.get(file) ?? null))
+function capturingRerun(read: DerivedReading, captured: Map<string, string | null>): DerivedReading {
+  return {
+    ...read,
+    rerun: (command, outputs) => {
+      const rerun = read.rerun(command, outputs)
+      if (rerun.kind === 'ran')
+        rerun.outputs.forEach((text, file) => captured.set(file, text))
+      return rerun
+    },
   }
-  return null
 }
 
-export function regeneratedTwins(scope: { touches: readonly string[], creates: readonly string[] }, files: readonly string[], tree: TwinTree, allowances: () => readonly string[] = () => []): TwinRegeneration {
-  const derived = files.filter(isRegisteredDerived)
-  tree.drop(derived)
+function unconvergedTwins(twins: readonly string[], tree: TwinTree): string | null {
+  tree.drop(twins)
   const read = tree.reading()
   if (read === null)
-    return { kind: 'refused', detail: `no card tree to rerun the generators of ${derived.join(', ')} on` }
-  const failed = regenerate(derived, read, tree)
-  if (failed !== null)
-    return { kind: 'refused', detail: failed }
-  return derivedHoldOf(scope, derived, () => read, allowances) ?? { kind: 'regenerated', files: derived }
+    return `no card tree to rerun the generators of ${twins.join(', ')} on`
+  const captured = new Map<string, string | null>()
+  const first = derivedVerdictOf(twins, capturingRerun(read, captured))
+  const unrun = twins.filter(file => !captured.has(file))
+  if (unrun.length > 0)
+    return derivedRefusalLine(first.refused.filter(each => unrun.includes(each.file)))
+  twins.forEach(file => tree.write(file, captured.get(file) ?? null))
+  const refused = derivedVerdictOf(twins, read).refused
+  return refused.length === 0 ? null : derivedRefusalLine(refused)
 }
 
-export type RefusedTwinAnswer = { kind: 'owner' } | { kind: 'regenerated', files: string[] } | { kind: 'window', twins: string[], sources: string[], detail: string }
-
-export function refusedTwinAnswer(refused: readonly string[], scope: { touches: readonly string[], creates: readonly string[] }, tree: TwinTree, changed: readonly string[], allowances: () => readonly string[] = () => []): RefusedTwinAnswer {
-  const derived = refused.filter(isRegisteredDerived)
-  if (derived.length === 0 || derived.length < refused.length || derived.some(isMeasuredDerived))
+export function refusedTwinAnswer(refused: readonly string[], scope: { touches: readonly string[], creates: readonly string[] }, tree: TwinTree, changed: readonly string[]): RefusedTwinAnswer {
+  const twins = refused.filter(isRegisteredDerived)
+  if (twins.length === 0 || twins.some(isMeasuredDerived))
     return { kind: 'owner' }
-  const regenerated = regeneratedTwins(scope, derived, tree, allowances)
-  if (regenerated.kind === 'grown')
-    return { kind: 'owner' }
-  if (regenerated.kind === 'refused')
-    return { kind: 'window', twins: derived, sources: twinSourcesOutside(scope, derived, changed), detail: regenerated.detail }
-  return { kind: 'regenerated', files: derived }
+  const detail = unconvergedTwins(twins, tree)
+  if (detail !== null)
+    return { kind: 'window', twins, sources: twinSourcesOutside(scope, twins, changed), detail }
+  return { kind: 'regenerated', files: twins, rest: refused.filter(file => !isRegisteredDerived(file)) }
 }
 
 export function twinSourcesOutside(scope: { touches: readonly string[], creates: readonly string[] }, twins: readonly string[], changed: readonly string[]): string[] {

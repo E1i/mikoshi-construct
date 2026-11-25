@@ -180,6 +180,10 @@ export function gitTwins(db: DatabaseSync, trees: CardTreeTools): AnswerTwins {
   }
 }
 
+export function restStopLine(refusal: string, twins: readonly string[], rest: readonly string[]): string {
+  return `${refusal}; the bus dropped and regenerated the derived ${twins.join(', ')} in the card tree, which opens no owner wait; the refused changes to ${rest.join(', ')} stay uncommitted in the card tree until the touches are widened or the changes are dropped`
+}
+
 export function twinUnconvergedLine(cardId: number, twins: readonly string[], sources: readonly string[], why: string): string {
   const source = sources.length === 0 ? 'no changed source of it lies outside the touches, so the window fixes the generator run in the card tree' : `the source ${sources.join(', ')} lies outside the touches, so the window widens the touches to it or drops that change`
   return `card #${cardId}: the answer left changes to the derived ${twins.join(', ')}; the bus dropped them and reran the generator, which does not reproduce the file (${why}); ${source} (D-592)`
@@ -527,15 +531,16 @@ export class AnswerExecutor {
     const admitted = admittedScopeOf(this.parts.db, lease.cardId)
     if (admitted === null)
       return null
-    const scope = { touches: [...admitted.touches, ...(widened?.paths ?? [])], creates: admitted.creates }
     const twins = this.parts.twins ?? gitTwins(this.parts.db, this.parts.trees ?? realCardTrees())
-    const answer = refusedTwinAnswer(pathsIn(denial.detail), scope, twins.tree(card, lease.cardId), [...this.changedIn(card)], () => this.parts.allowances?.(lease.cardId) ?? [])
+    const answer = refusedTwinAnswer(pathsIn(denial.detail), admitted, twins.tree(card, lease.cardId), [...this.changedIn(card)])
     const scopeEvents = widened === null ? [] : [widened.event]
     if (answer.kind === 'owner')
       return null
     if (answer.kind === 'window')
       return this.outcomes.stopped(lease, QUESTION_AGENT, twinUnconvergedLine(lease.cardId, answer.twins, answer.sources, answer.detail), answer.sources.length === 0 ? {} : { widen: answer.sources }, scopeEvents)
     const derived = answer.files
+    if (answer.rest.length > 0)
+      return this.outcomes.ownersStop(lease, restStopLine(denial.detail, derived, answer.rest), scopeEvents, undefined, this.refusedPathsToWiden(denial.detail))
     const head = twins.commit(card, lease)
     if (head === null)
       return this.outcomes.denied(lease, { kind: 'technical', reason: 'answer_failed', detail: `card #${lease.cardId}: the bus regenerated ${derived.join(', ')} in ${card.worktree} and could not commit and push it; the answer goes again over that tree` })

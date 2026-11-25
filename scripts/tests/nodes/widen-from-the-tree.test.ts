@@ -1,6 +1,7 @@
 import type { Lease } from '../../core/lease.js'
 import type { AnswerTwins } from '../../nodes/answer/answer-executor.js'
 import type { Answered } from '../../nodes/answer/answerer.js'
+import type { AnswerOutcome } from '../../nodes/answer/duties/index.js'
 import type { MergeBench } from '../bus/merge-bench.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -8,7 +9,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, OUTSIDE_TOUCHES, QUESTION_AGENT, TOUCHES_FOLLOWED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, OUTSIDE_TOUCHES, OWNER_WAIT_OPENED, QUESTION_AGENT, TOUCHES_FOLLOWED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask } from '../../core/queue.js'
@@ -128,7 +129,7 @@ interface TwinBench {
   commits: () => number
 }
 
-function twinBench(refused: readonly string[], changed: readonly string[], base: Record<string, string>, left: Record<string, string>, generated: (run: number) => string): TwinBench {
+function twinBench(refused: readonly string[], changed: readonly string[], base: Record<string, string>, left: Record<string, string>, generated: (run: number) => string, pushed: string | null = sha('b')): TwinBench {
   const files = new Map<string, string | null>(Object.entries({ ...base, ...left }))
   let runs = 0
   let commits = 0
@@ -147,7 +148,7 @@ function twinBench(refused: readonly string[], changed: readonly string[], base:
     }),
     commit: () => {
       commits += 1
-      return sha('b')
+      return pushed
     },
   }
   const run = bench(changed, [])
@@ -155,6 +156,11 @@ function twinBench(refused: readonly string[], changed: readonly string[], base:
     throw new AnswerOutsideTouches(request.lease, refused)
   }, ownerMerges: () => '', clock: run.made.clock.now, trees: { home: tmpdir(), exists: () => true, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null, prepare: () => {}, changedInTheTree: () => [...changed], twins })
   return { run: { ...run, executor }, files, commits: () => commits }
+}
+
+async function twinOutcome(twin: TwinBench): Promise<AnswerOutcome> {
+  const made = twin.run.made
+  return twin.run.executor.answer(leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') as Lease)
 }
 
 function stopsAfterTheFirst(made: MergeBench): Record<string, unknown>[] {
@@ -165,9 +171,10 @@ describe('the answer node answers a refused generated twin itself', () => {
   it('a refused contract/factory.json is regenerated, committed and followed with no owner wait', async () => {
     const twin = twinBench([FACTORY], [TOUCHED, FACTORY], { [FACTORY]: '{"v":1}\n' }, { [FACTORY]: '{"v":"hand"}\n' }, () => '{"v":2}\n')
 
-    await answerOnce(twin.run)
+    expect(await twinOutcome(twin)).toMatchObject({ kind: 'answered', head: sha('b') })
 
     expect(stopsAfterTheFirst(twin.run.made)).toEqual([])
+    expect(eventsOf(twin.run.made.db, OWNER_WAIT_OPENED)).toEqual([])
     expect(twin.files.get(FACTORY)).toBe('{"v":2}\n')
     expect(twin.commits()).toBe(1)
     expect(eventsOf(twin.run.made.db, TOUCHES_FOLLOWED).at(-1)).toMatchObject({ paths: [FACTORY] })
@@ -193,6 +200,26 @@ describe('the answer node answers a refused generated twin itself', () => {
     const stops = stopsAfterTheFirst(twin.run.made)
     expect(stops).toHaveLength(1)
     expect(stops[0]).toMatchObject({ reason: 'question.owner' })
+    expect(twin.commits()).toBe(0)
+    expect(twin.files.get(RATCHET)).toBe('{"lines:x":2}\n')
+  })
+
+  it('a regenerated twin that cannot be committed and pushed is a technical denial, not an answer', async () => {
+    const twin = twinBench([FACTORY], [TOUCHED, FACTORY], { [FACTORY]: '{"v":1}\n' }, { [FACTORY]: '{"v":"hand"}\n' }, () => '{"v":2}\n', null)
+
+    expect(await twinOutcome(twin)).toMatchObject({ kind: 'denied', denial: { reason: 'answer_failed' } })
+    expect(eventsOf(twin.run.made.db, CARD_ANSWERED)).toEqual([])
+  })
+
+  it('a refusal naming a twin and another path regenerates the twin and stops only for the other path', async () => {
+    const twin = twinBench([FACTORY, FOREIGN], [TOUCHED, FOREIGN, FACTORY], { [FACTORY]: '{"v":1}\n' }, { [FACTORY]: '{"v":"hand"}\n' }, () => '{"v":2}\n')
+
+    await answerOnce(twin.run)
+
+    const stops = stopsAfterTheFirst(twin.run.made)
+    expect(stops).toHaveLength(1)
+    expect(stops[0]).toMatchObject({ reason: 'question.owner', widen: [FOREIGN] })
+    expect(twin.files.get(FACTORY)).toBe('{"v":2}\n')
     expect(twin.commits()).toBe(0)
   })
 })
