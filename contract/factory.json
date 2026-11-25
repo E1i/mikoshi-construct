@@ -5545,6 +5545,7 @@
           "cardRiskOf": "(cardId: number, card: string | null): RiskLevel | null",
           "correctionText": "(correction: Correction): string",
           "isChangeWitness": "(witness: string): boolean",
+          "isProductSource": "(file: string): boolean",
           "movingRefRefusal": "(witnesses: readonly NamedCommand[]): string | null",
           "ownerPathsOf": "(ownerMergesText: string): OwnerPaths",
           "publishedRootsOf": "(packageManifestText: string): string[] | undefined",
@@ -5712,6 +5713,16 @@
         "reexports": [],
         "types": {
           "CardScope": "interface CardScope { touches: readonly string[]; creates: readonly string[]; }"
+        }
+      },
+      "src/detect/entry-points.ts": {
+        "constants": [],
+        "functions": {
+          "entryPointKindOf": "(relative: string): EntryPointKind | null"
+        },
+        "reexports": [],
+        "types": {
+          "EntryPointKind": "type EntryPointKind = 'bin' | 'main' | 'page' | 'endpoint'"
         }
       },
       "src/detect/index.ts": {
