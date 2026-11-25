@@ -18,6 +18,7 @@ export interface EventsQuery {
   before?: number
   ids?: readonly number[]
   keys?: readonly string[]
+  keyPrefix?: string
   ts?: string
   from?: string
   actorPrefix?: string
@@ -97,6 +98,8 @@ function whereOf(query: EventsQuery): { clauses: string[], values: SQLInputValue
     add(`id IN (${placeholders(query.ids)})`, ...query.ids)
   if (query.keys !== undefined)
     add(`dedupe_key IN (${placeholders(query.keys)})`, ...query.keys)
+  if (query.keyPrefix !== undefined)
+    add('substr(dedupe_key, 1, ?) = ?', query.keyPrefix.length, query.keyPrefix)
   if (query.ts !== undefined)
     add('ts = ?', query.ts)
   if (query.from !== undefined)
@@ -138,6 +141,14 @@ export function latestOfCardWhere(alias: string, condition: string): string {
 
 export function eventsWhere(alias: string, columns: string, condition: string): string {
   return eventsSql({ columns, alias, where: ` WHERE ${condition}`, newestFirst: false, limit: '' })
+}
+
+export function anEventWhere(alias: string, condition: string): string {
+  return `EXISTS (${eventsWhere(alias, '1', condition)})`
+}
+
+export function latestEventIdWhere(alias: string, condition: string): string {
+  return `(SELECT max(${alias}.id) FROM events AS ${alias} WHERE ${condition})`
 }
 
 function matchesNothing(query: EventsQuery): boolean {

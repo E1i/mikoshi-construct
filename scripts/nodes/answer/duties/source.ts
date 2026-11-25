@@ -2,11 +2,11 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../../core/lease.js'
 import type { AnswerSource, CardSession } from '../answer-source.js'
 import type { TreeMerge } from './tree.js'
-import { CLOSED_WAIT, OWNER_WAITS } from '../../../core/bus-readings.js'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../../../core/card-automaton.js'
-import { closedWaitIds, openDecisionWaitsOfCard, openOwnerWaits } from '../../../core/card-readings.js'
+import { closedWaitAnswersOfCard, closedWaitIds, openDecisionWaitsOfCard, openOwnerWaits } from '../../../core/card-readings.js'
 import { cardsNobodyHolds } from '../../../core/cards-nobody-holds.js'
 import { closeOwnerWait, inTransaction, openBusWait } from '../../../core/db.js'
+import { latest } from '../../../core/events-query.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_DROPPED, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, WITNESS_RECORDED } from '../../../core/events.js'
 import { mergedCards, ofPr as pullRequestOf } from '../../../core/pr-readings.js'
 import { unmergedDependenciesOf } from '../../../core/queue.js'
@@ -21,8 +21,6 @@ export interface SourceParts {
   db: DatabaseSync
   clock: () => Date
 }
-
-const CLOSED_WAITS_OF_THE_CARD = `SELECT id, answer FROM ${OWNER_WAITS} WHERE card_id = ? AND state = '${CLOSED_WAIT}' ORDER BY event_id`
 
 const EMPTY_ROUND = 'left_nothing'
 
@@ -42,13 +40,16 @@ export interface AwaitedStop {
   emptyRound: number
 }
 
-const DIRTY_ON_HEAD = `SELECT 1 FROM prs WHERE pr = ? AND head = ? AND state = 'open' AND mergeable = 'dirty'`
+const DIRTY = 'dirty'
 
-const WITNESS_ON_HEAD = `
-  SELECT json_extract(witness.payload, '$.detail') AS detail FROM events AS witness
-  WHERE witness.id = (SELECT max(latest.id) FROM events AS latest WHERE latest.type = '${WITNESS_RECORDED}' AND latest.legacy = 0 AND latest.pr = ? AND latest.head = ?)
-    AND json_extract(witness.payload, '$.verdict') = ?
-`
+interface WitnessOnHead {
+  detail: unknown
+}
+
+function witnessOnHead(db: DatabaseSync, pr: number, head: string, verdict: string): WitnessOnHead | null {
+  const witness = latest(db, { types: [WITNESS_RECORDED], pr, head })
+  return witness !== null && witness.data?.verdict === verdict ? { detail: witness.data.detail } : null
+}
 
 const RED_VERDICT = 'red'
 const GREEN_VERDICT = 'green'
@@ -168,7 +169,7 @@ export class AnswerSources {
       return false
     const pull = pullRequestOf(this.parts.db, lease.pr)
     return pull !== null && pull.head === lease.head && pull.state === OPEN_PR && pull.ci === GREEN_CI && pull.verdict_on_head === PASS_VERDICT
-      && this.parts.db.prepare(WITNESS_ON_HEAD).get(lease.pr, lease.head, GREEN_VERDICT) !== undefined
+      && witnessOnHead(this.parts.db, lease.pr, lease.head, GREEN_VERDICT) !== null
   }
 
   private carriedByTheHead(lease: Lease, decisionId: number): boolean {
@@ -227,7 +228,7 @@ export class AnswerSources {
   }
 
   private waitClosedSince(lease: Lease, eventId: number): boolean {
-    const ofTheCard = new Set((this.parts.db.prepare(CLOSED_WAITS_OF_THE_CARD).all(lease.cardId) as { id: string }[]).map(wait => wait.id))
+    const ofTheCard = new Set(closedWaitAnswersOfCard(this.parts.db, lease.cardId).map(wait => wait.id))
     return new BusRead(this.parts.db).where({ from: eventId + 1 }).slice(OWNER_WAIT_CLOSED, ['id']).some(closed => ofTheCard.has(String(closed.fields.id)))
   }
 
@@ -247,7 +248,10 @@ export class AnswerSources {
   dirtyOnHead(lease: Lease): boolean {
     if (this.heldByADependency(lease) || this.awaitedStop(lease) !== null)
       return false
-    return lease.pr !== null && lease.head !== null && this.parts.db.prepare(DIRTY_ON_HEAD).get(lease.pr, lease.head) !== undefined
+    if (lease.pr === null || lease.head === null)
+      return false
+    const pull = pullRequestOf(this.parts.db, lease.pr)
+    return pull !== null && pull.head === lease.head && pull.state === OPEN_PR && pull.mergeable === DIRTY
   }
 
   conflict(lease: Lease, card: CardSession, merge: TreeMerge | null): AnswerSource {
@@ -262,15 +266,14 @@ export class AnswerSources {
   private redWitness(lease: Lease): Answering & { kind: 'changes' } | null {
     if (lease.pr === null || lease.head === null)
       return null
-    const red = this.parts.db.prepare(WITNESS_ON_HEAD).get(lease.pr, lease.head, RED_VERDICT) as { detail: unknown } | undefined
-    if (red === undefined)
+    const red = witnessOnHead(this.parts.db, lease.pr, lease.head, RED_VERDICT)
+    if (red === null)
       return null
     const detail = typeof red.detail === 'string' && red.detail !== '' ? red.detail : 'the bus recorded no detail'
     return { kind: 'changes', findings: [`the card's witness is red on ${lease.head}: ${detail}`], events: [], decisions: this.boundDecisions(lease), reentry: true }
   }
 
   private closedWaitLines(lease: Lease): string[] {
-    const closed = this.parts.db.prepare(CLOSED_WAITS_OF_THE_CARD).all(lease.cardId) as { id: string, answer: string | null }[]
-    return closed.map(wait => `${wait.id} is closed: ${wait.answer ?? 'no answer recorded'}`)
+    return closedWaitAnswersOfCard(this.parts.db, lease.cardId).map(wait => `${wait.id} is closed: ${wait.answer ?? 'no answer recorded'}`)
   }
 }

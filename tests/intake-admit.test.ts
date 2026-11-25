@@ -632,9 +632,9 @@ describe('construct intake --admit takes a card parked before the intake door', 
 })
 
 describe('construct intake --admit holds an amend that lowers an admitted witness for the owner', () => {
-  const ACCEPTANCE = '`pnpm exec vitest run tests/a.test.ts` exits 0; red on main'
-  const INVARIANT = '`pnpm exec vitest run tests/a.test.ts` exits 0'
-  const ANOTHER = '`pnpm exec vitest run tests/b.test.ts` exits 0; red on main'
+  const ACCEPTANCE = '`pnpm exec vitest run tests/a.test.ts -t \'the change\'` exits 0; red on main'
+  const INVARIANT = '`pnpm exec vitest run tests/a.test.ts -t \'the change\'` exits 0'
+  const ANOTHER = '`pnpm exec vitest run tests/b.test.ts -t \'the change\'` exits 0; red on main'
 
   function bodyWith(...witnesses: string[]): string {
     return `Do the thing.\n\nWitnesses:\n${witnesses.map(witness => `- ${witness}`).join('\n')}`
@@ -745,7 +745,7 @@ describe('construct intake --admit holds an amend that lowers an admitted witnes
   })
 
   it('one decision listing several witnesses lifts those it names and leaves the card refused for the rest', () => {
-    const THIRD = '`pnpm exec vitest run tests/c.test.ts` exits 0; red on main'
+    const THIRD = '`pnpm exec vitest run tests/c.test.ts -t \'the change\'` exits 0; red on main'
     const w = world()
     const { file, held } = amendedProse(w, [ACCEPTANCE, ANOTHER, THIRD], [INVARIANT])
     expect(held).toMatchObject({ status: 'ownerWait', actions: ['разрешить понижение свидетеля #80 W1', 'разрешить понижение свидетеля #80 W2', 'разрешить понижение свидетеля #80 W3'] })

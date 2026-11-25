@@ -6,10 +6,13 @@ import type { CardSession } from '../answer-source.js'
 import type { Answered, StepSeconds } from '../answerer.js'
 import type { AnswerOutcome, AnswerOutcomes } from './outcomes.js'
 import type { Answering } from './source.js'
+import { EITHER_JOURNAL, events } from '../../../core/events-query.js'
 import { CARD_ANSWERED, POLICY_DENIED, PR_OBSERVED, PR_OPENED } from '../../../core/events.js'
 import { REVIEW_ROUNDS } from '../../../core/identifiers.js'
 import { assertHeld, completeTask } from '../../../core/lease.js'
+import { ofCard as prsOfCard } from '../../../core/pr-readings.js'
 import { FAILURES_TO_STOP } from '../../../core/queue.js'
+import { byKey as taskByKey } from '../../../core/tasks-query.js'
 import { sha256, storedInput } from '../../../ports/prompt-store.js'
 
 export interface TreePublishing {
@@ -24,23 +27,15 @@ export interface PublishingParts {
   publishing?: TreePublishing
 }
 
-const FAILURES_IN_A_ROW = 'SELECT failures FROM tasks WHERE task_key = ?'
-
 const LEFT_NOTHING = 'left_nothing'
 
-const A_PR_OF_THE_CARD = `
-  SELECT pr FROM prs WHERE card_id = :card
-  UNION ALL SELECT pr FROM events WHERE card_id = :card AND pr IS NOT NULL AND type IN ('${PR_OPENED}', '${PR_OBSERVED}')
-  LIMIT 1
-`
+const PULL_REQUEST_LINKS = [PR_OPENED, PR_OBSERVED]
 
-const DENIALS_OF_THE_TASK = `type = '${POLICY_DENIED}' AND substr(dedupe_key, 1, length(:prefix)) = :prefix`
-
-const EMPTY_ANSWERS_IN_A_ROW = `
-  SELECT count(*) AS n FROM events
-  WHERE ${DENIALS_OF_THE_TASK} AND json_extract(payload, '$.reason') = '${LEFT_NOTHING}'
-    AND id > coalesce((SELECT max(id) FROM events WHERE ${DENIALS_OF_THE_TASK} AND json_extract(payload, '$.reason') != '${LEFT_NOTHING}'), 0)
-`
+function emptyRunAfter(run: number, reason: unknown): number {
+  if (reason === LEFT_NOTHING)
+    return run + 1
+  return reason === undefined || reason === null ? run : 0
+}
 
 function cardBodyOf(input: AnswerInput | undefined): { card_body_sha: string } | Record<string, never> {
   return input === undefined || input.cardBody === null ? {} : { card_body_sha: sha256(input.cardBody) }
@@ -94,16 +89,18 @@ export class AnswerPublishing {
   }
 
   private prOfTheCard(cardId: number): number | null {
-    const row = this.parts.db.prepare(A_PR_OF_THE_CARD).get({ card: cardId }) as { pr: number } | undefined
-    return row === undefined ? null : Number(row.pr)
+    const recorded = prsOfCard(this.parts.db, cardId)[0]
+    if (recorded !== undefined)
+      return recorded.pr
+    return events(this.parts.db, { card: cardId, types: PULL_REQUEST_LINKS, withPr: true, legacy: EITHER_JOURNAL, limit: 1 })[0]?.pr ?? null
   }
 
   private emptyAnswersInARow(lease: Lease): number {
-    return Number((this.parts.db.prepare(EMPTY_ANSWERS_IN_A_ROW).get({ prefix: `${POLICY_DENIED}:${lease.taskKey}:` }) as { n: number }).n)
+    const denials = events(this.parts.db, { types: [POLICY_DENIED], keyPrefix: `${POLICY_DENIED}:${lease.taskKey}:`, legacy: EITHER_JOURNAL })
+    return denials.reduce((run, denial) => emptyRunAfter(run, denial.data?.reason), 0)
   }
 
   private failuresInARow(lease: Lease): number {
-    const row = this.parts.db.prepare(FAILURES_IN_A_ROW).get(lease.taskKey) as { failures: number } | undefined
-    return row?.failures ?? 0
+    return taskByKey(this.parts.db, lease.taskKey)?.failures ?? 0
   }
 }

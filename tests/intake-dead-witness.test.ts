@@ -134,6 +134,32 @@ describe('replacing a witness the bus recorded dead is an amendment, not a downg
     }
   })
 
+  it('replacing a witness intake marks unable to be red on the base is an amendment with no owner wait', () => {
+    const UNFIT: Record<string, string> = {
+      'a path outside the worktree': 'grep -q "^## Verdict: green" ~/.construct/probes/2267/report.md',
+      'reads nothing the tree under test can change': 'echo done',
+      'a whole-tree command to be red on the base': 'pnpm lint',
+      'a path outside the worktree beside a file of the repository': `grep -q done ~/.construct/probes/2267/report.md ${TOUCH}`,
+      'reads nothing the tree under test can change though it names a test': 'echo -t done',
+    }
+    const REPLACEMENT = { ...W1, id: 'W3' }
+    const doors: Record<string, (w: World) => Outcome> = {
+      'intake --admit': w => outcomeOfStatus(runAdmit({ ...intakeOf(w), file: path.join(w.root, `${CARD}.md`), body: body([REPLACEMENT, W2]) }, () => NOW).status),
+      'intake --amend': w => outcomeOfStatus(runAmend({ ...intakeOf(w), card: `#${CARD}`, flags: { witness: `W1=${JSON.stringify({ ...REPLACEMENT, id: 'W1' })}` } }, () => NOW).status),
+      'bus:request amend': w => requested(w, { remove_witness: ['W1'], add_witness: [JSON.stringify(REPLACEMENT)] }),
+    }
+    for (const [door, through] of Object.entries(doors)) {
+      for (const [reason, run] of Object.entries(UNFIT)) {
+        const w = world()
+        expect(runAdmit({ ...intakeOf(w), file: path.join(w.root, `${CARD}.md`), body: body([{ ...W1, run }, W2]) }, () => NOW).status).toBe('admitted')
+        reduce(w.db, 'pending', busProjections())
+        expect({ door, reason, outcome: through(w) }).toEqual({ door, reason, outcome: 'amended' })
+        expect(w.db.prepare('SELECT count(*) AS n FROM owner_waits').get()).toEqual({ n: 0 })
+        w.db.close()
+      }
+    }
+  })
+
   it('a red on the base it declared red keeps the witness alive', () => {
     expect(deadOnTheBase(W1_TEXT, [{ verdict: 'red', detail: `P7: install failed on the base ${BASE}` }])).toBe(false)
     expect(deadOnTheBase(W1_TEXT, [{ verdict: 'unfit', detail: `witness "${witnessText(witnessFieldsOf(ADMITTED)![1]!)}" ran no test on the base ${BASE}` }])).toBe(false)

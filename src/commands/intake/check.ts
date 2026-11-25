@@ -520,22 +520,43 @@ function baseGreenUnclear(card: DraftCard, commands: readonly string[], witness:
   return [{ field: 'witnesses', reason: `witness "${witness.trim()}" is to be red on the base, but it names no path of the repository or of the card's creates; a whole-tree command is green on a clean base, so the witness cannot be red on the base: name the file the change makes red, or list it under creates` }]
 }
 
+function witnessCommands(witness: string): string[] {
+  return [...witness.matchAll(BACKTICKED)].map(match => match[1]!).filter(command => (commandWord(command) ?? '') !== '')
+}
+
+function unresolvedWords(commands: readonly string[], repository: RepositoryFacts): string[] {
+  return [...new Set(commands.map(command => commandWord(command)!))].filter(word => !repository.commandResolves(word))
+}
+
+function neverRedOnTheBaseUnclear(card: DraftCard, commands: readonly string[], witness: string, reach: WitnessReach, resolved: boolean): UnclearField[] {
+  return [
+    ...outsidePathsUnclear(commands, witness),
+    ...(resolved ? headIndependentUnclear(commands, witness, reach) : []),
+    ...baseGreenUnclear(card, commands, witness, reach),
+  ]
+}
+
+export function cannotBeRedOnTheBase(card: DraftCard, witness: string, repository: RepositoryFacts): boolean {
+  const commands = witnessCommands(witness)
+  if (commands.length === 0)
+    return false
+  const reach: WitnessReach = { repository, created: createdPaths(card.creates) }
+  return neverRedOnTheBaseUnclear(card, commands, witness, reach, unresolvedWords(commands, repository).length === 0).length > 0
+}
+
 function witnessesUnclear(card: DraftCard, repository: RepositoryFacts): UnclearField[] {
   const reach: WitnessReach = { repository, created: createdPaths(card.creates) }
   return card.witnesses.flatMap((witness) => {
-    const commands = [...witness.matchAll(BACKTICKED)].map(match => match[1]!).filter(command => (commandWord(command) ?? '') !== '')
-    const words = commands.map(command => commandWord(command)!)
-    if (words.length === 0)
+    const commands = witnessCommands(witness)
+    if (commands.length === 0)
       return [{ field: 'witnesses', reason: `'${witness.trim()}' names no command; a witness is run by a command` }]
-    const unresolved = [...new Set(words)].filter(word => !repository.commandResolves(word))
+    const unresolved = unresolvedWords(commands, repository)
     return [
       ...unresolved.map(word => ({ field: 'witnesses', reason: `'${word}' is not on PATH and is no file of the repository` })),
       ...movingRefsUnclear(witness),
       ...bashSyntaxUnclear(witness),
       ...proseUnclear(witness),
-      ...outsidePathsUnclear(commands, witness),
-      ...(unresolved.length === 0 ? headIndependentUnclear(commands, witness, reach) : []),
-      ...baseGreenUnclear(card, commands, witness, reach),
+      ...neverRedOnTheBaseUnclear(card, commands, witness, reach, unresolved.length === 0),
     ]
   })
 }

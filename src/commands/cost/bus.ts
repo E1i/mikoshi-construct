@@ -1,6 +1,9 @@
+import type { CardEnd, CardTurn } from '../../../scripts/core/card-readings.js'
 import { existsSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
-import { CARD_CLOSED, CARD_STARTED, PR_CLOSED } from '../../../scripts/core/events.js'
+import { cardEnds, cardTurnsOf, legacyLinePayloads } from '../../../scripts/core/card-readings.js'
+import { CARD_ANSWERED, CARD_STARTED, PR_CLOSED } from '../../../scripts/core/events.js'
+import { prsByCard } from '../../../scripts/core/merge-event.js'
 import { parseCard } from '../../card/grammar.js'
 import { projectKey } from './source.js'
 
@@ -19,45 +22,8 @@ interface BusTask {
   minutes: number
 }
 
-interface EndedCardRow {
-  card_id: number
-  card_line: string | null
-  ended: string
-  end_type: string
-  end_payload: string
-}
-
-interface SpendRow {
-  card_id: number
-  type: string
-  ts: string
-  payload: string
-}
-
-const ENDED_CARDS = `
-SELECT c.card_id, b.card_line, e.ts AS ended, e.type AS end_type, e.payload AS end_payload
-FROM cards c
-JOIN card_bodies b ON b.card_id = c.card_id
-JOIN events e ON e.id = coalesce(
-  (SELECT max(m.id) FROM events m WHERE (m.card_id = c.card_id OR m.pr IN (SELECT p.pr FROM prs p WHERE p.card_id = c.card_id)) AND m.type = '${PR_CLOSED}' AND m.legacy = 0 AND json_extract(m.payload, '$.merged') = 1),
-  (SELECT max(k.id) FROM events k WHERE k.card_id = c.card_id AND k.type = '${CARD_CLOSED}')
-)
-WHERE e.ts IS NOT NULL
-ORDER BY c.card_id
-`
-
-const SPEND_EVENTS = `
-SELECT card_id, type, ts, payload
-FROM events
-WHERE legacy = 0 AND type IN ('card.started', 'card.answered') AND card_id IS NOT NULL AND ts IS NOT NULL
-ORDER BY id
-`
-
-const LEGACY_LINES = `
-SELECT payload FROM events
-WHERE legacy = 1
-ORDER BY id
-`
+const SPEND_TURNS = [CARD_STARTED, CARD_ANSWERED]
+const NO_PRS: ReadonlySet<number> = new Set()
 
 function payloadOf(text: string): Record<string, unknown> {
   try {
@@ -69,7 +35,7 @@ function payloadOf(text: string): Record<string, unknown> {
   }
 }
 
-function sessionsOf(spend: readonly SpendRow[]): BusSession[] {
+function sessionsOf(spend: readonly CardTurn[]): BusSession[] {
   const sessions = new Map<string, BusSession>()
   let worktree: string | undefined
   for (const row of spend) {
@@ -83,7 +49,7 @@ function sessionsOf(spend: readonly SpendRow[]): BusSession[] {
   return [...sessions.values()]
 }
 
-function taskOf(row: EndedCardRow, spend: readonly SpendRow[]): BusTask | null {
+function taskOf(row: CardEnd, spend: readonly CardTurn[]): BusTask | null {
   if (row.card_line === null)
     return null
   const parsed = parseCard(row.card_line)
@@ -106,11 +72,16 @@ function taskOf(row: EndedCardRow, spend: readonly SpendRow[]): BusTask | null {
   }
 }
 
-function spendByCard(rows: readonly SpendRow[]): Map<number, SpendRow[]> {
-  const byCard = new Map<number, SpendRow[]>()
+function spendByCard(rows: readonly CardTurn[]): Map<number, CardTurn[]> {
+  const byCard = new Map<number, CardTurn[]>()
   for (const row of rows)
     byCard.set(row.card_id, [...byCard.get(row.card_id) ?? [], row])
   return byCard
+}
+
+export function endedCards(db: DatabaseSync): CardEnd[] {
+  const prsOf = prsByCard(db)
+  return cardEnds(db, card => prsOf.get(card) ?? NO_PRS)
 }
 
 export function readBusTasks(busPath: string): BusTask[] {
@@ -118,8 +89,8 @@ export function readBusTasks(busPath: string): BusTask[] {
     return []
   try {
     return withReadOnlyBus(busPath, (db) => {
-      const spend = spendByCard(db.prepare(SPEND_EVENTS).all() as unknown as SpendRow[])
-      return (db.prepare(ENDED_CARDS).all() as unknown as EndedCardRow[]).flatMap((row) => {
+      const spend = spendByCard(cardTurnsOf(db, SPEND_TURNS))
+      return endedCards(db).flatMap((row) => {
         const task = taskOf(row, spend.get(row.card_id) ?? [])
         return task === null ? [] : [task]
       })
@@ -134,8 +105,8 @@ export function readLegacyLines<Line>(busPath: string): Line[] {
   if (!existsSync(busPath))
     return []
   try {
-    return withReadOnlyBus(busPath, db => (db.prepare(LEGACY_LINES).all() as { payload: string }[]).flatMap((row) => {
-      const payload = payloadOf(row.payload)
+    return withReadOnlyBus(busPath, db => legacyLinePayloads(db).flatMap((text) => {
+      const payload = payloadOf(text)
       return Object.keys(payload).length === 0 ? [] : [payload as Line]
     }))
   }

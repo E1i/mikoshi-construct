@@ -1,9 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Admits, Candidate, CandidateRules, QueuedTask, QueueSource, RecordedOrder, RequeueRow } from '../../core/queue.js'
-import { CARD_BODIES } from '../../core/card-bodies.js'
+import { cardPriorityOf } from '../../core/card-readings.js'
 import { cardDecisionKeyOf, MAIN_BRANCH } from '../../core/identifiers.js'
 import { withTheHeadsARerunIsDueOn } from '../../core/observations.js'
-import { all } from '../../core/pr-readings.js'
+import { all, openPrsWhere } from '../../core/pr-readings.js'
 import { A_DEPENDENCY_UPDATE_DUE, A_MERGE_SENT_TO_UPDATE_ON_THE_HEAD, aMergeCandidate, aTaskInFlight, candidateRows, COMPLETED, decidedPastRoundLimit, holdsTheTurn, keyOf, noTurnHeldBeside, openCandidates, recordedOrder, taskRow } from '../../core/queue.js'
 
 export interface UpdateSourceParts {
@@ -12,13 +12,8 @@ export interface UpdateSourceParts {
 }
 
 function openPrsByCardPriority(topPriority: string, condition: string, column = ''): string {
-  return `
-  SELECT prs.pr, prs.card_id, prs.head, prs.verdict_on_head${column} FROM prs
-  LEFT JOIN ${CARD_BODIES} AS body ON body.card_id = prs.card_id
-  WHERE prs.state = 'open' AND prs.base = '${MAIN_BRANCH}' AND prs.draft = 0 AND prs.card_id IS NOT NULL AND prs.head IS NOT NULL
-    AND ${condition}
-  ORDER BY body.priority IS NOT '${topPriority}', prs.pr
-`
+  return openPrsWhere(`prs.pr, prs.card_id, prs.head, prs.verdict_on_head${column}`, `prs.base = '${MAIN_BRANCH}' AND prs.draft = 0 AND prs.card_id IS NOT NULL AND prs.head IS NOT NULL
+    AND ${condition}`, `${cardPriorityOf('prs.card_id')} IS NOT '${topPriority}', prs.pr`)
 }
 
 function openPrsWithTheirUpdateCauses(topPriority: string): string {

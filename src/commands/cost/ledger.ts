@@ -4,11 +4,10 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { busPathOf } from '../../../scripts/core/bus-path.js'
-import { LADDER_RUN } from '../../../scripts/core/events.js'
+import { ladderRunPayloads } from '../../../scripts/core/card-readings.js'
 import { withReadOnlyBus } from './bus.js'
 
 export const LEDGER_FILE = '.construct/runs.jsonl'
-const LEDGER_EVENTS = 'SELECT payload FROM events WHERE type = ? ORDER BY id'
 
 export type TokenCount = number | 'unknown'
 
@@ -229,7 +228,7 @@ function busLines(busPath: string | null): string[] {
   if (busPath === null || !existsSync(busPath))
     return []
   try {
-    return withReadOnlyBus(busPath, db => (db.prepare(LEDGER_EVENTS).all(LADDER_RUN) as { payload: string }[]).map(row => row.payload))
+    return withReadOnlyBus(busPath, ladderRunPayloads)
   }
   catch {
     return []

@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { cardToolsOf, parseParkingFile } from '../../../src/card/parking.js'
 import { readShiftGate } from '../../../src/manifest.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus, openOwnerWait } from '../../core/db.js'
+import { events, latest } from '../../core/events-query.js'
 import { CARD_CONTINUED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, PR_OPENED, QUESTION_AGENT, TOUCHES_FOLLOWED } from '../../core/events.js'
 import { pnpmCommand } from '../../core/owner-commands.js'
 import { treeReportPath } from '../../core/places.js'
@@ -64,29 +65,24 @@ interface ShiftEvent {
   payload: Record<string, unknown>
 }
 
-const LATEST_START = `SELECT id, dedupe_key FROM events WHERE type = '${CARD_STARTED}' AND legacy = 0 AND card_id = ? ORDER BY id DESC LIMIT 1`
-
-const REFUSALS_SINCE = `
-  SELECT json_extract(payload, '$.code') AS code FROM events
-  WHERE card_id = ? AND legacy = 0 AND id > ? AND type IN ('${CARD_WAITING}', '${CARD_STOPPED}')
-    AND json_valid(payload) AND json_type(payload, '$.code') = 'text'
-  ORDER BY id DESC
-`
-
 interface LatestStart {
   id: number
   dedupe_key: string
 }
 
+function latestStartOrNull(db: DatabaseSync, cardId: number): LatestStart | null {
+  return latest(db, { card: cardId, types: [CARD_STARTED] })
+}
+
 function latestStartOf(db: DatabaseSync, cardId: number): LatestStart {
-  const start = db.prepare(LATEST_START).get(cardId) as LatestStart | undefined
-  if (start === undefined)
+  const start = latestStartOrNull(db, cardId)
+  if (start === null)
     throw new Error(`card #${cardId} has no ${CARD_STARTED} to stop`)
   return start
 }
 
 function refusalCodesSince(db: DatabaseSync, cardId: number, start: LatestStart): string[] {
-  return (db.prepare(REFUSALS_SINCE).all(cardId, start.id) as { code: string }[]).map(row => row.code)
+  return events(db, { card: cardId, since: start.id, types: [CARD_WAITING, CARD_STOPPED], newestFirst: true }).flatMap(row => typeof row.data?.code === 'string' ? [row.data.code] : [])
 }
 
 function appendShiftEvent(bus: PrOpenedBus, what: string, event: (db: DatabaseSync) => ShiftEvent): void {
@@ -142,8 +138,8 @@ export function busLastRefusal(busPath: string): TreePrCliPorts['lastRefusal'] {
       return null
     const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
     try {
-      const start = db.prepare(LATEST_START).get(cardId) as LatestStart | undefined
-      return start === undefined ? null : refusalCodesSince(db, cardId, start)[0] ?? null
+      const start = latestStartOrNull(db, cardId)
+      return start === null ? null : refusalCodesSince(db, cardId, start)[0] ?? null
     }
     finally {
       db.close()
@@ -173,7 +169,7 @@ export function claudeResume(busPath: string, binary?: string, ceilingMs = RETUR
   }
 }
 
-const LATEST_TURN_OF_THE_CARD = `SELECT type, json_extract(payload, '$.session') AS session FROM events WHERE card_id = ? AND legacy = 0 AND type IN ('${CARD_STARTED}', '${CARD_CONTINUED}', '${CARD_STOPPED}') ORDER BY id DESC LIMIT 1`
+const CARD_TURNS = [CARD_STARTED, CARD_CONTINUED, CARD_STOPPED]
 
 export function busAtContextLine(busPath: string): NonNullable<TreePrCliPorts['atContextLine']> {
   return (cardId, worktree) => {
@@ -181,8 +177,9 @@ export function busAtContextLine(busPath: string): NonNullable<TreePrCliPorts['a
       return false
     const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
     try {
-      const turn = db.prepare(LATEST_TURN_OF_THE_CARD).get(cardId) as { type: string, session: unknown } | undefined
-      return turn !== undefined && turn.type !== CARD_STOPPED && typeof turn.session === 'string' && reachedContextLine(worktree, turn.session)
+      const turn = latest(db, { card: cardId, types: CARD_TURNS })
+      const session = turn?.data?.session
+      return turn !== null && turn.type !== CARD_STOPPED && typeof session === 'string' && reachedContextLine(worktree, session)
     }
     finally {
       db.close()

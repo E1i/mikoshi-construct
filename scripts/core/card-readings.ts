@@ -1,8 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { LastReduced, OwnerWait } from './bus-readings.js'
+import type { EventRow } from './events-query.js'
 import { CLOSED_WAIT, OPEN_WAIT, OWNER_WAITS, readLastReduced } from './bus-readings.js'
 import { cardIdsInEvents, EITHER_JOURNAL, events, eventsWhere, latest } from './events-query.js'
-import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, QUESTION_AGENT, WITNESS_DOWNGRADE } from './events.js'
+import { CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, LADDER_RUN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_CLOSED, QUESTION_AGENT, WITNESS_DOWNGRADE } from './events.js'
 
 const OPEN_OWNER_WAITS = `
   SELECT id, need, text, command, card_id AS card, pr, opened_at AS since
@@ -118,6 +119,64 @@ export function stateEventsAmong(db: DatabaseSync, state: string, cardIds: reado
   return new Map(rows.map(row => [Number(row.card_id), Number(row.event_id)]))
 }
 
+const CARD_LINES_OF_HELD_BODIES = `SELECT cards.card_id, body.card_line FROM cards JOIN ${CARD_BODIES} AS body ON body.card_id = cards.card_id ORDER BY cards.card_id`
+
+function cardLinesOfHeldBodies(db: DatabaseSync): Map<number, string | null> {
+  const rows = db.prepare(CARD_LINES_OF_HELD_BODIES).all() as { card_id: number, card_line: string | null }[]
+  return new Map(rows.map(row => [Number(row.card_id), row.card_line === null ? null : String(row.card_line)]))
+}
+
+export interface CardEnd {
+  card_id: number
+  card_line: string | null
+  ended: string
+  end_type: string
+  end_payload: string
+}
+
+export interface CardTurn {
+  card_id: number
+  type: string
+  ts: string
+  payload: string
+}
+
+const MERGED_FLAGS: readonly unknown[] = [true, 1]
+
+function lastWhere(rows: readonly EventRow[], matches: (row: EventRow) => boolean): EventRow | undefined {
+  let found: EventRow | undefined
+  for (const row of rows) {
+    if (matches(row))
+      found = row
+  }
+  return found
+}
+
+export type PrsOfCard = (card: number) => ReadonlySet<number>
+
+export function cardEnds(db: DatabaseSync, prsOf: PrsOfCard): CardEnd[] {
+  const merges = events(db, { types: [PR_CLOSED] }).filter(row => MERGED_FLAGS.includes(row.data?.merged))
+  const closes = events(db, { types: [CARD_CLOSED], withCard: true, legacy: EITHER_JOURNAL })
+  return [...cardLinesOfHeldBodies(db)].flatMap(([card, line]) => {
+    const prs = prsOf(card)
+    const end = lastWhere(merges, row => row.card_id === card || (row.pr !== null && prs.has(row.pr))) ?? lastWhere(closes, row => row.card_id === card)
+    return end === undefined || end.ts === null ? [] : [{ card_id: card, card_line: line, ended: end.ts, end_type: end.type, end_payload: end.payload }]
+  })
+}
+
+export function cardTurnsOf(db: DatabaseSync, types: readonly string[]): CardTurn[] {
+  return events(db, { types, withCard: true }).flatMap(row =>
+    row.card_id === null || row.ts === null ? [] : [{ card_id: row.card_id, type: row.type, ts: row.ts, payload: row.payload }])
+}
+
+export function ladderRunPayloads(db: DatabaseSync): string[] {
+  return events(db, { types: [LADDER_RUN], legacy: EITHER_JOURNAL }).map(row => row.payload)
+}
+
+export function legacyLinePayloads(db: DatabaseSync): string[] {
+  return events(db, { legacy: true }).map(row => row.payload)
+}
+
 const LINKED_PR = 'SELECT pr FROM cards WHERE card_id = ?'
 const LINKED_PRS = 'SELECT card_id, pr FROM cards WHERE pr IS NOT NULL'
 
@@ -205,6 +264,40 @@ export function openWaitEventsByCard(db: DatabaseSync): Map<number, number[]> {
   return byCard
 }
 
+const CLOSED_WAITS_OF_THE_CARD = `SELECT id, event_id FROM ${OWNER_WAITS} WHERE card_id = ? AND state = '${CLOSED_WAIT}'`
+
+export interface ClosedWait {
+  id: string
+  event_id: number
+  type: string
+}
+
+export function closedWaitsOfCard(db: DatabaseSync, cardId: number): ClosedWait[] {
+  const closed = (db.prepare(CLOSED_WAITS_OF_THE_CARD).all(cardId) as { id: string, event_id: number }[]).map(wait => ({ id: String(wait.id), event_id: Number(wait.event_id) }))
+  const types = new Map(events(db, { ids: closed.map(wait => wait.event_id), legacy: EITHER_JOURNAL }).map(event => [event.id, event.type]))
+  return closed.flatMap((wait) => {
+    const type = types.get(wait.event_id)
+    return type === undefined ? [] : [{ ...wait, type }]
+  })
+}
+
+const CLOSED_WAIT_ANSWERS_OF_THE_CARD = `SELECT id, answer FROM ${OWNER_WAITS} WHERE card_id = ? AND state = '${CLOSED_WAIT}' ORDER BY event_id`
+
+export interface ClosedWaitAnswer {
+  id: string
+  answer: string | null
+}
+
+export function closedWaitAnswersOfCard(db: DatabaseSync, cardId: number): ClosedWaitAnswer[] {
+  return (db.prepare(CLOSED_WAIT_ANSWERS_OF_THE_CARD).all(cardId) as { id: string, answer: string | null }[]).map(wait => ({ id: String(wait.id), answer: wait.answer === null ? null : String(wait.answer) }))
+}
+
+const OPEN_WAIT_PRS_OF_A_NEED = `SELECT DISTINCT pr FROM ${OWNER_WAITS} WHERE need = ? AND state = '${OPEN_WAIT}' AND pr IS NOT NULL`
+
+export function openWaitPrsOf(db: DatabaseSync, need: string): Set<number> {
+  return new Set((db.prepare(OPEN_WAIT_PRS_OF_A_NEED).all(need) as { pr: number }[]).map(row => Number(row.pr)))
+}
+
 export function openDecisionWaitsOf(card: string): string {
   return `SELECT id, text FROM ${OWNER_WAITS} WHERE need = 'decision' AND state = '${OPEN_WAIT}' AND card_id = ${card}`
 }
@@ -230,6 +323,26 @@ export function downgradeWaitOpenOn(db: DatabaseSync, cardId: number): boolean {
 export function aDowngradeWaitOpenOn(card: string): string {
   const asked = eventsWhere('asked', '1', `asked.id = wait.event_id AND asked.type = '${CARD_WAITING}' AND json_extract(asked.payload, '$.reason') = '${WITNESS_DOWNGRADE}'`)
   return `EXISTS (SELECT 1 FROM ${OWNER_WAITS} AS wait WHERE wait.card_id = ${card} AND wait.state = '${OPEN_WAIT}' AND EXISTS (${asked}))`
+}
+
+export function cardPriorityOf(card: string): string {
+  return `(SELECT body.priority FROM ${CARD_BODIES} AS body WHERE body.card_id = ${card})`
+}
+
+export function cardBodiesWhere(columns: string, condition: string): string {
+  return `
+  SELECT ${columns} FROM ${CARD_BODIES} AS body
+  WHERE ${condition}
+  ORDER BY body.card_id
+`
+}
+
+export function aCardInStates(card: string, states: readonly string[]): string {
+  return `EXISTS (SELECT 1 FROM cards WHERE cards.card_id = ${card} AND cards.state IN (${states.map(state => `'${state}'`).join(', ')}))`
+}
+
+export function notACardOf(who: string): (card: string) => string {
+  return card => `NOT EXISTS (SELECT 1 FROM ${CARD_BODIES} AS body WHERE body.card_id = ${card} AND body.who = '${who}')`
 }
 
 export function latestQuestionStopsWithTheirCard(latestTurnOf: (card: string) => string): string {

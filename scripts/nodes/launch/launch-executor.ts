@@ -11,6 +11,7 @@ import { existsSync } from 'node:fs'
 import process from 'node:process'
 import { launchStartKey, launchStartLease } from '../../core/card-automaton.js'
 import { messageOf } from '../../core/errors.js'
+import { events } from '../../core/events-query.js'
 import { CARD_STARTED, CARD_STOPPED, POLICY_DENIED } from '../../core/events.js'
 import { assertHeld, completeTask, failTask, releaseTask, StaleLease } from '../../core/lease.js'
 import { ChildLog, instanceOf, recordChildEnded, recordChildStarted } from '../../core/node.js'
@@ -90,11 +91,10 @@ export interface LaunchParts {
 
 const WITHDRAW_REASONS: ReadonlySet<LaunchTechnicalReason> = new Set(['card_not_queued', HELD_TREE_CHANGED])
 
-const HELD_TREE = `
-  SELECT json_extract(payload, '$.worktree') AS worktree, json_extract(payload, '$.base') AS base FROM events
-  WHERE legacy = 0 AND type = '${CARD_STARTED}' AND card_id = ? AND json_valid(payload) AND json_type(payload, '$.worktree') = 'text'
-  ORDER BY id DESC LIMIT 1
-`
+function heldTreeStart(db: DatabaseSync, cardId: number): { worktree: string, base: unknown } | undefined {
+  const start = events(db, { card: cardId, types: [CARD_STARTED], newestFirst: true }).map(row => row.data ?? {}).find(data => typeof data.worktree === 'string')
+  return start === undefined ? undefined : { worktree: String(start.worktree), base: start.base }
+}
 
 const RELEASE_REASONS: ReadonlySet<LaunchTechnicalReason> = new Set([DISK_LOW, NO_ISOLATION])
 
@@ -173,7 +173,7 @@ export class LaunchExecutor {
   private heldTreeOf(cardId: number, contour: Contour): { continueIn?: HeldTree } {
     if (contour !== 'cheap')
       return {}
-    const row = this.parts.db.prepare(HELD_TREE).get(cardId) as { worktree: string, base: unknown } | undefined
+    const row = heldTreeStart(this.parts.db, cardId)
     if (row === undefined || !(this.parts.treeLive ?? existsSync)(row.worktree))
       return {}
     return { continueIn: { worktree: row.worktree, base: typeof row.base === 'string' ? row.base : null } }

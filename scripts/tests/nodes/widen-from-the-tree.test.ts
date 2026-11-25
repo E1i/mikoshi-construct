@@ -1,5 +1,7 @@
 import type { Lease } from '../../core/lease.js'
+import type { AnswerTwins } from '../../nodes/answer/answer-executor.js'
 import type { Answered } from '../../nodes/answer/answerer.js'
+import type { AnswerOutcome } from '../../nodes/answer/duties/index.js'
 import type { MergeBench } from '../bus/merge-bench.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -7,11 +9,12 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, OUTSIDE_TOUCHES, QUESTION_AGENT } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, OUTSIDE_TOUCHES, OWNER_WAIT_OPENED, QUESTION_AGENT, TOUCHES_FOLLOWED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask } from '../../core/queue.js'
-import { AnswerExecutor, changedInTheTreeOf } from '../../nodes/answer/answer-executor.js'
+import { AnswerExecutor, changedInTheTreeOf, REGENERATED_TWIN } from '../../nodes/answer/answer-executor.js'
+import { AnswerOutsideTouches } from '../../nodes/answer/answerer.js'
 import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from '../bus/github-fake.js'
@@ -114,5 +117,109 @@ describe('the widen list of an answer stop comes from the card tree', () => {
   it('a named path counts only when the tree changed it', () => {
     expect(changedInTheTreeOf([EVENT_NAME, FOREIGN, TOUCHED], new Set([TOUCHED]))).toEqual([TOUCHED])
     expect(changedInTheTreeOf([EVENT_NAME, FOREIGN], new Set())).toEqual([])
+  })
+})
+
+const FACTORY = 'contract/factory.json'
+const RATCHET = 'contract/ratchet.json'
+
+interface TwinBench {
+  run: Bench
+  files: Map<string, string | null>
+  commits: () => number
+}
+
+function twinBench(refused: readonly string[], changed: readonly string[], base: Record<string, string>, left: Record<string, string>, generated: (run: number) => string, pushed: string | null = sha('b')): TwinBench {
+  const files = new Map<string, string | null>(Object.entries({ ...base, ...left }))
+  let runs = 0
+  let commits = 0
+  const twins: AnswerTwins = {
+    tree: () => ({
+      drop: dropped => dropped.forEach(file => files.set(file, base[file] ?? null)),
+      reading: () => ({
+        current: file => files.get(file) ?? null,
+        base: file => base[file] ?? null,
+        rerun: (_command, outputs) => {
+          runs += 1
+          return { kind: 'ran', outputs: new Map(outputs.map(file => [file, file in base ? generated(runs) : files.get(file) ?? null])) }
+        },
+      }),
+      write: (file, text) => files.set(file, text),
+    }),
+    commit: () => {
+      commits += 1
+      return pushed
+    },
+  }
+  const run = bench(changed, [])
+  const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: run.made.db, answerer: async (request) => {
+    throw new AnswerOutsideTouches(request.lease, refused)
+  }, ownerMerges: () => '', clock: run.made.clock.now, trees: { home: tmpdir(), exists: () => true, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }, dirty: () => false, liveSession: () => null, prepare: () => {}, changedInTheTree: () => [...changed], twins })
+  return { run: { ...run, executor }, files, commits: () => commits }
+}
+
+async function twinOutcome(twin: TwinBench): Promise<AnswerOutcome> {
+  const made = twin.run.made
+  return twin.run.executor.answer(leaseNext(made.db, pullRequests(made.db), made.clock.now().toISOString(), 'answer', 'worker:answer:worker-1') as Lease)
+}
+
+function stopsAfterTheFirst(made: MergeBench): Record<string, unknown>[] {
+  return eventsOf(made.db, CARD_STOPPED).slice(1)
+}
+
+describe('the answer node answers a refused generated twin itself', () => {
+  it('a refused contract/factory.json is regenerated, committed and followed with no owner wait', async () => {
+    const twin = twinBench([FACTORY], [TOUCHED, FACTORY], { [FACTORY]: '{"v":1}\n' }, { [FACTORY]: '{"v":"hand"}\n' }, () => '{"v":2}\n')
+
+    expect(await twinOutcome(twin)).toMatchObject({ kind: 'answered', head: sha('b') })
+
+    expect(stopsAfterTheFirst(twin.run.made)).toEqual([])
+    expect(eventsOf(twin.run.made.db, OWNER_WAIT_OPENED)).toEqual([])
+    expect(twin.files.get(FACTORY)).toBe('{"v":2}\n')
+    expect(twin.commits()).toBe(1)
+    expect(eventsOf(twin.run.made.db, TOUCHES_FOLLOWED).at(-1)).toMatchObject({ paths: [FACTORY] })
+    expect(eventsOf(twin.run.made.db, CARD_ANSWERED).at(-1)).toMatchObject({ source: REGENERATED_TWIN, to: sha('b'), regenerated: [FACTORY] })
+  })
+
+  it('an unconverged twin stops for the window with the source outside the touches', async () => {
+    const twin = twinBench([FACTORY], [TOUCHED, FOREIGN, FACTORY], { [FACTORY]: '{"v":1}\n' }, { [FACTORY]: '{"v":"hand"}\n' }, run => `{"v":${run}}\n`)
+
+    await answerOnce(twin.run)
+
+    const stops = stopsAfterTheFirst(twin.run.made)
+    expect(stops).toHaveLength(1)
+    expect(stops[0]).toMatchObject({ reason: QUESTION_AGENT, widen: [FOREIGN] })
+    expect(twin.commits()).toBe(0)
+  })
+
+  it('a grown ratchet keeps the owner stop and the tree untouched', async () => {
+    const twin = twinBench([RATCHET], [TOUCHED, RATCHET], { [RATCHET]: '{"lines:x":1}\n' }, { [RATCHET]: '{"lines:x":2}\n' }, () => '{"lines:x":2}\n')
+
+    await answerOnce(twin.run)
+
+    const stops = stopsAfterTheFirst(twin.run.made)
+    expect(stops).toHaveLength(1)
+    expect(stops[0]).toMatchObject({ reason: 'question.owner' })
+    expect(twin.commits()).toBe(0)
+    expect(twin.files.get(RATCHET)).toBe('{"lines:x":2}\n')
+  })
+
+  it('a regenerated twin that cannot be committed and pushed is a technical denial, not an answer', async () => {
+    const twin = twinBench([FACTORY], [TOUCHED, FACTORY], { [FACTORY]: '{"v":1}\n' }, { [FACTORY]: '{"v":"hand"}\n' }, () => '{"v":2}\n', null)
+
+    expect(await twinOutcome(twin)).toMatchObject({ kind: 'denied', denial: { reason: 'answer_failed' } })
+    expect(eventsOf(twin.run.made.db, CARD_ANSWERED)).toEqual([])
+  })
+
+  it('a refusal naming a twin and another path regenerates the twin and stops only for the other path', async () => {
+    const twin = twinBench([FACTORY, FOREIGN], [TOUCHED, FOREIGN, FACTORY], { [FACTORY]: '{"v":1}\n' }, { [FACTORY]: '{"v":"hand"}\n' }, () => '{"v":2}\n')
+
+    await answerOnce(twin.run)
+
+    const stops = stopsAfterTheFirst(twin.run.made)
+    expect(stops).toHaveLength(1)
+    expect(stops[0]).toMatchObject({ reason: 'question.owner', widen: [FOREIGN] })
+    expect(twin.files.get(FACTORY)).toBe('{"v":2}\n')
+    expect(twin.commits()).toBe(0)
   })
 })

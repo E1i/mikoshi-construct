@@ -15,10 +15,12 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { stripVTControlCharacters } from 'node:util'
+import { latest, ofCard } from '../../core/events-query.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, POLICY_DENIED, QUESTION_AGENT, WITNESS_RECORDED } from '../../core/events.js'
 import { isFullSha } from '../../core/identifiers.js'
 import { assertHeld, completeTask, failTask, RENEW_MS, StaleLease } from '../../core/lease.js'
 import { instanceOf, recordChildEnded, recordChildStarted } from '../../core/node.js'
+import { ofCard as prsOfCard } from '../../core/pr-readings.js'
 import { baseOfKey, LEASE_MS } from '../../core/queue.js'
 import { GREEN, RED, UNCHECKED, witnessSubjectOf } from '../../policy/policy.js'
 import { execGh, stdoutOrThrow } from '../../ports/gh.js'
@@ -112,15 +114,17 @@ type BaseJudgement
     | { kind: 'red', detail: string }
     | { kind: 'unfit', why: string[], replacement: ReplacementField[] | null, files: string[] }
 
-const LATEST_ADMITTED_TEXT = `
-  SELECT json_extract(payload, '$.text') AS text FROM events
-  WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? AND json_type(payload, '$.text') = 'text'
-  ORDER BY id DESC LIMIT 1
-`
+function latestAdmittedText(db: DatabaseSync, cardId: number): string | undefined {
+  for (const admitted of ofCard(db, cardId, { types: [CARD_ADMITTED], newestFirst: true })) {
+    if (typeof admitted.data?.text === 'string')
+      return admitted.data.text
+  }
+  return undefined
+}
 
 function cardScopeOf(db: DatabaseSync, subject: WitnessSubject): CardScope | null {
-  const row = db.prepare(LATEST_ADMITTED_TEXT).get(subject.cardId) as { text: string } | undefined
-  return row === undefined ? null : cardScopeOfAdmitted(subject.cardId, row.text, subject.creates)
+  const text = latestAdmittedText(db, subject.cardId)
+  return text === undefined ? null : cardScopeOfAdmitted(subject.cardId, text, subject.creates)
 }
 
 function changedOnHead(tree: string, base: string, head: string): string[] {
@@ -287,21 +291,20 @@ export function gitWitnessTrees(repo: string, ports: WitnessTreePorts = REAL_TRE
   }
 }
 
-const SESSION_STARTS = `'${CARD_STARTED}', '${CARD_CONTINUED}'`
-const SESSION_ENDS = `'${CARD_STOPPED}', '${CARD_SESSION_ENDED}'`
+const SESSION_STARTS = [CARD_STARTED, CARD_CONTINUED]
+const SESSION_ENDS = [CARD_STOPPED, CARD_SESSION_ENDED]
 
-const LIVE_SESSION = `
-  SELECT 1 FROM events AS started
-  WHERE started.card_id = ? AND started.type IN (${SESSION_STARTS})
-    AND started.id = (SELECT MAX(id) FROM events WHERE card_id = started.card_id AND legacy = 0 AND type IN (${SESSION_STARTS}))
-    AND NOT EXISTS (SELECT 1 FROM events AS ended WHERE ended.card_id = started.card_id AND ended.legacy = 0 AND ended.id > started.id AND ended.type IN (${SESSION_ENDS}))
-  LIMIT 1
-`
+function aLiveSession(db: DatabaseSync, cardId: number): boolean {
+  const started = latest(db, { card: cardId, types: SESSION_STARTS })
+  return started !== null && latest(db, { card: cardId, types: SESSION_ENDS, since: started.id }) === null
+}
 
-const OPEN_PR_OF_ITS_OWN = `SELECT 1 FROM prs WHERE card_id = ? AND state = 'open' LIMIT 1`
+function anOpenPrOfItsOwn(db: DatabaseSync, cardId: number): boolean {
+  return prsOfCard(db, cardId).some(pr => pr.state === 'open')
+}
 
 function closableOnMain(db: DatabaseSync, cardId: number): boolean {
-  return db.prepare(LIVE_SESSION).get(cardId) === undefined && db.prepare(OPEN_PR_OF_ITS_OWN).get(cardId) === undefined
+  return !aLiveSession(db, cardId) && !anOpenPrOfItsOwn(db, cardId)
 }
 
 export class WitnessExecutor {
