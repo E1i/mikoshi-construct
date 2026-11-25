@@ -2,25 +2,28 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { ParkedTask, Priority } from '../../../src/card/parking.js'
 import type { ShiftTask } from '../../../src/card/task-file.js'
 import type { SessionStopCode } from '../../core/card-hold.js'
+import type { EventRow } from '../../core/events-query.js'
 import type { MachineHold, MachineSessions } from '../../core/machine-sessions.js'
 import type { QueuedTask, QueueSource } from '../../core/queue.js'
 import type { Holder } from './holders.js'
 import { existsSync } from 'node:fs'
 import process from 'node:process'
 import { parseParkingFile, PRIORITIES, WINDOW_WHO } from '../../../src/card/parking.js'
-import { NOT_A_BACKFILL } from '../../core/backfill-source.js'
+import { isBackfill } from '../../core/backfill-source.js'
 import { BUS_CONTRACT } from '../../core/bus-adapter.js'
-import { CLOSED_WAIT } from '../../core/bus-readings.js'
 import { DEFERRED_CARD, unsatisfiedDependencies } from '../../core/card-automaton.js'
 import { bodyNotFoldedYet, pathsOutsideTheBody } from '../../core/card-bodies.js'
 import { cardHoldOf, SESSION_STOP_CODES } from '../../core/card-hold.js'
-import { openOwnerWaits } from '../../core/card-readings.js'
-import { appendEvent, DECISION_IN_FORCE, openOwnerWait } from '../../core/db.js'
+import { cardsWithAState, closedWaitsOfCard, openOwnerWaits } from '../../core/card-readings.js'
+import { appendEvent, openOwnerWait } from '../../core/db.js'
+import { BY_CARD, EITHER_JOURNAL, events, lastPer } from '../../core/events-query.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_FELL, CARD_STARTED, CARD_STOPPED, CARD_WAITING, COMMAND_EXECUTED, DECISION_RECORDED, GHOST_ROW, LANE_HELD, OUTSIDE_TOUCHES, OWNER_WAIT_OPENED, PR_CLOSED, PR_OBSERVED, PR_OPENED, SESSION_HEARTBEAT, TASK_REQUEUED } from '../../core/events.js'
 import { prOf } from '../../core/identifiers.js'
 import { legacyHistory } from '../../core/legacy-history.js'
 import { busNameOfDb, machineHoldLine, machineSessions } from '../../core/machine-sessions.js'
 import * as prs from '../../core/pr-readings.js'
+import { ofQueue } from '../../core/tasks-query.js'
+import { decisionRecordedAfter, inForceDecisions } from '../../policy/decisions/index.js'
 import { namesQueueLive } from '../../policy/live-decision.js'
 import { ANY, BusRead } from '../../ports/bus-read.js'
 import { isAlive } from '../../quality/lock.js'
@@ -42,46 +45,31 @@ const FREE_ROW = 'free'
 
 const FAULT = 'fault'
 
-const REQUEUED_BY_REQUEST = `(type = '${TASK_REQUEUED}' AND json_extract(payload, '$.queue') = 'launch' AND json_type(payload, '$.request') = 'integer')`
+const CARD_LIFE_TYPES = [CARD_ADMITTED, CARD_STARTED, CARD_CLOSED, CARD_STOPPED, CARD_DROPPED, GHOST_ROW, PR_OPENED, PR_OBSERVED, PR_CLOSED, TASK_REQUEUED]
 
-const CARD_LIFE = `
-  SELECT id, ts, type, card_id, pr, dedupe_key, payload FROM events
-  WHERE legacy = 0 AND card_id IS NOT NULL AND (type IN ('${CARD_ADMITTED}', '${CARD_STARTED}', '${CARD_CLOSED}', '${CARD_STOPPED}', '${CARD_DROPPED}', '${GHOST_ROW}', '${PR_OPENED}', '${PR_OBSERVED}', '${PR_CLOSED}') OR ${REQUEUED_BY_REQUEST})
-    AND ${NOT_A_BACKFILL}
-  ORDER BY id
-`
+function inTheCardLife(row: EventRow): boolean {
+  return !isBackfill(row.data ?? {}) && (row.type !== TASK_REQUEUED || (row.data?.queue === 'launch' && Number.isInteger(row.data.request)))
+}
+
+function cardLifeRows(db: DatabaseSync): LifeRow[] {
+  return events(db, { types: CARD_LIFE_TYPES, withCard: true }).filter(inTheCardLife).map(row => ({ ...row, card_id: row.card_id! }))
+}
 
 const PULL_REQUEST_ROWS = new Set<string>([PR_OPENED, PR_OBSERVED, PR_CLOSED])
+const LEGACY_FALL = 'fall'
+const OPEN_TASK_STATES: readonly string[] = ['queued', 'leased']
 
-const FALLS = `
-  SELECT card_id, count(*) AS falls FROM events
-  WHERE card_id IS NOT NULL AND ((legacy = 0 AND type = '${CARD_FELL}') OR (legacy = 1 AND type = 'fall'))
-  GROUP BY card_id
-`
+type CardRead = (db: DatabaseSync) => Iterable<number>
 
-const MERGED_CARDS = `SELECT DISTINCT card_id FROM prs WHERE state = 'merged' AND card_id IS NOT NULL`
-const LEGACY_MERGED_CARDS = `SELECT DISTINCT card_id FROM events WHERE legacy = 1 AND card_id IS NOT NULL AND type = 'merge'`
-const LEGACY_LATEST_START_OR_CLOSE = `SELECT card_id, MAX(id) AS id FROM events WHERE legacy = 1 AND card_id IS NOT NULL AND type = 'path' GROUP BY card_id`
-const ADMISSION_SOURCE = `SELECT id FROM events WHERE legacy = 1 AND dedupe_key = ?`
-const LIVE_DECISIONS = `SELECT text, event_id FROM decisions WHERE state = '${DECISION_IN_FORCE}'`
-const OPEN_LAUNCHES = `SELECT card_id FROM tasks WHERE queue = 'launch' AND state IN ('queued', 'leased')`
-const OPEN_PR_CARDS = `SELECT DISTINCT card_id FROM prs WHERE state = 'open' AND card_id IS NOT NULL`
-const OPEN_PR_NUMBERS = `SELECT card_id, pr FROM prs WHERE state = 'open' AND card_id IS NOT NULL ORDER BY pr DESC`
-const ENDED_CARDS = `SELECT card_id FROM cards WHERE state IN ('dropped', 'closed', 'merged', 'stopped')`
-const NO_LONGER_CANDIDATES = `SELECT card_id FROM cards WHERE state IN ('dropped', 'closed', 'merged', '${DEFERRED_CARD}')`
+const openCardPrs = (db: DatabaseSync): prs.PrRow[] => prs.all(db).filter(row => row.state === 'open' && row.card_id !== null)
+const cardsInStates = (states: readonly string[]): CardRead => db => [...cardsWithAState(db)].filter(([, state]) => states.includes(state)).map(([cardId]) => cardId)
+const MERGED_CARDS: CardRead = prs.mergedCards
+const LEGACY_MERGED_CARDS: CardRead = db => events(db, { types: ['merge'], withCard: true, legacy: true }).map(row => row.card_id!)
+const OPEN_LAUNCHES: CardRead = db => ofQueue(db, 'launch').filter(task => OPEN_TASK_STATES.includes(task.state)).map(task => task.card_id)
+const OPEN_PR_CARDS: CardRead = db => openCardPrs(db).map(row => row.card_id!)
+const ENDED_CARDS = cardsInStates(['dropped', 'closed', 'merged', 'stopped'])
+const NO_LONGER_CANDIDATES = cardsInStates(['dropped', 'closed', 'merged', DEFERRED_CARD])
 const AMEND_SOURCE = 'amend'
-
-const STARTED_TREES = `
-  SELECT card_id, json_extract(payload, '$.worktree') AS worktree FROM events
-  WHERE legacy = 0 AND type = '${CARD_STARTED}' AND card_id IS NOT NULL AND json_valid(payload) AND json_type(payload, '$.worktree') = 'text'
-  ORDER BY id
-`
-
-const LAST_SESSION_BEATS = `
-  SELECT card_id, max(ts) AS ts FROM events
-  WHERE legacy = 0 AND type = '${SESSION_HEARTBEAT}' AND card_id IS NOT NULL
-  GROUP BY card_id
-`
 
 export type TreeReader = (worktree: string) => boolean
 
@@ -114,20 +102,14 @@ function decidedOnTheCardSince(bus: BusRead, cardId: number, stop: number): bool
   return bus.where({ from: stop + 1 }).slice(DECISION_RECORDED, ['scope']).some(decided => Array.isArray(decided.fields.scope) && decided.fields.scope.includes(cardId))
 }
 
-const CLOSED_WAITS_OF_THE_CARD = `SELECT w.id, w.event_id, e.type FROM owner_waits AS w JOIN events AS e ON e.id = w.event_id WHERE w.card_id = ? AND w.state = '${CLOSED_WAIT}'`
-
-function closedWaitsOf(db: DatabaseSync, cardId: number): { id: string, event_id: number, type: string }[] {
-  return db.prepare(CLOSED_WAITS_OF_THE_CARD).all(cardId) as unknown as { id: string, event_id: number, type: string }[]
-}
-
 function ownerAnsweredSince(db: DatabaseSync, bus: BusRead, cardId: number, stop: number): boolean {
-  return decidedOnTheCardSince(bus, cardId, stop) || closedWaitsOf(db, cardId).some(wait => wait.event_id > stop && wait.type !== CARD_ADMITTED)
+  return decidedOnTheCardSince(bus, cardId, stop) || closedWaitsOfCard(db, cardId).some(wait => wait.event_id > stop && wait.type !== CARD_ADMITTED)
 }
 
 function questionStillOpen(db: DatabaseSync, bus: BusRead, cardId: number, stop: number): boolean {
   if (decidedOnTheCardSince(bus, cardId, stop))
     return false
-  const closed = new Set(closedWaitsOf(db, cardId).map(wait => wait.id))
+  const closed = new Set(closedWaitsOfCard(db, cardId).map(wait => wait.id))
   const openedSince = bus.where({ from: stop + 1 }).where({ card: cardId }).slice(OWNER_WAIT_OPENED, ['id'])
   return openedSince.some(opened => !closed.has(String(opened.fields.id)))
 }
@@ -264,30 +246,28 @@ function dependsOf(payload: Record<string, unknown>): number[] {
 function admittedAtOf(db: DatabaseSync, row: LifeRow, payload: Record<string, unknown>): { at: number, legacyLine: boolean } {
   if (typeof payload.admission !== 'string')
     return { at: row.id, legacyLine: false }
-  const source = db.prepare(ADMISSION_SOURCE).get(payload.admission) as { id: number } | undefined
+  const source = events(db, { keys: [payload.admission], legacy: true })[0]
   return { at: source?.id ?? row.id, legacyLine: source !== undefined }
 }
 
-function liveCutoff(db: DatabaseSync): number | null {
-  const cutoffs = (db.prepare(LIVE_DECISIONS).all() as { text: string, event_id: number }[])
-    .filter(decision => namesQueueLive(decision.text, 'launch'))
-    .map(decision => Number(decision.event_id))
-  return cutoffs.length === 0 ? null : Math.min(...cutoffs)
+function beforeLaunchWentLive(db: DatabaseSync): (at: number) => boolean {
+  const live = inForceDecisions(db).filter(decision => namesQueueLive(decision.text, 'launch')).map(decision => decision.decisionId)
+  return at => live.length > 0 && live.every(decisionId => decisionRecordedAfter(db, decisionId, at))
 }
 
 function cardLives(db: DatabaseSync): Map<number, CardLife> {
   const lives = new Map<number, CardLife>()
-  const cutoff = liveCutoff(db)
-  for (const row of db.prepare(CARD_LIFE).all() as unknown as LifeRow[]) {
+  const beforeLive = beforeLaunchWentLive(db)
+  for (const row of cardLifeRows(db)) {
     const life = lives.get(row.card_id)
     if (row.type === CARD_ADMITTED) {
       const payload = payloadOf(row)
       const running = life !== undefined && runs(life)
       const admitted = admittedAtOf(db, row, payload)
-      const beforeLive = admitted.legacyLine && cutoff !== null && admitted.at < cutoff
+      const legacyBeforeLive = admitted.legacyLine && beforeLive(admitted.at)
       const parked = parkedOf(row, payload)
       const ended = life?.ended === true && payload.source === AMEND_SOURCE
-      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), admittedAt: admitted.at, admittedTs: row.ts, lane: laneOf(payload), task: parked?.task ?? null, windowsToWork: parked?.who === WINDOW_WHO, depends: dependsOf(payload), priority: parked?.priority ?? null, contour: contourOf(payload), started: running, startedAt: null, freeRow: null, closed: beforeLive || ended, ended, stoppedByFault: false, closedUnmergedByPr: running ? life.closedUnmergedByPr : new Map(), diff: running ? life.diff : null })
+      lives.set(row.card_id, { cardId: row.card_id, generation: generationOf(row, payload), admittedAt: admitted.at, admittedTs: row.ts, lane: laneOf(payload), task: parked?.task ?? null, windowsToWork: parked?.who === WINDOW_WHO, depends: dependsOf(payload), priority: parked?.priority ?? null, contour: contourOf(payload), started: running, startedAt: null, freeRow: null, closed: legacyBeforeLive || ended, ended, stoppedByFault: false, closedUnmergedByPr: running ? life.closedUnmergedByPr : new Map(), diff: running ? life.diff : null })
       continue
     }
     if (life !== undefined && PULL_REQUEST_ROWS.has(row.type)) {
@@ -321,8 +301,8 @@ function cardLives(db: DatabaseSync): Map<number, CardLife> {
   return lives
 }
 
-function cardSet(db: DatabaseSync, query: string): Set<number> {
-  return new Set((db.prepare(query).all() as { card_id: number }[]).map(row => row.card_id))
+function cardSet(db: DatabaseSync, read: CardRead): Set<number> {
+  return new Set(read(db))
 }
 
 interface Settled {
@@ -331,7 +311,7 @@ interface Settled {
 }
 
 function settledCards(db: DatabaseSync, merged: Set<number>): Settled {
-  const latestStartOrClose = new Map((db.prepare(LEGACY_LATEST_START_OR_CLOSE).all() as { card_id: number, id: number }[]).map(row => [row.card_id, row.id]))
+  const latestStartOrClose = new Map(lastPer(db, BY_CARD, { types: ['path'], withCard: true, legacy: true }).map(row => [row.card_id!, row.id]))
   return { merged: new Set([...merged, ...cardSet(db, LEGACY_MERGED_CARDS)]), latestStartOrClose }
 }
 
@@ -344,7 +324,10 @@ function isQueued(life: CardLife | undefined, settled: Settled): boolean {
 }
 
 function fallCounts(db: DatabaseSync): Map<number, number> {
-  return new Map((db.prepare(FALLS).all() as { card_id: number, falls: number }[]).map(row => [row.card_id, Number(row.falls)]))
+  const falls = new Map<number, number>()
+  for (const fall of events(db, { types: [CARD_FELL, LEGACY_FALL], withCard: true, legacy: EITHER_JOURNAL }).filter(row => row.type === (row.legacy ? LEGACY_FALL : CARD_FELL)))
+    falls.set(fall.card_id!, (falls.get(fall.card_id!) ?? 0) + 1)
+  return falls
 }
 
 function reviewDue(life: CardLife, settled: Settled): boolean {
@@ -360,11 +343,12 @@ export function launchableCard(db: DatabaseSync, cardId: number): LaunchableCard
 }
 
 function standingTrees(db: DatabaseSync, treeLive: TreeReader): Map<number, string> {
-  return new Map((db.prepare(STARTED_TREES).all() as { card_id: number, worktree: string }[]).filter(row => treeLive(row.worktree)).map(row => [row.card_id, row.worktree]))
+  const started = events(db, { types: [CARD_STARTED], withCard: true }).flatMap(row => typeof row.data?.worktree === 'string' ? [[row.card_id!, row.data.worktree] as const] : [])
+  return new Map(started.filter(([, worktree]) => treeLive(worktree)))
 }
 
 function cardsBeatingLive(db: DatabaseSync, nowMs: number): Set<number> {
-  return new Set((db.prepare(LAST_SESSION_BEATS).all() as { card_id: number, ts: string }[]).filter(row => beatsLive(row.ts, nowMs)).map(row => row.card_id))
+  return new Set(lastPer(db, BY_CARD, { types: [SESSION_HEARTBEAT], withCard: true }).filter(row => beatsLive(row.ts, nowMs)).map(row => row.card_id!))
 }
 
 function heldOutside(life: CardLife, openPrs: Set<number>, trees: Map<number, string>, beating: Set<number>): boolean {
@@ -513,7 +497,7 @@ export interface StartableCard {
 }
 
 function openPrNumbers(db: DatabaseSync): Map<number, number> {
-  return new Map((db.prepare(OPEN_PR_NUMBERS).all() as { card_id: number, pr: number }[]).map(row => [row.card_id, row.pr]))
+  return new Map(openCardPrs(db).reverse().map(row => [row.card_id!, row.pr]))
 }
 
 function outsideTheLanes(lane: string | null, lanes: number): boolean {

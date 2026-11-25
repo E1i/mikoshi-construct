@@ -264,6 +264,29 @@ export function openWaitEventsByCard(db: DatabaseSync): Map<number, number[]> {
   return byCard
 }
 
+const CLOSED_WAITS_OF_THE_CARD = `SELECT id, event_id FROM ${OWNER_WAITS} WHERE card_id = ? AND state = '${CLOSED_WAIT}'`
+
+export interface ClosedWait {
+  id: string
+  event_id: number
+  type: string
+}
+
+export function closedWaitsOfCard(db: DatabaseSync, cardId: number): ClosedWait[] {
+  const closed = (db.prepare(CLOSED_WAITS_OF_THE_CARD).all(cardId) as { id: string, event_id: number }[]).map(wait => ({ id: String(wait.id), event_id: Number(wait.event_id) }))
+  const types = new Map(events(db, { ids: closed.map(wait => wait.event_id), legacy: EITHER_JOURNAL }).map(event => [event.id, event.type]))
+  return closed.flatMap((wait) => {
+    const type = types.get(wait.event_id)
+    return type === undefined ? [] : [{ ...wait, type }]
+  })
+}
+
+const OPEN_WAIT_PRS_OF_A_NEED = `SELECT DISTINCT pr FROM ${OWNER_WAITS} WHERE need = ? AND state = '${OPEN_WAIT}' AND pr IS NOT NULL`
+
+export function openWaitPrsOf(db: DatabaseSync, need: string): Set<number> {
+  return new Set((db.prepare(OPEN_WAIT_PRS_OF_A_NEED).all(need) as { pr: number }[]).map(row => Number(row.pr)))
+}
+
 export function openDecisionWaitsOf(card: string): string {
   return `SELECT id, text FROM ${OWNER_WAITS} WHERE need = 'decision' AND state = '${OPEN_WAIT}' AND card_id = ${card}`
 }

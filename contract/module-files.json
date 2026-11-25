@@ -754,6 +754,7 @@
     "scripts/tests/contract/owner-reads/derive-queues.test.ts",
     "scripts/tests/contract/owner-reads/events-query.test.ts",
     "scripts/tests/contract/owner-reads/ladder.test.ts",
+    "scripts/tests/contract/owner-reads/node-launch.test.ts",
     "scripts/tests/contract/owner-reads/plan.test.ts",
     "scripts/tests/contract/owner-reads/pr.test.ts",
     "scripts/tests/contract/owner-reads/quality-intake.test.ts",

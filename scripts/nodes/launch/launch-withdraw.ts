@@ -5,11 +5,12 @@ import { inTransaction } from '../../core/db.js'
 import { TASK_FAILED, TASK_LEASED, TASK_REQUEUED } from '../../core/events.js'
 import { generationOfKey } from '../../core/identifiers.js'
 import { appendedAndReduced, generationField, QUEUE_ACTOR, QUEUED, STOPPED, WITHDRAWN } from '../../core/queue.js'
+import { ofQueue } from '../../core/tasks-query.js'
 
 export const WITHDRAW_LEGACY_FLAG = '--withdraw-legacy'
 export const LEGACY_REASON = 'legacy'
 
-const LAUNCH_TASKS_TO_WITHDRAW = `SELECT task_key, queue, card_id, pr, head, state, lease_gen FROM tasks WHERE queue = 'launch' AND state IN ('${QUEUED}', '${STOPPED}') ORDER BY id`
+const WITHDRAWN_STATES: readonly string[] = [QUEUED, STOPPED]
 
 interface WithdrawnRow {
   task_key: string
@@ -35,7 +36,7 @@ function withdrawn(db: DatabaseSync, ts: string, row: WithdrawnRow): void {
 }
 
 export function withdrawLegacyLaunchTasks(db: DatabaseSync, ts: string): string[] {
-  const rows = db.prepare(LAUNCH_TASKS_TO_WITHDRAW).all() as unknown as WithdrawnRow[]
+  const rows = ofQueue(db, 'launch').filter(task => WITHDRAWN_STATES.includes(task.state)).sort((a, b) => a.id - b.id) as WithdrawnRow[]
   for (const row of rows)
     inTransaction(db, () => withdrawn(db, ts, row))
   return rows.map(row => row.task_key)
