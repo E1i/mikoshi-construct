@@ -24,7 +24,7 @@ import { priorityLineOf, withKeptPriority } from '../../card/text-sha.js'
 import { isWitnessFieldLine, renderedWitness, runsFieldLine, runsFieldOf, witnessesOf, witnessFieldsOf, witnessText } from '../../card/witness-fields.js'
 import { readMilestones } from '../../manifest.js'
 import { findsNoTest, namedAbsentOutside, namedPaths, withinScope } from '../test-runner.js'
-import { CARD_REFERENCE, checkDraft, correctionText, FACTORY_TWIN, invalidTestPatterns, isChangeWitness, nonPathTouchRefusals, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf } from './check.js'
+import { CARD_REFERENCE, checkDraft, correctionText, FACTORY_TWIN, invalidTestPatterns, isChangeWitness, nonPathTouchRefusals, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf, unreachableCreatesRefusal } from './check.js'
 import { TEST_NAME_ARGUMENT } from './command-word.js'
 import { admitCorrectionsNeedPerson, bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, isConfirmation, sameHeader, tokenConfirmation, TOUCHES_HEADER, windowShard } from './confirm.js'
 import { withoutWitnessKind } from './draft.js'
@@ -653,6 +653,9 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   const masks = sharedCodeMaskRefusals(checked.touches, createdPaths(checked.creates), readContourMap(options.contourMap ?? defaultContourMap()))
   if (masks.length > 0)
     return { status: 'sharedCodeMask', reasons: masks }
+  const unreachable = unreachableCreatesRefusal(options.dir, card.id, checked.touches, checked.creates)
+  if (unreachable !== null)
+    return { status: 'refused', why: unreachable }
   const dropped = droppedDepends(checked.depends, cards)
   if (dropped.length > 0)
     return { status: 'refused', why: dependsOnDropped(card.id, dropped) }
