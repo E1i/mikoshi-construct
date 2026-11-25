@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { SessionStop } from '../../core/card-hold.js'
 import type { BusEvent } from '../../core/db.js'
-import type { EventRow, EventsQuery } from '../../core/events-query.js'
+import type { EventsQuery } from '../../core/events-query.js'
 import type { Lease } from '../../core/lease.js'
 import type { MachineClaimant, MachineSessions } from '../../core/machine-sessions.js'
 import type { DetectionMode, NodeDeclaration, NodeParts, WaitStep } from '../../core/node.js'
@@ -10,7 +10,7 @@ import type { TaskRow } from '../../core/tasks-query.js'
 import type { DiskReader } from '../../ports/disk.js'
 import type { IsolationReader } from '../../ports/isolation.js'
 import type { ProcessTable } from '../restart/chain-process.js'
-import type { Contour, WindowQuestion } from './launch-candidates.js'
+import type { Contour, LatestSessionStart, WindowQuestion } from './launch-candidates.js'
 import type { CardStarter, LaunchOutcome, StartedCard } from './launch-executor.js'
 import type { SessionContinuer } from './launch-starter.js'
 import { existsSync } from 'node:fs'
@@ -24,7 +24,7 @@ import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD, RUNNING_CARD } from '../../core
 import { admittedBodies, admittedBodyText, bodyNotFoldedYet, pathsOutsideTheBody } from '../../core/card-bodies.js'
 import { cardHoldOf, HOLD_RECHECK_MS, sessionStopOf } from '../../core/card-hold.js'
 import { appendEvent, inTransaction, openOwnerWait } from '../../core/db.js'
-import { BY_CARD, EITHER_JOURNAL, events, lastPer, latest } from '../../core/events-query.js'
+import { EITHER_JOURNAL, events, latest } from '../../core/events-query.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_HELD, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, GHOST_ROW, LADDER_APPROVAL, MERGE_DONE, OPEN_QUESTION, OUTSIDE_TOUCHES, PR_CLOSED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, REDUCED, SESSION_STALLED, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../../core/events.js'
 import { generationOfKey } from '../../core/identifiers.js'
 import { failTask } from '../../core/lease.js'
@@ -45,7 +45,7 @@ import { lastHeartbeat } from '../../supervisor/heartbeat.js'
 import { launchProcess, REAL_PROCESSES } from '../restart/chain-process.js'
 import { MAX_RESTARTS, reportedQuestions, reportedStopReason } from './continuation.js'
 import { currentLane, laneOverlapRecorder, layLanes, repositoryLanes } from './lane-assign.js'
-import { cardsWithAState, commandRanSince, heldSessionStop, heldStopLine, holdReason, launchTasks, reportedWindowQuestions, startHold, stopsWithCode, waitHeldAtTheExit } from './launch-candidates.js'
+import { commandRanSince, heldSessionStop, heldStopLine, holdReason, latestSessionStarts, launchTasks, reportedWindowQuestions, startHold, stopsWithCode, waitHeldAtTheExit } from './launch-candidates.js'
 import { continuedAndRecorded, LaunchExecutor } from './launch-executor.js'
 import { REPORT_MISSING, USAGE_LIMIT, usageLimitDetail, usageLimitResetIn, usageLimitResetOf } from './report-collect.js'
 import { reportClosingOf } from './tree-pr.js'
@@ -114,7 +114,7 @@ export interface LaunchNodeParts extends Pick<NodeParts, 'silentMs'> {
 
 export interface SessionStart { cardId: number, ts: string }
 
-type RunningStart = Pick<EventRow, 'id' | 'ts' | 'dedupe_key' | 'payload'> & { card_id: number, state: string }
+type RunningStart = LatestSessionStart
 
 const SESSION_STARTS = [CARD_STARTED, CARD_CONTINUED]
 const SESSION_CLOSES = [CARD_STOPPED, CARD_SESSION_ENDED]
@@ -124,16 +124,8 @@ function anyEvent(db: DatabaseSync, query: EventsQuery): boolean {
   return events(db, { ...query, limit: 1 }).length > 0
 }
 
-function latestStartsOf(db: DatabaseSync, held: (state: string, start: EventRow) => boolean): RunningStart[] {
-  const states = cardsWithAState(db)
-  return lastPer(db, BY_CARD, { types: SESSION_STARTS, withCard: true }).flatMap((start) => {
-    const state = states.get(start.card_id!)
-    return state !== undefined && held(state, start) ? [{ id: start.id, card_id: start.card_id!, ts: start.ts, dedupe_key: start.dedupe_key, payload: start.payload, state }] : []
-  }).sort((a, b) => a.card_id - b.card_id)
-}
-
-const runningStarts = (db: DatabaseSync): RunningStart[] => latestStartsOf(db, state => state === RUNNING_CARD)
-const outOfRunningStarts = (db: DatabaseSync): RunningStart[] => latestStartsOf(db, (state, start) => !NOT_OUT_OF_RUNNING.has(state) && !anyEvent(db, { card: start.card_id!, since: start.id, types: SESSION_CLOSES }))
+const runningStarts = (db: DatabaseSync): RunningStart[] => latestSessionStarts(db, state => state === RUNNING_CARD)
+const outOfRunningStarts = (db: DatabaseSync): RunningStart[] => latestSessionStarts(db, (state, start) => !NOT_OUT_OF_RUNNING.has(state) && !anyEvent(db, { card: start.card_id!, since: start.id, types: SESSION_CLOSES }))
 
 export const LAUNCH_START_MINUTES = 10
 const LAUNCH_START_MS = LAUNCH_START_MINUTES * 60_000

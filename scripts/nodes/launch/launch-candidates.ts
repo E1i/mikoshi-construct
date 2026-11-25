@@ -17,7 +17,7 @@ import { cardHoldOf, SESSION_STOP_CODES } from '../../core/card-hold.js'
 import { cardsWithAState, closedWaitsOfCard, openOwnerWaits } from '../../core/card-readings.js'
 import { appendEvent, openOwnerWait } from '../../core/db.js'
 import { BY_CARD, EITHER_JOURNAL, events, lastPer } from '../../core/events-query.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_FELL, CARD_STARTED, CARD_STOPPED, CARD_WAITING, COMMAND_EXECUTED, DECISION_RECORDED, GHOST_ROW, LANE_HELD, OUTSIDE_TOUCHES, OWNER_WAIT_OPENED, PR_CLOSED, PR_OBSERVED, PR_OPENED, SESSION_HEARTBEAT, TASK_REQUEUED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_DROPPED, CARD_FELL, CARD_STARTED, CARD_STOPPED, CARD_WAITING, COMMAND_EXECUTED, DECISION_RECORDED, GHOST_ROW, LANE_HELD, OUTSIDE_TOUCHES, OWNER_WAIT_OPENED, PR_CLOSED, PR_OBSERVED, PR_OPENED, SESSION_HEARTBEAT, TASK_REQUEUED } from '../../core/events.js'
 import { prOf } from '../../core/identifiers.js'
 import { legacyHistory } from '../../core/legacy-history.js'
 import { busNameOfDb, machineHoldLine, machineSessions } from '../../core/machine-sessions.js'
@@ -32,8 +32,6 @@ import { holderOf, HoldRule, observedDiff, unclearField, withDiff } from './hold
 import { chainLaneNumber, currentLane, heldByStall, ownerMergeHolders, repositoryLanes, stalledCards, startOrder, withoutDerived } from './lane-assign.js'
 import { taskConflicts } from './overlap.js'
 import { sharedAppendFiles } from './shared-files.js'
-
-export { cardsWithAState }
 
 export const FALLS_BEFORE_CUT = 2
 export const PLANNED_STALL_MINUTES = 15
@@ -128,6 +126,16 @@ export function heldSessionStop(db: DatabaseSync, cardId: number): HeldSessionSt
     return uncovered.length === 0 || ownerAnsweredSince(db, bus, cardId, latest.id) ? null : { code: stopCode, stop: latest.id, paths: uncovered }
   }
   return questionStillOpen(db, bus, cardId, latest.id) ? { code: stopCode, stop: latest.id, paths: named } : null
+}
+
+export type LatestSessionStart = Pick<EventRow, 'id' | 'ts' | 'dedupe_key' | 'payload'> & { card_id: number, state: string }
+
+export function latestSessionStarts(db: DatabaseSync, held: (state: string, start: EventRow) => boolean): LatestSessionStart[] {
+  const states = cardsWithAState(db)
+  return lastPer(db, BY_CARD, { types: [CARD_STARTED, CARD_CONTINUED], withCard: true }).flatMap((start) => {
+    const state = states.get(start.card_id!)
+    return state !== undefined && held(state, start) ? [{ id: start.id, card_id: start.card_id!, ts: start.ts, dedupe_key: start.dedupe_key, payload: start.payload, state }] : []
+  }).sort((a, b) => a.card_id - b.card_id)
 }
 
 export function commandRanSince(db: DatabaseSync, cardId: number, command: string, since?: number): boolean {
