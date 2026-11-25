@@ -29,7 +29,7 @@ import { authorSessions } from '../../nodes/review/record-verdict.js'
 import { fullReview, planReview } from '../../nodes/review/review-depth.js'
 import { REVIEW_RULES_VERSION } from '../../nodes/review/review-executor.js'
 import { busCardBody, DRY_RUN_ACTOR, dryRun, earlierVerdict, ghNotePr, gitHubPrBody, reviewIsolationCommand, reviewMode, ReviewNode, reviewsDir, ReviewWorker, runReview, ShadowNotClean, sparingLiveLeases, startReviewWorkers, stepLine, TREE_LEFT } from '../../nodes/review/review-worker.js'
-import { claudeReviewer, GIT_TREE_TOOLS, reviewPrompt, ReviewTrees } from '../../nodes/review/reviewer.js'
+import { BUS_FINDINGS_LINE, claudeReviewer, GIT_TREE_TOOLS, reviewPrompt, ReviewTrees } from '../../nodes/review/reviewer.js'
 import { classify } from '../../policy/morse/rules.js'
 import { withinTouches } from '../../policy/touch-scope.js'
 import { GhBudgetWindow, GhFailed, ghPort } from '../../ports/gh.js'
@@ -1486,6 +1486,23 @@ describe('the review executor and the reach of new code', () => {
     expect(recorded!.findings).toEqual([expect.stringContaining(UNREACHED_FINDING_HEAD)])
     expect(recorded!.findings[0]).toContain('src/feature/shiny.ts')
     expect(said.some(line => line.includes(UNREACHED_FINDING_HEAD))).toBe(true)
+    bench.db.close()
+  })
+
+  it('puts the reachability finding into the reviewer\'s prompt as a bus finding no opinion clears', async () => {
+    const bench = setUp()
+    bench.gitHub.open({ number: 2239 })
+    bench.tick()
+    const prompts: string[] = []
+    const capturing: Reviewer = async (lease, plan, card, proven, decisions, busFindings) => {
+      prompts.push(reviewPrompt(lease, plan, '/tmp/t', '/tmp/v.json', card ?? null, null, proven, decisions, busFindings))
+      return { verdict: 'pass', findings: [], session: 'reviewer-1' }
+    }
+
+    await reachWorker(bench, capturing, unreachedHead).step()
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toContain(BUS_FINDINGS_LINE)
+    expect(prompts[0]).toMatch(new RegExp(`<bus-findings>\\n${UNREACHED_FINDING_HEAD}[^\\n]*src/feature/shiny\\.ts[^\\n]*\\n</bus-findings>`))
     bench.db.close()
   })
 

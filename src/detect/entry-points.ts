@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { IGNORED_ENTRIES } from './ignored-entries.js'
 
@@ -33,32 +33,39 @@ const COMPILED_TWIN: Readonly<Record<string, string[]>> = { '.js': ['.ts', '.tsx
 const PRODUCT_CODE = /\.(?:[cm]?[jt]sx?|vue|svelte|astro)$/
 const TEST_NAMED = /\.(?:test|spec)\.[^/]+$/
 const TEST_SEGMENTS: ReadonlySet<string> = new Set(['tests', 'test', '__tests__', 'e2e', 'fixtures'])
-const NON_PRODUCT_ROOTS: ReadonlySet<string> = new Set(['scripts', 'docs'])
+const NON_PRODUCT_ROOTS: ReadonlySet<string> = new Set(['scripts', 'docs', 'templates'])
+const TOOL_CONFIG = /^[^/]+\.config\.[^/]+$/
+
+function isHidden(segment: string): boolean {
+  return segment.startsWith('.')
+}
 
 export function isProductSource(file: string): boolean {
   const segments = file.split('/')
-  return PRODUCT_CODE.test(file) && !TEST_NAMED.test(file) && !NON_PRODUCT_ROOTS.has(segments[0]!) && !segments.some(segment => TEST_SEGMENTS.has(segment))
+  return PRODUCT_CODE.test(file)
+    && !TEST_NAMED.test(file)
+    && !TOOL_CONFIG.test(file)
+    && !NON_PRODUCT_ROOTS.has(segments[0]!)
+    && !segments.some(segment => TEST_SEGMENTS.has(segment) || isHidden(segment))
 }
 
 export function entryPointKindOf(relative: string): EntryPointKind | null {
   return CONVENTIONS.find(([, pattern]) => pattern.test(relative))?.[0] ?? null
 }
 
-function isFile(file: string): boolean {
-  try {
-    return statSync(file).isFile()
-  }
-  catch {
-    return false
-  }
+export interface SourceTree {
+  isFile: (file: string) => boolean
+  read: (file: string) => string | null
+  filesUnder: (dir: string) => string[]
+  childDirs: (dir: string) => string[]
 }
 
-function isDirectory(file: string): boolean {
+function statOf(file: string): { isFile: () => boolean, isDirectory: () => boolean } | null {
   try {
-    return statSync(file).isDirectory()
+    return statSync(file)
   }
   catch {
-    return false
+    return null
   }
 }
 
@@ -66,19 +73,45 @@ function posix(relative: string): string {
   return relative.split(path.sep).join('/')
 }
 
-function filesUnder(root: string, relative: string): string[] {
-  const absolute = path.join(root, relative)
-  if (!isDirectory(absolute))
-    return []
-  return readdirSync(absolute, { withFileTypes: true })
-    .filter(entry => !SKIPPED_ENTRIES.has(entry.name))
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .flatMap(entry => entry.isDirectory() ? filesUnder(root, `${relative}/${entry.name}`) : entry.isFile() ? [`${relative}/${entry.name}`] : [])
+export function fileSystemTree(dir: string): SourceTree {
+  const root = path.resolve(dir)
+  const isDirectory = (relative: string): boolean => statOf(path.join(root, relative))?.isDirectory() ?? false
+  const filesUnder = (relative: string): string[] => {
+    if (!isDirectory(relative))
+      return []
+    return readdirSync(path.join(root, relative), { withFileTypes: true })
+      .filter(entry => !SKIPPED_ENTRIES.has(entry.name))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .flatMap(entry => entry.isDirectory() ? filesUnder(`${relative}/${entry.name}`) : entry.isFile() ? [`${relative}/${entry.name}`] : [])
+  }
+  return {
+    isFile: relative => statOf(path.join(root, relative))?.isFile() ?? false,
+    read: (relative) => {
+      try {
+        return readFileSync(path.join(root, relative), 'utf8')
+      }
+      catch {
+        return null
+      }
+    },
+    filesUnder,
+    childDirs: relative => isDirectory(relative) ? readdirSync(path.join(root, relative)).sort() : [],
+  }
 }
 
-function packageDirs(root: string): string[] {
-  const workspaces = WORKSPACE_PARENTS.filter(parent => isDirectory(path.join(root, parent))).flatMap(parent =>
-    readdirSync(path.join(root, parent)).sort().map(entry => `${parent}/${entry}`).filter(dir => existsSync(path.join(root, dir, PACKAGE_MANIFEST))))
+export function listedTree(listed: readonly string[], read: (file: string) => string | null): SourceTree {
+  const files = new Set(listed)
+  const sorted = [...files].sort()
+  return {
+    isFile: file => files.has(file),
+    read: file => files.has(file) ? read(file) : null,
+    filesUnder: dir => sorted.filter(file => file.startsWith(`${dir}/`)),
+    childDirs: dir => [...new Set(sorted.filter(file => file.startsWith(`${dir}/`)).flatMap(file => file.slice(dir.length + 1).split('/').slice(0, -1).slice(0, 1)))],
+  }
+}
+
+function packageDirs(tree: SourceTree): string[] {
+  const workspaces = WORKSPACE_PARENTS.flatMap(parent => tree.childDirs(parent).map(entry => `${parent}/${entry}`).filter(dir => tree.isFile(`${dir}/${PACKAGE_MANIFEST}`)))
   return ['', ...workspaces]
 }
 
@@ -94,11 +127,11 @@ function stringValues(value: unknown): string[] {
   return []
 }
 
-function declaredEntries(root: string, dir: string): EntryPoint[] {
+function declaredEntries(tree: SourceTree, dir: string): EntryPoint[] {
   const manifest = within(dir, PACKAGE_MANIFEST)
   let parsed: { bin?: unknown, main?: unknown, exports?: unknown } | null
   try {
-    parsed = JSON.parse(readFileSync(path.join(root, manifest), 'utf8')) as typeof parsed
+    parsed = JSON.parse(tree.read(manifest) ?? 'null') as typeof parsed
   }
   catch {
     return []
@@ -107,28 +140,31 @@ function declaredEntries(root: string, dir: string): EntryPoint[] {
   return [...declared('bin', parsed?.bin), ...declared('main', parsed?.main), ...declared('main', parsed?.exports)]
 }
 
-function conventionalEntries(root: string, dir: string): EntryPoint[] {
-  const candidates = [within(dir, 'index.html'), ...CONVENTION_ROOTS.flatMap(conventional => filesUnder(root, within(dir, conventional)))]
+function conventionalEntries(tree: SourceTree, dir: string): EntryPoint[] {
+  const candidates = [within(dir, 'index.html'), ...CONVENTION_ROOTS.flatMap(conventional => tree.filesUnder(within(dir, conventional)))]
   return candidates.flatMap((file) => {
-    const kind = isFile(path.join(root, file)) ? entryPointKindOf(file) : null
+    const kind = tree.isFile(file) ? entryPointKindOf(file) : null
     return kind === null ? [] : [{ kind, path: file, declaredIn: null, packageDir: dir }]
   })
 }
 
 const WORKSPACE_PACKAGE = new RegExp(`^(?:${WORKSPACE_PARENTS.join('|')})/[^/]+(?=/)`)
 
-export function packageDirOf(dir: string, relative: string, created: readonly string[] = []): string {
+export function packageDirIn(tree: SourceTree, relative: string, created: readonly string[] = []): string {
   const candidate = WORKSPACE_PACKAGE.exec(relative)?.[0]
   if (candidate === undefined)
     return ''
   const manifest = `${candidate}/${PACKAGE_MANIFEST}`
-  return created.includes(manifest) || isFile(path.join(path.resolve(dir), manifest)) ? candidate : ''
+  return created.includes(manifest) || tree.isFile(manifest) ? candidate : ''
 }
 
-export function detectEntryPoints(dir: string): EntryPoint[] {
-  const root = path.resolve(dir)
+export function packageDirOf(dir: string, relative: string, created: readonly string[] = []): string {
+  return packageDirIn(fileSystemTree(dir), relative, created)
+}
+
+export function entryPointsIn(tree: SourceTree): EntryPoint[] {
   const seen = new Set<string>()
-  return packageDirs(root).flatMap(pkg => [...declaredEntries(root, pkg), ...conventionalEntries(root, pkg)]).filter((entry) => {
+  return packageDirs(tree).flatMap(pkg => [...declaredEntries(tree, pkg), ...conventionalEntries(tree, pkg)]).filter((entry) => {
     const key = `${entry.kind} ${entry.path}`
     if (seen.has(key))
       return false
@@ -137,7 +173,11 @@ export function detectEntryPoints(dir: string): EntryPoint[] {
   })
 }
 
-function resolvedSource(root: string, candidate: string): string | null {
+export function detectEntryPoints(dir: string): EntryPoint[] {
+  return entryPointsIn(fileSystemTree(dir))
+}
+
+function resolvedSource(tree: SourceTree, candidate: string): string | null {
   const extension = path.posix.extname(candidate)
   const tries = [
     candidate,
@@ -145,34 +185,27 @@ function resolvedSource(root: string, candidate: string): string | null {
     ...SOURCE_EXTENSIONS.map(added => `${candidate}${added}`),
     ...SOURCE_EXTENSIONS.map(added => `${candidate}/index${added}`),
   ]
-  return tries.find(file => !file.startsWith('../') && isFile(path.join(root, file))) ?? null
+  return tries.find(file => !file.startsWith('../') && tree.isFile(file)) ?? null
 }
 
-function importedBy(root: string, file: string): string[] {
-  let text: string
-  try {
-    text = readFileSync(path.join(root, file), 'utf8')
-  }
-  catch {
-    return []
-  }
+function importedBy(tree: SourceTree, file: string): string[] {
   const from = path.posix.dirname(file)
-  return [...text.matchAll(RELATIVE_SPECIFIER)].flatMap(([, specifier]) => {
-    const resolved = resolvedSource(root, path.posix.normalize(`${from}/${specifier!}`))
-    return resolved === null ? [] : [resolved]
-  })
+  return [...(tree.read(file) ?? '').matchAll(RELATIVE_SPECIFIER)].flatMap(([, specifier]) => resolvedSource(tree, path.posix.normalize(`${from}/${specifier!}`)) ?? [])
 }
 
-export function importReach(dir: string, entries: readonly string[]): string[] {
-  const root = path.resolve(dir)
+export function importReachIn(tree: SourceTree, entries: readonly string[]): string[] {
   const reached = new Set<string>()
-  const pending = entries.flatMap(entry => resolvedSource(root, posix(path.posix.normalize(entry))) ?? [])
+  const pending = entries.flatMap(entry => resolvedSource(tree, posix(path.posix.normalize(entry))) ?? [])
   while (pending.length > 0) {
     const file = pending.pop()!
     if (reached.has(file))
       continue
     reached.add(file)
-    pending.push(...importedBy(root, file).filter(next => !reached.has(next)))
+    pending.push(...importedBy(tree, file).filter(next => !reached.has(next)))
   }
   return [...reached].sort()
+}
+
+export function importReach(dir: string, entries: readonly string[]): string[] {
+  return importReachIn(fileSystemTree(dir), entries)
 }

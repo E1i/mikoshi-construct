@@ -85,6 +85,47 @@ describe('unreachedModules', () => {
     expect(unreachedModules(headOf(tree, ['packages/web/src/orphan.ts']))).toEqual([{ packageDir: 'packages/web', modules: ['packages/web/src/orphan.ts'], entries: [{ kind: 'main', path: 'packages/web/src/index.ts' }] }])
   })
 
+  it('judges no template payload, dot-directory script or root tool config as product code', () => {
+    const added = ['templates/attach/_construct/new-guard.mjs', '.claude/hooks/new-hook.mjs', 'eslint.config.mjs']
+    const tree = { ...productTree(false), ...Object.fromEntries(added.map(file => [file, ''])) }
+
+    expect(unreachedModules(headOf(tree, added))).toEqual([])
+  })
+
+  it('reads a package entry declared only through exports', () => {
+    const exportsOnly = (imports: boolean): Record<string, string> => ({
+      'package.json': JSON.stringify({ exports: { '.': { import: './src/index.ts' } } }),
+      'src/index.ts': imports ? 'export * from \'./feature/shiny.js\'\n' : 'export {}\n',
+      [NEW_MODULE]: 'export {}\n',
+    })
+
+    expect(unreachedModules(headOf(exportsOnly(true), [NEW_MODULE]))).toEqual([])
+    expect(unreachedModules(headOf(exportsOnly(false), [NEW_MODULE]))).toEqual([{ packageDir: '', modules: [NEW_MODULE], entries: [{ kind: 'main', path: 'src/index.ts' }] }])
+  })
+
+  it('counts a packages/ directory without a manifest as part of the root package', () => {
+    const tree = {
+      'package.json': MANIFEST,
+      'src/cli.ts': 'import \'../packages/loose/src/a.js\'\n',
+      'packages/loose/src/a.ts': 'export {}\n',
+    }
+
+    expect(unreachedModules(headOf(tree, ['packages/loose/src/a.ts']))).toEqual([])
+    expect(unreachedModules(headOf({ ...tree, 'src/cli.ts': '' }, ['packages/loose/src/a.ts']))).toEqual([{ packageDir: '', modules: ['packages/loose/src/a.ts'], entries: [{ kind: 'bin', path: 'dist/cli.js' }] }])
+  })
+
+  it('names only the root package\'s own entry points, not the pages of a workspace package, each once', () => {
+    const tree = {
+      'package.json': JSON.stringify({ main: 'dist/cli.js', bin: 'dist/cli.js', exports: './dist/cli.js' }),
+      'src/cli.ts': '',
+      'packages/web/package.json': JSON.stringify({ name: 'web' }),
+      'packages/web/pages/about.tsx': 'import \'../../../src/feature/shiny.js\'\n',
+      [NEW_MODULE]: '',
+    }
+
+    expect(unreachedModules(headOf(tree, [NEW_MODULE]))).toEqual([{ packageDir: '', modules: [NEW_MODULE], entries: [{ kind: 'bin', path: 'dist/cli.js' }, { kind: 'main', path: 'dist/cli.js' }] }])
+  })
+
   it('reads no file of the head when nothing added is product code', () => {
     const files = vi.fn(() => [])
 

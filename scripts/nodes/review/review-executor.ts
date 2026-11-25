@@ -101,9 +101,9 @@ export const TREE_LEFT = 'tree_left'
 export { REVIEW_ROUNDS_SPENT }
 export const ROUND_LIMIT_REACHED = 'round_limit_reached'
 export const SPAWNS_NO_SESSION = 'spawns-no-session'
-export const REVIEW_RULES_VERSION = 2
+export const REVIEW_RULES_VERSION = 3
 export const REVIEW_RULES_FILE = '.claude/agents/review.md'
-export const REVIEW_RULES_SHA = 'edb05eb4bfc4dff057b61daad192fd82ecdcd55b8feba4b764a8120bd417d5a8'
+export const REVIEW_RULES_SHA = 'eb1f7a6f297465dc86437f2f4d64c6de76d1782178f6cb7fcaa2b79a77cb56e1'
 
 export function reviewRulesSha(rulesFileText: string): string {
   return createHash('sha256').update(`${rulesFileText}\n${REVIEW_BAR_LINE}`).digest('hex')
@@ -417,7 +417,7 @@ export class ReviewExecutor {
     try {
       const started = clock().getTime()
       const card = cardBodyText(db, lease.cardId)
-      const review = await this.parts.reviewer(lease, plan, card, provenWitnesses(db, lease, card, this.parts.testSource ?? gitTestSource(process.cwd())))
+      const review = await this.parts.reviewer(lease, plan, card, provenWitnesses(db, lease, card, this.parts.testSource ?? gitTestSource(process.cwd())), [], unreached === null ? [] : [unreached])
       return { outcome: { review, plan, ms: clock().getTime() - started, isolation, card, unreached }, held: review.tree ?? null }
     }
     catch (error) {

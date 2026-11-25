@@ -161,7 +161,7 @@ export function decisionsOnTheCard(db: DatabaseSync, cardId: number, now: Date, 
 }
 
 function readingTheKeyedBody<P extends ExecutorParts>(parts: P): P {
-  return { ...parts, reviewer: (lease, plan, card, proven) => parts.reviewer(lease, plan, cardBodyOfKey(parts.db, lease, card ?? null), proven, decisionsOnTheCard(parts.db, lease.cardId, parts.clock(), lease.pr)) }
+  return { ...parts, reviewer: (lease, plan, card, proven, _decisions, busFindings) => parts.reviewer(lease, plan, cardBodyOfKey(parts.db, lease, card ?? null), proven, decisionsOnTheCard(parts.db, lease.cardId, parts.clock(), lease.pr), busFindings) }
 }
 
 export interface ReviewNodeParts extends Omit<ExecutorParts, 'cards' | 'requiredCheck'> {

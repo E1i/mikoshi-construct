@@ -70,6 +70,11 @@ describe('admit judges a created product module by the entry points', () => {
     ['tests/feature.ts', false],
     ['scripts/feature.ts', false],
     ['docs/feature.md', false],
+    ['templates/attach/_construct/guard.mjs', false],
+    ['.claude/hooks/hook.mjs', false],
+    ['src/.cache/built.js', false],
+    ['eslint.config.mjs', false],
+    ['src/feature.config.ts', true],
   ])('%s is product source: %s', (file, product) => {
     expect(isProductSource(file)).toBe(product)
   })
