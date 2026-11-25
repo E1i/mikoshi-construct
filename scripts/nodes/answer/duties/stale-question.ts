@@ -6,8 +6,8 @@ import type { Answered } from '../answerer.js'
 import type { AnswerDenial, AnswerOutcome, AnswerOutcomes, CardPaths, Widened } from './outcomes.js'
 import type { AnswerPublishing } from './publishing.js'
 import type { Answering, AnswerSources } from './source.js'
-import { CLOSED_WAIT, OWNER_WAITS } from '../../../core/bus-readings.js'
-import { downgradeWaitOpenOn } from '../../../core/card-readings.js'
+import { CLOSED_WAIT } from '../../../core/bus-readings.js'
+import { downgradeWaitOpenOn, waitStatesAmong } from '../../../core/card-readings.js'
 import { appendEvent } from '../../../core/db.js'
 import { QUESTION_AGENT, QUESTION_OWNER, SHARD_DECIDED } from '../../../core/events.js'
 import { assertHeld, completeTask } from '../../../core/lease.js'
@@ -45,8 +45,6 @@ const DECISION_OPTIONS = [`${QUESTION_OWNER}: stop the card for the owner`, `${S
 
 const NAMES_A_WAIT = /\b[QW]\d+\b/g
 
-const IS_A_CLOSED_WAIT = `SELECT 1 FROM ${OWNER_WAITS} WHERE id = ? AND state = '${CLOSED_WAIT}'`
-
 export function namesAnOwnerPath(ownerMerges: string, named: readonly string[], ownerBoundary: CardPaths['ownerBoundary']): boolean {
   const globs = ownerGlobs(ownerMerges)
   return ownerBoundary(named) !== undefined || named.some(file => globs.some(glob => matchGlob(glob, file)))
@@ -71,7 +69,9 @@ export class OwnerQuestions {
   staleQuestion(lease: Lease, question: string): AnswerOutcome | null {
     if (answerOnAnOldCardBody(this.parts.db, lease))
       return this.outcomes.superseded(lease, `the body of card #${lease.cardId} was amended while the answer session ran; no owner question is written, and the answer goes again on the new body. The question was: ${question}`)
-    const closed = [...new Set(question.match(NAMES_A_WAIT) ?? [])].filter(id => this.parts.db.prepare(IS_A_CLOSED_WAIT).get(id) !== undefined)
+    const named = [...new Set(question.match(NAMES_A_WAIT) ?? [])]
+    const states = waitStatesAmong(this.parts.db, named)
+    const closed = named.filter(id => states.get(id) === CLOSED_WAIT)
     if (closed.length === 0)
       return null
     return this.outcomes.denied(lease, { kind: 'technical', reason: 'closed_wait', detail: `the answer session named ${closed.join(', ')}, already closed; no owner question is written, and the answer goes again with the closed waits of the card in its prompt. The question was: ${question}` })
