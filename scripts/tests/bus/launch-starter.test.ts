@@ -12,6 +12,7 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ANSWERED, CARD_STARTED, CARD_STOPPED } from '../../core/events.js'
 import { busCardSessions } from '../../nodes/launch/launch-root.js'
 import { launchArgv, launchEnv, ShiftCardStarter } from '../../nodes/launch/launch-starter.js'
+import { importsReorderedOnly, sessionResult } from '../../nodes/launch/session-journal.js'
 import { HTTPS_ORIGIN_ENV } from '../../ports/tree-publish.js'
 
 const NO_FILE_CONFIG_ENV = { GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1' }
@@ -69,6 +70,14 @@ const SESSION_JOURNAL = transcript(
   toolCall(5, 'Edit', { file_path: `${TREE}/src/shelled.ts`, old_string: 'old', new_string: 'shelled line', replace_all: false }),
   toolCall(6, 'Bash', { command: 'python3 rewrite.py src/shelled.ts' }),
   toolCall(7, 'Edit', { file_path: `${TREE}/src/moved.ts`, old_string: 'old', new_string: 'moved line', replace_all: false }),
+  toolCall(9, 'Write', { file_path: `${TREE}/src/linted.ts`, content: 'import { b } from \'./b\'\nimport type { A } from \'./a\'\n' }),
+  toolCall(10, 'Edit', { file_path: `${TREE}/src/linted.ts`, old_string: '\'./b\'', new_string: '\'./b.js\'', replace_all: false }),
+  toolCall(9, 'Write', { file_path: `${TREE}/src/reworked.ts`, content: 'import { b } from \'./b\'\nimport type { A } from \'./a\'\n' }),
+  toolCall(9, 'Write', { file_path: `${TREE}/src/dashed.ts`, content: 'import { b } from \'./b\'\nimport type { A } from \'./a\'\nexport const dash = \'\\u2014\'\n' }),
+  toolCall(9, 'Write', { file_path: `${TREE}/src/escaped.ts`, content: 'import { b } from \'./b\'\nimport type { A } from \'./a\'\nexport const dash = \'\\u2014\'\n' }),
+  toolCall(9, 'Write', { file_path: `${TREE}/src/shuffled.ts`, content: 'import { b } from \'./b\'\nexport const x = 1\nexport const y = 2\n' }),
+  toolCall(9, 'Write', { file_path: `${TREE}/src/retargeted.ts`, content: 'import { b } from \'./b\'\nimport type { A } from \'./a\'\n' }),
+  toolCall(11, 'Bash', { command: 'pnpm lint:fix' }),
 )
 
 const TREE_FILES: Record<string, TreeFile> = {
@@ -79,6 +88,12 @@ const TREE_FILES: Record<string, TreeFile> = {
   'src/moved.ts': { content: 'moved line\n', mtimeMs: at(8) },
   'src/foreign.ts': { content: 'nobody here wrote this\n', mtimeMs: at(2) },
   'src/earlier.ts': { content: 'earlier\n', mtimeMs: at(1) },
+  'src/linted.ts': { content: 'import type { A } from \'./a\'\nimport { b } from \'./b.js\'\n', mtimeMs: at(12) },
+  'src/dashed.ts': { content: 'import type { A } from \'./a\'\nimport { b } from \'./b\'\nexport const dash = \'\u2014\'\n', mtimeMs: at(12) },
+  'src/reworked.ts': { content: 'import type { A } from \'./a\'\nimport { b } from \'./b\'\nexport const added = b\n', mtimeMs: at(12) },
+  'src/escaped.ts': { content: 'import type { A } from \'./a\'\nimport { b } from \'./b\'\nexport const dash = \'\\u2014\'\n', mtimeMs: at(12) },
+  'src/shuffled.ts': { content: 'import { b } from \'./b\'\nexport const y = 2\nexport const x = 1\n', mtimeMs: at(12) },
+  'src/retargeted.ts': { content: 'import type { A } from \'./a\'\nimport { b } from \'./c\'\n', mtimeMs: at(12) },
 }
 
 const EARLIER = 'sess-earlier'
@@ -339,6 +354,64 @@ describe('the held tree guard reads the session journal', () => {
     }
   })
 
+  it('a path the session edited and lint --fix then reordered is owned and the card continues', () => {
+    const held = heldTree(['src/linted.ts'])
+
+    expect(held.start()).toMatchObject({ kind: 'started', card: { worktree: TREE } })
+    expect(held.spawned).toEqual([TREE])
+  })
+
+  it('a path the session wrote with a \\u2014 escape in its journal and lint --fix then reordered is owned', () => {
+    const held = heldTree(['src/dashed.ts'])
+
+    expect(held.start()).toMatchObject({ kind: 'started', card: { worktree: TREE } })
+    expect(held.spawned).toEqual([TREE])
+  })
+
+  it('a path changed beyond lint --fix after the last Edit still refuses the continuation', () => {
+    const held = heldTree(['src/reworked.ts'])
+
+    const outcome = held.start()
+
+    expect(refusedPaths(outcome)).toEqual(['src/reworked.ts'])
+    expect(outcome.kind === 'refused' && outcome.denial.detail).toContain('src/reworked.ts (its content differs from the session\'s last Write and the Edits after it)')
+    expect(held.spawned).toEqual([])
+  })
+
+  it('a lint --fix result that matches but lands after the session ended is still refused', () => {
+    const held = heldTree(['src/linted.ts'], { treeFile: file => path.relative(TREE, file) === 'src/linted.ts' ? { ...TREE_FILES['src/linted.ts']!, mtimeMs: at(45) } : null })
+
+    expect(refusedPaths(held.start())).toEqual(['src/linted.ts'])
+  })
+
+  it('a path whose disk copy keeps the session\'s literal \\u2014 escape, imports reordered, is owned by the decoded comparison', () => {
+    const held = heldTree(['src/escaped.ts'])
+
+    expect(held.start()).toMatchObject({ kind: 'started', card: { worktree: TREE } })
+    expect(held.spawned).toEqual([TREE])
+  })
+
+  it('a path reordered by lint --fix is owned when an earlier session on the card never touched it', () => {
+    const held = heldTree(['src/earlier.ts', 'src/linted.ts'], earlierSession)
+
+    expect(held.start()).toMatchObject({ kind: 'started', card: { worktree: TREE } })
+    expect(held.spawned).toEqual([TREE])
+  })
+
+  it('a path whose non-import lines were moved after the last Write still refuses the continuation', () => {
+    const held = heldTree(['src/shuffled.ts'])
+
+    expect(refusedPaths(held.start())).toEqual(['src/shuffled.ts'])
+    expect(held.spawned).toEqual([])
+  })
+
+  it('a path whose import line was changed after the last Write still refuses the continuation', () => {
+    const held = heldTree(['src/retargeted.ts'])
+
+    expect(refusedPaths(held.start())).toEqual(['src/retargeted.ts'])
+    expect(held.spawned).toEqual([])
+  })
+
   it('a held tree the bus records no session of is refused by name', () => {
     const held = heldTree(['notes.md', 'src/written.ts'], { cardSessions: () => [] })
 
@@ -347,6 +420,52 @@ describe('the held tree guard reads the session journal', () => {
     expect(refusedPaths(outcome)).toEqual(['src/written.ts'])
     expect(outcome.kind === 'refused' && outcome.denial.detail).toContain('the bus records no session that held the tree')
     expect(held.spawned).toEqual([])
+  })
+})
+
+describe('the session result a lint --fix is compared against', () => {
+  it('is the last Write with the Edits after it, and nothing when an Edit no longer applies or no Write is journaled', () => {
+    expect(sessionResult([{ kind: 'write', content: 'a b a', at: 1 }, { kind: 'edit', oldString: 'a', newString: 'c', replaceAll: true, at: 2 }])).toBe('c b c')
+    expect(sessionResult([{ kind: 'write', content: 'old', at: 1 }, { kind: 'write', content: 'a a', at: 2 }, { kind: 'edit', oldString: 'a', newString: '$&x', replaceAll: false, at: 3 }])).toBe('$&x a')
+    expect(sessionResult([{ kind: 'write', content: 'a', at: 1 }, { kind: 'edit', oldString: 'z', newString: 'y', replaceAll: false, at: 2 }])).toBeNull()
+    expect(sessionResult([{ kind: 'write', content: 'a', at: 1 }, { kind: 'edit', oldString: '', newString: 'prefix ', replaceAll: false, at: 2 }])).toBeNull()
+    expect(sessionResult([{ kind: 'write', content: 'dash \\u2014', at: 1 }])).toBe('dash \u2014')
+    expect(sessionResult([{ kind: 'edit', oldString: 'a', newString: 'b', replaceAll: false, at: 1 }])).toBeNull()
+    expect(sessionResult([])).toBeNull()
+  })
+})
+
+describe('an import block reordered and nothing else', () => {
+  it('holds for the same text and for import lines permuted among themselves', () => {
+    expect(importsReorderedOnly('import a from \'a\'\nx\n', 'import a from \'a\'\nx\n')).toBe(true)
+    expect(importsReorderedOnly('import b from \'b\'\nimport type { A } from \'a\'\nx\n', 'import type { A } from \'a\'\nimport b from \'b\'\nx\n')).toBe(true)
+    expect(importsReorderedOnly('import {\n  b,\n} from \'b\'\nimport a from \'a\'\nx\n', 'import a from \'a\'\nimport {\n  b,\n} from \'b\'\nx\n')).toBe(true)
+  })
+
+  it('fails for a moved non-import line, a changed import line or a different line count', () => {
+    expect(importsReorderedOnly('import a from \'a\'\nx\ny\n', 'import a from \'a\'\ny\nx\n')).toBe(false)
+    expect(importsReorderedOnly('import a from \'a\'\nx\n', 'x\nimport a from \'a\'\n')).toBe(false)
+    expect(importsReorderedOnly('import b from \'b\'\nimport a from \'a\'\n', 'import a from \'a\'\nimport b from \'c\'\n')).toBe(false)
+    expect(importsReorderedOnly('import b from \'b\'\nimport a from \'a\'\n', 'import a from \'a\'\nimport b from \'b\'\nx\n')).toBe(false)
+  })
+
+  it('fails when the disk copy is the session\'s result with a line appended after it', () => {
+    expect(importsReorderedOnly('import a from \'a\'\nx\n', 'import a from \'a\'\nx\n\nextra\n')).toBe(false)
+  })
+
+  it('fails when the disk copy keeps the lines but breaks a multi-line import apart', () => {
+    expect(importsReorderedOnly('import {\n  a,\n} from \'x\'\nimport b from \'b\'\n', 'import b from \'b\'\nimport {\n} from \'x\'\n  a,\n')).toBe(false)
+    expect(importsReorderedOnly('import b from \'b\'\nimport {\n} from \'x\'\n  a,\n', 'import {\n  a,\n} from \'x\'\nimport b from \'b\'\n')).toBe(false)
+  })
+
+  it('fails for moved non-import lines after a dynamic import, an import.meta line or an import-equals line', () => {
+    expect(importsReorderedOnly('import a from \'a\'\nimport(\'./setup.js\')\nexport const x = 1\nexport const y = 2\n', 'import a from \'a\'\nimport(\'./setup.js\')\nexport const y = 2\nexport const x = 1\n')).toBe(false)
+    expect(importsReorderedOnly('import.meta.env\nexport const x = 1\nexport const y = 2\n', 'import.meta.env\nexport const y = 2\nexport const x = 1\n')).toBe(false)
+    expect(importsReorderedOnly('import x = require(\'y\')\nexport const x = 1\nexport const y = 2\n', 'import x = require(\'y\')\nexport const y = 2\nexport const x = 1\n')).toBe(false)
+  })
+
+  it('holds for a multi-line import with a default specifier moved past a single-line one', () => {
+    expect(importsReorderedOnly('import d, {\n  a,\n} from \'x\'\nimport b from \'b\'\n', 'import b from \'b\'\nimport d, {\n  a,\n} from \'x\'\n')).toBe(true)
   })
 })
 
