@@ -41,6 +41,7 @@ import { beatsLive, SILENT_MS } from './liveness-sites.js'
 import { installedGeneration, ownPackage } from './package-generation.js'
 import { generationEnv, identifiedOnBus, identifiedProcesses, readableRows, recordedPidLives, runningAs } from './recorded-worker.js'
 import { busShadowProblems, startReviewWorker } from './review-bg.js'
+import { ShardTerm } from './shard-term.js'
 import { NOTHING_RECORDED, recordedThenSent, RESTART_WHY, signalLog, stopSending } from './signal-sent.js'
 import { stampLogOutput } from './stamp.js'
 import { WindowSubagentTick } from './window-subagent-tick.js'
@@ -875,6 +876,7 @@ export interface SupervisingParts {
   snapshot?: BusSnapshot
   windowEnds?: WindowSessionEnds
   windowSubagents?: Pick<WindowSubagentTick, 'step'>
+  shardTerm?: Pick<ShardTerm, 'step'>
   order?: { step: () => string[] }
   handover?: Pick<GenerationHandover, 'step'>
   relaunch: Readonly<{ busDir: string, start?: NonNullable<AgentHand['start']>, generation?: Pick<BusCode, 'head'> | null }>
@@ -883,9 +885,7 @@ export interface SupervisingParts {
 }
 
 function replacedBy(head: string, started: BgResult): { lines: string[], replaced: boolean } {
-  if (started.exitCode === 0)
-    return { replaced: true, lines: [...started.stdout, ...started.stderr, `${PREFIX}the supervisor ran the code it started with; a fresh supervisor runs on ${head} and this one exits`] }
-  return { replaced: false, lines: [...started.stdout, ...started.stderr, `${PREFIX}the supervisor could not start a fresh supervisor on ${head}; it keeps running the code it started with and retries on the next tick`] }
+  return { replaced: started.exitCode === 0, lines: [...started.stdout, ...started.stderr, started.exitCode === 0 ? `${PREFIX}the supervisor ran the code it started with; a fresh supervisor runs on ${head} and this one exits` : `${PREFIX}the supervisor could not start a fresh supervisor on ${head}; it keeps running the code it started with and retries on the next tick`] }
 }
 
 export async function superviseUntilReplaced(parts: SupervisingParts): Promise<void> {
@@ -893,7 +893,7 @@ export async function superviseUntilReplaced(parts: SupervisingParts): Promise<v
     const lines = await parts.supervisor.step()
     const head = parts.supervisor.ownCodeBehind
     const replacement = head === null ? { lines: [], replaced: false } : replacedBy(head, (parts.relaunch.start ?? startDetached)(SUPERVISOR_LAUNCH, parts.relaunch.busDir, generationEnv(parts.relaunch.generation ?? { head: () => head }), outsideOwnGroup()))
-    const ticked = [...lines, ...replacement.lines, ...replacement.replaced ? [] : [...parts.keeper.step(), ...await parts.judge?.step() ?? [], ...parts.windowEnds?.step() ?? [], ...parts.windowSubagents?.step() ?? [], ...parts.order?.step() ?? [], ...await parts.handover?.step() ?? []]]
+    const ticked = [...lines, ...replacement.lines, ...replacement.replaced ? [] : [...parts.keeper.step(), ...await parts.judge?.step() ?? [], ...parts.windowEnds?.step() ?? [], ...parts.windowSubagents?.step() ?? [], ...parts.shardTerm?.step() ?? [], ...parts.order?.step() ?? [], ...await parts.handover?.step() ?? []]]
     for (const line of [...ticked, ...await parts.heal?.step(ticked) ?? [], ...parts.snapshot?.step() ?? []])
       parts.print(line)
     if (replacement.replaced)
@@ -1022,6 +1022,7 @@ async function supervise(busDir: string, cwd: string, reviewOfTheBus: DetachedLa
       judge: new LivenessJudge(db, () => Date.now(), () => expectedRunning(db, wanted()), restartJudged, psStartOf),
       windowEnds: new WindowSessionEnds(db, cwd, () => Date.now(), PREFIX),
       windowSubagents: new WindowSubagentTick(db, cwd, () => Date.now(), PREFIX),
+      shardTerm: new ShardTerm(db, () => new Date(), PREFIX),
       order: busOrderTick(db, cwd),
       handover: new GenerationHandover(db, livesIn(), () => Date.now(), running => stopInstance(running, readableRows(), sleep, signalLog(db, DRAIN_WHY))),
       heal: new BusHealer({ busPath, nodes, now: () => new Date(), projections: busProjections(), watch: new CorruptionWatch(busLaunches(reviewOfTheBus).map(launch => path.join(busDir, launch.log))) }),
@@ -1068,9 +1069,7 @@ export interface AgentHand {
 
 function restampable(instance: RunningProcess, hand: AgentHand): boolean {
   const root = packageOfBusProcess(instance.args)
-  return provenOnBus(instance, thisBus(hand.env))
-    && (root === null || path.resolve(root) === path.resolve(hand.ownPackage))
-    && stampedOtherwise(instance, hand.env)
+  return provenOnBus(instance, thisBus(hand.env)) && (root === null || path.resolve(root) === path.resolve(hand.ownPackage)) && stampedOtherwise(instance, hand.env)
 }
 
 export async function startUnderAgentEnv(busDir: string, launches: DetachedLaunch[], hand: AgentHand): Promise<BgResult> {

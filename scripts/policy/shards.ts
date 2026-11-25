@@ -8,6 +8,7 @@ import { inForceDecisions } from './decisions/index.js'
 import { OWNER_EVEN_UNDER_THE_DECISION } from './policy.js'
 
 export const WINDOW_SHARD_HOURS = 6
+export const SHARD_NOTICE_HOURS = 2
 export const DECISIONS_SCOPE = 'merge+decisions'
 export const WINDOW_SCOPES = ['merge', DECISIONS_SCOPE] as const
 export const VERSION_PR_RESERVATION = 'version-pr'

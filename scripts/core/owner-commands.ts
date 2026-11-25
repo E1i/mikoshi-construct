@@ -112,8 +112,10 @@ export function ownerAnswerCommand(wait: OwnerWaitFacts): string {
   return `${OWNER_ANSWER_COMMAND} ${target} ${OWNER_WORDS}`
 }
 
+const OWNER_SAYS = `${constructCommand('say')} `
+
 function standingCommandOf(asked: string | null): string | null {
-  return asked === MIKO_COMMAND ? asked : windowCommandOf(asked)
+  return asked === MIKO_COMMAND || asked?.startsWith(OWNER_SAYS) === true ? asked : windowCommandOf(asked)
 }
 
 export function ownerWaitCommand(wait: OwnerWaitFacts, asked: string | null): string {
