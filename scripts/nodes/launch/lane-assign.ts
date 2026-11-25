@@ -306,10 +306,13 @@ function latestPayload(db: DatabaseSync, cardId: number): Record<string, unknown
   return latest === undefined ? {} : parsed(latest.payload)
 }
 
-function laneCardOf(db: DatabaseSync, cardId: number): LaneCard {
-  const payload = latestPayload(db, cardId)
+function laneCardFrom(cardId: number, payload: Record<string, unknown>): LaneCard {
   const parked = parkedOf(cardId, payload)
   return { cardId, depends: dependsOf(payload), task: parked?.task ?? null, priority: parked?.priority ?? null }
+}
+
+function laneCardOf(db: DatabaseSync, cardId: number): LaneCard {
+  return laneCardFrom(cardId, latestPayload(db, cardId))
 }
 
 type Size = ShiftTask['card']['size']
@@ -648,6 +651,10 @@ export function touchesChanged(db: DatabaseSync, cardId: number): boolean {
   return previous !== undefined && JSON.stringify(touchesOf(latest, cardId)) !== JSON.stringify(touchesOf(previous, cardId))
 }
 
+function chainedInLane(card: LaneCard, lane: string, live: readonly LiveLane[], shared: readonly string[]): boolean {
+  return live.some(other => other.cardId !== card.cardId && other.lane === lane && chainedTo(card, other, shared))
+}
+
 function laneElsewhere(card: LaneCard, live: readonly LiveLane[], count: number, current: string, waitingOnOwner: ReadonlySet<number>, shared: readonly string[]): LaneChoice {
   const choice = chooseLane(card, live, count, null, live, waitingOnOwner, shared)
   if (choice.lane !== current)
@@ -662,13 +669,14 @@ function laneElsewhere(card: LaneCard, live: readonly LiveLane[], count: number,
 
 export function relayAmended(db: DatabaseSync, cardId: number, count: number, ts: string, actor: string, shared: readonly string[]): boolean {
   const current = currentLane(db, cardId)
-  const latest = textAdmissions(db, cardId)[0]
-  if (current === null || latest === undefined || !touchesChanged(db, cardId))
+  const [latest, previous] = textAdmissions(db, cardId)
+  if (current === null || latest === undefined || previous === undefined || !touchesChanged(db, cardId))
     return false
   const live = launchableLanes(db)
   const card = laneCardOf(db, cardId)
   const stays = chooseLane(card, live, count, current, live, ownerMergeHolders(db), shared)
-  const unchained = stays.reason === 'kept' && latestAssignment(db, cardId)?.reason === 'chain'
+  const wasChained = chainedInLane(laneCardFrom(cardId, parsed(previous.payload)), current, live, shared)
+  const unchained = stays.reason === 'kept' && wasChained && !chainedInLane(card, current, live, shared)
   const choice = unchained ? laneElsewhere(card, live, count, current, ownerMergeHolders(db), shared) : stays
   return choice.lane !== current && assign(db, cardId, Number(latest.id), choice, count, ts, actor)
 }

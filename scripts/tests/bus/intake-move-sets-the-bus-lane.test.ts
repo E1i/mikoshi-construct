@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { latestAssignment } from '../../core/bus-readings.js'
 import { appendEvent, openBus, openOwnerWait } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, PR_OBSERVED } from '../../core/events.js'
+import { events } from '../../core/events-query.js'
+import { CARD_ADMITTED, CARD_DROPPED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, LANE_ASSIGNED, PR_OBSERVED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardEvents } from '../../intake/intake.js'
 import { assignMovedLane, currentLane, layLanes } from '../../nodes/launch/lane-assign.js'
@@ -99,6 +100,10 @@ class Bench {
 
   reason(id: number): unknown {
     return latestAssignment(this.db, id)?.reason
+  }
+
+  assignments(id: number): number {
+    return events(this.db, { card: id, types: [LANE_ASSIGNED] }).length
   }
 
   launchable(): number[] {
@@ -226,5 +231,41 @@ describe('an amend and the lane of the card it overlapped', () => {
   it('an amend that keeps the overlap leaves the card chained in its lane', () => {
     const bench = chainedBehindARunningHead().admit(2, 'src/a.ts,src/c.ts')
     expect([bench.lane(2), bench.reason(2)]).toEqual(['lane-1', 'chain'])
+  })
+})
+
+describe('what a move or an amend leaves in place', () => {
+  it('a later assignment overrides an applied move, and the next ticks neither drag the card back nor record it again', () => {
+    const bench = chainedBehindARunningHead().moveByIntake(2, 'lane-2').tick().admit(2, 'src/a.ts,src/d.ts')
+    expect([bench.lane(2), bench.reason(2)]).toEqual(['lane-1', 'chain'])
+    const recorded = bench.assignments(2)
+    bench.tick().tick()
+    expect([bench.lane(2), bench.reason(2), bench.assignments(2)]).toEqual(['lane-1', 'chain', recorded])
+  })
+
+  it('a card the owner moved with intake --move stays there after an amend that binds nothing', () => {
+    const bench = chainedBehindARunningHead().moveByIntake(2, 'lane-2').tick().admit(2, 'src/b.ts')
+    expect([bench.lane(2), bench.reason(2)]).toEqual(['lane-2', 'moved'])
+  })
+
+  it('an amend that keeps the depends that chained a card leaves it beside the card it depends on', () => {
+    const bench = new Bench(2).admit(1, 'src/a.ts').start(1).admit(3, 'src/z.ts').start(3).admit(5, 'src/a.ts,src/c.ts').admit(2, 'src/m.ts', [5])
+    expect([bench.lane(2), bench.reason(2)]).toEqual(['lane-1', 'chain'])
+    bench.admit(2, 'src/n.ts', [5])
+    expect(bench.lane(2)).toBe('lane-1')
+  })
+
+  it('an unchaining amend with a single lane keeps the card in it', () => {
+    const bench = new Bench(1).admit(1, 'src/a.ts').start(1).admit(2, 'src/a.ts,src/b.ts')
+    expect([bench.lane(2), bench.reason(2)]).toEqual(['lane-1', 'chain'])
+    bench.admit(2, 'src/b.ts')
+    expect(bench.lane(2)).toBe('lane-1')
+  })
+
+  it('an unchaining amend takes the lane its new depends chains it to over a less loaded one', () => {
+    const bench = new Bench(3).admit(1, 'src/a.ts').start(1).admit(5, 'src/y.ts').start(5).admit(6, 'src/y.ts,src/w.ts').admit(7, 'src/q.ts').start(7).admit(2, 'src/a.ts,src/b.ts')
+    expect([bench.lane(1), bench.lane(5), bench.lane(6), bench.lane(7), bench.lane(2)]).toEqual(['lane-1', 'lane-2', 'lane-2', 'lane-3', 'lane-1'])
+    bench.admit(2, 'src/b.ts', [5])
+    expect([bench.lane(2), bench.reason(2)]).toEqual(['lane-2', 'chain'])
   })
 })
