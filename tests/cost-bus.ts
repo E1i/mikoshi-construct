@@ -22,9 +22,9 @@ export function writeBus(file: string, cards: BusCard[]): void {
   const { DatabaseSync } = process.getBuiltinModule('node:sqlite')
   const db = new DatabaseSync(file)
   db.exec(`
-    CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, type TEXT NOT NULL, card_id INTEGER, pr INTEGER, legacy INTEGER NOT NULL DEFAULT 0, payload TEXT NOT NULL);
+    CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, type TEXT NOT NULL, actor TEXT, card_id INTEGER, pr INTEGER, head TEXT, dedupe_key TEXT, legacy INTEGER NOT NULL DEFAULT 0, payload TEXT NOT NULL);
     CREATE TABLE cards (card_id INTEGER PRIMARY KEY, state TEXT);
-    CREATE TABLE prs (pr INTEGER PRIMARY KEY, card_id INTEGER);
+    CREATE TABLE prs (pr INTEGER PRIMARY KEY, card_id INTEGER, base TEXT, head TEXT, state TEXT, mergeable TEXT, ci TEXT, verdict_on_head TEXT, auto_merge INTEGER, draft INTEGER, event_id INTEGER, body_sha TEXT);
     CREATE TABLE card_bodies (card_id INTEGER PRIMARY KEY, card_line TEXT);
   `)
   for (const card of cards) {

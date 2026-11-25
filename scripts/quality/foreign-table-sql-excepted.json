@@ -1,11 +1,9 @@
 [
   "scripts/cli/board-warnings.ts",
   "scripts/cli/card-chain.ts",
-  "scripts/core/journal.ts",
   "scripts/core/legacy-history.ts",
   "scripts/core/report.ts",
   "scripts/intake/parking-reads.ts",
-  "scripts/ladder/ledger.ts",
   "scripts/nodes/answer/answer-candidates.ts",
   "scripts/nodes/answer/answer-worker.ts",
   "scripts/nodes/answer/duties/publishing.ts",
@@ -63,7 +61,5 @@
   "src/commands/board/bus.ts",
   "src/commands/board/drain.ts",
   "src/commands/board/goal.ts",
-  "src/commands/board/heal.ts",
-  "src/commands/cost/bus.ts",
-  "src/commands/cost/ledger.ts"
+  "src/commands/board/heal.ts"
 ]
