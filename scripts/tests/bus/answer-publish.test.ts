@@ -180,6 +180,17 @@ describe('an answer that leaves a new head', () => {
     expect(cardRow(bench.made)).toEqual({ state: 'in_review', pr: OPENED_PR })
   })
 
+  it('an answer with a new head and uncommitted changes on a card with no PR is answered, not published', async () => {
+    const bench = stoppedCardWithoutAPullRequest(sha('b'))
+    const publish = vi.fn(treePrOpens(bench.made, OPENED_PR))
+
+    const outcome = await bench.answer(publish, true, true)
+
+    expect(publish).not.toHaveBeenCalled()
+    expect(outcome).toMatchObject({ kind: 'answered', head: sha('b') })
+    expect(eventsOf(bench.made.db, CARD_ANSWERED)).toEqual([expect.not.objectContaining({ published: true })])
+  })
+
   it('an answer with a new head on a card with an open PR is answered, not published', async () => {
     const bench = stoppedCardWithoutAPullRequest(sha('b'))
     appendEvent(bench.made.db, { ts: bench.made.clock.now().toISOString(), type: PR_OBSERVED, actor: 'worker:netwatch:1', cardId: CARD, pr: OPENED_PR, head: sha('a'), dedupeKey: `${PR_OBSERVED}:${OPENED_PR}`, payload: { base: 'main', head: sha('a'), mergeable: 'clean', ci: 'pending', verdict_on_head: null, auto_merge: false, draft: false, branch: `feat/card-${CARD}` }, legacy: false })
