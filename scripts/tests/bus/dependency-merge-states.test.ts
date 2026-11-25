@@ -195,8 +195,29 @@ function mergingDependent(): MergeBench {
   return bench
 }
 
+interface Verification {
+  cardId: number
+  pr: number | null
+  report: string | null
+  legacy: boolean
+}
+
+const A_REPORT_CLOSE: Verification = { cardId: REPORTED_DEPENDENCY, pr: null, report: '.construct/probes/report.md', legacy: false }
+
+function verified(bench: MergeBench, verification: Verification): void {
+  const payload = verification.report === null ? { verification: 'code-reading' } : { verification: 'code-reading', report: verification.report }
+  appendEvent(bench.db, { ts: now(bench), type: CARD_VERIFIED, actor: 'worker:close:worker-0', cardId: verification.cardId, pr: verification.pr, head: null, dedupeKey: `${CARD_VERIFIED}:${verification.cardId}:${verification.pr}`, payload, legacy: verification.legacy })
+}
+
 function closedByReport(bench: MergeBench): void {
-  appendEvent(bench.db, { ts: now(bench), type: CARD_VERIFIED, actor: 'worker:close:worker-0', cardId: REPORTED_DEPENDENCY, pr: null, head: null, dedupeKey: `${CARD_VERIFIED}:${REPORTED_DEPENDENCY}`, payload: { verification: 'code-reading', report: '.construct/probes/report.md' }, legacy: false })
+  verified(bench, A_REPORT_CLOSE)
+}
+
+const VERIFICATIONS_THAT_HOLD: Record<string, Verification> = {
+  'a verification with no report': { ...A_REPORT_CLOSE, report: null },
+  'a verification against a pull request': { ...A_REPORT_CLOSE, pr: MERGING_PR + 1 },
+  'a legacy verification with a report': { ...A_REPORT_CLOSE, legacy: true },
+  'a report close of an unrelated card': { ...A_REPORT_CLOSE, cardId: REPORTED_DEPENDENCY + 1 },
 }
 
 function droppedOut(bench: MergeBench): void {
@@ -223,6 +244,17 @@ describe('a dependency that ended without a merge', () => {
   it('a dependency dropped without a report still holds its dependent', () => {
     const bench = mergingDependent()
 
+    droppedOut(bench)
+    bench.tick()
+
+    expect(unmergedDependenciesOf(bench.db, mergedCards(bench.db), MERGING_CARD)).toEqual([REPORTED_DEPENDENCY])
+    expect(mergesOfTheDependent(bench)).toEqual([])
+  })
+
+  it.each(Object.entries(VERIFICATIONS_THAT_HOLD))('%s still holds the dependent', (_, verification) => {
+    const bench = mergingDependent()
+
+    verified(bench, verification)
     droppedOut(bench)
     bench.tick()
 

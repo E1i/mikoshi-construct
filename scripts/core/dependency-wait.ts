@@ -1,5 +1,4 @@
 import type { DatabaseSync } from 'node:sqlite'
-import { CARD_VERIFIED } from './events.js'
 
 export interface DependencyWaitNames {
   admitted: string
@@ -9,6 +8,7 @@ export interface DependencyWaitNames {
   prOpened: string
   prObserved: string
   settledUpdateStates: readonly string[]
+  verified: string
 }
 
 export interface DependencyWait {
@@ -43,7 +43,7 @@ function unmergedDependenciesWhere(names: DependencyWaitNames, card: string): st
   WHERE NOT EXISTS (SELECT 1 FROM events AS done WHERE done.type = '${names.mergeDone}' AND done.legacy = 0 AND done.card_id = dependency.card_id)
     AND dependency.card_id NOT IN (SELECT value FROM json_each(:${MERGED_CARDS}))
     AND NOT EXISTS (SELECT 1 FROM events AS legacy WHERE legacy.type = 'merge' AND legacy.legacy = 1 AND legacy.card_id = dependency.card_id)
-    AND NOT EXISTS (SELECT 1 FROM events AS verified WHERE verified.type = '${CARD_VERIFIED}' AND verified.legacy = 0 AND verified.pr IS NULL
+    AND NOT EXISTS (SELECT 1 FROM events AS verified WHERE verified.type = '${names.verified}' AND verified.legacy = 0 AND verified.pr IS NULL
       AND verified.card_id = dependency.card_id AND json_extract(verified.payload, '$.report') IS NOT NULL)
   ORDER BY dependency.card_id
 `
