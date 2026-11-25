@@ -1,9 +1,10 @@
 import type { ReleaseSource } from '../../release-notes/release-body.js'
-import type { SmokeReading, StatusesFetch } from '../../release/version-pr-guard.js'
+import type { SmokeReading } from '../../release/version-pr-guard.js'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { InMemoryGh } from '../../ports/gh.js'
 import { RELEASE_BODY_BUDGET, SUMMARY_LINE_LIMIT } from '../../release-notes/release-body.js'
 import { SMOKE_STATUS_CONTEXT } from '../../release/consumer-smoke.js'
 import { guardVersionPr, readSmokeStatus } from '../../release/version-pr-guard.js'
@@ -98,13 +99,8 @@ function eventFile(sha: string): string {
   return file
 }
 
-function statusesAnswer(statuses: unknown, status = 200): { fetch: StatusesFetch, urls: string[] } {
-  const urls: string[] = []
-  const fetch: StatusesFetch = async (url) => {
-    urls.push(url)
-    return { ok: status === 200, status, json: async () => statuses }
-  }
-  return { fetch, urls }
+function statusesAnswer(statuses: unknown, status = 0): InMemoryGh {
+  return new InMemoryGh(() => status === 0 ? JSON.stringify(statuses) : { status, stdout: '', stderr: 'HTTP 404: Not Found' })
 }
 
 describe('a version pull request is red until the consumer smoke is green on its head', () => {
@@ -137,26 +133,26 @@ describe('a version pull request is red until the consumer smoke is green on its
     expect(guardVersionPr('feature', consumed(), release).passed).toBe(true)
   })
 
-  it('reads the newest consumer smoke status the factory posted on the pull request head', async () => {
-    const { fetch, urls } = statusesAnswer([
+  it('reads the newest consumer smoke status the factory posted on the pull request head', () => {
+    const gh = statusesAnswer([
       { context: 'ci/other', state: 'success' },
       { context: SMOKE_STATUS_CONTEXT, state: 'success', description: '22 steps green' },
-      { context: SMOKE_STATUS_CONTEXT, state: 'failure', description: 'red: window codex' },
+      { context: SMOKE_STATUS_CONTEXT, state: 'failure', description: 'red: window codex-exec' },
     ])
 
-    const reading = await readSmokeStatus({ GITHUB_REPOSITORY: 'o/r', GITHUB_EVENT_PATH: eventFile('abc123') }, fetch)
+    const reading = readSmokeStatus({ GITHUB_REPOSITORY: 'o/r', GITHUB_EVENT_PATH: eventFile('abc123') }, gh.port())
 
     expect(reading).toEqual({ state: 'success', note: '22 steps green' })
-    expect(urls).toEqual(['https://api.github.com/repos/o/r/commits/abc123/statuses?per_page=100'])
+    expect(gh.calls.map(call => call.args)).toEqual([['api', 'repos/o/r/commits/abc123/statuses?per_page=100']])
   })
 
-  it('reads a head with no smoke status as missing, and an unreadable answer as unread, never as green', async () => {
+  it('reads a head with no smoke status as missing, and an unreadable answer as unread, never as green', () => {
     const env = { GITHUB_REPOSITORY: 'o/r', GITHUB_EVENT_PATH: eventFile('abc123') }
 
-    expect((await readSmokeStatus(env, statusesAnswer([{ context: 'ci/other', state: 'success' }]).fetch)).state).toBe('missing')
-    const refused = await readSmokeStatus(env, statusesAnswer([], 403).fetch)
+    expect(readSmokeStatus(env, statusesAnswer([{ context: 'ci/other', state: 'success' }]).port()).state).toBe('missing')
+    const refused = readSmokeStatus(env, statusesAnswer([], 1).port())
     expect(refused.state).toBe('unread')
-    expect(refused.note).toContain('HTTP 403')
-    expect((await readSmokeStatus({ GITHUB_REPOSITORY: 'o/r' }, statusesAnswer([]).fetch)).state).toBe('unread')
+    expect(refused.note).toContain('could not be read')
+    expect(readSmokeStatus({ GITHUB_REPOSITORY: 'o/r' }, statusesAnswer([]).port()).state).toBe('unread')
   })
 })

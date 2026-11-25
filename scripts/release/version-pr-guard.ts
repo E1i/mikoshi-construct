@@ -1,7 +1,9 @@
+import type { GhPort } from '../ports/gh.js'
 import type { ReleaseSource } from '../release-notes/release-body.js'
 import { readFileSync, realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { PROCESS_GH_PORT } from '../ports/gh.js'
 import { readReleaseSource, releaseBodyFault, renderReleaseBody } from '../release-notes/release-body.js'
 import { CHANGESET_DIR, readReleaseRoute } from './changesets.js'
 import { SMOKE_STATUS_CONTEXT } from './consumer-smoke.js'
@@ -21,8 +23,6 @@ export interface SmokeReading {
 }
 
 export const SMOKE_NOT_READ: SmokeReading = { state: 'unread', note: 'the consumer smoke status was not read' }
-
-const DEFAULT_GITHUB_API = 'https://api.github.com'
 
 const STATUSES_PAGE = 100
 
@@ -67,9 +67,7 @@ export function guardVersionPr(headRef: string | undefined, dir = CHANGESET_DIR,
   return { passed: false, lines: faults }
 }
 
-export type SmokeEnv = Partial<Record<'GITHUB_API_URL' | 'GITHUB_REPOSITORY' | 'GITHUB_EVENT_PATH' | 'GITHUB_TOKEN' | 'GH_TOKEN', string>>
-
-export type StatusesFetch = (url: string, init: { headers: Record<string, string> }) => Promise<{ ok: boolean, status: number, json: () => Promise<unknown> }>
+export type SmokeEnv = Partial<Record<'GITHUB_REPOSITORY' | 'GITHUB_EVENT_PATH', string>>
 
 function headShaOf(eventPath: string | undefined): string | null {
   if (eventPath === undefined)
@@ -97,27 +95,29 @@ function smokeOf(statuses: unknown): SmokeReading {
   return { state: isPostedState(latest.state) ? latest.state : 'error', note }
 }
 
-export async function readSmokeStatus(env: SmokeEnv, fetchStatuses: StatusesFetch = fetch): Promise<SmokeReading> {
+function parsedStatuses(stdout: string): unknown {
+  try {
+    return JSON.parse(stdout) as unknown
+  }
+  catch {
+    return null
+  }
+}
+
+export function readSmokeStatus(env: SmokeEnv, port: GhPort = PROCESS_GH_PORT): SmokeReading {
   const repository = env.GITHUB_REPOSITORY
   const head = headShaOf(env.GITHUB_EVENT_PATH)
   if (repository === undefined || head === null)
     return { state: 'unread', note: 'this run names no repository or pull request head' }
-  const token = env.GITHUB_TOKEN ?? env.GH_TOKEN
-  const headers: Record<string, string> = { 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', ...(token === undefined ? {} : { Authorization: `Bearer ${token}` }) }
-  try {
-    const response = await fetchStatuses(`${env.GITHUB_API_URL ?? DEFAULT_GITHUB_API}/repos/${repository}/commits/${head}/statuses?per_page=${STATUSES_PAGE}`, { headers })
-    if (!response.ok)
-      return { state: 'unread', note: `the statuses of ${head} answered HTTP ${response.status}${token === undefined ? ' to a request with no GITHUB_TOKEN' : ''}` }
-    return smokeOf(await response.json())
-  }
-  catch (error) {
-    return { state: 'unread', note: `the statuses of ${head} could not be read: ${String(error)}` }
-  }
+  const read = port.call(['api', `repos/${repository}/commits/${head}/statuses?per_page=${STATUSES_PAGE}`])
+  if (read.kind === 'failed')
+    return { state: 'unread', note: `the statuses of ${head} could not be read: ${read.reason}` }
+  return smokeOf(parsedStatuses(read.stdout))
 }
 
-async function main(): Promise<void> {
+function main(): void {
   const headRef = process.env.GITHUB_HEAD_REF
-  const smoke = isVersionPr(headRef) ? await readSmokeStatus(process.env) : SMOKE_NOT_READ
+  const smoke = isVersionPr(headRef) ? readSmokeStatus(process.env) : SMOKE_NOT_READ
   const verdict = guardVersionPr(headRef, CHANGESET_DIR, readReleaseSource, smoke)
   const write = verdict.passed ? console.log : console.error
   write(verdict.lines.join('\n'))
@@ -125,4 +125,4 @@ async function main(): Promise<void> {
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
-  await main()
+  main()

@@ -1,11 +1,18 @@
 import type { SpawnSyncReturns } from 'node:child_process'
+import type { ClientAdapter, Invocation, Refusal, SessionPolicy, SessionSpec } from '../ports/client/contract.js'
+import type { GhPort } from '../ports/gh.js'
 import { spawnSync } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
+import { clientHome, transcriptFile } from '../ports/client/claude/adapter.js'
+import { codexAdapter } from '../ports/client/codex/adapter.js'
+import { clientAdapter } from '../ports/client/index.js'
+import { PROCESS_GH_PORT } from '../ports/gh.js'
 
 export const SMOKE_STATUS_CONTEXT = 'construct/consumer-smoke'
 
@@ -13,7 +20,7 @@ export const SMOKE_ROLES = ['launch', 'answer', 'review', 'window'] as const
 
 export type SmokeRole = typeof SMOKE_ROLES[number]
 
-export const CLAIMED_CAPABILITIES = ['browser-lab', 'codex', 'gh', 'git-commit'] as const
+export const CLAIMED_CAPABILITIES = ['browser-lab', 'codex-exec', 'gh-read', 'git-commit'] as const
 
 export const CARD_SESSION_CAPABILITIES = ['git-push', 'pull-request'] as const
 
@@ -31,11 +38,16 @@ const TRANSCRIPT_BUFFER = 64 * 1024 * 1024
 
 const SHOT_DIRECTORY = 'smoke-shots'
 
+const PRINT_FLAG = '-p'
+
+const SECOND_CLIENT_PROMPT = 'Reply with the single word ok.'
+
 export interface SmokeSetting {
   head: string
   browserLab: string
   url: string
   ghRepo: string
+  secondClient: (role: SmokeRole) => string
 }
 
 export interface SmokeStep {
@@ -84,8 +96,8 @@ export function baseBranchOf(head: string): string {
 
 const FIRST_STEP: Record<SmokeCapability, (role: SmokeRole, setting: SmokeSetting) => string> = {
   'browser-lab': (role, setting) => `${setting.browserLab} page ${setting.url} --shot ${SHOT_DIRECTORY}/${role}.png`,
-  'codex': () => `codex exec 'Reply with the single word ok.'`,
-  'gh': (_, setting) => `gh repo view ${setting.ghRepo} --json name`,
+  'codex-exec': (role, setting) => setting.secondClient(role),
+  'gh-read': (_, setting) => `gh repo view ${setting.ghRepo} --json name`,
   'git-commit': role => `git commit --allow-empty -m 'consumer smoke: ${role}'`,
   'git-push': (role, setting) => `git push -u origin ${cardBranchOf(setting.head, role)}`,
   'pull-request': (role, setting) => `gh pr create --repo ${setting.ghRepo} --base ${baseBranchOf(setting.head)} --head ${cardBranchOf(setting.head, role)} --title 'consumer smoke ${shortHead(setting.head)}' --body 'consumer smoke: the card session commits and opens a pull request'`,
@@ -143,7 +155,7 @@ export function smokeStatus(run: SmokeRun): SmokeStatus {
   return { state: failed.length === 0 ? 'success' : 'failure', context: SMOKE_STATUS_CONTEXT, description: description.slice(0, STATUS_DESCRIPTION_LIMIT) }
 }
 
-interface ToolUse {
+interface ToolCall {
   id: string
   command: string
 }
@@ -180,7 +192,7 @@ function parsedLines(transcript: string): unknown[] {
   })
 }
 
-function toolUsesOf(events: unknown[]): ToolUse[] {
+function toolCallsOf(events: unknown[]): ToolCall[] {
   return events.flatMap(contentOf).flatMap((part) => {
     if (!isObject(part) || part.type !== 'tool_use' || part.name !== 'Bash' || typeof part.id !== 'string' || !isObject(part.input) || typeof part.input.command !== 'string')
       return []
@@ -208,13 +220,13 @@ function exitOf(result: ToolResult): number | null {
 
 export function recordsOfTranscript(steps: SmokeStep[], transcript: string): StepRecord[] {
   const events = parsedLines(transcript)
-  const uses = toolUsesOf(events)
+  const calls = toolCallsOf(events)
   const results = toolResultsOf(events)
   return steps.map((step) => {
-    const use = uses.find(candidate => candidate.command === step.command.trim())
-    if (use === undefined)
+    const call = calls.find(candidate => candidate.command === step.command.trim())
+    if (call === undefined)
       return { ...step, exit: null, output: 'the session never ran this command' }
-    const result = results.get(use.id)
+    const result = results.get(call.id)
     if (result === undefined)
       return { ...step, exit: null, output: 'the session ran this command and recorded no result' }
     return { ...step, exit: exitOf(result), output: result.text }
@@ -228,31 +240,78 @@ export function sessionPrompt(steps: SmokeStep[]): string {
   ].join('\n')
 }
 
-export function sessionArgs(steps: SmokeStep[], settings: string | null): string[] {
-  return ['--permission-mode', 'dontAsk', '--setting-sources', 'project,local', ...(settings === null ? [] : ['--settings', settings]), '--tools', 'Bash', '-p', '--output-format', 'stream-json', '--verbose', sessionPrompt(steps)]
+const CARD_POLICY: SessionPolicy = { profile: 'sandboxed', gateCommands: [], writePaths: [], mcpOff: true }
+
+const CLIENT_DEFAULT_POLICY: SessionPolicy = { profile: 'client-default', gateCommands: [], writePaths: [], mcpOff: true }
+
+export const POLICY_OF_ROLE: Record<SmokeRole, SessionPolicy> = { launch: CARD_POLICY, answer: CARD_POLICY, review: CLIENT_DEFAULT_POLICY, window: CLIENT_DEFAULT_POLICY }
+
+export function smokeSessionSpec(role: SmokeRole, cwd: string, session: string, prompt: string): SessionSpec {
+  return { kind: 'start', role, session, cwd, prompt, addDirs: [], pick: { model: null }, policy: POLICY_OF_ROLE[role] }
 }
 
-type Spawn = (command: string, args: string[], cwd: string) => SpawnSyncReturns<string>
-
-function spawnIn(command: string, args: string[], cwd: string): SpawnSyncReturns<string> {
-  return spawnSync(command, args, { cwd, encoding: 'utf8', maxBuffer: TRANSCRIPT_BUFFER, timeout: SESSION_TIMEOUT_MS })
+export function headlessArgs(invocation: Invocation): string[] {
+  return invocation.stdin !== null || invocation.args.includes(PRINT_FLAG) ? invocation.args : [...invocation.args, PRINT_FLAG]
 }
 
-export class ClaudeRoleSession implements RoleSession {
-  constructor(
-    private readonly treeOf: (role: SmokeRole) => string,
-    private readonly settingsOf: (role: SmokeRole) => string | null,
-    private readonly spawn: Spawn = spawnIn,
-  ) {}
+export type SessionSpawn = (invocation: Invocation, args: string[], cwd: string) => SpawnSyncReturns<string>
+
+function spawnInvocation(invocation: Invocation, args: string[], cwd: string): SpawnSyncReturns<string> {
+  return spawnSync(invocation.command, args, { cwd, env: { ...process.env, ...invocation.env }, input: invocation.stdin ?? undefined, encoding: 'utf8', maxBuffer: TRANSCRIPT_BUFFER, timeout: SESSION_TIMEOUT_MS })
+}
+
+function sessionTranscript(cwd: string, session: string): string {
+  const file = transcriptFile(clientHome(process.env), cwd, session)
+  return file !== null && existsSync(file) ? readFileSync(file, 'utf8') : ''
+}
+
+export interface AdapterSessionParts {
+  treeOf: (role: SmokeRole) => string
+  invocationOf: (spec: SessionSpec) => Invocation | Refusal
+  spawn: SessionSpawn
+  transcriptOf: (cwd: string, session: string) => string
+  sessionId: () => string
+}
+
+export class AdapterRoleSession implements RoleSession {
+  private readonly parts: AdapterSessionParts
+
+  constructor(treeOf: (role: SmokeRole) => string, parts: Partial<Omit<AdapterSessionParts, 'treeOf'>> = {}) {
+    this.parts = { treeOf, invocationOf: spec => clientAdapter().invocation(spec), spawn: spawnInvocation, transcriptOf: sessionTranscript, sessionId: randomUUID, ...parts }
+  }
 
   run(role: SmokeRole, steps: SmokeStep[]): StepRecord[] {
-    const ran = this.spawn('claude', sessionArgs(steps, this.settingsOf(role)), this.treeOf(role))
-    return recordsOfTranscript(steps, ran.stdout ?? '')
+    const cwd = this.parts.treeOf(role)
+    const session = this.parts.sessionId()
+    const invocation = this.parts.invocationOf(smokeSessionSpec(role, cwd, session, sessionPrompt(steps)))
+    if ('kind' in invocation)
+      return steps.map(step => ({ ...step, exit: null, output: `the client refused the ${role} session: ${invocation.reason}` }))
+    const ran = this.parts.spawn(invocation, headlessArgs(invocation), cwd)
+    return recordsOfTranscript(steps, `${ran.stdout ?? ''}\n${this.parts.transcriptOf(cwd, session)}`)
   }
 }
 
+function shellWord(word: string): string {
+  return /^[\w./=:@-]+$/.test(word) ? word : `'${word.replaceAll('\'', `'\\''`)}'`
+}
+
+export function secondClientStep(adapter: ClientAdapter, treeOf: (role: SmokeRole) => string): (role: SmokeRole) => string {
+  return (role) => {
+    const invocation = adapter.invocation({ kind: 'start', role: 'review', session: '', cwd: treeOf(role), prompt: SECOND_CLIENT_PROMPT, addDirs: [], pick: { model: null }, policy: { profile: 'sandboxed', gateCommands: [], writePaths: [], mcpOff: false } })
+    if ('kind' in invocation)
+      throw new Error(`the second client refused its first step: ${invocation.reason}`)
+    return [invocation.command, ...invocation.args].map(shellWord).join(' ')
+  }
+}
+
+export function postSmokeStatus(repo: string, head: string, status: SmokeStatus, port: GhPort = PROCESS_GH_PORT): void {
+  const posted = port.call(['api', '--method', 'POST', `repos/${repo}/statuses/${head}`, '-f', `state=${status.state}`, '-f', `context=${status.context}`, '-f', `description=${status.description}`])
+  if (posted.kind === 'failed')
+    throw new Error(`the consumer smoke status was not posted on ${head}: ${posted.reason}`)
+}
+
 function must(command: string, args: string[], cwd: string): void {
-  const ran = spawnIn(command, args, cwd)
+  const ran = spawnSync(command, args, { cwd, encoding: 'utf8', maxBuffer: TRANSCRIPT_BUFFER, timeout: SESSION_TIMEOUT_MS })
   if (ran.status !== 0)
     throw new Error(`${command} ${args.join(' ')} failed in ${cwd}: ${ran.stderr || ran.stdout || String(ran.error)}`)
 }
@@ -281,17 +340,6 @@ function prepareConsumer(head: string, options: ConsumerOptions): (role: SmokeRo
   return treeOf
 }
 
-function settingsReader(directory: string | undefined): (role: SmokeRole) => string | null {
-  return (role) => {
-    const file = directory === undefined ? null : path.join(directory, `${role}.json`)
-    return file !== null && existsSync(file) ? readFileSync(file, 'utf8') : null
-  }
-}
-
-function postStatus(repo: string, head: string, status: SmokeStatus): void {
-  must('gh', ['api', '-X', 'POST', `repos/${repo}/statuses/${head}`, '-f', `state=${status.state}`, '-f', `context=${status.context}`, '-f', `description=${status.description}`], process.cwd())
-}
-
 function main(): void {
   const { values } = parseArgs({
     options: {
@@ -301,7 +349,6 @@ function main(): void {
       'remote': { type: 'string' },
       'browser-lab': { type: 'string' },
       'url': { type: 'string', default: 'https://example.com' },
-      'settings-dir': { type: 'string' },
       'construct': { type: 'string', default: 'construct' },
       'preset': { type: 'string', default: 'node-backend' },
       'out': { type: 'string' },
@@ -312,17 +359,17 @@ function main(): void {
   const scratchRepo = values['scratch-repo']
   const browserLab = values['browser-lab']
   if (head === undefined || repo === undefined || scratchRepo === undefined || remote === undefined || browserLab === undefined)
-    throw new Error('usage: consumer-smoke --head <version PR head sha> --repo <owner/name> --scratch-repo <owner/name> --remote <scratch git url> --browser-lab <installed absolute path> [--settings-dir <dir of <role>.json>] [--url <page>] [--out <file>] [--no-status]')
-  const plan = smokePlan({ head, browserLab, url: values.url, ghRepo: scratchRepo })
+    throw new Error('usage: consumer-smoke --head <version PR head sha> --repo <owner/name> --scratch-repo <owner/name> --remote <scratch git url> --browser-lab <installed absolute path> [--url <page>] [--out <file>] [--no-status]')
   const root = mkdtempSync(path.join(tmpdir(), 'consumer-smoke-'))
   const treeOf = prepareConsumer(head, { root, remote, construct: values.construct, preset: values.preset })
-  const run = runSmoke(head, plan, new ClaudeRoleSession(treeOf, settingsReader(values['settings-dir'])))
+  const plan = smokePlan({ head, browserLab, url: values.url, ghRepo: scratchRepo, secondClient: secondClientStep(codexAdapter, treeOf) })
+  const run = runSmoke(head, plan, new AdapterRoleSession(treeOf))
   const out = values.out ?? path.join(root, 'consumer-smoke.json')
   writeFileSync(out, `${JSON.stringify(run, null, 2)}\n`)
   const write = run.verdict.passed ? console.log : console.error
   write([...run.verdict.lines, `record: ${out}`].join('\n'))
   if (!values['no-status'])
-    postStatus(repo, head, smokeStatus(run))
+    postSmokeStatus(repo, head, smokeStatus(run))
   process.exitCode = run.verdict.passed ? 0 : 1
 }
 
