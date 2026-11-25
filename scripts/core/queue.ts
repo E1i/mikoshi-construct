@@ -152,7 +152,7 @@ const A_SUPERSEDED_ANSWER_WITHIN_ITS_LEASE = `
   LIMIT 1
 `
 
-const DEPENDENCY_WAIT = dependencyWaitOf({ admitted: CARD_ADMITTED, backfillSource: BACKFILL_SOURCE, mergeDone: MERGE_DONE, prClosed: PR_CLOSED, prOpened: PR_OPENED, prObserved: PR_OBSERVED, settledUpdateStates: [COMPLETED, WITHDRAWN, STOPPED] })
+const DEPENDENCY_WAIT = dependencyWaitOf({ admitted: CARD_ADMITTED, backfillSource: BACKFILL_SOURCE, mergeDone: MERGE_DONE, prClosed: PR_CLOSED, prOpened: PR_OPENED, prObserved: PR_OBSERVED, settledUpdateStates: [COMPLETED, WITHDRAWN, STOPPED], verified: CARD_VERIFIED })
 
 export const { unmerged: A_DEPENDENCY_UNMERGED, updateDue: A_DEPENDENCY_UPDATE_DUE, held: HELD_BY_A_DEPENDENCY } = DEPENDENCY_WAIT
 

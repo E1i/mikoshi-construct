@@ -1,6 +1,7 @@
 import type { FollowingRow } from '../../../scripts/policy/touch-scope.js'
 import type { Kind } from '../../card/grammar.js'
 import type { RiskLevel } from '../../card/risk.js'
+import type { EntryPoint } from '../../detect/entry-points.js'
 import type { DraftCard, DraftPlan, UnclearField } from './draft.js'
 import type { RepositoryFacts } from './facts.js'
 import { existsSync, readFileSync } from 'node:fs'
@@ -14,6 +15,7 @@ import { parseParkingFile } from '../../card/parking.js'
 import { RISK_LEVELS, riskOf, riskReading, touchedOrCreated } from '../../card/risk.js'
 import { touchError } from '../../card/task-file.js'
 import { commandInsideJudgedWrap } from '../../card/witness-fields.js'
+import { detectEntryPoints, entryPointKindOf, importReach, packageDirOf } from '../../detect/entry-points.js'
 import { globToRegExp } from '../../model/glob.js'
 import { bashSyntaxProblem } from './bash-syntax.js'
 import { commandArguments, commandWord, HOME_REFERENCE, namesATest, pathsNamedBy, TEST_NAME_ARGUMENT } from './command-word.js'
@@ -626,6 +628,43 @@ function checkCard(card: DraftCard, assigned: number, facts: CheckFacts): Checke
 
 export function checkDraft(cards: readonly DraftCard[], numbers: readonly number[], facts: CheckFacts): CheckedCard[] {
   return cards.map((card, index) => checkCard(card, numbers[index]!, facts))
+}
+
+const PRODUCT_CODE = /\.(?:[cm]?[jt]sx?|vue|svelte|astro)$/
+const TEST_NAMED = /\.(?:test|spec)\.[^/]+$/
+const TEST_SEGMENTS = new Set(['tests', 'test', '__tests__', 'e2e', 'fixtures'])
+const NON_PRODUCT_ROOTS = new Set(['scripts', 'docs'])
+const BUILT_ROOT = /(^|\/)dist\//
+const BUILT_SCRIPT = /\.([cm]?)js$/
+const NAMED_ENTRY_POINTS = 5
+
+export function isProductSource(file: string): boolean {
+  const segments = file.split('/')
+  return PRODUCT_CODE.test(file) && !TEST_NAMED.test(file) && !NON_PRODUCT_ROOTS.has(segments[0]!) && !segments.some(segment => TEST_SEGMENTS.has(segment))
+}
+
+function sourceOfBuilt(file: string): string {
+  return BUILT_ROOT.test(file) ? file.replace(BUILT_ROOT, `$1${SOURCE_OF_BUILT_ROOT.dist}/`).replace(BUILT_SCRIPT, '.$1ts') : file
+}
+
+function unreachableIn(dir: string, file: string, entries: readonly EntryPoint[], touches: readonly string[], created: readonly string[]): EntryPoint[] {
+  const own = entries.filter(entry => entry.packageDir === packageDirOf(dir, file, created))
+  if (own.length === 0)
+    return []
+  const reached = [...importReach(dir, own.flatMap(entry => [entry.path, sourceOfBuilt(entry.path)])), ...own.flatMap(entry => entry.declaredIn ?? [])]
+  return touches.some(touch => reached.some(reachedFile => entryCovers(touch, reachedFile))) ? [] : own
+}
+
+export function unreachableCreatesRefusal(dir: string, cardId: number, touches: readonly string[], creates: readonly string[]): string | null {
+  const created = createdPaths(creates).filter(isProductSource)
+  if (created.length === 0 || created.some(file => entryPointKindOf(file) !== null))
+    return null
+  const entries = detectEntryPoints(dir)
+  const judged = created.map(file => ({ file, unreached: unreachableIn(dir, file, entries, touches, createdPaths(creates)) })).find(each => each.unreached.length > 0)
+  if (judged === undefined)
+    return null
+  const named = judged.unreached.slice(0, NAMED_ENTRY_POINTS).map(entry => `${entry.kind} ${entry.path}`).join(', ')
+  return `#${cardId} creates ${judged.file}, a product module, and no touch reaches an entry point of its package (${named}${judged.unreached.length > NAMED_ENTRY_POINTS ? ', …' : ''}): nothing in the product can import it, so a witness can pass on code no user reaches; touch an entry point or a module one imports, or create the module as an entry point`
 }
 
 export const PLAN_FIELD = 'plan'
