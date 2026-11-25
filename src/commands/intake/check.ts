@@ -648,7 +648,7 @@ function sourceOfBuilt(file: string): string {
 }
 
 function unreachableIn(dir: string, file: string, entries: readonly EntryPoint[], touches: readonly string[]): EntryPoint[] {
-  const own = entries.filter(entry => entry.packageDir === packageDirOf(dir, file))
+  const own = entries.filter(entry => entry.packageDir === packageDirOf(file))
   if (own.length === 0)
     return []
   const reached = [...importReach(dir, own.flatMap(entry => [entry.path, sourceOfBuilt(entry.path)])), ...own.flatMap(entry => entry.declaredIn ?? [])]

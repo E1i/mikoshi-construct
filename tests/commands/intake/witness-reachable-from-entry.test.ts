@@ -135,4 +135,18 @@ describe('admit judges a created product module by the entry points', () => {
 
     expect(unreachableCreatesRefusal(root, 1, ['src/island.ts'], [CREATED])).toContain('(page pages/a.tsx, page pages/b.tsx, page pages/c.tsx, page pages/d.tsx, page pages/e.tsx, …)')
   })
+
+  it('does not judge a module of a workspace package the card itself creates by the root entry points', () => {
+    const root = workspace({ 'package.json': JSON.stringify({ bin: 'dist/cli.js' }), 'src/cli.ts': '' })
+
+    expect(unreachableCreatesRefusal(root, 1, ['packages/new/package.json', 'packages/new/src/index.ts'], ['packages/new/package.json', 'packages/new/src/index.ts'])).toBeNull()
+  })
+
+  it('judges every created module and names the one no entry point reaches', () => {
+    const root = workspace({ ...LIBRARY, 'apps/web/package.json': JSON.stringify({ name: 'web', bin: 'src/cli.ts' }), 'apps/web/src/cli.ts': '' })
+    const reason = unreachableCreatesRefusal(root, 1, ['packages/core/src/index.ts'], ['packages/core/src/feature.ts', 'apps/web/src/window-shell.ts'])
+
+    expect(reason).toContain('#1 creates apps/web/src/window-shell.ts, a product module,')
+    expect(reason).not.toContain('packages/core/src/feature.ts')
+  })
 })

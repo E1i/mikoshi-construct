@@ -105,8 +105,10 @@ function conventionalEntries(root: string, dir: string): EntryPoint[] {
   })
 }
 
-export function packageDirOf(dir: string, relative: string): string {
-  return packageDirs(path.resolve(dir)).find(pkg => pkg !== '' && relative.startsWith(`${pkg}/`)) ?? ''
+const WORKSPACE_PACKAGE = new RegExp(`^(?:${WORKSPACE_PARENTS.join('|')})/[^/]+(?=/)`)
+
+export function packageDirOf(relative: string): string {
+  return WORKSPACE_PACKAGE.exec(relative)?.[0] ?? ''
 }
 
 export function detectEntryPoints(dir: string): EntryPoint[] {

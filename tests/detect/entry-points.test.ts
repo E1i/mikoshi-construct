@@ -75,10 +75,8 @@ describe('the entry points of the stack are facts of detect', () => {
     expect(detectEntryPoints(root)).toEqual([{ kind: 'main', path: 'packages/core/src/index.ts', declaredIn: 'packages/core/package.json', packageDir: 'packages/core' }])
   })
 
-  it('names the package a path lies in, and the root for a path in no workspace package', () => {
-    const root = tree({ 'apps/web/package.json': '{}', 'apps/web/src/a.ts': '' })
-
-    expect([packageDirOf(root, 'apps/web/src/a.ts'), packageDirOf(root, 'src/a.ts')]).toEqual(['apps/web', ''])
+  it('names the workspace package a path lies in, before its manifest exists, and the root for a path in none', () => {
+    expect([packageDirOf('apps/web/src/a.ts'), packageDirOf('packages/new/src/index.ts'), packageDirOf('src/a.ts'), packageDirOf('packages/readme.md')]).toEqual(['apps/web', 'packages/new', '', ''])
   })
 
   it('leaves a node_modules directory under a convention root out of the pages', () => {
