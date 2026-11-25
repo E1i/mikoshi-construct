@@ -149,4 +149,10 @@ describe('admit judges a created product module by the entry points', () => {
     expect(reason).toContain('#1 creates apps/web/src/window-shell.ts, a product module,')
     expect(reason).not.toContain('packages/core/src/feature.ts')
   })
+
+  it('judges a module of a manifest-less services folder by the root entry points', () => {
+    const root = workspace({ 'package.json': JSON.stringify({ bin: 'dist/cli.js' }), 'src/cli.ts': '', 'services/user/other.ts': '' })
+
+    expect(unreachableCreatesRefusal(root, 1, ['services/user/other.ts'], ['services/user/handler.ts'])).toContain('#1 creates services/user/handler.ts, a product module, and no touch reaches an entry point of its package (bin dist/cli.js)')
+  })
 })

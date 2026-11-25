@@ -75,8 +75,17 @@ describe('the entry points of the stack are facts of detect', () => {
     expect(detectEntryPoints(root)).toEqual([{ kind: 'main', path: 'packages/core/src/index.ts', declaredIn: 'packages/core/package.json', packageDir: 'packages/core' }])
   })
 
-  it('names the workspace package a path lies in, before its manifest exists, and the root for a path in none', () => {
-    expect([packageDirOf('apps/web/src/a.ts'), packageDirOf('packages/new/src/index.ts'), packageDirOf('src/a.ts'), packageDirOf('packages/readme.md')]).toEqual(['apps/web', 'packages/new', '', ''])
+  it('names a workspace package only when its manifest is on disk or among the created paths, and the root otherwise', () => {
+    const root = tree({ 'apps/web/package.json': '{}', 'apps/web/src/a.ts': '', 'services/user/other.ts': '', 'services/auth/package.json': '{}' })
+
+    expect([
+      packageDirOf(root, 'apps/web/src/a.ts'),
+      packageDirOf(root, 'packages/new/src/index.ts', ['packages/new/package.json']),
+      packageDirOf(root, 'packages/new/src/index.ts'),
+      packageDirOf(root, 'services/user/handler.ts'),
+      packageDirOf(root, 'src/services/auth/index.ts', ['src/services/auth/package.json']),
+      packageDirOf(root, 'src/a.ts'),
+    ]).toEqual(['apps/web', 'packages/new', '', '', '', ''])
   })
 
   it('leaves a node_modules directory under a convention root out of the pages', () => {

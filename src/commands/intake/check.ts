@@ -647,8 +647,8 @@ function sourceOfBuilt(file: string): string {
   return BUILT_ROOT.test(file) ? file.replace(BUILT_ROOT, `$1${SOURCE_OF_BUILT_ROOT.dist}/`).replace(BUILT_SCRIPT, '.$1ts') : file
 }
 
-function unreachableIn(dir: string, file: string, entries: readonly EntryPoint[], touches: readonly string[]): EntryPoint[] {
-  const own = entries.filter(entry => entry.packageDir === packageDirOf(file))
+function unreachableIn(dir: string, file: string, entries: readonly EntryPoint[], touches: readonly string[], created: readonly string[]): EntryPoint[] {
+  const own = entries.filter(entry => entry.packageDir === packageDirOf(dir, file, created))
   if (own.length === 0)
     return []
   const reached = [...importReach(dir, own.flatMap(entry => [entry.path, sourceOfBuilt(entry.path)])), ...own.flatMap(entry => entry.declaredIn ?? [])]
@@ -660,7 +660,7 @@ export function unreachableCreatesRefusal(dir: string, cardId: number, touches: 
   if (created.length === 0 || created.some(file => entryPointKindOf(file) !== null))
     return null
   const entries = detectEntryPoints(dir)
-  const judged = created.map(file => ({ file, unreached: unreachableIn(dir, file, entries, touches) })).find(each => each.unreached.length > 0)
+  const judged = created.map(file => ({ file, unreached: unreachableIn(dir, file, entries, touches, createdPaths(creates)) })).find(each => each.unreached.length > 0)
   if (judged === undefined)
     return null
   const named = judged.unreached.slice(0, NAMED_ENTRY_POINTS).map(entry => `${entry.kind} ${entry.path}`).join(', ')

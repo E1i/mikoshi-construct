@@ -107,8 +107,12 @@ function conventionalEntries(root: string, dir: string): EntryPoint[] {
 
 const WORKSPACE_PACKAGE = new RegExp(`^(?:${WORKSPACE_PARENTS.join('|')})/[^/]+(?=/)`)
 
-export function packageDirOf(relative: string): string {
-  return WORKSPACE_PACKAGE.exec(relative)?.[0] ?? ''
+export function packageDirOf(dir: string, relative: string, created: readonly string[] = []): string {
+  const candidate = WORKSPACE_PACKAGE.exec(relative)?.[0]
+  if (candidate === undefined)
+    return ''
+  const manifest = `${candidate}/${PACKAGE_MANIFEST}`
+  return created.includes(manifest) || isFile(path.join(path.resolve(dir), manifest)) ? candidate : ''
 }
 
 export function detectEntryPoints(dir: string): EntryPoint[] {
