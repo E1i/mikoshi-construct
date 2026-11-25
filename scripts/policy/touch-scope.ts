@@ -190,6 +190,20 @@ export function regeneratedTwins(scope: { touches: readonly string[], creates: r
   return derivedHoldOf(scope, derived, () => read, allowances) ?? { kind: 'regenerated', files: derived }
 }
 
+export type RefusedTwinAnswer = { kind: 'owner' } | { kind: 'regenerated', files: string[] } | { kind: 'window', twins: string[], sources: string[], detail: string }
+
+export function refusedTwinAnswer(refused: readonly string[], scope: { touches: readonly string[], creates: readonly string[] }, tree: TwinTree, changed: readonly string[], allowances: () => readonly string[] = () => []): RefusedTwinAnswer {
+  const derived = refused.filter(isRegisteredDerived)
+  if (derived.length === 0 || derived.length < refused.length || derived.some(isMeasuredDerived))
+    return { kind: 'owner' }
+  const regenerated = regeneratedTwins(scope, derived, tree, allowances)
+  if (regenerated.kind === 'grown')
+    return { kind: 'owner' }
+  if (regenerated.kind === 'refused')
+    return { kind: 'window', twins: derived, sources: twinSourcesOutside(scope, derived, changed), detail: regenerated.detail }
+  return { kind: 'regenerated', files: derived }
+}
+
 export function twinSourcesOutside(scope: { touches: readonly string[], creates: readonly string[] }, twins: readonly string[], changed: readonly string[]): string[] {
   const roots = Object.values(GENERATED_FILES).filter(row => twins.includes(row.path)).flatMap(row => row.followSources ?? [])
   const changedSources = changed.filter(file => !isRegisteredDerived(file) && roots.some(root => under(file, root)))

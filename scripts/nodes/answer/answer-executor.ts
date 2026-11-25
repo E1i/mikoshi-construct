@@ -26,7 +26,7 @@ import { timeoutUnderLoadOutside } from '../../core/observations.js'
 import { answerOnAnOldCardBody, DOWNGRADE_WAIT_OPEN, latestAnswerOf, latestReleaseOf, latestWidenStopOf, LEASED, QUEUED } from '../../core/queue.js'
 import { OWNER_EVEN_UNDER_THE_DECISION } from '../../policy/policy.js'
 import { matchGlob } from '../../policy/shredder/glob.js'
-import { isMeasuredDerived, isRegisteredDerived, pathsIn, pathsOutside, regeneratedTwins, twinSourcesOutside } from '../../policy/touch-scope.js'
+import { isRegisteredDerived, pathsIn, pathsOutside, refusedTwinAnswer } from '../../policy/touch-scope.js'
 import { ownerGlobs } from '../../policy/widening.js'
 import { cardTreeOf, cardTreeReading, CardTreeRefused, realCardTrees } from '../../ports/card-tree.js'
 import { conflictingCardOf, mainKeptInTheTree } from '../../ports/main-merge.js'
@@ -524,21 +524,18 @@ export class AnswerExecutor {
   }
 
   private twinRegenerated(lease: Lease, denial: AnswerDenial, widened: Widened | null, card: CardSession): AnswerOutcome | null {
-    const refused = pathsIn(denial.detail)
-    const derived = refused.filter(isRegisteredDerived)
     const admitted = admittedScopeOf(this.parts.db, lease.cardId)
-    if (admitted === null || derived.length === 0 || derived.length < refused.length || derived.some(isMeasuredDerived))
+    if (admitted === null)
       return null
     const scope = { touches: [...admitted.touches, ...(widened?.paths ?? [])], creates: admitted.creates }
     const twins = this.parts.twins ?? gitTwins(this.parts.db, this.parts.trees ?? realCardTrees())
-    const regenerated = regeneratedTwins(scope, derived, twins.tree(card, lease.cardId), () => this.parts.allowances?.(lease.cardId) ?? [])
+    const answer = refusedTwinAnswer(pathsIn(denial.detail), scope, twins.tree(card, lease.cardId), [...this.changedIn(card)], () => this.parts.allowances?.(lease.cardId) ?? [])
     const scopeEvents = widened === null ? [] : [widened.event]
-    if (regenerated.kind === 'grown')
+    if (answer.kind === 'owner')
       return null
-    if (regenerated.kind === 'refused') {
-      const sources = twinSourcesOutside(scope, derived, [...this.changedIn(card)])
-      return this.outcomes.stopped(lease, QUESTION_AGENT, twinUnconvergedLine(lease.cardId, derived, sources, regenerated.detail), sources.length === 0 ? {} : { widen: sources }, scopeEvents)
-    }
+    if (answer.kind === 'window')
+      return this.outcomes.stopped(lease, QUESTION_AGENT, twinUnconvergedLine(lease.cardId, answer.twins, answer.sources, answer.detail), answer.sources.length === 0 ? {} : { widen: answer.sources }, scopeEvents)
+    const derived = answer.files
     const head = twins.commit(card, lease)
     if (head === null)
       return this.outcomes.denied(lease, { kind: 'technical', reason: 'answer_failed', detail: `card #${lease.cardId}: the bus regenerated ${derived.join(', ')} in ${card.worktree} and could not commit and push it; the answer goes again over that tree` })
