@@ -24,10 +24,13 @@ import { NOT_MINE, notMine } from '../../core/card-automaton.js'
 import { bodyNotFoldedYet } from '../../core/card-bodies.js'
 import { defaultBusPath } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
+import { EITHER_JOURNAL, events } from '../../core/events-query.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED } from '../../core/events.js'
 import { assertHeld, failTask, queuedCards, StaleLease, supersedeLease } from '../../core/lease.js'
 import { Node, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
 import { treeReportPath } from '../../core/places.js'
+import { headOf } from '../../core/pr-readings.js'
+import { byKey as taskByKey } from '../../core/tasks-query.js'
 import { cardContract } from '../../intake/card-contract.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
 import { OWNER_MERGES } from '../../policy/policy.js'
@@ -80,20 +83,22 @@ export interface StaleHeadDenial {
 
 export const STALE_ANSWER_HEAD = 'stale_head'
 
-const PULL_REQUEST_HEAD_PAST_THE_ANSWER = `
-  SELECT prs.head FROM tasks JOIN prs ON prs.pr = tasks.pr
-  WHERE tasks.task_key = ? AND tasks.queue = 'answer' AND tasks.head IS NOT NULL AND prs.head IS NOT NULL AND prs.head != tasks.head
-`
-
 function pullRequestHeadPastTheAnswer(db: DatabaseSync, taskKey: string): string | null {
-  const row = db.prepare(PULL_REQUEST_HEAD_PAST_THE_ANSWER).get(taskKey) as { head: string } | undefined
-  return row === undefined ? null : row.head
+  const task = taskByKey(db, taskKey)
+  if (task === null || task.queue !== 'answer' || task.head === null || task.pr === null)
+    return null
+  const head = headOf(db, task.pr)
+  return head !== null && head !== task.head ? head : null
 }
 
 export const VERDICT_NOT_RECORDED = 'verdict_not_recorded'
 export const AMEND_NOT_FOLDED = 'amend_not_folded'
 
-const CHANGES_RECORDED_ON_HEAD = `SELECT 1 FROM events WHERE type = '${REVIEW_RECORDED}' AND card_id = ? AND head = ? AND json_extract(payload, '$.verdict') = 'changes' LIMIT 1`
+const CHANGES_VERDICT = 'changes'
+
+function changesRecordedOnHead(db: DatabaseSync, cardId: number, head: string | null): boolean {
+  return head !== null && events(db, { types: [REVIEW_RECORDED], card: cardId, head, legacy: EITHER_JOURNAL }).some(review => review.data?.verdict === CHANGES_VERDICT)
+}
 
 export type AnswerStep = AnswerOutcome | WaitStep | { kind: 'denied', taskKey: string, denial: NotMineDenial | StaleHeadDenial, next: AfterFailure } | { kind: 'faulted', taskKey: string, detail: string }
 
@@ -190,7 +195,7 @@ export class AnswerNode extends Node<AnswerStep> {
   }
 
   private verdictNotRecordedYet(lease: Lease): boolean {
-    return answerSourceOf(this.db, lease)?.kind === 'changes' && this.db.prepare(CHANGES_RECORDED_ON_HEAD).get(lease.cardId, lease.head) === undefined
+    return answerSourceOf(this.db, lease)?.kind === 'changes' && !changesRecordedOnHead(this.db, lease.cardId, lease.head)
   }
 
   private waitingForTheVerdict(lease: Lease): AnswerStep | null {

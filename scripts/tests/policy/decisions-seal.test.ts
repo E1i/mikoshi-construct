@@ -25,7 +25,6 @@ interface Carrier {
 const CARRIERS: readonly Carrier[] = [
   { path: 'scripts/core/bus-path.ts', reason: 'names the file of the projection beside the bus; the folder imports the name from here' },
   { path: 'scripts/core/inbox.ts', reason: 'the inbox closes a wait a later decision answers; moves to decisionAnswersTheStop in a later slice of P2' },
-  { path: 'scripts/nodes/launch/launch-candidates.ts', reason: 'launch reads the decisions in force for its prompt; moves to the port in a later slice of P2' },
 ]
 
 const roots: string[] = []
