@@ -5,7 +5,7 @@ import type { GitHub } from './github.js'
 import { existsSync } from 'node:fs'
 import process from 'node:process'
 import { defaultBusPath } from '../core/db.js'
-import { cardSessionOf, NO_RECORDED_SESSION, openPrOfCard } from '../nodes/answer/answer-source.js'
+import { cardSessionOf, NO_RECORDED_SESSION, openPrHeadOf, openPrOfCard } from '../nodes/answer/answer-source.js'
 import { pnpmRerun, processGit, treeReading } from './git.js'
 import { ghApi } from './github.js'
 import { Meter } from './meter.js'
@@ -88,11 +88,6 @@ function bringToHead(worktree: string, branch: string, head: string): void {
   }
 }
 
-function openHeadOf(db: DatabaseSync, pr: number): string | null {
-  const row = db.prepare(`SELECT head FROM prs WHERE pr = ?`).get(pr) as { head: string | null } | undefined
-  return row?.head ?? null
-}
-
 export function realCardTrees(): CardTreeTools {
   return gitCardTrees(process.cwd(), worktreeHome(process.env), cwd => pnpmInstall(cwd, INSTALL_ARGS), ghApi(process.cwd()), id => cardTree(process.env, defaultBusPath(), id))
 }
@@ -122,7 +117,7 @@ export function cardTreeOf(db: DatabaseSync, cardId: number, tools: CardTreeTool
   const recorded = cardSessionOf(db, cardId)
   const pr = openPrOfCard(db, cardId)
   if (recorded !== null && tools.exists(recorded.worktree)) {
-    const head = pr === null ? null : openHeadOf(db, pr)
+    const head = pr === null ? null : openPrHeadOf(db, pr)
     if (head !== null)
       tools.bringTo(recorded.worktree, recorded.branch, head)
     return recorded
@@ -132,7 +127,7 @@ export function cardTreeOf(db: DatabaseSync, cardId: number, tools: CardTreeTool
   const branch = tools.branchOf(pr)
   const worktree = recorded?.worktree ?? tools.treeOf?.(String(cardId)) ?? taskWorktree(tools.home, String(cardId))
   if (tools.exists(worktree)) {
-    const head = openHeadOf(db, pr)
+    const head = openPrHeadOf(db, pr)
     if (head !== null)
       tools.bringTo(worktree, branch, head)
   }

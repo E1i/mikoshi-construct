@@ -225,3 +225,7 @@ export function carriedTreeOf(db: DatabaseSync, cardId: number): CarriedTree | n
 export function openPrOfCard(db: DatabaseSync, cardId: number): number | null {
   return openPrsOf(db, cardId).at(-1)?.pr ?? null
 }
+
+export function openPrHeadOf(db: DatabaseSync, pr: number): string | null {
+  return prs.headOf(db, pr)
+}

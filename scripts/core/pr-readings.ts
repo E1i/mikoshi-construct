@@ -90,6 +90,14 @@ export function latestQuestionStops(stopsWithTheirCard: string, columns: string,
 `
 }
 
+export function openPrsWhere(columns: string, condition: string): string {
+  return `
+  SELECT ${columns} FROM prs
+  WHERE state = 'open' AND ${condition}
+  ORDER BY pr
+`
+}
+
 const PR_HEAD = 'SELECT head FROM prs WHERE pr = ?'
 
 export function headOf(db: DatabaseSync, pr: number): string | null {

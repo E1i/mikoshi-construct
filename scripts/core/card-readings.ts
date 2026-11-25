@@ -281,6 +281,17 @@ export function closedWaitsOfCard(db: DatabaseSync, cardId: number): ClosedWait[
   })
 }
 
+const CLOSED_WAIT_ANSWERS_OF_THE_CARD = `SELECT id, answer FROM ${OWNER_WAITS} WHERE card_id = ? AND state = '${CLOSED_WAIT}' ORDER BY event_id`
+
+export interface ClosedWaitAnswer {
+  id: string
+  answer: string | null
+}
+
+export function closedWaitAnswersOfCard(db: DatabaseSync, cardId: number): ClosedWaitAnswer[] {
+  return (db.prepare(CLOSED_WAIT_ANSWERS_OF_THE_CARD).all(cardId) as { id: string, answer: string | null }[]).map(wait => ({ id: String(wait.id), answer: wait.answer === null ? null : String(wait.answer) }))
+}
+
 const OPEN_WAIT_PRS_OF_A_NEED = `SELECT DISTINCT pr FROM ${OWNER_WAITS} WHERE need = ? AND state = '${OPEN_WAIT}' AND pr IS NOT NULL`
 
 export function openWaitPrsOf(db: DatabaseSync, need: string): Set<number> {
@@ -312,6 +323,10 @@ export function downgradeWaitOpenOn(db: DatabaseSync, cardId: number): boolean {
 export function aDowngradeWaitOpenOn(card: string): string {
   const asked = eventsWhere('asked', '1', `asked.id = wait.event_id AND asked.type = '${CARD_WAITING}' AND json_extract(asked.payload, '$.reason') = '${WITNESS_DOWNGRADE}'`)
   return `EXISTS (SELECT 1 FROM ${OWNER_WAITS} AS wait WHERE wait.card_id = ${card} AND wait.state = '${OPEN_WAIT}' AND EXISTS (${asked}))`
+}
+
+export function notACardOf(who: string): (card: string) => string {
+  return card => `NOT EXISTS (SELECT 1 FROM ${CARD_BODIES} AS body WHERE body.card_id = ${card} AND body.who = '${who}')`
 }
 
 export function latestQuestionStopsWithTheirCard(latestTurnOf: (card: string) => string): string {
