@@ -139,6 +139,8 @@ describe('replacing a witness the bus recorded dead is an amendment, not a downg
       'a path outside the worktree': 'grep -q "^## Verdict: green" ~/.construct/probes/2267/report.md',
       'reads nothing the tree under test can change': 'echo done',
       'a whole-tree command to be red on the base': 'pnpm lint',
+      'a path outside the worktree beside a file of the repository': `grep -q done ~/.construct/probes/2267/report.md ${TOUCH}`,
+      'reads nothing the tree under test can change though it names a test': 'echo -t done',
     }
     const REPLACEMENT = { ...W1, id: 'W3' }
     const doors: Record<string, (w: World) => Outcome> = {
