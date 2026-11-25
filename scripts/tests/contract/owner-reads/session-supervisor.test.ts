@@ -26,7 +26,7 @@ const OWNER_OF: Record<string, string> = {
   'src/commands/liveness.ts': 'session',
   'scripts/supervisor/reducer-loop.ts': 'session',
   'scripts/supervisor/supervisor.ts': 'session',
-  'scripts/window/eddies-measure.ts': 'window',
+  'scripts/window/eddies-measure.ts': 'session',
 }
 const FILES = Object.keys(OWNER_OF)
 
