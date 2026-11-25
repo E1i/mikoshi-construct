@@ -1,15 +1,9 @@
+import type { ChangedFile } from '../../ports/diff.js'
 import { riskOf } from '../../../src/card/risk.js'
+import { MorseRefusal, TOUCHED } from '../../ports/diff.js'
 
-export type FileStatus = 'A' | 'M' | 'D'
-
-export const TOUCHED = 'touch'
-
-export interface ChangedFile {
-  path: string
-  status: FileStatus | typeof TOUCHED
-  additions: number | null
-  deletions: number | null
-}
+export type { ChangedFile, FileStatus } from '../../ports/diff.js'
+export { MorseRefusal, TOUCHED } from '../../ports/diff.js'
 
 export type Kind = 'instructions' | 'test' | 'src' | 'docs' | 'other'
 
@@ -26,8 +20,6 @@ export interface Rule<Id extends string = string> {
   verdict: Verdict
   fires: (files: ChangedFile[]) => string[] | null
 }
-
-export class MorseRefusal extends Error {}
 
 const INSTRUCTIONS_DIRS = ['.claude/', 'scripts/construct/', 'templates/ai/claude/']
 const INSTRUCTIONS_FILES = new Set(['CLAUDE.md', 'AGENTS.md', 'architecture/security-invariants.md'])
