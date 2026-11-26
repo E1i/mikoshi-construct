@@ -14,7 +14,13 @@ const PURE_ADAPTERS = [
 
 const ROLE_POLICY = 'scripts/ports/client/role-policy.ts'
 
-const ADAPTERS_MODULE = [...PURE_ADAPTERS.slice(0, 4), ROLE_POLICY, ...PURE_ADAPTERS.slice(4)]
+const HOST_PORTS = [
+  'scripts/ports/host-fault.ts',
+  'scripts/ports/host-thermal.ts',
+  'scripts/ports/host/macos-thermal.ts',
+]
+
+const ADAPTERS_MODULE = [...PURE_ADAPTERS.slice(0, 4), ROLE_POLICY, ...PURE_ADAPTERS.slice(4), ...HOST_PORTS]
 
 const DECLARED_IN_BUS = [
   'scripts/ports/bus-read.ts',
@@ -44,7 +50,7 @@ describe('ports-adapters is a decided module (D-503)', () => {
     }
   })
 
-  it('ports-adapters holds exactly the five pure adapters and the role session policy (D-862)', () => {
+  it('ports-adapters holds exactly the five pure adapters, the role session policy (D-862) and the host ports (D-867)', () => {
     const adapters = MODULE_GRAPH.modules['ports-adapters']
     const ports = MODULE_GRAPH.modules.ports
 

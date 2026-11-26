@@ -39,6 +39,7 @@ import { busProjections, cardTransitions, DECISION_EVENT_READS, windowRequestBus
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
 import { execute as executeAmend } from '../../window/requests/amend.js'
+import { CONTINUED_FROM_THE_TREE } from '../../window/requests/requeue.js'
 import { productionDeps, STALL_MS } from '../../window/watch.js'
 import { countLineAppender, realRequestTools, worktreesHolding } from '../../window/window-request-tools.js'
 import { ALLOW_MERGE_RECORD, ANSWER_SOURCE, pendingRequests, PREFIX, REQUEST_KINDS, REQUEST_RULE, requestFromWindow, runRequest, USAGE, WindowRequests } from '../../window/window-requests.js'
@@ -381,7 +382,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(eventsOf(bench.db, CARD_ADMITTED).filter(admitted => admitted.admission === `admission-${cardId}`)).toHaveLength(1)
   })
 
-  it('a keep-tree requeue of a card that fell at its start with no session record takes its existing tree as it stands', () => {
+  it('a requeue of a card that fell at its start with no session record takes its existing tree as it stands', () => {
     const made = room()
     const { bench } = made
     const cardId = CARD + 116
@@ -413,12 +414,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     const { causeHolds } = realRequestTools(bench.db, bench.busPath, repo, { [WORKTREE_HOME_VARIABLE]: home }, busProjections(), DECISION_EVENT_READS)
 
     const plain = ask(made, { kind: 'requeue', task_key: key })
-    expect(made.requests({ causeHolds }).run()[0]).toMatchObject({ kind: 'refused', request: plain, detail: expect.stringContaining(`the card tree ${tree} has uncommitted changes; a requeue with keep_tree: true`) })
-    bench.tick()
-    expect(taskState(bench.db, key).state).toBe('stopped')
-
-    const kept = ask(made, { kind: 'requeue', task_key: key, keep_tree: true })
-    expect(made.requests({ causeHolds }).run()[0]).toMatchObject({ kind: 'done', request: kept, detail: expect.stringContaining(`its session starts on the tree as it stands: the card tree ${tree} has uncommitted changes`) })
+    expect(made.requests({ causeHolds }).run()[0]).toMatchObject({ kind: 'done', request: plain, detail: expect.stringContaining(`${CONTINUED_FROM_THE_TREE}: the card tree ${tree} has uncommitted changes`) })
     bench.tick()
     expect(taskState(bench.db, key).state).toBe('queued')
     expect(readFileSync(path.join(tree, 'finished.txt'), 'utf8')).toBe('finished but uncommitted\n')
