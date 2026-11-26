@@ -1,9 +1,11 @@
+import type { ClientRecord, ClientRole } from '../scripts/ports/client/contract.js'
 import type { FileOp } from './materialize/plan.js'
 import type { TemplateVariant } from './materialize/templates.js'
 import type { AiTarget, PresetId, ReviewProvider, ServeRecord, TemplateVars, WorkspaceImports } from './presets/index.js'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { CLIENT_ROLES, clientIdFor, clientModelOf, DEFAULT_CLIENT_MODEL } from '../scripts/ports/client/contract.js'
 import { DEFAULT_COMPOSITION_DIR } from './detect/existing.js'
 import { SUCCESSORS } from './presets/index.js'
 import { RecordAheadOfReader } from './record-ahead.js'
@@ -71,18 +73,10 @@ export interface ShiftGate {
   codeMatrix: string | null
 }
 
-export const DEFAULT_CLIENT_MODEL = 'auto'
+export { CLIENT_ROLES, clientIdFor, clientModelOf, DEFAULT_CLIENT_MODEL }
+export type { ClientRecord, ClientRole }
 
 export const CLIENT_IDS = ['claude', 'codex'] as const
-
-export const CLIENT_ROLES = ['launch', 'answer', 'review', 'window'] as const
-export type ClientRole = (typeof CLIENT_ROLES)[number]
-
-export interface ClientRecord {
-  id?: string
-  model?: string
-  roles?: Partial<Record<ClientRole, string>>
-}
 
 export interface Manifest {
   manifestVersion: number
@@ -293,14 +287,6 @@ export function clientIdsNamed(record: ClientRecord | undefined): string[] {
 export function clientIdsWithNoAdapter(record: ClientRecord | undefined): string[] {
   const known = new Set<string>(CLIENT_IDS)
   return clientIdsNamed(record).filter(id => !known.has(id))
-}
-
-export function clientIdFor(record: ClientRecord | undefined, role: ClientRole): string | null {
-  return record?.roles?.[role] ?? record?.id ?? null
-}
-
-export function clientModelOf(record: ClientRecord | undefined): string {
-  return record?.model ?? DEFAULT_CLIENT_MODEL
 }
 
 export function shiftGateOf(manifest: Manifest | null): ShiftGate {

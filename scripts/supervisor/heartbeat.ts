@@ -13,9 +13,8 @@ import { PROCESS_HEARTBEAT, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../core/
 import { prOf } from '../core/identifiers.js'
 import { LEASE_FOLDS } from '../core/lease.js'
 import { storedByKey } from '../core/stored.js'
-import { clientAdapter } from '../ports/client/index.js'
 import { isFullSha } from '../ports/identifier-shapes.js'
-import { CARD_VARIABLE } from '../ports/session.js'
+import { CARD_VARIABLE, clientAdapter } from '../ports/session.js'
 import { projectRoot, sessionGauges } from '../window/eddies-measure.js'
 
 export const PR_VARIABLE = 'CONSTRUCT_PR'

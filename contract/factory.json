@@ -5896,8 +5896,6 @@
           "MANIFEST_FILE"
         ],
         "functions": {
-          "clientIdFor": "(record: ClientRecord | undefined, role: ClientRole): string | null",
-          "clientModelOf": "(record: ClientRecord | undefined): string",
           "isLaneCount": "(value: unknown): value is number",
           "readManifest": "(root: string): Manifest | null",
           "readMilestones": "(root: string): string[] | undefined",
@@ -5906,8 +5904,6 @@
         },
         "reexports": [],
         "types": {
-          "ClientRecord": "interface ClientRecord { id?: string; model?: string; roles?: Partial<Record<ClientRole, string>>; }",
-          "ClientRole": "type ClientRole = (typeof CLIENT_ROLES)[number]",
           "ShiftGate": "interface ShiftGate { prepush: string[]; handoffWrite: string | null; codeMatrix: string | null; }"
         }
       },
@@ -6220,8 +6216,14 @@
         "types": {}
       },
       "scripts/ports/client/contract.ts": {
-        "constants": [],
-        "functions": {},
+        "constants": [
+          "CLIENT_ROLES",
+          "DEFAULT_CLIENT_MODEL"
+        ],
+        "functions": {
+          "clientIdFor": "(record: ClientRecord | undefined, role: ClientRole): string | null",
+          "clientModelOf": "(record: ClientRecord | undefined): string"
+        },
         "language": "technology",
         "reexports": [],
         "technologyWords": [
@@ -6236,6 +6238,8 @@
           "ClientAdapter": "interface ClientAdapter { readonly id: string; readonly capabilities: Capabilities; invocation: (spec: SessionSpec) => Invocation | Refusal; window: () => WindowCommand | Refusal; reading: (place: SessionPlace) => SessionReading; readBudget: (place: BudgetPlace) => ReadBudget; models: () => ModelOffer[] | null; modelFor: (role: Role, effort: Effort | null, wanted: ModelChoice) => ModelPick | Refusal; processes: ClientProcesses; ownSession: (env: NodeJS.ProcessEnv) => string | null; }",
           "ClientGuarantees": "interface ClientGuarantees { allowlist: boolean; writeConfinement: boolean; mcpOff: boolean; toolNarrowing: boolean; guardFailsClosed: boolean; }",
           "ClientProcesses": "interface ClientProcesses { isClient: (argv: string) => boolean; sessionMarker: (session: string) => string | null; processNames: readonly string[]; isolationCommand: () => string[]; }",
+          "ClientRecord": "interface ClientRecord { id?: string; model?: string; roles?: Partial<Record<ClientRole, string>>; }",
+          "ClientRole": "type ClientRole = (typeof CLIENT_ROLES)[number]",
           "Denial": "interface Denial { tool: string; path: string | null; command: string | null; text: string; }",
           "Effort": "type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'",
           "Invocation": "interface Invocation { command: string; args: string[]; env: NodeJS.ProcessEnv; stdin: string | null; }",
@@ -6260,19 +6264,14 @@
       },
       "scripts/ports/client/index.ts": {
         "constants": [],
-        "functions": {
-          "clientAdapter": "(): ClientAdapter",
-          "clientAdapterById": "(id: string): ClientAdapter | Refusal",
-          "clientForRole": "(record: ClientRecord | undefined, role: ClientRole): ClientChoice | Refusal",
-          "clientForRoleIn": "(root: string, role: ClientRole): ClientChoice | Refusal",
-          "defaultWindowCommand": "(): WindowCommand",
-          "windowCommandIn": "(root: string): WindowCommand | Refusal"
-        },
+        "functions": {},
         "language": "factory",
         "reexports": [],
         "technologyWords": [],
         "types": {
-          "ClientChoice": "interface ClientChoice { adapter: ClientAdapter; model: ModelChoice; }"
+          "ClientChoice": "interface ClientChoice { adapter: ClientAdapter; model: ModelChoice; }",
+          "ClientPort": "class ClientPort { constructor(private readonly defaultAdapter: ClientAdapter, private readonly recordOf: ClientRecordReader); clientAdapterById(id: string): ClientAdapter | Refusal; clientForRole(record: ClientRecord | undefined, role: ClientRole): ClientChoice | Refusal; clientForRoleIn(root: string, role: ClientRole): ClientChoice | Refusal; windowCommandIn(root: string): WindowCommand | Refusal; defaultWindowCommand(): WindowCommand }",
+          "ClientRecordReader": "type ClientRecordReader = (root: string) => ClientRecord | undefined"
         }
       },
       "scripts/ports/client/role-policy.ts": {
@@ -6721,6 +6720,7 @@
         "functions": {
           "cardSessionOverlay": "(root: string, base: NodeJS.ProcessEnv, size: string | null): NodeJS.ProcessEnv",
           "cardSizeIn": "(cardBody: string | null): string | null",
+          "clientAdapter": "(): ClientAdapter",
           "clientCommand": "(): string",
           "clientInvocation": "(spec: SessionSpec): Invocation",
           "headlessInvocation": "(parts: Partial<SessionSpec> = {}): Invocation",

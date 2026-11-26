@@ -1,7 +1,6 @@
 import type { ModelOffer, Refusal, Role } from '../../ports/client/contract.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { clientAdapter } from '../../ports/client/index.js'
-import { REVIEW_MODEL_VARIABLE, reviewModelOf } from '../../ports/session.js'
+import { clientAdapter, REVIEW_MODEL_VARIABLE, reviewModelOf } from '../../ports/session.js'
 
 const claudeAdapter = clientAdapter()
 

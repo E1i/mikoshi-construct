@@ -1,5 +1,5 @@
 import type { ProcessRow, ProcessSnapshot } from '../ports/process-table.js'
-import { clientAdapter } from '../ports/client/index.js'
+import { clientAdapter } from '../ports/session.js'
 
 export function isSessionAlive(sessionId: string, rows: readonly ProcessRow[]): boolean {
   const marker = clientAdapter().processes.sessionMarker(sessionId)

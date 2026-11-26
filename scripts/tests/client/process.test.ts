@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { isSessionAlive } from '../../ladder/watch-process.js'
 import { launchIsolationCommand } from '../../nodes/launch/launch-root.js'
 import { reviewIsolationCommand } from '../../nodes/review/review-worker.js'
-import { clientAdapter } from '../../ports/client/index.js'
 import { CLIENT_CWDS_COMMAND } from '../../ports/process-table.js'
+import { clientAdapter } from '../../ports/session.js'
 
 const SESSION = 'session-1578'
 const HEADLESS_FLAGS = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto', '--permission-prompts', 'none', '--strict-mcp-config', '--session-id']

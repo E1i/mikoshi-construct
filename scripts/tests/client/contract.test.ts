@@ -14,8 +14,7 @@ import { cardCommand, launchArgv, shellWord } from '../../nodes/launch/launch-st
 import { parseSessionJournal } from '../../nodes/launch/session-journal.js'
 import { claudeResume } from '../../nodes/launch/tree-pr-cli.js'
 import { WINDOW_MCP_CONFIG, WINDOW_RESUME_REFUSAL } from '../../ports/client/claude/adapter.js'
-import { clientAdapter } from '../../ports/client/index.js'
-import { sessionEnv, witnessEnv } from '../../ports/session.js'
+import { clientAdapter, sessionEnv, witnessEnv } from '../../ports/session.js'
 import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
 import { claudeArgv, DEFAULT_CLAUDE } from '../../window/loop.js'
 
