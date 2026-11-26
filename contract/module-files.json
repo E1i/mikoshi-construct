@@ -460,7 +460,6 @@
     "scripts/tests/bus/divergence-alarm.test.ts",
     "scripts/tests/bus/drain-keeps-round.test.ts",
     "scripts/tests/bus/drain-old-sha.test.ts",
-    "scripts/tests/bus/earlyclose.test.ts",
     "scripts/tests/bus/eddiesline.test.ts",
     "scripts/tests/bus/eddiesline150.test.ts",
     "scripts/tests/bus/executor.test.ts",
