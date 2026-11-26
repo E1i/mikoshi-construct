@@ -1,10 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { LastReduced, OwnerWait } from './bus-readings.js'
 import type { EventRow } from './events-query.js'
-import { isBackfill } from './backfill-source.js'
 import { CLOSED_WAIT, OPEN_WAIT, OWNER_WAITS, readLastReduced } from './bus-readings.js'
 import { cardIdsInEvents, EITHER_JOURNAL, events, eventsWhere, latest } from './events-query.js'
-import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, LADDER_RUN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_CLOSED, QUESTION_AGENT, WITNESS_DOWNGRADE } from './events.js'
+import { CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, LADDER_RUN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_CLOSED, QUESTION_AGENT, WITNESS_DOWNGRADE } from './events.js'
 
 export type { BusPanelRow, EventRow } from './events-query.js'
 export { busPanelRow, EITHER_JOURNAL, events, lastObjectFieldPerCard, lastPer, lastSlotsPerQueue, latest, newestEventsOfEachCard } from './events-query.js'
@@ -97,21 +96,6 @@ export function bodyAdmittedAfter(db: DatabaseSync, cardId: number, eventId: num
 
 export function admittedBodyOf(db: DatabaseSync, cardId: number): AdmittedBody | null {
   return bodyOf(db.prepare(BODY_COLUMNS).get(cardId) as StoredBody | undefined)
-}
-
-function admissionsNewestFirst(db: DatabaseSync, cardId: number): EventRow[] {
-  return events(db, { types: [CARD_ADMITTED], card: cardId, newestFirst: true })
-}
-
-export function latestAdmissionOf(db: DatabaseSync, cardId: number): EventRow | null {
-  return admissionsNewestFirst(db, cardId).find(row => row.data === null || !isBackfill(row.data)) ?? null
-}
-
-export function admissionSourcesOf(db: DatabaseSync, cardId: number): EventRow[] {
-  return admissionsNewestFirst(db, cardId).flatMap((admitted) => {
-    const key = admitted.data?.admission
-    return typeof key === 'string' ? events(db, { keys: [key], legacy: true }) : []
-  })
 }
 
 const CARD_STATES_AMONG = `SELECT card_id, state FROM cards WHERE card_id IN (SELECT value FROM json_each(?))`

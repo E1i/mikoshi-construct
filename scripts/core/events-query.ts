@@ -1,8 +1,6 @@
 import type { DatabaseSync, SQLInputValue, SQLOutputValue } from 'node:sqlite'
-import type { PreviousObservation } from './observations.js'
 import type { StoredEvent } from './stored.js'
 import { CARD_ADMITTED, MAIN_ADVANCED, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_STATUS_SET, PROCESS_HEARTBEAT, REVIEW_RECORDED, SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, SHARD_USED } from './events.js'
-import { previousObservationOf } from './observations.js'
 import { payloadOf, Rejection } from './stored.js'
 
 export type { Reading, ReadProjection, StaleProjection } from './bus-readings.js'
@@ -282,9 +280,8 @@ export function latest(db: DatabaseSync, query: EventsQuery): EventRow | null {
 
 const PR_LIFECYCLE = [PR_OBSERVED, PR_CLOSED]
 
-export function lastObservation(db: DatabaseSync, pr: number): PreviousObservation | null {
-  const row = latest(db, { types: PR_LIFECYCLE, pr, legacy: EITHER_JOURNAL })
-  return row === null ? null : previousObservationOf({ ...row })
+export function lastPrLifecycleEvent(db: DatabaseSync, pr: number): EventRow | null {
+  return latest(db, { types: PR_LIFECYCLE, pr, legacy: EITHER_JOURNAL })
 }
 
 export function openPrsAmong(db: DatabaseSync, recorded: readonly number[]): number[] {

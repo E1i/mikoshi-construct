@@ -2,8 +2,7 @@ import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { watchTheNetwork } from '../ports/netwatch.js'
-import { requiredCheckAt } from './composition.js'
-import { PR_HISTORY } from './run.js'
+import { PR_HISTORY, requiredCheckAt } from './composition.js'
 
 export function standaloneRequiredCheck(): string {
   return requiredCheckAt()

@@ -21,6 +21,7 @@ import type { DerivedHolds, ThresholdSet } from '../nodes/update/update-executor
 import type { WitnessParts } from '../nodes/witness/witness-candidates.js'
 import type { DecisionEventReads, InForceDecision } from '../policy/decisions/index.js'
 import type { GitHub } from '../ports/github.js'
+import type { PrHistory } from '../ports/netwatch.js'
 import type { PlanParts } from '../window/plan-folds.js'
 import type { PlanOfCard } from '../window/plan-readings.js'
 import type { DetachedLaunch } from './bg.js'
@@ -49,12 +50,13 @@ import { closedWaitIds, openDecisionWaitsOfCard, openOwnerWaits } from '../core/
 import { cardsNobodyHolds } from '../core/cards-nobody-holds.js'
 import { CHAINS_PROJECTION } from '../core/chain.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus, openBusWait, OWNER_ANSWER_LIFT } from '../core/db.js'
-import { byId, EITHER_JOURNAL, events, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } from '../core/events-query.js'
+import { byId, EITHER_JOURNAL, events, lastMainSha, lastPrLifecycleEvent, openPrsAmong, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } from '../core/events-query.js'
 import { CARD_DEFERRED, CARD_MOVED, CARD_PLANNED, CARD_STOPPED, CARD_UNPLANNED, DECISION_EXPIRED, DECISION_RECORDED, DECISIONS_IMPORTED, DECISIONS_PROJECTED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OBSERVED, PR_OPENED, RATCHET_THRESHOLD_SET, SHARD_EXPIRED, SLICE_PARENTS_BACKFILLED, TASK_ENQUEUED, TASK_REQUEUED } from '../core/events.js'
 import { FACTORY_WORKERS } from '../core/factory-paths.js'
 import { prOf } from '../core/identifiers.js'
 import { amendLeavesTheWidenOfTheWaitUncovered, CARD_BLOCKS, OWNER, OWNER_QUESTION_ANSWERED, ownerQuestionAnswered, ownerQuestionAnsweredAt } from '../core/inbox.js'
 import { foreignVersion, instanceOf, provenIdentity, recordWorkerIdentity, SWITCH_FLAG, UNHANDED } from '../core/node.js'
+import { previousObservationOf } from '../core/observations.js'
 import { orderDeclarationsAt, overlaps } from '../core/order/overlap.js'
 import { orderEventsFrom, prOrderTickAt } from '../core/order/turn.js'
 import { ownerWaitCommand, shardRenewalCommand } from '../core/owner-commands.js'
@@ -181,6 +183,15 @@ export function cardTransitions(): CardTransitions {
 
 export function pullRequests(db: DatabaseSync): readonly PullHead[] {
   return prs.all(db)
+}
+
+export const PR_HISTORY: PrHistory = {
+  knownOpenPrs: db => openPrsAmong(db, pullRequests(db).map(row => row.pr)),
+  lastMainSha,
+  lastObservation: (db, pr) => {
+    const row = lastPrLifecycleEvent(db, pr)
+    return row === null ? null : previousObservationOf({ ...row })
+  },
 }
 
 export function nodeSupply(): NodeSupply {
