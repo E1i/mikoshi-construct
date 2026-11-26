@@ -115,7 +115,7 @@ function reportRootRefusal(deps: TaskCloseDeps, report: string): string | null {
   return inside ? null : `--report ${report} is outside ${roots.join(' and ')}; a report lives under one of them; nothing written`
 }
 
-function pullRequestOfCard(busPath: string, id: string): number | null {
+export function pullRequestOfCard(busPath: string, id: string): number | null {
   if (!existsSync(busPath))
     return null
   const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })

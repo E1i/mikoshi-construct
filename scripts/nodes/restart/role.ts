@@ -81,7 +81,7 @@ function earliestOf(stamps: readonly string[]): string | null {
   return stamps.reduce<string | null>((earliest, ts) => earliest === null || ts < earliest ? ts : earliest, null)
 }
 
-function lastWindowEnd(db: DatabaseSync): string | null {
+export function lastWindowEnd(db: DatabaseSync): string | null {
   return latestOf(events(db, { types: [ROLE_RETURNED], valid: true, legacy: EITHER_JOURNAL })
     .flatMap(returned => returned.data?.ended === undefined || returned.data.ended === null ? [] : [returned.ts]))
 }

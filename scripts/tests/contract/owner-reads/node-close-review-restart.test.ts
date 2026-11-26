@@ -1,17 +1,24 @@
 import type { Linter } from 'eslint'
 import type { DatabaseSync } from 'node:sqlite'
 import type { Role, SilentOwnerSession } from '../../../nodes/restart/role.js'
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { ESLint } from 'eslint'
-import { describe, expect, it } from 'vitest'
-import { openBus } from '../../../core/db.js'
+import { afterEach, describe, expect, it } from 'vitest'
+import { appendEvent, openBus } from '../../../core/db.js'
 import { signStampsSince } from '../../../core/events-query.js'
-import { WINDOW_HEARTBEAT } from '../../../core/events.js'
-import { LEASE_MS } from '../../../core/lease.js'
+import { CARD_CLOSED, CARD_VERIFIED, PR_OPENED, REVIEW_RECORDED, ROLE_RETURNED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../../core/events.js'
+import { LEASE_MS, leaseQueued } from '../../../core/lease.js'
+import { keyOf, queueTask } from '../../../core/queue.js'
 import { reduce } from '../../../core/reducer.js'
-import { observeRoleStop, returnSilentRole, roleToOwner, silentOwnerSession } from '../../../nodes/restart/role.js'
+import { cardClosed, probeClosingCardIds } from '../../../nodes/close/close-executor.js'
+import { leasedAt } from '../../../nodes/close/ended-card-trees.js'
+import { pullRequestOfCard } from '../../../nodes/close/task-close.js'
+import { lastWindowEnd, observeRoleStop, returnSilentRole, roleToOwner, silentOwnerSession } from '../../../nodes/restart/role.js'
+import { earlierChangesRounds } from '../../../nodes/review/review-executor.js'
+import { sessionsUnderLiveLeases } from '../../../nodes/review/review-worker.js'
 import { busProjections } from '../../../supervisor/composition.js'
 import { recordWindowHeartbeat } from '../../../window/window-heartbeat.js'
 import { requestFromWindow, WINDOW_ACTOR } from '../../../window/window-requests.js'
@@ -127,6 +134,113 @@ describe('a silent owner session is judged from the signs past the event of the 
 
     const silent = atBase(db, at(1001 + 1.5 * LEASE_MS))!
     expect(returnSilentRole(db, at(1001 + 2.5 * LEASE_MS), ACTOR)).toEqual({ role: 'miko', handoff: HANDOFF, lastSign: silent.last_sign })
+    db.close()
+  })
+})
+
+describe('the readings the nodes now take from the owners keep their filters', () => {
+  const TS = '2026-11-20T10:00:00.000Z'
+  const ACTOR = 'worker:test:1'
+  const CARD = 4242
+  const HEAD = 'a'.repeat(40)
+  const OTHER_HEAD = 'b'.repeat(40)
+  const made: string[] = []
+
+  afterEach(() => {
+    for (const dir of made.splice(0))
+      rmSync(dir, { recursive: true, force: true })
+  })
+
+  function event(db: DatabaseSync, type: string, key: string, fields: { cardId?: number | null, pr?: number | null, head?: string | null, ts?: string, legacy?: boolean, payload?: object } = {}): void {
+    appendEvent(db, { ts: fields.ts ?? TS, type, actor: ACTOR, cardId: fields.cardId ?? null, pr: fields.pr ?? null, head: fields.head ?? null, dedupeKey: key, payload: fields.payload ?? {}, legacy: fields.legacy ?? false })
+  }
+
+  it('a card closed only in the legacy journal is closed', () => {
+    const db = openBus(':memory:')
+    event(db, CARD_CLOSED, `${CARD_CLOSED}:legacy`, { cardId: CARD, legacy: true })
+    expect(cardClosed(db, CARD)).toBe(true)
+    expect(cardClosed(db, CARD + 1)).toBe(false)
+    db.close()
+  })
+
+  it('a probe closes on a card.verified with no pull request, never on one that names a pull request', () => {
+    const db = openBus(':memory:')
+    event(db, CARD_VERIFIED, `${CARD_VERIFIED}:probe`, { cardId: CARD, payload: { report: 'reports/probe.md', verification: 'run' } })
+    event(db, CARD_VERIFIED, `${CARD_VERIFIED}:pr`, { cardId: CARD + 1, pr: 77, payload: { report: 'reports/pr.md', verification: 'run' } })
+    expect(probeClosingCardIds(db)).toEqual([CARD])
+    db.close()
+  })
+
+  it('the pull request of a card is its newest one', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pr-of-card-'))
+    made.push(dir)
+    const busPath = path.join(dir, 'bus.db')
+    const db = openBus(busPath)
+    for (const pr of [23, 11]) {
+      event(db, PR_OPENED, `${PR_OPENED}:${CARD}:${pr}`, { cardId: CARD, pr, payload: { pr } })
+      db.prepare('INSERT INTO prs (pr, card_id, state, event_id) VALUES (?, ?, \'open\', (SELECT max(id) FROM events))').run(pr, CARD)
+    }
+    db.close()
+    expect(pullRequestOfCard(busPath, String(CARD))).toBe(23)
+  })
+
+  it('a lease holds a card only until its lease_until', () => {
+    const db = openBus(':memory:')
+    const task = { queue: 'close' as const, cardId: CARD }
+    queueTask(db, TS, task)
+    leaseQueued(db, TS, keyOf(task), 'worker:close:1')
+    expect(leasedAt(db, CARD, TS)).toBe(true)
+    expect(leasedAt(db, CARD, new Date(Date.parse(TS) + 10 * LEASE_MS).toISOString())).toBe(false)
+    db.close()
+  })
+
+  it('a session under a live review lease is one whose beat carries the lease generation', () => {
+    const db = openBus(':memory:')
+    const task = { queue: 'review' as const, cardId: CARD, pr: 31, head: HEAD }
+    queueTask(db, TS, task)
+    const lease = leaseQueued(db, TS, keyOf(task), 'worker:review:1')!
+    for (const [session, gen] of [['live', lease.leaseGen], ['stale', lease.leaseGen + 1]] as const)
+      event(db, SESSION_HEARTBEAT, `${SESSION_HEARTBEAT}:${CARD}:${session}`, { cardId: CARD, payload: { session, task_key: lease.taskKey, lease_gen: gen } })
+    expect(sessionsUnderLiveLeases(db)).toEqual(new Set(['live']))
+    db.close()
+  })
+
+  it('the earlier changes rounds are the ones on other heads, newest first', () => {
+    const db = openBus(':memory:')
+    const PR = 41
+    event(db, REVIEW_RECORDED, `${REVIEW_RECORDED}:other:1`, { cardId: CARD, pr: PR, head: OTHER_HEAD, payload: { head: OTHER_HEAD, verdict: 'changes', findings: ['older'] } })
+    event(db, REVIEW_RECORDED, `${REVIEW_RECORDED}:other:2`, { cardId: CARD, pr: PR, head: OTHER_HEAD, payload: { head: OTHER_HEAD, verdict: 'pass', findings: [] } })
+    event(db, REVIEW_RECORDED, `${REVIEW_RECORDED}:same:1`, { cardId: CARD, pr: PR, head: HEAD, payload: { head: HEAD, verdict: 'changes', findings: ['same head'] } })
+    const task = { queue: 'review' as const, cardId: CARD, pr: PR, head: HEAD }
+    queueTask(db, TS, task)
+    const lease = leaseQueued(db, TS, keyOf(task), 'worker:review:1')!
+    expect(earlierChangesRounds(db, lease)).toEqual([{ head: OTHER_HEAD, key: `${REVIEW_RECORDED}:other:1`, findings: ['older'] }])
+    db.close()
+  })
+
+  it('the last end of the window is the latest role.returned that names an end', () => {
+    const db = openBus(':memory:')
+    const ends = ['2026-11-20T09:00:00.000Z', '2026-11-20T11:00:00.000Z', '2026-11-20T10:00:00.000Z']
+    ends.forEach((ts, at) => event(db, ROLE_RETURNED, `${ROLE_RETURNED}:${at}`, { ts, payload: { role: 'miko', ended: 'close' } }))
+    event(db, ROLE_RETURNED, `${ROLE_RETURNED}:no-end`, { ts: '2026-11-20T12:00:00.000Z', payload: { role: 'miko' } })
+    expect(lastWindowEnd(db)).toBe('2026-11-20T11:00:00.000Z')
+    db.close()
+  })
+
+  it('with two owner sessions the earlier one is judged from every sign past its own event', () => {
+    const db = openBus(':memory:')
+    const at = (ms: number): string => new Date(Date.parse(TS) + ms).toISOString()
+    observeRoleStop(db, at(0), 'worker:operator:1', { role: 'operator', handoff: '/handoff/operator.md', status: 'CONTINUE', reason: 'context', raised: false })
+    reduce(db, 'pending', busProjections())
+    expect(roleToOwner(db, at(10), 'worker:restart:w')).toMatchObject({ role: 'operator' })
+    reduce(db, 'pending', busProjections())
+    expect(recordWindowHeartbeat(db, at(20), 'owner-session')).toBe(true)
+    observeRoleStop(db, at(10 * LEASE_MS), 'worker:miko:1', { role: 'miko', handoff: '/handoff/miko.md', status: 'CONTINUE', reason: 'context', raised: false })
+    reduce(db, 'pending', busProjections())
+    expect(roleToOwner(db, at(10 * LEASE_MS + 10), 'worker:restart:w')).toMatchObject({ role: 'miko' })
+    reduce(db, 'pending', busProjections())
+    expect((db.prepare(OWNED_ROLES).all() as unknown[]).length).toBe(2)
+    expect(returnSilentRole(db, at(12 * LEASE_MS), 'worker:restart:w')).toEqual({ role: 'operator', handoff: '/handoff/operator.md', lastSign: at(20) })
     db.close()
   })
 })

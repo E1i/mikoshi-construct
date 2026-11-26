@@ -255,13 +255,13 @@ function extendedBefore(db: DatabaseSync, cardId: number): boolean {
   return latest(db, { types: [ROUND_EXTENDED], card: cardId }) !== null
 }
 
-interface ChangesRound {
+export interface ChangesRound {
   head: string | null
   key: string
   findings: string[]
 }
 
-function earlierChangesRounds(db: DatabaseSync, lease: Lease): ChangesRound[] {
+export function earlierChangesRounds(db: DatabaseSync, lease: Lease): ChangesRound[] {
   return verdictsOn(db, lease.pr, { newestFirst: true })
     .filter(row => row.head !== lease.head && row.data?.verdict === CHANGES)
     .map(row => ({ head: row.head, key: row.dedupe_key, findings: strings(row.data?.findings) }))

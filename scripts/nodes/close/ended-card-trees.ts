@@ -129,6 +129,10 @@ function savedFields(saved: SavedTree, dropped: boolean): Pick<EndedTree, 'patch
   }
 }
 
+export function leasedAt(db: DatabaseSync, cardId: number, now: string): boolean {
+  return tasksOfCard(db, cardId, { state: LEASED }).some(task => task.lease_until !== null && task.lease_until > now)
+}
+
 export class EndedCardTrees {
   private readonly homes: Set<string>
   private readonly bareIdHomes: Set<string>
@@ -187,8 +191,7 @@ export class EndedCardTrees {
   }
 
   private leased(cardId: number): boolean {
-    const now = this.clock().toISOString()
-    return tasksOfCard(this.db, cardId, { state: LEASED }).some(task => task.lease_until !== null && task.lease_until > now)
+    return leasedAt(this.db, cardId, this.clock().toISOString())
   }
 
   private parked(tree: string, cardId: number, changes: string[]): string | null {
