@@ -29,7 +29,7 @@ const CUT_TIMEOUT_MS = 120_000
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const PORT_FILE = path.join(REPO_ROOT, 'scripts/ports/task-start.ts')
 const PORTS_TO_BUS = `${BOUNDARY_PREFIX}ports->bus`
-const PORTS_TO_BUS_WITHOUT_TASK_START = 7
+const PORTS_TO_BUS_WITHOUT_TASK_START = 6
 const REPO_RUN_TIMEOUT = 180_000
 const REFUSAL = `[task:start] a window does not start a task itself: the bus cuts its tree, ask it with pnpm bus:request tree.cut --card ${CARD_ID}; nothing written`
 const WINDOWS: readonly [string, NodeJS.ProcessEnv][] = [
@@ -101,7 +101,7 @@ function startedOutsideAnyRepository(marks: NodeJS.ProcessEnv, argv: string[]): 
   return { stderr: stderr.trim(), status }
 }
 
-it('the task start port takes the bus contract from its root, so ports->bus holds 7 in the graph and the ratchet', { timeout: REPO_RUN_TIMEOUT }, () => {
+it('the task start port takes the bus contract from its root, so ports->bus holds 6 in the graph and the ratchet', { timeout: REPO_RUN_TIMEOUT }, () => {
   expect(readFileSync(PORT_FILE, 'utf8')).not.toContain('core/bus-adapter')
   expect(readRatchet(REPO_ROOT)[PORTS_TO_BUS]).toBe(PORTS_TO_BUS_WITHOUT_TASK_START)
   expect(boundaryNumbers(boundaryReport(REPO_ROOT).violations)[PORTS_TO_BUS]).toBe(PORTS_TO_BUS_WITHOUT_TASK_START)

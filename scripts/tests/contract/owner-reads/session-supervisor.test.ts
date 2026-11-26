@@ -16,7 +16,7 @@ const NAMED_TABLE = /^SQL names (\w+),/
 const LINT_MS = 120_000
 
 const OWNER_OF: Record<string, string> = {
-  'scripts/ports/bus-read.ts': 'ports',
+  'scripts/ports/bus-read.ts': 'bus',
   'scripts/supervisor/stalled-sessions.ts': 'session',
   'scripts/intake/witness-fields-backfill.ts': 'card-record',
   'scripts/supervisor/bus-heal.ts': 'session',

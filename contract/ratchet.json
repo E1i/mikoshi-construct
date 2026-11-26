@@ -34,7 +34,7 @@
   "boundary:node-review->composition-root": 1,
   "boundary:node-update->cost": 1,
   "boundary:node-update->node-merge": 1,
-  "boundary:ports->bus": 7,
+  "boundary:ports->bus": 6,
   "boundary:ports->card-model": 4,
   "boundary:ports->card-record": 2,
   "boundary:ports->command-registry": 1,
