@@ -303,8 +303,21 @@ function anOpenPrOfItsOwn(db: DatabaseSync, cardId: number): boolean {
   return prsOfCard(db, cardId).some(pr => pr.state === 'open')
 }
 
+const TURNS = [CARD_ADMITTED, ...SESSION_STARTS, ...SESSION_ENDS]
+
+function everStarted(db: DatabaseSync, cardId: number): boolean {
+  return latest(db, { card: cardId, types: SESSION_STARTS }) !== null
+}
+
+function anOpenTurn(db: DatabaseSync, cardId: number): boolean {
+  const turn = latest(db, { card: cardId, types: TURNS })
+  if (turn?.type === CARD_STOPPED)
+    return true
+  return turn?.type === CARD_ADMITTED && everStarted(db, cardId)
+}
+
 function closableOnMain(db: DatabaseSync, cardId: number): boolean {
-  return !aLiveSession(db, cardId) && !anOpenPrOfItsOwn(db, cardId)
+  return !aLiveSession(db, cardId) && !anOpenPrOfItsOwn(db, cardId) && !anOpenTurn(db, cardId)
 }
 
 export class WitnessExecutor {

@@ -162,13 +162,14 @@ describe('a witness green on main closes a card only when no session runs for it
     expect(closes(w.db)).toBe(1)
   })
 
-  it('closes the card once its session stopped', async () => {
+  it('keeps the card open once its session stopped, since the stop still waits for its answer', async () => {
     const w = greenOnTheBase()
     started(w)
     stopped(w)
     await witnessOnMain(w)
 
-    expect(closes(w.db)).toBe(1)
+    expect(verdicts(w.db)).toEqual(['green'])
+    expect(closes(w.db)).toBe(0)
   })
 
   it('a witness green on the base does not close a card with an open pull request of its own', async () => {
