@@ -3836,7 +3836,20 @@
         "contract": [
           "scripts/intake/lane-json.ts",
           "scripts/intake/parking-reads.ts",
-          "src/commands/intake/**"
+          "src/commands/intake/admit.ts",
+          "src/commands/intake/amend.ts",
+          "src/commands/intake/bash-syntax.ts",
+          "src/commands/intake/check.ts",
+          "src/commands/intake/confirm.ts",
+          "src/commands/intake/draft.ts",
+          "src/commands/intake/export.ts",
+          "src/commands/intake/facts.ts",
+          "src/commands/intake/index.ts",
+          "src/commands/intake/move.ts",
+          "src/commands/intake/numbers.ts",
+          "src/commands/intake/parking-tree.ts",
+          "src/commands/intake/shared-code-masks.ts",
+          "src/commands/intake/slice.ts"
         ],
         "may_use": [
           "layout",
@@ -3862,7 +3875,8 @@
           "!scripts/intake/card-archive.ts",
           "!scripts/intake/card-contract.ts",
           "!scripts/intake/intake.ts",
-          "!scripts/intake/witness-fields-backfill.ts"
+          "!scripts/intake/witness-fields-backfill.ts",
+          "!src/commands/intake/command-word.ts"
         ],
         "status": "decided"
       },
@@ -4235,6 +4249,7 @@
       },
       "ports": {
         "concepts": [
+          "ci-reading",
           "process-table"
         ],
         "contract": [
@@ -4262,7 +4277,10 @@
           "scripts/ports/tree-publish.ts",
           "scripts/ports/witnesses.ts",
           "scripts/ports/worktree.ts",
-          "scripts/core/bus-contract.ts"
+          "scripts/core/bus-contract.ts",
+          "scripts/ci/required.ts",
+          "src/commands/ci/state.ts",
+          "src/commands/intake/command-word.ts"
         ],
         "may_use": [
           "layout",
@@ -4274,6 +4292,9 @@
           "scripts/core/gh-callers.known.json",
           "scripts/core/bus-contract.ts",
           "scripts/core/process-listing.ts",
+          "scripts/ci/required.ts",
+          "src/commands/ci/state.ts",
+          "src/commands/intake/command-word.ts",
           "!scripts/ports/bus-read.ts",
           "!scripts/ports/client/codex/adapter.ts",
           "!scripts/ports/client/contract.ts",
@@ -4415,7 +4436,6 @@
       },
       "quality": {
         "concepts": [
-          "ci-reading",
           "layers"
         ],
         "contract": [
@@ -4425,13 +4445,38 @@
           "scripts/cli/check-catalog.ts",
           "scripts/cli/check-matrix.ts",
           "scripts/cli/mutate.ts",
-          "scripts/ci/**",
           "scripts/quality/**",
           "scripts/privacy/**",
-          "src/commands/ci/**",
           "src/commands/mutate/**",
           "src/commands/test-runner.ts",
-          "src/card/covering-tests.ts"
+          "src/card/covering-tests.ts",
+          "scripts/ci/browser-tests-ran.mjs",
+          "scripts/ci/card-automaton.ts",
+          "scripts/ci/card-runs.ts",
+          "scripts/ci/classify.ts",
+          "scripts/ci/fast-path.ts",
+          "scripts/ci/file-weights-reporter.ts",
+          "scripts/ci/gate-mutations.ts",
+          "scripts/ci/gate-runs.ts",
+          "scripts/ci/layers.ts",
+          "scripts/ci/no-match-reporter.ts",
+          "scripts/ci/prepush.ts",
+          "scripts/ci/sandbox-failing.jsonl",
+          "scripts/ci/sandbox-failing.ts",
+          "scripts/ci/sandbox-liveness.ts",
+          "scripts/ci/sandbox-refusals.ts",
+          "scripts/ci/sandbox-trace-child.mjs",
+          "scripts/ci/sandbox-trace.config.ts",
+          "scripts/ci/sandbox-trace.ts",
+          "scripts/ci/select.ts",
+          "scripts/ci/shard.ts",
+          "scripts/ci/test-command.ts",
+          "scripts/ci/test-weights.json",
+          "scripts/ci/test-weights.ts",
+          "scripts/ci/tree-scanners.ts",
+          "scripts/ci/verdict.ts",
+          "scripts/ci/vitest-report.ts",
+          "scripts/ci/weights-law.ts"
         ],
         "may_use": [
           "layout",
@@ -4459,10 +4504,10 @@
           "scripts/ci/**",
           "scripts/quality/**",
           "scripts/privacy/**",
-          "src/commands/ci/**",
           "src/commands/mutate/**",
           "src/commands/test-runner.ts",
-          "src/card/covering-tests.ts"
+          "src/card/covering-tests.ts",
+          "!scripts/ci/required.ts"
         ],
         "status": "decided"
       },
