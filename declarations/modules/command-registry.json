@@ -1,6 +1,6 @@
 {
   "module": "command-registry",
-  "layer": "core",
+  "layer": "ports",
   "paths": [
     "scripts/core/owner-commands.ts"
   ],
