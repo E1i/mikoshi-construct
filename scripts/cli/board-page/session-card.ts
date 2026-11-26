@@ -1,7 +1,21 @@
-import type { BusService, SubagentReading } from '../../../src/commands/board/bus.js'
 import type { EventType } from '../../core/events.js'
-import type { BusRead } from '../../ports/bus-read.js'
 import { ANSWER_STEP, CARD_CLOSED, MERGE_DONE, TASK_LEASED, UPDATE_DONE, WITNESS_PHASE, WITNESS_RECORDED } from '../../core/events.js'
+
+export interface AgentReading {
+  name: string
+  context: number | null
+  spent: number | null
+  at: string | null
+}
+
+export interface CardService {
+  role: string
+  task: string
+  step: string
+  session?: string
+  gauges?: { model: string | null }
+  subagents?: readonly AgentReading[]
+}
 
 export interface Gauges {
   context: number | null
@@ -103,35 +117,43 @@ export const NO_SESSION_VIEW: SessionView = { startedAt: null, expectedMs: null,
 export const WITNESS_ROLE = 'witness'
 export const WITNESS_STEPS = ['base', 'head', 'verdict'] as const
 const WITNESS_STEP_ORDER: readonly string[] = WITNESS_STEPS
-function recordedAs(read: BusRead, type: EventType, word: string): NodeOutcome | null {
-  const row = read.slice(type, [], 'last')[0]
+export interface SlicedRow {
+  id: number
+  ts: string | null
+  fields: Readonly<Record<string, unknown>>
+}
+
+export type EventSlices = (type: EventType, fields: readonly string[], from: number, last: boolean) => readonly SlicedRow[]
+
+function recordedAs(slices: EventSlices, from: number, type: EventType, word: string): NodeOutcome | null {
+  const row = slices(type, [], from, true)[0]
   return row === undefined ? null : { word, at: row.ts }
 }
 
-function verdictOf(read: BusRead): NodeOutcome | null {
-  const row = read.slice(WITNESS_RECORDED, ['verdict'], 'last')[0]
+function verdictOf(slices: EventSlices, from: number): NodeOutcome | null {
+  const row = slices(WITNESS_RECORDED, ['verdict'], from, true)[0]
   return row === undefined ? null : { word: typeof row.fields.verdict === 'string' ? row.fields.verdict : NONE, at: row.ts }
 }
 
-const OUTCOMES: Readonly<Record<string, (read: BusRead) => NodeOutcome | null>> = {
+const OUTCOMES: Readonly<Record<string, (slices: EventSlices, from: number) => NodeOutcome | null>> = {
   [WITNESS_ROLE]: verdictOf,
-  update: read => recordedAs(read, UPDATE_DONE, 'updated'),
-  merge: read => recordedAs(read, MERGE_DONE, 'merged'),
-  close: read => recordedAs(read, CARD_CLOSED, 'closed'),
+  update: (slices, from) => recordedAs(slices, from, UPDATE_DONE, 'updated'),
+  merge: (slices, from) => recordedAs(slices, from, MERGE_DONE, 'merged'),
+  close: (slices, from) => recordedAs(slices, from, CARD_CLOSED, 'closed'),
 }
 export const SESSIONLESS_ROLES: ReadonlySet<string> = new Set(Object.keys(OUTCOMES))
 
-export function stepsAfter(read: BusRead, lease: number): RoundStep[] {
-  return read.slice(ANSWER_STEP, ['step', 'seconds']).filter(row => row.id > lease).flatMap(({ fields }) => typeof fields.step === 'string' && typeof fields.seconds === 'number' ? [{ step: fields.step, seconds: fields.seconds }] : [])
+export function stepsAfter(slices: EventSlices, lease: number): RoundStep[] {
+  return slices(ANSWER_STEP, ['step', 'seconds'], lease + 1, false).flatMap(({ fields }) => typeof fields.step === 'string' && typeof fields.seconds === 'number' ? [{ step: fields.step, seconds: fields.seconds }] : [])
 }
 
-export function nodeViewOf(read: BusRead, role: string): SessionView {
-  const lease = read.slice(TASK_LEASED, ['queue']).filter(row => row.fields.queue === role).at(-1)
-  const since = read.where({ from: (lease?.id ?? 0) + 1 })
+export function nodeViewOf(slices: EventSlices, role: string): SessionView {
+  const lease = slices(TASK_LEASED, ['queue'], 0, false).filter(row => row.fields.queue === role).at(-1)
+  const from = (lease?.id ?? 0) + 1
   const phases = role !== WITNESS_ROLE
     ? []
-    : since.slice(WITNESS_PHASE, ['phase', 'witness']).flatMap(({ ts, fields }) => typeof fields.phase === 'string' && ts !== null ? [{ phase: fields.phase, witness: typeof fields.witness === 'string' ? fields.witness : null, at: ts }] : [])
-  return { startedAt: lease?.ts ?? null, expectedMs: null, steps: [], terminal: null, node: { phases, outcome: OUTCOMES[role]?.(since) ?? null } }
+    : slices(WITNESS_PHASE, ['phase', 'witness'], from, false).flatMap(({ ts, fields }) => typeof fields.phase === 'string' && ts !== null ? [{ phase: fields.phase, witness: typeof fields.witness === 'string' ? fields.witness : null, at: ts }] : [])
+  return { startedAt: lease?.ts ?? null, expectedMs: null, steps: [], terminal: null, node: { phases, outcome: OUTCOMES[role]?.(slices, from) ?? null } }
 }
 
 export function escaped(text: string): string {
@@ -161,7 +183,7 @@ export function eddiesBar(name: string, value: number | null, denominator: numbe
 
 const compactOrNone = (value: number | null): string => value === null ? NONE : compact(value)
 const heatOf = (value: number | null, limit: number | null, warn: number | null): number => value === null || limit === null ? 0 : value >= limit ? 2 : Number(warn !== null && value >= limit * warn)
-export const agentHeat = (agent: SubagentReading, limits: EddiesLimits): number => Math.max(heatOf(agent.context, limits.contextLimit, limits.warnRatio), heatOf(agent.spent, limits.agentSpend, limits.warnRatio))
+export const agentHeat = (agent: AgentReading, limits: EddiesLimits): number => Math.max(heatOf(agent.context, limits.contextLimit, limits.warnRatio), heatOf(agent.spent, limits.agentSpend, limits.warnRatio))
 
 export function minutesBetween(from: string, to: string): number {
   return Math.max(0, Math.round((Date.parse(to) - Date.parse(from)) / MINUTE_MS))
@@ -171,12 +193,12 @@ export function clockOf(stamp: string): string {
   return stamp.slice(TIME_OF_DAY.from, TIME_OF_DAY.to)
 }
 
-function agentRow(agent: SubagentReading, at: string, limits: EddiesLimits, words: AgentWords): string {
+function agentRow(agent: AgentReading, at: string, limits: EddiesLimits, words: AgentWords): string {
   const pulse = agent.at === null ? NONE : words.pulse(minutesBetween(agent.at, at))
   return `<li${AGENT_HEAT[agentHeat(agent, limits)]}><span class="svc-agent-name">${escaped(agent.name)}</span><span>CTX ${compactOrNone(agent.context)}</span><span>SPENT ${compactOrNone(agent.spent)}</span><span>${escaped(pulse)}</span></li>`
 }
 
-export function agentsLine(service: BusService, at: string, limits: EddiesLimits, words: AgentWords): string {
+export function agentsLine(service: CardService, at: string, limits: EddiesLimits, words: AgentWords): string {
   const agents = service.subagents ?? []
   if (agents.length === 0)
     return ''
@@ -334,14 +356,14 @@ function nodeBlock(role: string, view: SessionView, node: NodeView, now: string)
   return `<div class="round-steps" data-node="${escaped(role)}">${nodeSteps(role, node)}<span class="round-step-now">${escaped(nodeReading(view, node, now))}</span></div>`
 }
 
-function liveLines(service: BusService, view: SessionView, parts: SessionCardParts): string[] {
+function liveLines(service: CardService, view: SessionView, parts: SessionCardParts): string[] {
   const node = view.node ?? (SESSIONLESS_ROLES.has(service.role) ? { phases: [], outcome: null } : null)
   if (node !== null)
     return [nodeState(node), nodeBlock(service.role, view, node, parts.now)]
   return [stateLine(service.step, parts.over), terminalBlock(view.terminal, parts.now)]
 }
 
-export function sessionCard(service: BusService, view: SessionView, parts: SessionCardParts): string {
+export function sessionCard(service: CardService, view: SessionView, parts: SessionCardParts): string {
   return [
     `<div class="svc bevel" data-role="${escaped(service.role)}"${parts.opener}>`,
     `<div class="svc-top"><span class="svc-kind">${escaped(service.role)}</span><span class="lore">Runner</span><span class="svc-target">${escaped(service.task)}</span>${parts.hint}</div>`,

@@ -13,7 +13,7 @@ import { escaped, printBoard } from '../../cli/board-page.js'
 import { mikoPanel } from '../../cli/board-page/miko-panel.js'
 import { ROUND_COLOURS, roundColour, sessionCard, terminalOf } from '../../cli/board-page/session-card.js'
 import { BUS_VERSION } from '../../core/bus-version.js'
-import { ANSWER_STEP, SESSION_HEARTBEAT, TASK_LEASED, WINDOW_HEARTBEAT } from '../../core/events.js'
+import { ANSWER_STEP, CARD_STARTED, MERGE_DONE, SESSION_HEARTBEAT, TASK_LEASED, WINDOW_HEARTBEAT, WITNESS_PHASE } from '../../core/events.js'
 
 const NOW = new Date('2026-10-20T08:00:00.000Z')
 const CARD = 861
@@ -191,5 +191,55 @@ describe('the board page', () => {
     expect(card).toContain('<span class="round-step-now">spawn · 7 min</span>')
     expect(card).toContain(`data-round-start="${minutesAgo(8)}"`)
     expect(card).toContain('no data · started 07:52:00 · pulse 1 min ago')
+  })
+})
+
+const NODE_TRANSCRIPT_CAPTIONS = /NO TRANSCRIPT READ|LAST · |NOW · |CAUSE UNKNOWN|class="term/
+
+function nodePageOf(queue: string, events: SeedEvent[]): string {
+  const root = mkdtempSync(path.join(tmpdir(), 'board-node-tile-'))
+  roots.push(root)
+  const busPath = path.join(root, 'bus.db')
+  writeBus(busPath, { cards: [{ id: CARD, state: 'review', lane: 'lane-1', line: `#${CARD} sessionless [implement/construct/M/cheap/auto]`, since: minutesAgo(30) }], tasks: [{ queue, card: CARD, pr: 15, head: 'abc1234', state: 'leased' }], events })
+  const db = new DatabaseSync(busPath)
+  db.exec('ALTER TABLE card_bodies ADD COLUMN admission_event_id INTEGER; ALTER TABLE card_bodies ADD COLUMN text_sha TEXT NOT NULL DEFAULT \'\'')
+  db.close()
+  const eddiesFile = path.join(root, 'eddies.json')
+  writeFileSync(eddiesFile, JSON.stringify({ contextLimit: 1_000_000, sessionSpend: 10_000_000, agentSpend: 1_000_000, warnRatio: 0.8 }))
+  let html = ''
+  expect(printBoard(busPath, NOW, (text) => {
+    html += text
+  }, path.join(root, 'miko.md'), 'html', eddiesFile)).toBe(0)
+  const start = html.indexOf(`<div class="svc bevel" data-role="${queue}"`)
+  expect(start).toBeGreaterThanOrEqual(0)
+  const next = html.indexOf('<div class="svc bevel"', start + 1)
+  return html.slice(start, next === -1 ? undefined : next)
+}
+
+function nodeEvent(type: string, minutes: number, payload: Record<string, unknown>): SeedEvent {
+  return { ts: minutesAgo(minutes), type, card: CARD, payload: JSON.stringify(payload) }
+}
+
+describe('a sessionless node tile on the board page', () => {
+  it('a witness tile reads its own lease and steps from the bus and never the launch session transcript', () => {
+    const tile = nodePageOf('witness', [
+      nodeEvent(CARD_STARTED, 20, { session: 'launch-session', worktree: '/nowhere/861' }),
+      nodeEvent(TASK_LEASED, 6, { queue: 'witness' }),
+      nodeEvent(WITNESS_PHASE, 5, { phase: 'base', witness: 'W1', task_key: 'witness:861' }),
+      nodeEvent(WITNESS_PHASE, 2, { phase: 'head', witness: 'W1', task_key: 'witness:861' }),
+    ])
+    expect(tile).toContain('<div class="round-steps" data-node="witness"><ol><li data-passed>base</li><li data-current>head</li><li>verdict</li></ol><span class="round-step-now">W1 · head · 2 min</span></div>')
+    expect(tile).toContain('<div class="svc-state" data-state="acting">RUNNING · W1 ON HEAD</div>')
+    expect(tile).not.toMatch(NODE_TRANSCRIPT_CAPTIONS)
+  })
+
+  it('a merge tile shows its lease time, then its recorded outcome, and no transcript line', () => {
+    const leased = nodePageOf('merge', [nodeEvent(CARD_STARTED, 20, { session: 'launch-session', worktree: '/nowhere/861' }), nodeEvent(TASK_LEASED, 3, { queue: 'merge' })])
+    expect(leased).toContain('<div class="round-steps" data-node="merge"><span class="round-step-now">leased · 3 min</span></div>')
+    expect(leased).toContain('ROUND TIME ELAPSED')
+    expect(leased).not.toMatch(NODE_TRANSCRIPT_CAPTIONS)
+    const merged = nodePageOf('merge', [nodeEvent(TASK_LEASED, 3, { queue: 'merge' }), nodeEvent(MERGE_DONE, 1, { commit: 'f'.repeat(40) })])
+    expect(merged).toContain('<span class="round-step-now">merged · recorded 07:59:00</span>')
+    expect(merged).toContain('RECORDED · MERGED')
   })
 })

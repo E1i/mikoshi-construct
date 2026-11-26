@@ -10,7 +10,7 @@ import type { CardFields } from '../intake/card-contract.js'
 import type { WitnessRecordOnHead, WitnessTable } from '../intake/witness-fields-backfill.js'
 import type { RoundKind, RoundSample } from '../supervisor/expected-time.js'
 import type { RunsGroup, RunsReading } from './board-page/runs-html.js'
-import type { AgentWords, EddiesLimits, Gauges, SessionView } from './board-page/session-card.js'
+import type { AgentWords, EddiesLimits, EventSlices, Gauges, SessionView } from './board-page/session-card.js'
 import type { BoardWarning, SessionContext } from './board-warnings.js'
 import type { CardChain } from './card-chain.js'
 import { createHash } from 'node:crypto'
@@ -275,15 +275,16 @@ function cardLineOf(limits: EddiesLimits, task: string, facts: Pick<BusFacts, 'c
 function sessionViewOf(db: DatabaseSync, service: BusService, cardLine: string | null, samples: () => readonly RoundSample[], transcripts: TranscriptReader): SessionView {
   const card = Number(CARD_TASK.exec(service.task)?.[1])
   const read = new BusRead(db).where({ card })
+  const slices: EventSlices = (type, fields, from, last) => read.where({ from }).slice(type, fields as never[], last ? 'last' : 'all')
   if (SESSIONLESS_ROLES.has(service.role))
-    return nodeViewOf(read, service.role)
+    return nodeViewOf(slices, service.role)
   const session = cardSessionOf(db, card)
   const lease = read.slice(TASK_LEASED, ['queue'], 'last')[0]
   const kind = ROUND_QUEUES[service.role]
   const expected = kind === undefined ? null : expectedMinutes(samples(), kind, shapeOf(cardLine))
   const sessionId = service.session ?? session?.session ?? null
   const text = session?.worktree == null || sessionId === null ? null : transcripts(session.worktree, sessionId)
-  const steps = lease === undefined || service.role !== STEPPED_ROLE ? [] : stepsAfter(read, lease.id)
+  const steps = lease === undefined || service.role !== STEPPED_ROLE ? [] : stepsAfter(slices, lease.id)
   return { startedAt: lease?.ts ?? session?.startedAt ?? null, expectedMs: expected === null ? null : expected * MINUTE_MS, steps, terminal: terminalOf(text, transcript => readTranscript(transcript).actions) }
 }
 

@@ -5405,8 +5405,7 @@
           "BusSlot": "interface BusSlot { queue: string; used: number; total: number | null; }",
           "CardStage": "type CardStage = typeof CARD_STAGES[number]",
           "CardsAtStage": "interface CardsAtStage { stage: CardStage; cards: number[]; }",
-          "CrawlerReading": "interface CrawlerReading { id: string; kind: string; description: string | null; startedAt: string | null; state: string; context: number | null; spent: number | null; }",
-          "SubagentReading": "interface SubagentReading { name: string; context: number | null; spent: number | null; at: string | null; }"
+          "CrawlerReading": "interface CrawlerReading { id: string; kind: string; description: string | null; startedAt: string | null; state: string; context: number | null; spent: number | null; }"
         }
       },
       "src/commands/board/goal.ts": {

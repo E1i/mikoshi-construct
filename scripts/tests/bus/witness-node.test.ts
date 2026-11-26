@@ -11,7 +11,7 @@ import { parkingFileText } from '../../../src/card/parking.js'
 import { textSha } from '../../../src/card/text-sha.js'
 import { witnessFieldsLine } from '../../../src/card/witness-fields.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { CARD_ADMITTED, PR_OBSERVED, WITNESS_RECORDED } from '../../core/events.js'
+import { CARD_ADMITTED, PR_OBSERVED, WITNESS_PHASE, WITNESS_RECORDED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
 import { gitWitnessTrees, realTimedShell } from '../../nodes/witness/witness-executor.js'
 import { WitnessNode } from '../../nodes/witness/witness-worker.js'
@@ -379,5 +379,17 @@ describe('the witness node', () => {
     })
 
     expect(installs).toEqual(['pnpm install --frozen-lockfile'])
+  })
+})
+
+describe('the steps the witness node records', () => {
+  it('records one witness.phase per witness on the base and on the head, with the witness id, under one task key', async () => {
+    const w = world([], 'done.txt')
+    await witnessRun(w)
+
+    const steps = (w.db.prepare('SELECT ts, payload FROM events WHERE type = ? ORDER BY id').all(WITNESS_PHASE) as { ts: string, payload: string }[]).map(row => JSON.parse(row.payload) as Record<string, string>)
+    expect(steps.map(({ phase, witness }) => `${witness} ${phase}`)).toEqual(['W1 base', 'W2 base', 'W1 head', 'W2 head'])
+    expect(new Set(steps.map(step => step.task_key)).size).toBe(1)
+    expect(recorded(w)).toHaveLength(1)
   })
 })
