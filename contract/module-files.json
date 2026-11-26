@@ -463,7 +463,6 @@
     "scripts/tests/bus/earlyclose.test.ts",
     "scripts/tests/bus/eddiesline.test.ts",
     "scripts/tests/bus/eddiesline150.test.ts",
-    "scripts/tests/bus/ended-card-trees.test.ts",
     "scripts/tests/bus/executor.test.ts",
     "scripts/tests/bus/fault-stop-dirty-tree.test.ts",
     "scripts/tests/bus/first-tick-bound.test.ts",
@@ -1027,6 +1026,7 @@
     "scripts/tests/morse/fixtures/world.sh",
     "scripts/tests/morse/rules.test.ts",
     "scripts/tests/nodes/answer-duties.test.ts",
+    "scripts/tests/nodes/close/artifact-lifetimes.test.ts",
     "scripts/tests/nodes/close/dropped-card-frees-everything.test.ts",
     "scripts/tests/nodes/empty-round-wait-reads-current-state.test.ts",
     "scripts/tests/nodes/launch-latest-admission.test.ts",
@@ -1606,6 +1606,7 @@
     "scripts/nodes/answer/duties/tree.ts"
   ],
   "node-close": [
+    "scripts/nodes/close/artifact-lifetimes.ts",
     "scripts/nodes/close/close-executor.ts",
     "scripts/nodes/close/close-worker.ts",
     "scripts/nodes/close/ended-card-trees.ts",

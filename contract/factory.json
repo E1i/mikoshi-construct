@@ -2521,6 +2521,7 @@
         "derived": false,
         "directory": true,
         "namedIn": [
+          "scripts/nodes/close/artifact-lifetimes.ts",
           "scripts/nodes/review/dry-run-record.ts",
           "scripts/nodes/review/review-worker.ts",
           "scripts/window/window-request-tools.ts"
