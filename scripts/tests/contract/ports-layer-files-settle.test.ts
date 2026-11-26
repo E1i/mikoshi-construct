@@ -14,6 +14,22 @@ const MODULE_FILES = readJson<Record<string, string[]>>('contract/module-files.j
 
 const PORTS_TO_BUS_CEILING = 6
 const PORTS_TO_EVENTS_CEILING = 2
+const PORTS_ROWS_AT_BASE: Record<string, number> = {
+  'boundary:ports->bus': PORTS_TO_BUS_CEILING,
+  'boundary:ports->card-model': 4,
+  'boundary:ports->card-record': 2,
+  'boundary:ports->command-registry': 1,
+  'boundary:ports->cost': 1,
+  'boundary:ports->events': PORTS_TO_EVENTS_CEILING,
+  'boundary:ports->intake': 5,
+  'boundary:ports->node-answer': 1,
+  'boundary:ports->pr-record': 1,
+  'boundary:ports->project': 9,
+  'boundary:ports->quality': 5,
+  'boundary:ports->session': 4,
+  'boundary:ports->ui': 1,
+  'boundary:ports->window': 1,
+}
 const MOVED_TO_LAYOUT = ['scripts/core/bus-path.ts', 'scripts/core/errors.ts']
 const DECLARED_IN_BUS = ['scripts/ports/bus-read.ts', 'scripts/ports/worktree-home.ts']
 
@@ -21,6 +37,12 @@ describe('the ports layer files settle', () => {
   it('ports->bus and ports->events fall in the ratchet', () => {
     expect(RATCHET['boundary:ports->bus']).toBeLessThanOrEqual(PORTS_TO_BUS_CEILING)
     expect(RATCHET['boundary:ports->events']).toBeLessThanOrEqual(PORTS_TO_EVENTS_CEILING)
+  })
+
+  it('no ports row grew past the base and no new ports row appeared', () => {
+    const portsRows = Object.entries(RATCHET).filter(([row]) => row.startsWith('boundary:ports->'))
+    const grown = portsRows.filter(([row, count]) => count > (PORTS_ROWS_AT_BASE[row] ?? 0))
+    expect(grown).toEqual([])
   })
 
   it('bus-path and errors belong to layout, bus-read and worktree-home to bus, and none of them to ports', () => {
