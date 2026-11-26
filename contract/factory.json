@@ -5206,8 +5206,8 @@
           "CARD_STAGES"
         ],
         "functions": {
-          "latestCardEvents": "(db: BusDb, perCard: number): Map<number, BusCardEvent[]>",
-          "openTasks": "(db: BusDb): BusTask[]"
+          "latestCardEvents": "(bus: BoardBus, db: BusDb, perCard: number): Map<number, BusCardEvent[]>",
+          "openTasks": "(bus: BoardBus, db: BusDb): BusTask[]"
         },
         "reexports": [
           "BusPanelFacts",
@@ -5245,6 +5245,7 @@
       },
       "src/commands/board/index.ts": {
         "constants": [
+          "BOARD_BUS: BoardBus",
           "BOARD_EXIT"
         ],
         "functions": {
