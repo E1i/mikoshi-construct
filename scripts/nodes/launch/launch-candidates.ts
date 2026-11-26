@@ -402,7 +402,7 @@ function waitOnDroppedDependencies(db: DatabaseSync, queued: readonly CardLife[]
     for (const parent of life.depends.filter(each => dropped.has(each))) {
       const text = droppedDependencyWaitText(life.cardId, parent)
       if (!asked.has(text))
-        openOwnerWait(db, stamp.ts, stamp.actor, { need: 'decision', text, card: life.cardId })
+        openOwnerWait(db, stamp.ts, stamp.actor, { need: 'decision', text, card: life.cardId, lift: { on: ['amend', 'decision'] } })
     }
   }
 }

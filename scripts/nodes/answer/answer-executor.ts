@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { QueueTaskRow } from '../../core/card-hold.js'
-import type { BusEvent } from '../../core/db.js'
+import type { BusEvent, WaitLift } from '../../core/db.js'
 import type { CardTransitions, CarriedTree, Lease } from '../../core/lease.js'
 import type { TwinTree } from '../../policy/touch-scope.js'
 import type { CardTreeTools } from '../../ports/card-tree.js'
@@ -18,7 +18,7 @@ import { riskOf } from '../../../src/card/risk.js'
 import { pathsOutsideTheBody } from '../../core/card-bodies.js'
 import { answersWithdrawnByAClosedHold, holdRecheckAt, LIVE_SESSION_IN_THE_TREE, queueAgain, sessionStopOf } from '../../core/card-hold.js'
 import { closedWaitIds, downgradeWaitOpenOn, openDecisionWaitsOfCard } from '../../core/card-readings.js'
-import { appendEvent, inTransaction, openBusWait } from '../../core/db.js'
+import { appendEvent, inTransaction, liftHeldAtOpen, openBusWait } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
 import { ANSWER_STEP, CARD_ANSWERED, CARD_RELEASED, OUTSIDE_TOUCHES, OWNER_WAIT_CLOSED, POLICY_DENIED, QUESTION_AGENT, SCOPE_WIDENED } from '../../core/events.js'
 import { assertHeld, completeTask, cutByRestart, failTask, releaseTask, RESTART_CUT, StaleLease, waitTask } from '../../core/lease.js'
@@ -86,6 +86,16 @@ export function drainAnswerTreeGateRuns(db: DatabaseSync, worktree: string): num
 
 const MS_PER_MINUTE = 60_000
 
+const UNREADABLE_TREE = 'cannot be read to answer it'
+
+export function isFaultedAnswerWaitText(text: string): boolean {
+  return text.includes(` ${UNREADABLE_TREE}: `)
+}
+
+export function faultedAnswerLift(head: string | null): WaitLift {
+  return { on: ['passed-on-head', 'new-head', 'decision', 'amend', 'pr-merged'], ...(head === null ? {} : { head }) }
+}
+
 function minutesSince(start: number, end: number): number {
   return Math.round((end - start) / MS_PER_MINUTE * 10) / 10
 }
@@ -118,7 +128,7 @@ export function questionAskedTwiceLine(cardId: number, question: string): string
   return `card #${cardId} asks twice in a row, its answer session repeating the question its ${QUESTION_AGENT} stop already carried; another answer round would ask it again, so the card waits for the owner: ${question}`
 }
 
-const RATCHET_ROW = /\b(?:boundary|law-gaps|lines-scope|lines|overlaps):[^\s,;'"`()[\]]+/g
+const RATCHET_ROW = /\b(?:boundary|gate|law-gaps|lines-scope|lines|overlaps):[^\s,;'"`()[\]]+/g
 const NUMERIC_GROWTH = /(\d+)\s*(?:→|->|=>|⟶)\s*(\d+)/g
 const GROWTH_WORD = /\b(?:grow|grows|growing|grown|growth|raise|raises|raising|bump|bumps|increase|increases|lift)\b|рост|подн/i
 const TRAILING_PUNCTUATION = /[.:]+$/
@@ -395,9 +405,13 @@ export class AnswerExecutor {
   }
 
   private waiting(lease: Lease, card: CardSession, why: string): AnswerOutcome {
-    const detail = `pull request #${lease.pr} conflicts with ${MAIN_BRANCH} at ${lease.head}, and the tree ${card.worktree} of card #${lease.cardId} cannot be read to answer it: ${why}`
+    const detail = `pull request #${lease.pr} conflicts with ${MAIN_BRANCH} at ${lease.head}, and the tree ${card.worktree} of card #${lease.cardId} ${UNREADABLE_TREE}: ${why}`
     completeTask(this.parts.db, this.parts.cards, this.ts(), lease, [])
-    const wait = openBusWait(this.parts.db, closedWaitIds(this.parts.db), this.ts(), lease.actor, { need: 'decision', text: detail, card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) })
+    const ask = { need: 'decision' as const, text: detail, card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }), lift: faultedAnswerLift(lease.head) }
+    const held = liftHeldAtOpen(this.parts.db, ask)
+    if (held !== null)
+      return { kind: 'waiting', taskKey: lease.taskKey, wait: held, detail: `${detail}; no owner wait opens, its lift ${held} already holds` }
+    const wait = openBusWait(this.parts.db, closedWaitIds(this.parts.db), this.ts(), lease.actor, ask)
     return { kind: 'waiting', taskKey: lease.taskKey, wait, detail }
   }
 

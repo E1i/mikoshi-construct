@@ -61,7 +61,7 @@ export function openWindowQuestion(db: DatabaseSync, ts: string, session: string
     if (open !== undefined)
       return open.id
     const request = requestFromWindow(db, ts, session, { kind: 'owner.wait', need: 'decision', text: question })
-    const id = openOwnerWait(db, ts, QUEUE_ACTOR, { need: 'decision', text: question, request })
+    const id = openOwnerWait(db, ts, QUEUE_ACTOR, { need: 'decision', text: question, request, lift: { on: ['owner-answer'] } })
     appendEvent(db, { ts, type: REQUEST_DONE, actor: QUEUE_ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${WINDOW_REQUEST}:${request}:answered`, payload: { request, kind: 'owner.wait', detail: `opened ${id}` }, legacy: false })
     return id
   })

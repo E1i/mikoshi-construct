@@ -224,7 +224,8 @@ export class MergeExecutor {
   private askForAllowLive(): void {
     if (liveDecisionOf(decisionsInForceAt(this.parts.db, this.parts.clock()), MERGE_QUEUE) !== null || this.underTheOwnersWindowShard())
       return
-    this.parts.bus.openOwnerWait(this.parts.db, closedWaitIds(this.parts.db), this.ts(), this.parts.bus.queueActor, { need: 'command', text: `the ${MERGE_QUEUE} queue merges with no owner decision in force naming it live`, command: allowLiveCommand(MERGE_QUEUE) })
+    const lifted = { need: 'command' as const, text: `the ${MERGE_QUEUE} queue merges with no owner decision in force naming it live`, command: allowLiveCommand(MERGE_QUEUE), lift: { on: ['owner-answer'] } }
+    this.parts.bus.openOwnerWait(this.parts.db, closedWaitIds(this.parts.db), this.ts(), this.parts.bus.queueActor, lifted)
   }
 
   private underTheOwnersWindowShard(): boolean {
@@ -234,7 +235,8 @@ export class MergeExecutor {
   private askTheOwnerToMerge(lease: Lease, denial: MergeDenial): void {
     if (denial.kind !== 'authority' || !OWNER_MERGES_RULES.has(denial.rule) || lease.pr === null)
       return
-    this.parts.bus.openOwnerWait(this.parts.db, closedWaitIds(this.parts.db), this.ts(), this.parts.bus.queueActor, { need: 'merge', text: denial.detail, card: lease.cardId, pr: lease.pr })
+    const lifted = { need: 'merge' as const, text: denial.detail, card: lease.cardId, pr: lease.pr, lift: { on: ['pr-merged'] } }
+    this.parts.bus.openOwnerWait(this.parts.db, closedWaitIds(this.parts.db), this.ts(), this.parts.bus.queueActor, lifted)
   }
 
   private heldInsteadOfAWait(lease: Lease, denial: MergeDenial): MergeDenial {

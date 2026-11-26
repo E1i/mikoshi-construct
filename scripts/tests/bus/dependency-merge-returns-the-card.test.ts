@@ -13,7 +13,7 @@ import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
 import { AnswerSources } from '../../nodes/answer/duties/source.js'
 import { updateCandidates } from '../../nodes/update/update-candidates.js'
 import { UpdateExecutor } from '../../nodes/update/update-executor.js'
-import { answerParts, cardTransitions, updateParts } from '../../supervisor/composition.js'
+import { answerParts, cardTransitions, updateParts, waitLiftsTick } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, MAIN_2, sha } from './github-fake.js'
 import { eventsOf, liveBench, taskState } from './merge-bench.js'
@@ -150,6 +150,8 @@ describe('a dependency merge returns the dependent card (owner s631)', () => {
     expect(updatesOfThePr(card.bench)).toEqual([])
     expect(card.answersOfTheCard()).toEqual([UPDATED_HEAD])
     expect(card.sources.sourceOf(card.answerLease(UPDATED_HEAD))).toMatchObject({ kind: 'question' })
+    card.bench.tick()
+    waitLiftsTick(card.bench.db, card.bench.clock.now).step()
     card.bench.tick()
 
     expect(card.waitsOfTheCard()).toEqual([])

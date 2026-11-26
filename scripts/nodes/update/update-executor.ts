@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
-import type { BusEvent } from '../../core/db.js'
+import type { BusEvent, WaitLiftKind } from '../../core/db.js'
 import type { EventRow } from '../../core/events-query.js'
 import type { AfterFailure, CardTransitions, Lease } from '../../core/lease.js'
 import type { CardFields } from '../../intake/card-contract.js'
@@ -72,6 +72,8 @@ interface RecordedContent {
 }
 
 export const DERIVED_REFUSED = 'derived_refused'
+
+export const GROWTH_LIFTS: readonly WaitLiftKind[] = ['decision', 'new-head', 'pr-merged']
 
 export interface DerivedHold {
   kind: 'refused' | 'grown'
@@ -298,7 +300,7 @@ export class UpdateExecutor {
 
   private grownForTheOwner(lease: Lease, detail: string): UpdateOutcome {
     const ts = this.ts()
-    openBusWait(this.parts.db, closedWaitIds(this.parts.db), ts, lease.actor, { need: 'decision', text: `card #${lease.cardId}, ${detail}`, card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) })
+    openBusWait(this.parts.db, closedWaitIds(this.parts.db), ts, lease.actor, { need: 'decision', text: `card #${lease.cardId}, ${detail}`, card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }), lift: { on: GROWTH_LIFTS, ...(lease.head === null ? {} : { head: lease.head }) } })
     completeTask(this.parts.db, this.parts.cards, ts, lease, [])
     return { kind: 'stopped', taskKey: lease.taskKey, reason: QUESTION_OWNER, detail }
   }
