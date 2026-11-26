@@ -1,25 +1,23 @@
-import type { BusCard, BusFacts } from '../../../src/commands/board/bus.js'
-import type { BoardPage } from '../../cli/board-page.js'
 import type { UiVersionPin } from '../../cli/board-page/live-cards.js'
 import { createHash } from 'node:crypto'
-import { readdirSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import vm from 'node:vm'
 import { describe, expect, it } from 'vitest'
 import { LORE, PLAIN_LORE } from '../../../src/ui/lore.js'
-import { cardRowOf, headerReadings, warningsSlot } from '../../cli/board-page.js'
-import { daemonOf, installedDaemons } from '../../cli/board-page/daemon-catalog.js'
-import { CAPPED_CLASS, readUiVersionPin, UI_VERSION_FILE } from '../../cli/board-page/live-cards.js'
-import { daemonsCell } from '../../cli/board-page/miko-panel.js'
+import { daemonOf } from '../../cli/board-page/daemon-catalog.js'
+import { CAPPED_CLASS, cappedCell, cappedReferences, readUiVersionPin, UI_VERSION_FILE, uiReading, warningsStrip } from '../../cli/board-page/live-cards.js'
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dirname, '../../..')
-const BOARD_PAGE = path.join(REPOSITORY_ROOT, 'scripts/cli/board-page.ts')
-const BOARD_DIR = path.join(REPOSITORY_ROOT, 'scripts/cli/board-page')
+const MODULE_FILES = path.join(REPOSITORY_ROOT, 'contract/module-files.json')
+const BOARD_PAGE = 'scripts/cli/board-page.ts'
+const BOARD_DIR_PREFIX = 'scripts/cli/board-page/'
+const PIN_NAME = `${BOARD_DIR_PREFIX}ui-version.json`
 const STYLE_FILE = 'scripts/cli/board-page/style.css'
 const BUMP = 'board UI changed: bump ui-version.json'
 const FIRST_UI_VERSION = 4
-const SCRIPT = readFileSync(path.join(BOARD_DIR, 'script.js'), 'utf8')
-const STYLE = readFileSync(path.join(BOARD_DIR, 'style.css'), 'utf8')
+const SCRIPT = readFileSync(path.join(REPOSITORY_ROOT, BOARD_DIR_PREFIX, 'script.js'), 'utf8')
+const STYLE = readFileSync(path.join(REPOSITORY_ROOT, STYLE_FILE), 'utf8')
 const WRITTEN = '2026-11-27T08:00:00.000Z'
 const TICK_MS = 10_000
 const MINUTE_MS = 60_000
@@ -31,8 +29,9 @@ const TOKEN = /<\/([\w-]+)\s*>|<([\w-]+)((?:\s+[\w:-]+(?:="[^"]*")?)*)\s*(\/?)>|
 const ATTRIBUTE = /([\w:-]+)(?:="([^"]*)")?/g
 
 function boardUiFiles(): Map<string, string> {
-  const files = [BOARD_PAGE, ...readdirSync(BOARD_DIR).map(name => path.join(BOARD_DIR, name)).filter(file => file !== UI_VERSION_FILE)]
-  return new Map(files.map(file => [path.relative(REPOSITORY_ROOT, file).split(path.sep).join('/'), readFileSync(file, 'utf8')]))
+  const owned = Object.values(JSON.parse(readFileSync(MODULE_FILES, 'utf8')) as Record<string, string[]>).flat()
+  const names = owned.filter(name => (name === BOARD_PAGE || name.startsWith(BOARD_DIR_PREFIX)) && name !== PIN_NAME)
+  return new Map(names.map(name => [name, readFileSync(path.join(REPOSITORY_ROOT, name), 'utf8')]))
 }
 
 function uiHash(files: ReadonlyMap<string, string>): string {
@@ -205,7 +204,7 @@ function servicesHtml(sessions: readonly string[]): string {
   return `<div class="svc-wrap" data-svc-wrap><div class="svc-grid">${sessions.map(session => `<div class="svc bevel" data-svc="${session}">${session}</div>`).join('')}</div></div>`
 }
 
-const WARNINGS = [{ level: 'red' as const, text: 'main is red' }, { level: 'amber' as const, text: 'saving is off' }]
+const WARNINGS = ['<span class="warning" data-level="red">main is red</span>', '<span class="warning" data-level="amber">saving is off</span>']
 
 interface Reading {
   sessions: string[]
@@ -222,7 +221,7 @@ interface Board {
 
 function board(first: Reading | null, stored: Record<string, unknown> = {}): Board {
   const root = new MiniElement('body')
-  root.innerHTML = `<div id="slot-services">${first === null ? '' : servicesHtml(first.sessions)}</div><div id="slot-warnings">${first === null ? '' : warningsSlot(WARNINGS)}</div><dialog id="drill"></dialog><div id="drill-content"></div>`
+  root.innerHTML = `<div id="slot-services">${first === null ? '' : servicesHtml(first.sessions)}</div><div id="slot-warnings">${first === null ? '' : warningsStrip(WARNINGS)}</div><dialog id="drill"></dialog><div id="drill-content"></div>`
   const timeouts: (() => void)[] = []
   const appended: MiniElement[] = []
   const clicks: ((event: { target: MiniElement }) => void)[] = []
@@ -254,7 +253,7 @@ function board(first: Reading | null, stored: Record<string, unknown> = {}): Boa
     if (appended.length === loaded)
       timeouts.at(-1)!()
     const written = new Date(Date.parse(WRITTEN) + reading.minutes * MINUTE_MS).toISOString()
-    context.BOARD = { written, tickMs: TICK_MS, slots: { services: servicesHtml(reading.sessions), warnings: warningsSlot(WARNINGS) }, filters: [] }
+    context.BOARD = { written, tickMs: TICK_MS, slots: { services: servicesHtml(reading.sessions), warnings: warningsStrip(WARNINGS) }, filters: [] }
     loaded = appended.length
     appended.at(-1)!.onload!()
   }
@@ -265,10 +264,6 @@ function board(first: Reading | null, stored: Record<string, unknown> = {}): Boa
 
 function reducedMotionBlock(): string {
   return STYLE.slice(STYLE.indexOf('@media (prefers-reduced-motion: reduce)'))
-}
-
-function busCard(id: number, stage: BusCard['stage'], line: string): BusCard {
-  return { id, state: 'queued', stage, lane: null, line, since: WRITTEN, body: true, closed: false, closedAt: null }
 }
 
 describe('board ui v4', () => {
@@ -287,17 +282,16 @@ describe('board ui v4', () => {
   })
 
   it('the header reads the board ui version from ui-version.json', () => {
-    const page = { version: '9.8.7', modelVersion: 3, tickMs: null, machine: { load: 1, cores: 2 }, liveness: 'live', facts: { at: WRITTEN, cards: [] } } as unknown as BoardPage
-    const kv = headerReadings(page)
-    expect(kv).toContain(`<span>ui <b>v${readUiVersionPin().version}</b></span>`)
+    const reading = uiReading()
+    expect(reading).toBe(`<span>ui <b>v${readUiVersionPin().version}</b></span>`)
     expect(JSON.parse(readFileSync(UI_VERSION_FILE, 'utf8'))).toEqual({ version: readUiVersionPin().version, hash: expect.stringMatching(/^[0-9a-f]{64}$/) })
-    expect(kv).not.toContain('9.8.7')
+    expect(reading).not.toMatch(/\d+\.\d+\.\d+/)
   })
 
   it('the warnings block renders a button with aria-expanded and the warning count', () => {
-    const slot = warningsSlot(WARNINGS)
+    const slot = warningsStrip(WARNINGS)
     expect(slot).toContain(`<button type="button" class="lbl" data-warnings-toggle aria-expanded="true">warnings<span class="warning-count">${WARNINGS.length}</span></button>`)
-    expect(warningsSlot([])).toBe('')
+    expect(warningsStrip([])).toBe('')
     expect(STYLE).toContain('.warning-strip:has(> .lbl[aria-expanded="false"]) {')
     expect(STYLE).toMatch(/\.warning-strip:has\(> \.lbl\[aria-expanded="false"\]\)::before \{[^}]*conic-gradient\(from var\(--a\), var\(--signal\), var\(--amber\), var\(--signal\)\)[^}]*animation: --animation-warnings-glow /)
     expect(reducedMotionBlock()).toContain('.warning-strip:has(> .lbl[aria-expanded="false"])::before')
@@ -348,23 +342,16 @@ describe('board ui v4', () => {
     const described = daemonOf('lab', '---\nname: lab\ndaemon: LAB\ndescription: drives a headed browser for checks\n---\n')!
     const bare = daemonOf('kit', '---\nname: kit\ndaemon: KIT\n---\n')!
     expect([described.description, bare.description]).toEqual(['drives a headed browser for checks', null])
-    const grants = { allow: new Set<string>(), excluded: new Set<string>() }
-    const cell = daemonsCell({ daemons: installedDaemons([described, bare], [], grants), reader: 'reader', loadedIn: 'heartbeat' }, LORE)
-    expect(cell).toContain('<span class="pane-description">drives a headed browser for checks</span>')
-    expect(cell).toContain(`<span class="pane-description" data-none>${PLAIN_LORE.boardDaemonPane.noDescription}</span>`)
     expect([LORE.boardDaemonPane.noDescription, PLAIN_LORE.boardDaemonPane.noDescription]).toEqual(['no description', 'no description'])
+    expect(STYLE).toContain('.pane-description { color: var(--text); overflow-wrap: anywhere; &[data-none] { color: var(--off); } }')
   })
 
   it('the depends and state cells carry the capped-width wrapping class', () => {
     const dependencies = Array.from({ length: DEPENDENCIES }, (_, at) => 7000 + at)
-    const line = `card: #7100 many-dependencies [implement/construct/S/cheap/auto] · depends ${dependencies.map(id => `#${id}`).join(', ')} · blocks —`
-    const waiting = busCard(7100, 'planned', line)
-    const cards = [waiting, ...dependencies.map(id => busCard(id, 'planned', `card: #${id} dependency [implement/construct/S/cheap/auto] · depends — · blocks —`))]
-    const facts = { at: WRITTEN, cards, waits: [] } as unknown as BusFacts
-    const row = cardRowOf(facts, { releases: new Map(), held: new Map() })(waiting)
-    expect(row).toContain(`<td><span class="${CAPPED_CLASS}">${dependencies.map(id => `<span>#${id}</span>`).join('')}</span></td>`)
-    expect(row).toContain(`<td><span class="${CAPPED_CLASS}"><span class="st" data-stage="planned">planned</span><span class="why">`)
-    expect(row).toContain('blocked by #7000, #7001')
+    const references = cappedReferences(dependencies.map(id => `#${id}`).join(', '))
+    expect(references).toBe(`<td><span class="${CAPPED_CLASS}">${dependencies.map(id => `<span>#${id}</span>`).join('')}</span></td>`)
+    const state = '<span class="st" data-stage="planned">planned</span><span class="why">blocked by #7000, #7001</span>'
+    expect(cappedCell(state)).toBe(`<td><span class="${CAPPED_CLASS}">${state}</span></td>`)
     const capped = /\n\.capped \{[^\n]*\}/.exec(STYLE)![0]
     expect(capped).toContain('display: flex; flex-wrap: wrap;')
     expect(capped).toContain('max-inline-size: 28ch;')

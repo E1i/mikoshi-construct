@@ -53,7 +53,7 @@ import { BOARD_FILE, FRESH_MS, windowGauges } from '../window/board.js'
 import { mikoHandoff } from '../window/loop.js'
 import { planMarkdown } from '../window/plan-export.js'
 import { busFresh, busPanel, pulseAgeMs } from './board-page/bus-panel.js'
-import { BOARD_HISTORY_FILE, BOARD_UI_VERSION, cappedCell, cappedReferences, FILTER_ATTRIBUTE, filterId, filterRule, LIVE_FILTER, liveCardsOf, ownerHolds } from './board-page/live-cards.js'
+import { BOARD_HISTORY_FILE, cappedCell, cappedReferences, FILTER_ATTRIBUTE, filterId, filterRule, LIVE_FILTER, liveCardsOf, ownerHolds, uiReading, warningsStrip } from './board-page/live-cards.js'
 import { mikoBay, mikoPanel } from './board-page/miko-panel.js'
 import { LAYER_ENTRY, runsHtml, TOUCHED_TESTS } from './board-page/runs-html.js'
 import { agentsLine, CARD_TASK, compact, eddiesBar, escaped, modelLabel, NO_SESSION_VIEW, percent, ROUND_COLOURS, ROUND_LABELS, sessionCard, STEPPED_ROLE, terminalOf } from './board-page/session-card.js'
@@ -441,9 +441,9 @@ function waitsSlot(page: BoardPage): string {
   return `${waitStrip('waits for you', [...waitsStale === undefined ? [] : [`<button type="button" class="ask" data-pull title="${PULL_TITLE}">${escaped(waitsStale)}<span class="open-hint">re-read now ›</span></button>`], ...waits.filter(wait => !liftedByTheWindow(wait)).map(wait => waitItem(wait, page))])}${waitStrip(WINDOW_WAITS_ROLE, waits.filter(liftedByTheWindow).map(wait => waitItem(wait, page)))}`
 }
 
-export function warningsSlot(warnings: readonly BoardWarning[]): string {
+function warningsSlot(warnings: readonly BoardWarning[]): string {
   const items = warnings.map(warning => `<span class="warning" data-level="${warning.level}">${escaped(warning.text)}</span>`)
-  return items.length === 0 ? '' : `<section class="warning-strip bevel" aria-label="Warnings"><button type="button" class="lbl" data-warnings-toggle aria-expanded="true">warnings<span class="warning-count">${items.length}</span></button>${items.join('')}</section>`
+  return warningsStrip(items)
 }
 
 function flowSlot(page: BoardPage): string {
@@ -472,7 +472,7 @@ function cardFields(card: BusCard): string[] {
 
 const COLUMNS = ['card', 'slug', 'kind', 'contour', 'size', 'path', 'gate', 'depends', 'blocks', 'state', '']
 
-export function cardRowOf(facts: BusFacts, standing: CardStanding): (card: BusCard) => string {
+function cardRowOf(facts: BusFacts, standing: CardStanding): (card: BusCard) => string {
   return (card) => {
     const cells = cardFields(card).map((field, at) => at === COLUMNS.indexOf('depends') - 1 ? cappedReferences(escaped(field)) : `<td${at === 0 ? ' class="slug"' : ''}>${escaped(field)}</td>`).join('')
     const [stage, why] = [escaped(card.stage), standingLine(card, facts, standing, PLAIN_LORE)]
@@ -545,10 +545,10 @@ function headerPanel(version: string, slots: BoardSlots): string {
   ].join('\n')
 }
 
-export function headerReadings(page: BoardPage): string {
+function headerReadings(page: BoardPage): string {
   const { facts } = page
   return [
-    `<span>model <b>${page.modelVersion === null ? NONE : `v${page.modelVersion}`}</b></span><span>ui <b>${BOARD_UI_VERSION}</b></span>`,
+    `<span>model <b>${page.modelVersion === null ? NONE : `v${page.modelVersion}`}</b></span>${uiReading()}`,
     `<span>written <b>${escaped(facts.at)}</b></span><span>live <b>${escaped(tallyLine(taskTally(facts.cards.filter(isLive))))}</b></span>`,
     `<span>refresh <b>${page.tickMs === null ? NONE : `${page.tickMs / 1000}s`}</b><i class="countdown" id="${REFRESH_IN}"></i></span>`,
     `<span>load <b><span data-count="${page.machine.load.toFixed(1)}">${page.machine.load.toFixed(1)}</span> / ${page.machine.cores} cores</b></span>`,

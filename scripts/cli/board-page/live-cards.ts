@@ -22,6 +22,14 @@ export function readUiVersionPin(file: string = UI_VERSION_FILE): UiVersionPin {
 
 export const BOARD_UI_VERSION = `v${readUiVersionPin().version}`
 
+export function uiReading(): string {
+  return `<span>ui <b>${BOARD_UI_VERSION}</b></span>`
+}
+
+export function warningsStrip(items: readonly string[]): string {
+  return items.length === 0 ? '' : `<section class="warning-strip bevel" aria-label="Warnings"><button type="button" class="lbl" data-warnings-toggle aria-expanded="true">warnings<span class="warning-count">${items.length}</span></button>${items.join('')}</section>`
+}
+
 export function cappedCell(inner: string): string {
   return `<td><span class="${CAPPED_CLASS}">${inner}</span></td>`
 }

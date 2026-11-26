@@ -9,7 +9,7 @@ import { allowRule, declaredCommands, frontmatterFields } from '../../../src/com
 import { PROJECT_SETTINGS_FILE, SETTINGS_FILE } from '../../../src/commands/attach/settings.js'
 import { LORE, PLAIN_LORE } from '../../../src/ui/lore.js'
 import { ADAPTER_MANIFEST, adapterMutations, ADAPTERS_DIR, DAEMON_READER, daemonCatalog, daemonOf, installedDaemons, LOADED_SOURCE, manifestFields, windowGrants } from '../../cli/board-page/daemon-catalog.js'
-import { ATTACH_RECORD, homeShort, mikoBay, mikoMode, mikoPanel } from '../../cli/board-page/miko-panel.js'
+import { ATTACH_RECORD, daemonsCell, homeShort, mikoBay, mikoMode, mikoPanel } from '../../cli/board-page/miko-panel.js'
 
 const SCRIPT = readFileSync(path.resolve(import.meta.dirname, '../../cli/board-page/script.js'), 'utf8')
 const STYLE = readFileSync(path.resolve(import.meta.dirname, '../../cli/board-page/style.css'), 'utf8')
@@ -110,6 +110,14 @@ describe('the daemons cell', () => {
     const undescribed = `<span class="pane-description" data-none>${LORE.boardDaemonPane.noDescription}</span>`
     expect(paneOf(html, 'MCP_DEVKIT')).toContain(`<span class="pane-tag">LOADED</span>${undescribed}<span class="pane-head">MUTATIONS · 0</span><ul class="pane-mutations"></ul>`)
     expect(paneOf(html, 'BROWSER_LAB')).toContain(`<span class="pane-tag">SLEEPING</span>${undescribed}<span class="pane-head">MUTATIONS · 2</span><ul class="pane-mutations"><li>ver_hands</li><li>ver_headed</li></ul>`)
+  })
+
+  it('a daemon pane shows the description of its skill, and no description without one', () => {
+    const described = daemonOf('lab', '---\nname: lab\ndaemon: LAB\ndescription: drives a headed browser for checks\n---\n')!
+    const bare = daemonOf('kit', '---\nname: kit\ndaemon: KIT\n---\n')!
+    const cell = daemonsCell({ daemons: installedDaemons([described, bare], [], { allow: new Set(), excluded: new Set() }), reader: 'reader', loadedIn: 'heartbeat' }, LORE)
+    expect(cell).toContain('<span class="pane-description">drives a headed browser for checks</span>')
+    expect(cell).toContain(`<span class="pane-description" data-none>${PLAIN_LORE.boardDaemonPane.noDescription}</span>`)
   })
 
   it('an empty catalog names the reader it adds and where LOADED is observed', () => {

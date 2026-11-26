@@ -449,6 +449,7 @@ describe('board.html', () => {
     }
     expect(html).toContain('<a class="chip" href="#show-all">all</a>')
     expect(html).toContain('<tr data-card="864" data-stage="merged" data-open="card-864" tabindex="0" aria-haspopup="dialog"><td class="id">#864</td><td class="slug">old-lease</td><td>implement</td><td>netwatch</td><td>M</td><td>cheap</td><td>owner</td><td><span class="capped"><span>#860</span></span></td><td>—</td>')
+    expect(html).toContain('<td><span class="capped"><span>#860</span></span></td><td>—</td><td><span class="capped"><span class="st" data-stage="merged">merged</span>')
   })
 
   it('every number on the page is in the bus, in eddies.json or in the machine load', () => {
