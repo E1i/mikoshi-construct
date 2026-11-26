@@ -112,8 +112,28 @@ export function ownerAnswerCommand(wait: OwnerWaitFacts): string {
   return `${OWNER_ANSWER_COMMAND} ${target} ${OWNER_WORDS}`
 }
 
+export const START_BIN = 'construct-factory'
+
+export const MODE_FLAG = '--mode'
+
+export const SAY_COMMAND = constructCommand('say')
+
+const OWNER_SAYS = `${SAY_COMMAND} `
+
+export function sayCommand(words: string): string {
+  return `${SAY_COMMAND} "${words}"`
+}
+
+export function ghostProtocolWord(hours: number): string {
+  return `ghost-protocol ${hours}h`
+}
+
+export function shardRenewalCommand(hours: number, mode: string): string {
+  return `${sayCommand(ghostProtocolWord(hours))} && ${START_BIN} ${MODE_FLAG} ${mode}`
+}
+
 function standingCommandOf(asked: string | null): string | null {
-  return asked === MIKO_COMMAND ? asked : windowCommandOf(asked)
+  return asked === MIKO_COMMAND || asked?.startsWith(OWNER_SAYS) === true ? asked : windowCommandOf(asked)
 }
 
 export function ownerWaitCommand(wait: OwnerWaitFacts, asked: string | null): string {
