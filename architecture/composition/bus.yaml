@@ -14,6 +14,12 @@ description: >-
   head GitHub refuses for good. A refusal for now records nothing: the root logs it, the tick goes on,
   and the next tick posts the step again.
   Last, the board projection is written. The status post is the only write to GitHub the tick makes.
+  A NetWatch given a `ReleaseRuns` reader (the one `pnpm bus:netwatch` starts holds `GhCiRuns`) also reads
+  the Release workflow run of the observed main sha and of the last main shas with no `release.run` yet,
+  and writes one `release.run` per concluded run and conclusion, with its steps, verdict and failed step;
+  a second tick writes nothing. It opens no wait: `releaseWaitsTick` in `scripts/supervisor/release-waits.ts`,
+  wired by `orderAndShardTermTicks` in `scripts/supervisor/composition.ts` into the supervisor's order
+  tick, opens one owner wait for each red `release.run`, deduped by its run id.
 doc: architecture/composition/bus.md
 boundaries:
   - id: entry
@@ -30,9 +36,13 @@ nodes:
     path: scripts/supervisor/run.ts
     boundary: entry
   - id: netwatch
-    label: NetWatch.poll → the observed events · a skipped poll ends the tick
+    label: NetWatch.poll → the observed events and release.run · a skipped poll ends the tick
     path: scripts/ports/netwatch.ts
     boundary: observe
+  - id: releasewaits
+    label: releaseWaitsTick · one owner wait per red release.run · the supervisor's order tick
+    path: scripts/supervisor/release-waits.ts
+    boundary: fold
   - id: requests
     label: WindowRequests.run · the window requests
     path: scripts/window/window-requests.ts
@@ -60,6 +70,7 @@ nodes:
 edges:
   - {from: root, to: netwatch, kind: sequence}
   - {from: netwatch, to: requests, kind: sequence, label: ticked}
+  - {from: netwatch, to: releasewaits, kind: wires, label: a red release.run}
   - {from: requests, to: reduce, kind: sequence}
   - {from: reduce, to: sliceparents, kind: sequence}
   - {from: sliceparents, to: queues, kind: sequence}

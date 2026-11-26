@@ -100,6 +100,7 @@ import { unendedStarts } from './expected-time.js'
 import { busSessionPulse, heartbeatEnv, measureCardSession, ownStart, recordProcessHeartbeat } from './heartbeat.js'
 import { SILENT_MS } from './liveness-sites.js'
 import { ownIdentity, tableIdentity } from './recorded-worker.js'
+import { releaseWaitsTick, unreleasedMainShas } from './release-waits.js'
 import { slotsOf, slotsVariable } from './scheduler.js'
 import { namesNoticeOf, SHARD_TERM_ACTOR, ShardTerm } from './shard-term.js'
 import { WaitLifts } from './wait-lifts.js'
@@ -192,6 +193,7 @@ export const PR_HISTORY: PrHistory = {
     const row = lastPrLifecycleEvent(db, pr)
     return row === null ? null : previousObservationOf({ ...row })
   },
+  unreleasedMainShas: db => unreleasedMainShas(db),
 }
 
 export function nodeSupply(): NodeSupply {
@@ -615,7 +617,11 @@ export function waitLiftsTick(db: DatabaseSync, clock: () => Date = () => new Da
   return { step: () => lifts.step().map(line => `${PREFIX}${line}`) }
 }
 
+function prefixed(tick: { step: () => string[] }): { step: () => string[] } {
+  return { step: () => tick.step().map(line => `${PREFIX}${line}`) }
+}
+
 export function orderAndShardTermTicks(db: DatabaseSync, root: string): { step: () => string[] } {
-  const ticks = [busOrderTick(db, root), shardTermTick(db), waitLiftsTick(db)]
+  const ticks = [busOrderTick(db, root), shardTermTick(db), waitLiftsTick(db), prefixed(releaseWaitsTick(db, () => new Date()))]
   return { step: () => ticks.flatMap(tick => tick.step()) }
 }
