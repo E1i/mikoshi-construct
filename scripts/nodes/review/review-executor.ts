@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../../core/db.js'
+import type { EventRow, EventsQuery } from '../../core/events-query.js'
 import type { EventPayload } from '../../core/events.js'
 import type { AfterFailure, CardTransitions, Lease, SUPERSEDED_LEASE } from '../../core/lease.js'
 import type { LimitRule, RoundReview } from '../../policy/round-limit-decision.js'
@@ -18,6 +19,7 @@ import { createHash } from 'node:crypto'
 import process from 'node:process'
 import { cardBodyText } from '../../core/card-bodies.js'
 import { appendEvent } from '../../core/db.js'
+import { events, latest } from '../../core/events-query.js'
 import { ARTIFACT_REMOVED, BOARD_ALARM, POLICY_DENIED, REVIEW_DRIP, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, REVIEW_TREE_ORPHANED, ROUND_EXTENDED } from '../../core/events.js'
 import { REVIEW_ROUNDS, reviewInputOfKey } from '../../core/identifiers.js'
 import { completeTask, failTask, releaseTask, StaleLease, supersedeLease } from '../../core/lease.js'
@@ -166,6 +168,12 @@ function strings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((each): each is string => typeof each === 'string') : []
 }
 
+const CHANGES = 'changes'
+
+function verdictsOn(db: DatabaseSync, pr: number | null, query: Pick<EventsQuery, 'head' | 'newestFirst'> = {}): EventRow[] {
+  return pr === null ? [] : events(db, { ...query, types: [REVIEW_RECORDED], pr })
+}
+
 function ownVerdictKey(lease: Lease): string {
   return `${REVIEW_RECORDED}:${lease.taskKey}:`
 }
@@ -173,10 +181,10 @@ function ownVerdictKey(lease: Lease): string {
 export function earlierVerdict(db: DatabaseSync, lease: Lease): EarlierVerdict | null {
   if (lease.pr === null || lease.head === null)
     return null
-  const row = db.prepare('SELECT payload FROM events WHERE type = ? AND pr = ? AND legacy = 0 AND substr(dedupe_key, 1, ?) != ? ORDER BY id DESC LIMIT 1').get(REVIEW_RECORDED, lease.pr, ownVerdictKey(lease).length, ownVerdictKey(lease)) as { payload: string } | undefined
+  const row = verdictsOn(db, lease.pr, { newestFirst: true }).find(verdict => !verdict.dedupe_key.startsWith(ownVerdictKey(lease)))
   if (row === undefined)
     return null
-  const payload = JSON.parse(row.payload) as { head?: unknown, verdict?: unknown, findings?: unknown }
+  const payload = row.data ?? {}
   return typeof payload.head === 'string' && typeof payload.verdict === 'string'
     ? { head: payload.head, verdict: payload.verdict, findings: strings(payload.findings) }
     : null
@@ -206,8 +214,7 @@ function changesUnderTheSameBodies(db: DatabaseSync, lease: Lease): boolean {
   const input = reviewInputOfKey(lease.taskKey)
   if (input?.prBody === undefined || lease.pr === null || lease.head === null)
     return false
-  const rows = db.prepare(`SELECT dedupe_key FROM events WHERE type = ? AND pr = ? AND head = ? AND legacy = 0 AND json_extract(payload, '$.verdict') = 'changes'`).all(REVIEW_RECORDED, lease.pr, lease.head) as { dedupe_key: string }[]
-  return rows.some((row) => {
+  return verdictsOn(db, lease.pr, { head: lease.head }).filter(row => row.data?.verdict === CHANGES).some((row) => {
     const earlier = reviewInputOfKey(taskKeyOfVerdict(row.dedupe_key))
     return earlier?.prBody === input.prBody && earlier.cardBody === input.cardBody
   })
@@ -220,8 +227,7 @@ function keptChanges(db: DatabaseSync, lease: Lease, review: Review): Review {
 }
 
 function closedOnTheHead(db: DatabaseSync, lease: Lease): Set<string> {
-  const rows = db.prepare(`SELECT json_extract(payload, '$.findings') AS findings FROM events WHERE type = ? AND pr = ? AND head = ? AND legacy = 0 ORDER BY id`).all(REVIEW_RECORDED, lease.pr, lease.head) as { findings: string | null }[]
-  const rounds = rows.map(row => new Set(strings(row.findings === null ? [] : JSON.parse(row.findings))))
+  const rounds = verdictsOn(db, lease.pr, { head: lease.head ?? undefined }).map(row => new Set(strings(row.data?.findings)))
   return new Set(rounds.slice(0, -1).flatMap((listed, at) => [...listed].filter(finding => !rounds[at + 1]!.has(finding))))
 }
 
@@ -245,19 +251,20 @@ interface RoundLimit {
   event: BusEvent
 }
 
-const EXTENSION_OF_A_CARD = `SELECT 1 FROM events WHERE type = '${ROUND_EXTENDED}' AND legacy = 0 AND card_id = ? LIMIT 1`
+function extendedBefore(db: DatabaseSync, cardId: number): boolean {
+  return latest(db, { types: [ROUND_EXTENDED], card: cardId }) !== null
+}
 
-const EARLIER_CHANGES_ROUNDS = `SELECT head, dedupe_key, json_extract(payload, '$.findings') AS findings FROM events WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND pr = ? AND head IS NOT ? AND json_extract(payload, '$.verdict') = 'changes' ORDER BY id DESC`
-
-interface ChangesRound {
+export interface ChangesRound {
   head: string | null
   key: string
   findings: string[]
 }
 
-function earlierChangesRounds(db: DatabaseSync, lease: Lease): ChangesRound[] {
-  const rows = db.prepare(EARLIER_CHANGES_ROUNDS).all(lease.pr, lease.head) as { head: string | null, dedupe_key: string, findings: string | null }[]
-  return rows.map(row => ({ head: row.head, key: row.dedupe_key, findings: row.findings === null ? [] : strings(JSON.parse(row.findings)) }))
+export function earlierChangesRounds(db: DatabaseSync, lease: Lease): ChangesRound[] {
+  return verdictsOn(db, lease.pr, { newestFirst: true })
+    .filter(row => row.head !== lease.head && row.data?.verdict === CHANGES)
+    .map(row => ({ head: row.head, key: row.dedupe_key, findings: strings(row.data?.findings) }))
 }
 
 function earlierRoundsFindings(db: DatabaseSync, lease: Lease): string[][] {
@@ -578,7 +585,7 @@ export class ReviewExecutor {
       findings: review.findings,
       survivingMutations: review.survivingMutations ?? [],
       previous: earlierRoundsFindings(db, lease)[0] ?? [],
-      extendedBefore: db.prepare(EXTENSION_OF_A_CARD).get(lease.cardId) !== undefined,
+      extendedBefore: extendedBefore(db, lease.cardId),
     })
     return repeats && rule.kind === 'extend' ? { kind: 'owner' } : rule
   }

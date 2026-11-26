@@ -1,0 +1,9 @@
+{
+  "entry": "busCardReadings",
+  "group": null,
+  "path": "scripts/core/card-readings.ts",
+  "layer": null,
+  "lists": [
+    "busShared"
+  ]
+}

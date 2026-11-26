@@ -92,7 +92,7 @@ export const FACTORY_FOLDERS = {
 } as const satisfies Record<string, readonly string[]>
 
 export const FACTORY_LISTS = {
-  busShared: ['scripts/core/card-automaton.ts', 'scripts/core/db.ts', 'scripts/core/errors.ts', 'scripts/core/events-query.ts', 'scripts/core/lease.ts', 'scripts/core/node.ts', 'scripts/core/queue.ts', 'scripts/core/reducer.ts', 'scripts/core/stored.ts', 'scripts/ports/git.ts', 'scripts/supervisor/composition.ts', 'scripts/supervisor/stamp.ts'],
+  busShared: ['scripts/core/card-automaton.ts', 'scripts/core/card-readings.ts', 'scripts/core/db.ts', 'scripts/core/errors.ts', 'scripts/core/events-query.ts', 'scripts/core/lease.ts', 'scripts/core/node.ts', 'scripts/core/queue.ts', 'scripts/core/reducer.ts', 'scripts/core/stored.ts', 'scripts/ports/git.ts', 'scripts/supervisor/composition.ts', 'scripts/supervisor/stamp.ts'],
   changesetReaders: ['tests/changesets-one-line.test.ts'],
 } as const satisfies Record<string, readonly string[]>
 

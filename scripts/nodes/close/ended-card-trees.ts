@@ -4,9 +4,11 @@ import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node
 import path from 'node:path'
 import { busDirOf } from '../../core/bus-path.js'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../../core/card-automaton.js'
+import { cardStatesAmong } from '../../core/card-readings.js'
 import { appendEvent } from '../../core/db.js'
 import { ARTIFACT_REMOVED, BOARD_ALARM } from '../../core/events.js'
 import { LEASED } from '../../core/queue.js'
+import { ofCard as tasksOfCard } from '../../core/tasks-query.js'
 import { processGit } from '../../ports/git.js'
 import { cardTreeRoots } from '../../ports/worktree-home.js'
 import { FREE_TREE_CAPACITY } from '../../ports/worktree.js'
@@ -127,6 +129,10 @@ function savedFields(saved: SavedTree, dropped: boolean): Pick<EndedTree, 'patch
   }
 }
 
+export function leasedAt(db: DatabaseSync, cardId: number, now: string): boolean {
+  return tasksOfCard(db, cardId, { state: LEASED }).some(task => task.lease_until !== null && task.lease_until > now)
+}
+
 export class EndedCardTrees {
   private readonly homes: Set<string>
   private readonly bareIdHomes: Set<string>
@@ -171,7 +177,7 @@ export class EndedCardTrees {
   }
 
   private stateOf(cardId: number): string | null {
-    return (this.db.prepare('SELECT state FROM cards WHERE card_id = ?').get(cardId) as { state: string | null } | undefined)?.state ?? null
+    return cardStatesAmong(this.db, [cardId]).get(cardId) ?? null
   }
 
   private ended(cardId: number): boolean {
@@ -185,7 +191,7 @@ export class EndedCardTrees {
   }
 
   private leased(cardId: number): boolean {
-    return this.db.prepare('SELECT 1 FROM tasks WHERE card_id = ? AND state = ? AND lease_until > ? LIMIT 1').get(cardId, LEASED, this.clock().toISOString()) !== undefined
+    return leasedAt(this.db, cardId, this.clock().toISOString())
   }
 
   private parked(tree: string, cardId: number, changes: string[]): string | null {

@@ -235,6 +235,25 @@ export function processBeats(db: DatabaseSync, prefix = ''): ProcessBeatRow[] {
   return db.prepare(PROCESS_BEATS).all(PROCESS_HEARTBEAT, prefix.length, prefix) as unknown as ProcessBeatRow[]
 }
 
+export interface EventStamp {
+  id: number
+  ts: string
+}
+
+export interface Signs {
+  types: readonly string[]
+  actorPrefix: string
+}
+
+export function signStampsSince(db: DatabaseSync, since: number, signs: Signs): EventStamp[] {
+  const matched = [
+    ...events(db, { types: signs.types, since, legacy: EITHER_JOURNAL }),
+    ...events(db, { actorPrefix: signs.actorPrefix, since, legacy: EITHER_JOURNAL }),
+  ]
+  const stamps = new Map(matched.map(row => [row.id, row.ts] as const))
+  return [...stamps].sort(([a], [b]) => a - b).map(([id, ts]) => ({ id, ts }))
+}
+
 export function eventLog(db: DatabaseSync): Record<string, SQLOutputValue>[] {
   return db.prepare(eventsSql({ columns: ROW_COLUMNS, where: '', newestFirst: false, limit: '' })).all()
 }
