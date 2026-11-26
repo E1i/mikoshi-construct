@@ -772,6 +772,7 @@
     "scripts/tests/contract/permanent-suite-holds-on-any-base.test.ts",
     "scripts/tests/contract/plan-folds-contour.test.ts",
     "scripts/tests/contract/port-language.test.ts",
+    "scripts/tests/contract/ports-layer-files-settle.test.ts",
     "scripts/tests/contract/queue-contour.test.ts",
     "scripts/tests/contract/ratchet-threshold-set.test.ts",
     "scripts/tests/contract/reducer-contour.test.ts",
