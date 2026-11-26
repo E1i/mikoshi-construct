@@ -169,6 +169,28 @@ export function events(db: DatabaseSync, query: EventsQuery = {}): EventRow[] {
   return (db.prepare(sql).all(...values) as unknown as RawRow[]).map(rowOf)
 }
 
+export function countOf(db: DatabaseSync, query: EventsQuery = {}): number {
+  if (matchesNothing(query))
+    return 0
+  const { where, values } = whereClause(query)
+  return Number((db.prepare(`SELECT count(*) AS n FROM events${where}`).get(...values) as { n: number }).n)
+}
+
+export function latestTs(db: DatabaseSync, query: EventsQuery = {}): string | null {
+  if (matchesNothing(query))
+    return null
+  const { where, values } = whereClause(query)
+  const ts = (db.prepare(`SELECT max(ts) AS ts FROM events${where}`).get(...values) as { ts: string | null }).ts
+  return ts === null ? null : String(ts)
+}
+
+const LAST_TS_PER_ACTOR = 'SELECT actor, max(ts) AS ts FROM events WHERE legacy = 0 AND actor IS NOT NULL GROUP BY actor'
+
+export function lastTsPerActor(db: DatabaseSync): Map<string, string> {
+  const rows = db.prepare(LAST_TS_PER_ACTOR).all() as { actor: string, ts: string }[]
+  return new Map(rows.map(row => [String(row.actor), String(row.ts)]))
+}
+
 export const BY_CARD = 'card_id'
 
 export type EventKey = typeof BY_CARD | `$.${string}`
