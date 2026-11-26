@@ -239,6 +239,16 @@ describe('replacing a witness the bus recorded dead is an amendment, not a downg
     w.db.close()
   })
 
+  it('a test declared before a describe is not named under that later describe', () => {
+    const w = world()
+    shapesFile(w, `import { it } from 'vitest'\n\nit('top level test', () => {})\n\n${SHAPES_DESCRIBED.replace('import { describe, it } from \'vitest\'\n\n', '')}\n`)
+    for (const [test, status] of [['top level test', 'dryRun'], ['shapes home > top level test', 'refused']] as const) {
+      const admitted = runAdmit({ ...intakeOf(w), file: path.join(w.root, `${CARD}.md`), body: body([{ ...DEAD, test }, W2]), dryRun: true }, () => NOW)
+      expect({ test, status: admitted.status }).toEqual({ test, status })
+    }
+    w.db.close()
+  })
+
   it('a witness naming a file neither on the base nor in creates selects nothing', () => {
     const w = world()
     const missing = { ...DEAD, run: `pnpm exec vitest run ${ABSENT}`, test: 'shapes home' }
