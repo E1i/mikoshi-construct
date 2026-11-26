@@ -27,6 +27,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { defaultBusDir } from '../../core/bus-path.js'
 import { closedWaitIds } from '../../core/card-readings.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../../core/db.js'
+import { events } from '../../core/events-query.js'
 import { CARD_ADMITTED, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../../core/events.js'
 import { cardIdOfDescription, isFullSha, prBodySha, prOf, reviewInputOf, reviewInputOfKey, taskKey } from '../../core/identifiers.js'
 import { expireLeases, leaseNext, leaseQueued } from '../../core/lease.js'
@@ -36,6 +37,7 @@ import { pushPolicyOf } from '../../core/push-policy.js'
 import { cardBodyShaOfCard, LEASED, reviewCandidates } from '../../core/queue.js'
 import { shadowReading } from '../../core/report.js'
 import { openDatabase } from '../../core/sqlite.js'
+import { ofQueue as tasksOfQueue } from '../../core/tasks-query.js'
 import { busHeldCards } from '../../intake/intake.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
 import { namesCard } from '../../policy/decisions/decisions.js'
@@ -142,18 +144,14 @@ function inScope(task: QueuedTask, scope: Scope): boolean {
   return (scope.pr === undefined || task.pr === scope.pr) && (scope.cardId === undefined || task.cardId === scope.cardId)
 }
 
-const ADMITTED_TEXT_OF_A_BODY = `
-  SELECT json_extract(payload, '$.text') AS text, json_extract(payload, '$.textSha') AS text_sha FROM events
-  WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND card_id = ? AND json_extract(payload, '$.bodySha') = ? AND json_type(payload, '$.text') = 'text'
-  ORDER BY id DESC LIMIT 1
-`
-
 export function cardBodyOfKey(db: DatabaseSync, lease: Lease, held: string | null): string | null {
   const named = reviewInputOfKey(lease.taskKey)?.cardBody ?? null
   if (named === null)
     return held
-  const admitted = db.prepare(ADMITTED_TEXT_OF_A_BODY).get(lease.cardId, named) as { text: string, text_sha: unknown } | undefined
-  return admitted !== undefined && admitted.text_sha === textSha(admitted.text) ? admitted.text : null
+  const admitted = events(db, { types: [CARD_ADMITTED], card: lease.cardId, valid: true, newestFirst: true })
+    .map(row => row.data ?? {})
+    .find(payload => payload.bodySha === named && typeof payload.text === 'string')
+  return admitted !== undefined && admitted.textSha === textSha(admitted.text as string) ? admitted.text as string : null
 }
 
 export function decisionsOnTheCard(db: DatabaseSync, cardId: number, now: Date, pr: number | null = null): CardDecision[] {
@@ -306,22 +304,16 @@ export function busCardBody(busPath: string): CardBodyOf {
   }
 }
 
-const LIVE_REVIEW_LEASES = `SELECT task_key, card_id, lease_gen FROM tasks WHERE queue = 'review' AND state = '${LEASED}'`
-
-const SESSIONS_UNDER_A_LEASE = `
-  SELECT DISTINCT json_extract(payload, '$.session') AS session FROM events
-  WHERE dedupe_key >= ? AND dedupe_key < ? AND legacy = 0 AND json_valid(payload)
-    AND json_extract(payload, '$.task_key') = ? AND json_extract(payload, '$.lease_gen') = ?
-`
-
-function heartbeatKeysOf(cardId: number): [string, string] {
-  return [`${SESSION_HEARTBEAT}:${cardId}:`, `${SESSION_HEARTBEAT}:${cardId};`]
+function heartbeatKeyPrefixOf(cardId: number): string {
+  return `${SESSION_HEARTBEAT}:${cardId}:`
 }
 
 export function sessionsUnderLiveLeases(db: DatabaseSync): Set<string> {
-  const leases = db.prepare(LIVE_REVIEW_LEASES).all() as { task_key: string, card_id: number, lease_gen: number }[]
-  const sessions = leases.flatMap(lease => db.prepare(SESSIONS_UNDER_A_LEASE).all(...heartbeatKeysOf(lease.card_id), lease.task_key, lease.lease_gen) as { session: unknown }[])
-  return new Set(sessions.flatMap(row => typeof row.session === 'string' ? [row.session] : []))
+  const leases = tasksOfQueue(db, 'review').filter(task => task.state === LEASED)
+  const sessions = leases.flatMap(lease => events(db, { keyPrefix: heartbeatKeyPrefixOf(lease.card_id), task: lease.task_key })
+    .filter(beat => beat.data?.lease_gen === lease.lease_gen)
+    .map(beat => beat.data?.session))
+  return new Set(sessions.flatMap(session => typeof session === 'string' ? [session] : []))
 }
 
 function busSessionsUnderLiveLeases(busPath: string): Set<string> {
