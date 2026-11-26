@@ -1906,6 +1906,7 @@
     "tests/construct-scripts.test.ts",
     "tests/contract/accepted.test.ts",
     "tests/contract/bump.test.ts",
+    "tests/contract/cli-module-holds-the-commands.test.ts",
     "tests/contract/concept-owner-export.test.ts",
     "tests/contract/contours-ledger.test.ts",
     "tests/contract/contract-files.test.ts",
