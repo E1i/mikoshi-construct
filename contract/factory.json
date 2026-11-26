@@ -2522,6 +2522,7 @@
         "derived": false,
         "directory": true,
         "namedIn": [
+          "scripts/nodes/close/artifact-lifetimes.ts",
           "scripts/nodes/review/dry-run-record.ts",
           "scripts/nodes/review/review-worker.ts",
           "scripts/window/window-request-tools.ts"
@@ -3538,7 +3539,9 @@
         "status": "decided"
       },
       "bus": {
-        "concepts": [],
+        "concepts": [
+          "bus-read"
+        ],
         "contract": [
           "scripts/core/db.ts",
           "scripts/core/sqlite.ts",
@@ -3547,8 +3550,6 @@
           "scripts/core/lease.ts",
           "scripts/core/node.ts",
           "scripts/core/stored.ts",
-          "scripts/core/errors.ts",
-          "scripts/core/bus-path.ts",
           "scripts/core/bus-readings.ts",
           "scripts/core/bus-version.ts",
           "scripts/core/reducer.ts",
@@ -3559,7 +3560,9 @@
           "scripts/core/entry.ts",
           "scripts/core/observations.ts",
           "scripts/core/task-must-wait.ts",
-          "scripts/core/bus-adapter.ts"
+          "scripts/core/bus-adapter.ts",
+          "scripts/ports/bus-read.ts",
+          "scripts/ports/worktree-home.ts"
         ],
         "may_use": [
           "layout",
@@ -3578,8 +3581,6 @@
           "scripts/core/executor-holds.ts",
           "scripts/core/node.ts",
           "scripts/core/stored.ts",
-          "scripts/core/errors.ts",
-          "scripts/core/bus-path.ts",
           "scripts/core/bus-readings.ts",
           "scripts/core/projection-types.ts",
           "scripts/core/bus-version.ts",
@@ -3594,7 +3595,9 @@
           "scripts/core/projection-writes.ts",
           "scripts/core/projection-writes.known.json",
           "scripts/core/rejection.ts",
-          "scripts/core/bus-adapter.ts"
+          "scripts/core/bus-adapter.ts",
+          "scripts/ports/bus-read.ts",
+          "scripts/ports/worktree-home.ts"
         ],
         "status": "decided"
       },
@@ -3873,7 +3876,9 @@
           "scripts/core/factory-paths.ts",
           "scripts/core/generated-files.ts",
           "scripts/core/declarations.ts",
-          "scripts/core/declared-events.ts"
+          "scripts/core/declared-events.ts",
+          "scripts/core/bus-path.ts",
+          "scripts/core/errors.ts"
         ],
         "may_use": [],
         "owns": [
@@ -3881,7 +3886,9 @@
           "scripts/core/factory-paths.ts",
           "scripts/core/generated-files.ts",
           "scripts/core/declarations.ts",
-          "scripts/core/declared-events.ts"
+          "scripts/core/declared-events.ts",
+          "scripts/core/bus-path.ts",
+          "scripts/core/errors.ts"
         ],
         "status": "decided"
       },
@@ -4229,11 +4236,9 @@
       },
       "ports": {
         "concepts": [
-          "bus-read",
           "process-table"
         ],
         "contract": [
-          "scripts/ports/bus-read.ts",
           "scripts/ports/card-tree.ts",
           "scripts/ports/ci-reading.ts",
           "scripts/ports/client/claude/adapter.ts",
@@ -4257,7 +4262,6 @@
           "scripts/ports/task-start.ts",
           "scripts/ports/tree-publish.ts",
           "scripts/ports/witnesses.ts",
-          "scripts/ports/worktree-home.ts",
           "scripts/ports/worktree.ts",
           "scripts/core/bus-contract.ts"
         ],
@@ -4271,11 +4275,13 @@
           "scripts/core/gh-callers.known.json",
           "scripts/core/bus-contract.ts",
           "scripts/core/process-listing.ts",
+          "!scripts/ports/bus-read.ts",
           "!scripts/ports/client/codex/adapter.ts",
           "!scripts/ports/client/contract.ts",
           "!scripts/ports/disk.ts",
           "!scripts/ports/git.ts",
-          "!scripts/ports/prompt-store.ts"
+          "!scripts/ports/prompt-store.ts",
+          "!scripts/ports/worktree-home.ts"
         ],
         "status": "decided"
       },
@@ -6728,8 +6734,7 @@
           "busStartedTree": "(busPath: string, id: string): string | null",
           "busWorktreeHome": "(busPath: string): string",
           "cardTree": "(env: NodeJS.ProcessEnv, busPath: string, id: string, oldHome: string = DEFAULT_WORKTREE_HOME, exists: (target: string) => boolean = existsSync, startedTree: StartedTreeReader = busStartedTree): string",
-          "cardTreeRoots": "(env: NodeJS.ProcessEnv, busPath: string, repo: string): { homes: string[]; perBus: string; }",
-          "taskWorktree": "(home: string, id: string): string"
+          "cardTreeRoots": "(env: NodeJS.ProcessEnv, busPath: string, repo: string): { homes: string[]; perBus: string; }"
         },
         "language": "factory",
         "reexports": [
@@ -6763,6 +6768,7 @@
           "stageSketch": "(tree: string, base: string, sketchSha: string): void",
           "tailLines": "(output: string, count = TAIL_LINES): string",
           "takeFreeTree": "(git: GitRun, repo: string, target: string, settle: (tree: string) => void): boolean",
+          "taskWorktree": "(home: string, id: string): string",
           "treeOriginIn": "(output: string): TreeOrigin | null",
           "treeOriginLine": "(origin: TreeOrigin): string",
           "withWorktree": "<T>(repo: string, base: string, run: (tree: string) => T): T",

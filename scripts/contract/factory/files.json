@@ -33,7 +33,7 @@
   { "path": "~/.construct/reports", "names": [".construct/reports"] },
   { "path": "~/.construct/engram", "names": [".construct/engram"] },
   { "path": "~/.construct/bus.db", "names": ["bus.db"] },
-  { "path": "~/.construct/bus/dry-run-reviews", "names": ["dry-run-reviews"] },
+  { "path": "~/.construct/bus/dry-run-reviews", "names": ["dry-run-reviews"], "owner": "scripts/nodes/review/dry-run-record.ts" },
   { "path": "~/.construct/bus/supervisor.jsonl", "names": ["supervisor.jsonl"] },
   { "path": "~/.construct/pr-status.off", "names": ["pr-status.off"] },
   { "path": "~/.construct/prompts", "names": ["prompts"], "owner": "scripts/ports/prompt-store.ts" },
