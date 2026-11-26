@@ -11,6 +11,7 @@ const IDENTIFIERS_SPECIFIER = '../core/identifiers.js'
 const BUS_TO_CARD_MODEL = 'boundary:bus->card-model'
 const PORTS_TO_CARD_MODEL = 'boundary:ports->card-model'
 const PORTS_TO_CARD_MODEL_BEFORE = 4
+const SHA256_OF_BODY = '230d8358dc8e8890b4c58deeb62912ee2f20357ae92a5cc861b98e68fe31acb5'
 
 interface DrawnModules {
   modules: { modules: Record<string, { contract: readonly string[] }> }
@@ -47,6 +48,7 @@ describe('the identifiers sit under the bus and their shapes in ports', () => {
     expect(shapes.cardIdOfDescription('card: #2313 w3-identifiers-under-bus\nbody')).toBe(2313)
     expect(shapes.cardIdOf({ id: '#7 x' })).toBe(7)
     expect(shapes.positiveInteger(0)).toBeNull()
+    expect(shapes.prBodySha('body')).toBe(SHA256_OF_BODY)
     expect(shapes.isFullSha(shapes.prBodySha('body').slice(0, 40))).toBe(true)
     expect(shapes.MAIN_BRANCH).toBe('main')
   })
