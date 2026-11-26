@@ -1,6 +1,8 @@
 import type { DatabaseSync, SQLInputValue, SQLOutputValue } from 'node:sqlite'
+import type { PreviousObservation } from './observations.js'
 import type { StoredEvent } from './stored.js'
-import { CARD_ADMITTED, MERGE_DONE, PR_CLOSED, PR_STATUS_SET, PROCESS_HEARTBEAT, REVIEW_RECORDED, SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, SHARD_USED } from './events.js'
+import { CARD_ADMITTED, MAIN_ADVANCED, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_STATUS_SET, PROCESS_HEARTBEAT, REVIEW_RECORDED, SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, SHARD_USED } from './events.js'
+import { previousObservationOf } from './observations.js'
 import { payloadOf, Rejection } from './stored.js'
 
 export type { Reading, ReadProjection, StaleProjection } from './bus-readings.js'
@@ -276,6 +278,31 @@ export function byId(db: DatabaseSync, id: number): EventRow | null {
 
 export function latest(db: DatabaseSync, query: EventsQuery): EventRow | null {
   return events(db, { ...query, newestFirst: true, limit: 1 })[0] ?? null
+}
+
+const PR_LIFECYCLE = [PR_OBSERVED, PR_CLOSED]
+
+export function lastObservation(db: DatabaseSync, pr: number): PreviousObservation | null {
+  const row = latest(db, { types: PR_LIFECYCLE, pr, legacy: EITHER_JOURNAL })
+  return row === null ? null : previousObservationOf({ ...row })
+}
+
+export function openPrsAmong(db: DatabaseSync, recorded: readonly number[]): number[] {
+  const lastObservedAt = new Map<number, number>()
+  const lastClosedAt = new Map<number, number>()
+  for (const row of events(db, { types: PR_LIFECYCLE, withPr: true, legacy: EITHER_JOURNAL }))
+    (row.type === PR_OBSERVED ? lastObservedAt : lastClosedAt).set(Number(row.pr), row.id)
+  const open = new Set(recorded.filter(pr => !lastClosedAt.has(pr)))
+  for (const [pr, observedAt] of lastObservedAt) {
+    if (observedAt > (lastClosedAt.get(pr) ?? 0))
+      open.add(pr)
+  }
+  return [...open].sort((a, b) => a - b)
+}
+
+export function lastMainSha(db: DatabaseSync): string | null {
+  const sha = latest(db, { types: [MAIN_ADVANCED], legacy: EITHER_JOURNAL })?.data?.sha
+  return typeof sha === 'string' ? sha : null
 }
 
 const UNENDED_WINDOW_SHARDS = `

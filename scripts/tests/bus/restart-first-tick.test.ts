@@ -26,6 +26,7 @@ import { recordWorkerDown, WorkerKeeper } from '../../supervisor/supervisor.js'
 import { workerLaunches } from '../../supervisor/workers.js'
 import { firstTickBound } from './first-tick-bound.js'
 import { Clock, FakeGitHub } from './github-fake.js'
+import { NO_PR_HISTORY } from './net-watch-bench.js'
 
 const LIVE_BUS_COPY_VARIABLE = 'CONSTRUCT_BUS_COPY'
 const GENERATED_PRS = 3000
@@ -127,7 +128,7 @@ class NetWatchWithNothingNew extends NetWatch {
 }
 
 function busTickOn(db: Bus, clock: Clock): BusTick {
-  return new BusTick(db, busProjections(), new NetWatchWithNothingNew(db, new FakeGitHub().client, clock.now, RUN_SCRIPT, () => REQUIRED_CHECK), clock.now)
+  return new BusTick(db, busProjections(), new NetWatchWithNothingNew(db, new FakeGitHub().client, clock.now, RUN_SCRIPT, () => REQUIRED_CHECK, NO_PR_HISTORY), clock.now)
 }
 
 function threadWorkMs(since?: NodeJS.CpuUsage): number {

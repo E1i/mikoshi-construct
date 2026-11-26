@@ -5131,10 +5131,7 @@
       "scripts/nodes/review/pr-close.ts": 1,
       "scripts/policy/decisions/index.ts": 8,
       "scripts/policy/decisions/wait-folds.ts": 1,
-      "scripts/ports/netwatch.ts": 3,
-      "scripts/ports/task-start.ts": 3,
       "scripts/ports/worktree-home.ts": 1,
-      "scripts/release/evidence.ts": 2,
       "scripts/supervisor/card-waits.ts": 4,
       "scripts/supervisor/derive-queues.ts": 1,
       "scripts/window/board.ts": 19,
@@ -6569,15 +6566,12 @@
           "TECHNOLOGY_WORDS"
         ],
         "functions": {
-          "knownOpenPrs": "(db: DatabaseSync): number[]",
-          "lastMain": "(db: DatabaseSync): string | null",
-          "lastObserved": "(db: DatabaseSync, pr: number): PreviousObservation | null",
           "mainAdvanced": "(ts: string, main: MainHead): BusEvent",
           "observationsOf": "(ts: string, snapshot: Snapshot, previousOf: PreviousObservationOf, reopening: ReopeningOf = () => null): BusEvent[]",
           "pollLine": "(poll: Poll): string",
           "prClosed": "(ts: string, closed: ClosedPr, reopening: number | null = null): BusEvent",
           "prObserved": "(ts: string, open: OpenPr, previous: PreviousObservation | null): BusEvent",
-          "watchTheNetwork": "(requiredCheck: () => string, once: boolean): Promise<number>"
+          "watchTheNetwork": "(requiredCheck: () => string, once: boolean, history: PrHistory): Promise<number>"
         },
         "language": "technology",
         "reexports": [],
@@ -6586,9 +6580,10 @@
           "git"
         ],
         "types": {
-          "NetWatch": "class NetWatch { constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly clock: () => Date, private readonly process: string, private readonly requiredCheck: () => string); dueReason(nowMs: number): PollReason | null; poll(): Poll | null }",
+          "NetWatch": "class NetWatch { constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly clock: () => Date, private readonly process: string, private readonly requiredCheck: () => string, private readonly history: PrHistory); dueReason(nowMs: number): PollReason | null; poll(): Poll | null }",
           "Poll": "type Poll = { kind: 'ticked'; reason: PollReason; calls: number; remaining: number | null; written: number; unsettled: number[]; } | { kind: 'skipped'; reason: PollReason; cause: 'retry-after' | 'rate-limited' | 'failed'; calls: number; until?: string; detail?: string; }",
-          "PollReason": "type PollReason = 'start' | 'interval' | 'wake'"
+          "PollReason": "type PollReason = 'start' | 'interval' | 'wake'",
+          "PrHistory": "interface PrHistory { knownOpenPrs: (db: DatabaseSync) => number[]; lastMainSha: (db: DatabaseSync) => string | null; lastObservation: (db: DatabaseSync, pr: number) => PreviousObservation | null; }"
         }
       },
       "scripts/ports/pr-status.ts": {

@@ -10,7 +10,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { CHECK_MS, TICK_MS, WAKE_GAP_MS } from '../core/cadence.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
 import { BUS_PULSE, declaredPayload, MAIN_ADVANCED, NETWATCH_SKIPPED, PR_CLOSED, PR_OBSERVED } from '../core/events.js'
-import { closedKey, NETWATCH, pathsOfTheLastObservation, previousObservationOf, reopeningOf } from '../core/observations.js'
+import { closedKey, NETWATCH, pathsOfTheLastObservation, reopeningOf } from '../core/observations.js'
 import { recordProcessHeartbeat } from '../supervisor/heartbeat.js'
 import { ghApi } from './github.js'
 import { Meter, RateLimited } from './meter.js'
@@ -83,35 +83,6 @@ export function observationsOf(ts: string, snapshot: Snapshot, previousOf: Previ
   ]
 }
 
-const KNOWN_OPEN_PRS = `
-  SELECT pr FROM prs WHERE pr NOT IN (SELECT pr FROM events WHERE type = 'pr.closed' AND pr IS NOT NULL)
-  UNION
-  SELECT pr FROM events WHERE type IN ('pr.observed', 'pr.closed') AND pr IS NOT NULL
-  GROUP BY pr HAVING max(CASE WHEN type = 'pr.observed' THEN id END) > coalesce(max(CASE WHEN type = 'pr.closed' THEN id END), 0)
-  ORDER BY pr
-`
-
-const LAST_MAIN = `SELECT payload FROM events WHERE type = '${MAIN_ADVANCED}' ORDER BY id DESC LIMIT 1`
-
-const LAST_OBSERVED_OR_CLOSED = `SELECT id, ts, type, card_id, pr, head, dedupe_key, payload FROM events WHERE type IN ('pr.observed', 'pr.closed') AND pr = ? ORDER BY id DESC LIMIT 1`
-
-export function lastObserved(db: DatabaseSync, pr: number): PreviousObservation | null {
-  const row = db.prepare(LAST_OBSERVED_OR_CLOSED).get(pr)
-  return row === undefined ? null : previousObservationOf(row)
-}
-
-export function knownOpenPrs(db: DatabaseSync): number[] {
-  return db.prepare(KNOWN_OPEN_PRS).all().map(row => Number(row.pr))
-}
-
-export function lastMain(db: DatabaseSync): string | null {
-  const row = db.prepare(LAST_MAIN).get()
-  if (row === undefined)
-    return null
-  const sha = (JSON.parse(String(row.payload)) as { sha?: unknown }).sha
-  return typeof sha === 'string' ? sha : null
-}
-
 function mainBeforeMovedHeads(events: readonly BusEvent[], headBefore: (pr: number) => string | null | undefined): BusEvent[] {
   const moved = (event: BusEvent): boolean => event.type === PR_OBSERVED && event.pr !== null && ![undefined, null, event.head].includes(headBefore(event.pr))
   const rest = events.filter(event => event.type !== MAIN_ADVANCED)
@@ -134,11 +105,21 @@ function record<T extends typeof BUS_PULSE | typeof NETWATCH_SKIPPED>(ts: string
   return { ts, type, actor: NETWATCH, cardId: null, pr: null, head: null, dedupeKey: `${type}:${ts}`, payload, legacy: false }
 }
 
+export interface PrHistory {
+  knownOpenPrs: (db: DatabaseSync) => number[]
+  lastMainSha: (db: DatabaseSync) => string | null
+  lastObservation: (db: DatabaseSync, pr: number) => PreviousObservation | null
+}
+
 export class NetWatch {
   private lastPollAt: number | null = null
   private blockedUntil = 0
 
-  constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly clock: () => Date, private readonly process: string, private readonly requiredCheck: () => string) {}
+  constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly clock: () => Date, private readonly process: string, private readonly requiredCheck: () => string, private readonly history: PrHistory) {}
+
+  private lastObservation(pr: number): PreviousObservation | null {
+    return this.history.lastObservation(this.db, pr)
+  }
 
   dueReason(nowMs: number): PollReason | null {
     if (this.lastPollAt === null)
@@ -163,11 +144,11 @@ export class NetWatch {
       return this.skipped(ts, { kind: 'skipped', reason, cause: 'retry-after', calls: 0, until: new Date(this.blockedUntil).toISOString() })
     const meter = new Meter(this.gitHub, () => this.clock().getTime())
     try {
-      const snapshot = takeSnapshot(meter, knownOpenPrs(this.db), lastMain(this.db), this.requiredCheck(), (pr, head) => pathsOfTheLastObservation(lastObserved(this.db, pr), head))
+      const snapshot = takeSnapshot(meter, this.history.knownOpenPrs(this.db), this.history.lastMainSha(this.db), this.requiredCheck(), (pr, head) => pathsOfTheLastObservation(this.lastObservation(pr), head))
       const poll: Poll = { kind: 'ticked', reason, calls: meter.calls, remaining: meter.remaining, written: 0, unsettled: snapshot.unsettled }
       inTransaction(this.db, () => {
-        const observed = observationsOf(ts, snapshot, pr => lastObserved(this.db, pr), reopeningOf(this.db))
-        for (const event of mainBeforeMovedHeads(observed, pr => lastObserved(this.db, pr)?.event?.head)) {
+        const observed = observationsOf(ts, snapshot, pr => this.lastObservation(pr), reopeningOf(this.db))
+        for (const event of mainBeforeMovedHeads(observed, pr => this.lastObservation(pr)?.event?.head)) {
           if (appendEvent(this.db, withMainCi(event, snapshot.main?.ci)))
             poll.written += 1
         }
@@ -196,10 +177,10 @@ export function pollLine(poll: Poll): string {
   return `${PREFIX}skipped (${poll.reason}, ${poll.cause}): ${poll.calls} calls${poll.until === undefined ? '' : `, until ${poll.until}`}${poll.detail === undefined ? '' : `: ${poll.detail}`}`
 }
 
-export async function watchTheNetwork(requiredCheck: () => string, once: boolean): Promise<number> {
+export async function watchTheNetwork(requiredCheck: () => string, once: boolean, history: PrHistory): Promise<number> {
   const busPath = defaultBusPath()
   const db = openBus(busPath)
-  const netWatch = new NetWatch(db, ghApi(process.cwd()), () => new Date(), NETWATCH_SCRIPT, requiredCheck)
+  const netWatch = new NetWatch(db, ghApi(process.cwd()), () => new Date(), NETWATCH_SCRIPT, requiredCheck, history)
   console.log(`${PREFIX}${busPath}, a tick every ${TICK_MS / 1000} s${once ? ', once' : ''}`)
   try {
     for (;;) {

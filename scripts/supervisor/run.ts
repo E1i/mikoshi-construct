@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { GitHubPost } from '../core/pr-status.js'
 import type { GitHub } from '../ports/github.js'
-import type { Poll } from '../ports/netwatch.js'
+import type { Poll, PrHistory } from '../ports/netwatch.js'
 import type { BgResult, ProcessList } from './bg.js'
 import type { StartedReducerLoop } from './reducer-loop.js'
 import { existsSync, linkSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { BOARD_PERIOD_MS, startBoardTimer } from '../cli/board-page.js'
 import { CHECK_MS, TICK_MS } from '../core/cadence.js'
 import { closedWaitIds } from '../core/card-readings.js'
+import { lastMainSha, lastObservation, openPrsAmong } from '../core/events-query.js'
 import { WINDOW_REQUEST, WORKER_DOWN } from '../core/events.js'
 import { setStepStatuses, STATUS_CONTEXT, STATUS_OFF_FILE, statusesSwitchedOff, statusFailureLine, statusLine } from '../core/pr-status.js'
 import { ownerChannelOfBus } from '../owner/channel.js'
@@ -23,7 +24,7 @@ import { realRequestTools } from '../window/window-request-tools.js'
 import { WindowRequests } from '../window/window-requests.js'
 import { alive, BUS_RUN_MARKERS, instancesOf, processBeatsOn, psList, RUN_SCRIPT } from './bg.js'
 import { closeWaitsOfEndedCards } from './card-waits.js'
-import { busContract, busProjections, cardTransitions, composeBus, deadEndParts, DECISION_EVENT_READS, deriveQueuesOfTheBus, gateRunSpoolPlaces, openComposedBus, recordOwnStart, requiredCheckAt, windowRequestBus } from './composition.js'
+import { busContract, busProjections, cardTransitions, composeBus, deadEndParts, DECISION_EVENT_READS, deriveQueuesOfTheBus, gateRunSpoolPlaces, openComposedBus, pullRequests, recordOwnStart, requiredCheckAt, windowRequestBus } from './composition.js'
 import { DeadEnds } from './dead-ends.js'
 import { GateRunSpool } from './gate-run-spool.js'
 import { sessionLifeIn } from './recorded-worker.js'
@@ -33,6 +34,12 @@ import { stampLogOutput } from './stamp.js'
 
 export const PREFIX = '[bus:run] '
 export const RUN_LOCK = 'bus-run.lock'
+
+export const PR_HISTORY: PrHistory = {
+  knownOpenPrs: db => openPrsAmong(db, pullRequests(db).map(row => row.pr)),
+  lastMainSha,
+  lastObservation,
+}
 
 type ReduceCount = ReturnType<ReducerPass['run']>
 
@@ -280,7 +287,7 @@ export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub
     for (const line of ends.step())
       console.log(`${PREFIX}${line}`)
   }
-  return { busTick: new BusTick(db, reducer, new NetWatch(db, gitHub, clock, RUN_SCRIPT, () => requiredCheckAt()), clock, () => {}, statuses, stalled, spools, () => performance.now(), deadEnds) }
+  return { busTick: new BusTick(db, reducer, new NetWatch(db, gitHub, clock, RUN_SCRIPT, () => requiredCheckAt(), PR_HISTORY), clock, () => {}, statuses, stalled, spools, () => performance.now(), deadEnds) }
 }
 
 export function startBus(db: DatabaseSync, clock: () => Date): string[] {
