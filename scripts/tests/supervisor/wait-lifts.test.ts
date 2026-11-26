@@ -3,7 +3,7 @@ import type { WaitLift } from '../../core/db.js'
 import type { MergeBench } from '../bus/merge-bench.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { closedWaitIds, openOwnerWaits } from '../../core/card-readings.js'
-import { appendEvent, liftHeldAtOpen, openOwnerWait } from '../../core/db.js'
+import { appendEvent, isWaitLift, liftHeldAtOpen, openOwnerWait } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_STOPPED, CARD_WAITING, MERGE_DONE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_CLOSED, PR_OBSERVED, QUESTION_AGENT, REJECTED, REVIEW_RECORDED, UPDATE_DONE, WITNESS_DOWNGRADE, WITNESS_RECORDED } from '../../core/events.js'
 import { reviewCandidates } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
@@ -191,6 +191,17 @@ describe('a wait is never opened when its lift already holds, nor twice for one 
     expect(downgrades).toHaveLength(1)
     const refused = db.prepare(`SELECT json_extract(payload, '$.reason') AS reason FROM events WHERE type = '${REJECTED}'`).all() as { reason: string }[]
     expect(refused).toContainEqual({ reason: expect.stringContaining(`the same reason is already open on card #${CARD} as ${downgrades[0]!.id}`) })
+  })
+})
+
+describe('the gate refuses a lift that names no condition', () => {
+  it('an owner wait whose lift is empty or unknown is refused and a named lift is written as data', () => {
+    const db = bus()
+    expect(() => openOwnerWait(db, OPENED_AT, 'policy', { need: 'decision', text: 'which path?', card: CARD, lift: { on: [] } })).toThrow(/names a lift/)
+    expect(() => openOwnerWait(db, OPENED_AT, 'policy', { need: 'decision', text: 'which path?', card: CARD, lift: { on: ['someday' as never] } })).toThrow(/names a lift/)
+    openOwnerWait(db, OPENED_AT, 'policy', { need: 'decision', text: 'which path?', card: CARD, pr: PR, lift: { on: ['new-head'], head: HEAD } })
+    const written = db.prepare(`SELECT json_extract(payload, '$.lift') AS lift FROM events WHERE type = '${OWNER_WAIT_OPENED}'`).get() as { lift: string }
+    expect(isWaitLift(JSON.parse(written.lift))).toBe(true)
   })
 })
 

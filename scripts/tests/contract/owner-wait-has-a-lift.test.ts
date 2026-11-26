@@ -2,9 +2,6 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { isWaitLift, openOwnerWait } from '../../core/db.js'
-import { OWNER_WAIT_OPENED } from '../../core/events.js'
-import { openComposedBus } from '../../supervisor/composition.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const THE_GATE = 'scripts/core/db.ts'
@@ -65,17 +62,5 @@ describe('the contract: every owner wait carries its lift condition as data', ()
 
     const writers = sources().filter(file => /type:\s*OWNER_WAIT_OPENED\b/.test(readFileSync(path.join(REPO_ROOT, file), 'utf8')))
     expect(writers, `owner.wait.opened is written only through the gate in ${THE_GATE}`).toEqual([])
-
-    const db = openComposedBus(':memory:')
-    try {
-      expect(() => openOwnerWait(db, '2026-11-26T00:00:00.000Z', 'policy', { need: 'decision', text: 'which path?', card: 1, lift: { on: [] } })).toThrow(/names a lift/)
-      expect(() => openOwnerWait(db, '2026-11-26T00:00:00.000Z', 'policy', { need: 'decision', text: 'which path?', card: 1, lift: { on: ['someday' as never] } })).toThrow(/names a lift/)
-      openOwnerWait(db, '2026-11-26T00:00:00.000Z', 'policy', { need: 'decision', text: 'which path?', card: 1, pr: 2, lift: { on: ['new-head'], head: 'a'.repeat(40) } })
-      const written = db.prepare(`SELECT json_extract(payload, '$.lift') AS lift FROM events WHERE type = '${OWNER_WAIT_OPENED}'`).get() as { lift: string }
-      expect(isWaitLift(JSON.parse(written.lift))).toBe(true)
-    }
-    finally {
-      db.close()
-    }
   })
 })

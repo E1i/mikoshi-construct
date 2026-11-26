@@ -122,7 +122,7 @@ export function questionAskedTwiceLine(cardId: number, question: string): string
   return `card #${cardId} asks twice in a row, its answer session repeating the question its ${QUESTION_AGENT} stop already carried; another answer round would ask it again, so the card waits for the owner: ${question}`
 }
 
-const RATCHET_ROW = /\b(?:boundary|law-gaps|lines-scope|lines|overlaps):[^\s,;'"`()[\]]+/g
+const RATCHET_ROW = /\b(?:boundary|gate|law-gaps|lines-scope|lines|overlaps):[^\s,;'"`()[\]]+/g
 const NUMERIC_GROWTH = /(\d+)\s*(?:→|->|=>|⟶)\s*(\d+)/g
 const GROWTH_WORD = /\b(?:grow|grows|growing|grown|growth|raise|raises|raising|bump|bumps|increase|increases|lift)\b|рост|подн/i
 const TRAILING_PUNCTUATION = /[.:]+$/
