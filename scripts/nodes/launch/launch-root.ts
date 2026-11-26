@@ -39,6 +39,7 @@ import { reviewOf } from '../../ladder/verdict.js'
 import { cardDecisionLines } from '../../policy/shards.js'
 import { cardIsolationCommand, clientLastSteps, clientTranscript } from '../../ports/client/claude/adapter.js'
 import { loadedCodeSha, processGit } from '../../ports/git.js'
+import { HOST_THERMAL } from '../../ports/host-thermal.js'
 import { realIsolationReader } from '../../ports/isolation.js'
 import { prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
 import { promptsDirOf } from '../../ports/prompt-store.js'
@@ -198,7 +199,7 @@ export async function runLaunchWorker(argv: string[], run: LaunchRun): Promise<n
     return runWithdrawLegacy(run.busPath, () => new Date())
   let node: LaunchNode | undefined
   const build = (db: DatabaseSync, mode: DetectionMode): LaunchNode => {
-    node = new LaunchNode({ ...nodeLiveness(), db, starter: run.starter, ladder: run.ladder, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), endedWith: reportResultLine(run.launchDir), handedOff: handoffWrittenSince(run.launchDir), reportOf: reportSince(run.launchDir), collected: reportCollector(run.launchDir), warned: eddiesWarned, atContextLine: card => reachedContextLine(card.worktree, card.session), spendStopped: card => stoppedOnSpend(card.worktree, card.session), buildHandoff: handoffBuilder(run.launchDir), ...(run.treePr === undefined ? {} : { publish: startedCardPublisher(run.treePr, run.launchDir, process.env), committed: (card: StartedCard) => treeHoldsACommit(card.worktree, card.base) }), continuer: run.continuer, prompts: promptsDirOf(run.busPath), ...(run.treeOrigin === undefined ? {} : { treeOrigin: run.treeOrigin }) })
+    node = new LaunchNode({ ...nodeLiveness(), db, starter: run.starter, ladder: run.ladder, thermal: HOST_THERMAL, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, resulted: sessionLeftAResult(run.launchDir), endedWith: reportResultLine(run.launchDir), handedOff: handoffWrittenSince(run.launchDir), reportOf: reportSince(run.launchDir), collected: reportCollector(run.launchDir), warned: eddiesWarned, atContextLine: card => reachedContextLine(card.worktree, card.session), spendStopped: card => stoppedOnSpend(card.worktree, card.session), buildHandoff: handoffBuilder(run.launchDir), ...(run.treePr === undefined ? {} : { publish: startedCardPublisher(run.treePr, run.launchDir, process.env), committed: (card: StartedCard) => treeHoldsACommit(card.worktree, card.base) }), continuer: run.continuer, prompts: promptsDirOf(run.busPath), ...(run.treeOrigin === undefined ? {} : { treeOrigin: run.treeOrigin }) })
     return node
   }
   const pause = async (ms: number): Promise<unknown> => {

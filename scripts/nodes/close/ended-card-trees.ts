@@ -10,7 +10,7 @@ import { ARTIFACT_REMOVED, BOARD_ALARM } from '../../core/events.js'
 import { TREE_LEFT } from '../../core/node.js'
 import { LEASED } from '../../core/queue.js'
 import { ofCard as tasksOfCard } from '../../core/tasks-query.js'
-import { processGit } from '../../ports/git.js'
+import { portGit as git, processGit } from '../../ports/git.js'
 import { cardTreeRoots } from '../../ports/worktree-home.js'
 import { FREE_TREE_CAPACITY } from '../../ports/worktree.js'
 import { cardSessionOf } from '../answer/answer-source.js'
@@ -54,10 +54,6 @@ export interface EndedTree {
 }
 
 type TreeOutcome = Omit<EndedTree, 'cardId' | 'path'>
-
-function git(repo: string, args: string[]): string {
-  return processGit.read(repo, args)
-}
 
 function mainRefOf(tree: string): string {
   const ref = MAIN_REFS.find(candidate => processGit.readOrNull(tree, ['rev-parse', '--verify', '--quiet', candidate]) !== null)

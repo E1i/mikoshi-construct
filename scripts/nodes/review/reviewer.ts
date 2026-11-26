@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../core/lease.js'
 import type { MachineGate } from '../../core/machine-sessions.js'
 import type { SessionReading } from '../../ports/client/contract.js'
+import type { GitCommand } from '../../ports/git.js'
 import type { ProcessRow, ProcessTable } from '../../ports/process-table.js'
 import type { SessionInput } from '../../ports/prompt-store.js'
 import type { SpawnSessionParams } from '../../ports/session.js'
@@ -19,7 +20,7 @@ import { BOARD_ALARM, SESSION_STALLED } from '../../core/events.js'
 import { RENEW_MS, renewLease, StaleLease } from '../../core/lease.js'
 import { busNameOf, machineGate, machineSessions } from '../../core/machine-sessions.js'
 import { busWriteAt, ChildLog } from '../../core/node.js'
-import { processGit } from '../../ports/git.js'
+import { processGit, syncThroughPort } from '../../ports/git.js'
 import { prepareTree } from '../../ports/prepare-tree.js'
 import { OsProcessTable, identityOf as rowIdentityOf } from '../../ports/process-table.js'
 import { reviewModelOf, spawnSession, streamReading, withoutCard } from '../../ports/session.js'
@@ -271,6 +272,13 @@ function git(cwd: string, args: string[]): void {
   processGit.read(cwd, args)
 }
 
+function answeringNothing(run: TreeTools['git']): GitCommand {
+  return (cwd, args) => {
+    run(cwd, args)
+    return ''
+  }
+}
+
 function worktrees(repo: string): string[] {
   return processGit.read(repo, ['worktree', 'list', '--porcelain'])
     .split('\n')
@@ -347,7 +355,7 @@ export class ReviewTrees {
   }
 
   fetch(ref: string): void {
-    this.tools.git(this.repo, ['fetch', '--quiet', 'origin', ref])
+    syncThroughPort(answeringNothing(this.tools.git), this.repo, ['fetch', '--quiet', 'origin', ref])
   }
 
   release(tree: string): string | null {

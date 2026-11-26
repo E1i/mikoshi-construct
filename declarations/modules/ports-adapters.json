@@ -7,7 +7,10 @@
     "scripts/ports/prompt-store.ts",
     "scripts/ports/client/contract.ts",
     "scripts/ports/client/role-policy.ts",
-    "scripts/ports/client/codex/adapter.ts"
+    "scripts/ports/client/codex/adapter.ts",
+    "scripts/ports/host-fault.ts",
+    "scripts/ports/host-thermal.ts",
+    "scripts/ports/host/macos-thermal.ts"
   ],
   "exclude": [],
   "shared": []

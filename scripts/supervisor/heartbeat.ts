@@ -3,19 +3,22 @@ import type { BusEvent } from '../core/db.js'
 import type { EventRow } from '../core/events-query.js'
 import type { HolderStart, Lease } from '../core/lease.js'
 import type { SessionGauges } from '../window/eddies-measure.js'
+import type { HostVitals } from './host-vitals.js'
 import { realpathSync } from 'node:fs'
 import os from 'node:os'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { appendEvent, defaultBusPath, inTransaction, openBus, recordBeat, retirePreviousGenerationBeats } from '../core/db.js'
 import { BY_CARD, EITHER_JOURNAL, events, lastPer, latest, processBeats } from '../core/events-query.js'
-import { PROCESS_HEARTBEAT, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../core/events.js'
+import { BOARD_ALARM, PROCESS_HEARTBEAT, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../core/events.js'
 import { prOf } from '../core/identifiers.js'
 import { LEASE_FOLDS } from '../core/lease.js'
 import { storedByKey } from '../core/stored.js'
+import { HOST_DEGRADED, hostAlarmKey, hostDegradedLine } from '../ports/host-fault.js'
 import { isFullSha } from '../ports/identifier-shapes.js'
 import { CARD_VARIABLE, clientAdapter } from '../ports/session.js'
 import { projectRoot, sessionGauges } from '../window/eddies-measure.js'
+import { crossedVitals, hostDegradedCause, sampleVitals } from './host-vitals.js'
 
 export const PR_VARIABLE = 'CONSTRUCT_PR'
 export const HEAD_VARIABLE = 'CONSTRUCT_HEAD'
@@ -45,8 +48,26 @@ export function ownStart(): HolderStart {
   return { pid: process.pid, started: new Date(Date.now() - process.uptime() * 1000).toISOString() }
 }
 
-export function recordProcessHeartbeat(db: DatabaseSync, ts: string, name: string, capacity?: QueueCapacity): boolean {
-  return recordBeat(db, { process: name, type: PROCESS_HEARTBEAT, ts, payload: { process: name, ...capacity } })
+export const SUPERVISOR_BEAT = 'supervisor'
+
+export type VitalsReading = () => HostVitals
+
+export const HOST_VITALS: VitalsReading = () => sampleVitals()
+
+const VITALS_ALARM = 'vitals'
+
+function raiseHostDegraded(db: DatabaseSync, ts: string, vitals: HostVitals): void {
+  const cause = hostDegradedCause(vitals)
+  if (cause !== null)
+    appendEvent(db, { ts, type: BOARD_ALARM, actor: `worker:${SUPERVISOR_BEAT}:${process.pid}`, cardId: null, pr: null, head: null, dedupeKey: `${BOARD_ALARM}:${hostAlarmKey(HOST_DEGRADED, VITALS_ALARM, ts)}`, payload: { reason: HOST_DEGRADED, cause: crossedVitals(vitals).join(','), detail: hostDegradedLine(cause) }, legacy: false })
+}
+
+export function recordProcessHeartbeat(db: DatabaseSync, ts: string, name: string, capacity?: QueueCapacity, vitalsOf: VitalsReading | null = null): boolean {
+  const vitals = vitalsOf?.()
+  const recorded = recordBeat(db, { process: name, type: PROCESS_HEARTBEAT, ts, payload: { process: name, ...capacity, ...(vitals === undefined ? {} : { vitals }) } })
+  if (vitals !== undefined)
+    raiseHostDegraded(db, ts, vitals)
+  return recorded
 }
 
 function latestOfEachProcess(beats: readonly ProcessBeat[]): ProcessBeat[] {

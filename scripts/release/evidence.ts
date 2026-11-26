@@ -1,4 +1,5 @@
 import type { Card } from '../../src/card/grammar.js'
+import type { EventRow } from '../core/events-query.js'
 import type { IntakeAdmission } from '../intake/intake.js'
 import type { JournalEvent } from '../ladder/approval.js'
 import type { VerifiedClosing } from '../nodes/close/task-close.js'
@@ -10,10 +11,12 @@ import { fileURLToPath } from 'node:url'
 import { JOURNAL_HISTORY_ENDS, writtenBeforeHistoryEnds } from '../../src/card/closed.js'
 import { parseCard } from '../../src/card/grammar.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
+import { events } from '../core/events-query.js'
 import { INTAKE_EVENT, PR_CLOSED, WITNESS_RECORDED } from '../core/events.js'
 import { busHistory } from '../core/journal.js'
 import { pnpmCommand } from '../core/owner-commands.js'
 import { SHIFT_JOURNAL } from '../core/places.js'
+import * as prs from '../core/pr-readings.js'
 import { openDatabase } from '../core/sqlite.js'
 import { busIntakeAdmissions } from '../intake/intake.js'
 import { cardVerifiedClosings } from '../nodes/close/task-close.js'
@@ -29,22 +32,11 @@ const BUDGET_SOURCE = 'no budget is recorded apart from the forecast'
 const SHIFT_MERGE_LINE_PREFIX = '[shift:merge] '
 const VERIFIED_BY_RUNNING_WITNESSES = 'run'
 
-const GREEN_WITNESSES_ON_THE_LAST_HEAD = `
-  SELECT witness.id, witness.card_id, witness.pr
-  FROM events AS witness
-  JOIN prs ON prs.pr = witness.pr AND prs.head = witness.head
-  WHERE witness.id IN (SELECT max(id) FROM events WHERE type = '${WITNESS_RECORDED}' AND legacy = 0 AND card_id IS NOT NULL AND pr IS NOT NULL GROUP BY card_id, pr)
-    AND json_extract(witness.payload, '$.verdict') = '${GREEN}'
-  ORDER BY witness.id
-`
+const MERGED: readonly unknown[] = [1, true]
 
-const MERGES_LINKED_ONLY_THROUGH_THE_PR = `
-  SELECT closed.id, prs.card_id, closed.pr, json_extract(closed.payload, '$.merged_by') AS by, json_extract(closed.payload, '$.commit') AS commit_sha, json_extract(closed.payload, '$.merged_at') AS merged
-  FROM events AS closed
-  JOIN prs ON prs.pr = closed.pr
-  WHERE closed.type = '${PR_CLOSED}' AND closed.legacy = 0 AND json_extract(closed.payload, '$.merged') = 1 AND closed.card_id IS NULL AND prs.card_id IS NOT NULL AND closed.ts >= ?
-  ORDER BY closed.id
-`
+function textOrNull(value: unknown): string | null {
+  return typeof value === 'string' ? value : null
+}
 
 export interface Line {
   entry: Record<string, unknown>
@@ -154,8 +146,14 @@ export function greenWitnesses(busPath: string): GreenWitness[] {
     return []
   const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
   try {
-    const rows = db.prepare(GREEN_WITNESSES_ON_THE_LAST_HEAD).all() as unknown as { id: number, card_id: number, pr: number }[]
-    return rows.map(row => ({ task: String(row.card_id), pr: row.pr, event: row.id }))
+    const heads = new Map(prs.all(db).map(row => [row.pr, row.head]))
+    const lastOfEachCardAndPr = new Map<string, EventRow>()
+    for (const row of events(db, { types: [WITNESS_RECORDED], withCard: true, withPr: true }))
+      lastOfEachCardAndPr.set(`${row.card_id}:${row.pr}`, row)
+    return [...lastOfEachCardAndPr.values()]
+      .filter(row => row.data?.verdict === GREEN && row.head !== null && heads.get(Number(row.pr)) === row.head)
+      .sort((a, b) => a.id - b.id)
+      .map(row => ({ task: String(row.card_id), pr: Number(row.pr), event: row.id }))
   }
   finally {
     db.close()
@@ -167,8 +165,13 @@ export function mergesLinkedOnlyThroughThePr(busPath: string): BusMerge[] {
     return []
   const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
   try {
-    const rows = db.prepare(MERGES_LINKED_ONLY_THROUGH_THE_PR).all(JOURNAL_HISTORY_ENDS) as unknown as { id: number, card_id: number, pr: number, by: string | null, commit_sha: string | null, merged: string | null }[]
-    return rows.map(row => ({ task: String(row.card_id), pr: row.pr, by: row.by, commit: row.commit_sha, merged: row.merged, event: row.id }))
+    const cardOfPr = new Map(prs.all(db).map(row => [row.pr, row.card_id]))
+    return events(db, { types: [PR_CLOSED], withPr: true, from: JOURNAL_HISTORY_ENDS }).flatMap((closed) => {
+      const card = cardOfPr.get(Number(closed.pr))
+      if (closed.card_id !== null || card == null || !MERGED.includes(closed.data?.merged))
+        return []
+      return [{ task: String(card), pr: Number(closed.pr), by: textOrNull(closed.data?.merged_by), commit: textOrNull(closed.data?.commit), merged: textOrNull(closed.data?.merged_at), event: closed.id }]
+    })
   }
   finally {
     db.close()

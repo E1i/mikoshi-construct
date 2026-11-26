@@ -6,6 +6,7 @@ import type { EventRow } from '../../core/events-query.js'
 import type { MachineHold, MachineSessions } from '../../core/machine-sessions.js'
 import type { QueuedTask, QueueSource } from '../../core/queue.js'
 import type { Holder } from './holders.js'
+import type { LaunchHost } from './host-gate.js'
 import type { OverlapHold } from './overlap.js'
 import { existsSync } from 'node:fs'
 import process from 'node:process'
@@ -27,6 +28,7 @@ import { ofQueue } from '../../core/tasks-query.js'
 import { decisionRecordedAfter, inForceDecisions } from '../../policy/decisions/index.js'
 import { namesQueueLive } from '../../policy/live-decision.js'
 import { ANY, BusRead } from '../../ports/bus-read.js'
+import { thermalFree, UNREAD_THERMAL } from '../../ports/host-thermal.js'
 import { isAlive } from '../../quality/lock.js'
 import { beatsLive } from '../../supervisor/liveness-sites.js'
 import { holderOf, HoldRule, observedDiff, unclearField, withDiff } from './holders.js'
@@ -732,10 +734,10 @@ function logSkips(db: DatabaseSync, onSkip: LaunchCatch['skipped'], verdict: Ove
   }
 }
 
-export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = existsSync, now: () => number = Date.now, onOverlap: OverlapCatch | LaunchCatch = () => {}, shared: readonly string[] = sharedAppendFiles(), lanes: () => number = repositoryLanes(process.cwd()), machine: MachineReader = machineSessions(isAlive)): LaunchCandidate[] {
+export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = existsSync, now: () => number = Date.now, onOverlap: OverlapCatch | LaunchCatch = () => {}, shared: readonly string[] = sharedAppendFiles(), lanes: () => number = repositoryLanes(process.cwd()), machine: MachineReader = machineSessions(isAlive), thermal: LaunchHost['thermal'] = UNREAD_THERMAL): LaunchCandidate[] {
   const lives = withAssignedLanes(db, cardLives(db))
   const laneLimit = lanes()
-  let free = machine.free()
+  let free = thermalFree(machine.free(), thermal.level())
   const merged = cardSet(db, MERGED_CARDS)
   const settled = settledCards(db, merged)
   const unsatisfied = unsatisfiedDependencies(BUS_CONTRACT, db, dependencyReadings(db))
@@ -790,8 +792,8 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
   return chosen
 }
 
-export function launchTasks(db: DatabaseSync, onOverlap?: OverlapCatch): QueuedTask[] {
-  return launchCandidates(db, undefined, undefined, onOverlap).map(({ cardId, generation }) => ({ queue: 'launch', cardId, generation }))
+export function launchTasks(db: DatabaseSync, onOverlap?: OverlapCatch, host?: LaunchHost): QueuedTask[] {
+  return launchCandidates(db, undefined, undefined, onOverlap, undefined, host?.lanes, host?.machine, host?.thermal).map(({ cardId, generation }) => ({ queue: 'launch', cardId, generation }))
 }
 
 export const LAUNCH_SOURCE: QueueSource = { queue: 'launch', enqueue: db => launchTasks(db) }
