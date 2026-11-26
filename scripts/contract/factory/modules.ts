@@ -83,6 +83,8 @@ const PORTS_CONTRACT = [
 
 const WINDOW_CONTRACT = within(factory('window'), 'board.ts', 'eddies-measure.ts', 'handoff-check.ts', 'loop.ts', 'tab.ts', 'takeover-push-release.ts', 'watch.ts', 'window-heartbeat.ts', 'window-prs.ts', 'window-request-tools.ts', 'window-requests.ts', 'window-session-end.ts', 'window-subagents.ts')
 
+const UI_CONTRACT = within('src/ui', 'console.ts', 'expect-lore.ts', 'lore.ts', 'signal.ts', 'theme.ts')
+
 export const COMPOSITION_MODULE = factory('supervisor/composition.ts')
 
 export const COMPOSITION_ROOTS: readonly string[] = ['src/cli.ts', 'src/program.ts', factory('window/miko.ts'), factory('intake/intake.ts'), factory('supervisor/start.ts'), factory('supervisor/netwatch-root.ts'), factory('cli/task-start.ts'), COMPOSITION_MODULE]
@@ -107,7 +109,7 @@ const LAYERS: readonly Layer[] = [
   { modules: ['events', 'command-registry', 'bus'], ordered: true },
   { modules: ['card-model', 'card-record', 'project', 'plan', 'order', 'decisions', 'session', 'model', 'quality', 'intake', 'rules', 'pr-record', 'factory-contract'], ordered: true },
   { modules: NODES, ordered: false },
-  { modules: ['ui', 'atlas', 'release', 'cost', 'window', 'board'], ordered: true },
+  { modules: ['ui', 'cli', 'atlas', 'release', 'cost', 'window', 'board'], ordered: true },
 ]
 
 function belowInTheLayers(id: string): string[] {
@@ -169,9 +171,10 @@ export const DRAWN: Readonly<Record<string, DrawnModule>> = {
   'factory-contract': decided('factory-contract'),
   'contract-generator': TOOL,
   'project': decided('project'),
+  'cli': decided('cli'),
   'model': decided('model'),
   'atlas': decided('atlas'),
-  'ui': decided('ui'),
+  'ui': decidedWith('ui', UI_CONTRACT),
 }
 
 export function drawnWithOwns(owns: Readonly<Record<string, readonly string[]>>, drawn: Readonly<Record<string, DrawnModule>> = DRAWN): Record<string, ModuleSpec> {
