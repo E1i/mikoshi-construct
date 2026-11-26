@@ -17,9 +17,9 @@ import { fileURLToPath } from 'node:url'
 import { catalogIsEmpty, changedPaths, changesTheCatalog, MAIN_TIP, rebuildCatalogAt } from '../../cli/check-catalog.js'
 import { appendEvent, defaultBusPath } from '../../core/db.js'
 import { messageOf } from '../../core/errors.js'
-import { EITHER_JOURNAL, events } from '../../core/events-query.js'
 import { BOARD_ALARM, CARD_ADMITTED, DECISION_RECORDED, MERGE_DONE, PR_CLOSED, PR_GROUPS, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED } from '../../core/events.js'
-import { Node, NodeRefused, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
+import { Node, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
+import { firstLiveVerdict, NoLiveVerdict } from '../../core/pr-readings.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
 import { loadedCodeSha, readThroughPort } from '../../ports/git.js'
 import { ghStatusPublisher } from '../../ports/github-status.js'
@@ -27,12 +27,10 @@ import { ghApi, ghApiPut } from '../../ports/github.js'
 import { Meter } from '../../ports/meter.js'
 import { busContract, candidateRules, mainOverlapAt, nodeLiveness, nodeSupply, requiredCheckAt, weightsDriftWatch } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
-import { DRY_RUN_ACTOR } from '../review/review-worker.js'
 import { mergeCandidates } from './merge-candidates.js'
 import { MergeExecutor } from './merge-executor.js'
 import { driftLine } from './weights-drift.js'
 
-export const LIVE_REVIEWER = 'worker:review:'
 export const CATALOG_REBUILD_FAILED = 'catalog_rebuild_failed'
 export const MERGE_ON = [REDUCED, PR_OBSERVED, PR_CLOSED, PR_OPENED, PR_GROUPS, CARD_ADMITTED, MERGE_DONE, REVIEW_RECORDED, DECISION_RECORDED] as const
 
@@ -62,17 +60,6 @@ export interface MergeNodeParts extends MergeWorkerParts {
   mode: DetectionMode
   env: NodeJS.ProcessEnv
   silentMs: number
-}
-
-export class NoLiveVerdict extends NodeRefused {
-  constructor(worker = 'merge') {
-    super(`no ${REVIEW_RECORDED} written by ${LIVE_REVIEWER}<session> yet; the ${worker} worker switches on after the review worker's first live verdict`)
-  }
-}
-
-export function firstLiveVerdict(db: DatabaseSync): number | null {
-  const [first] = events(db, { types: [REVIEW_RECORDED], actorPrefix: LIVE_REVIEWER, exceptActor: DRY_RUN_ACTOR, legacy: EITHER_JOURNAL, limit: 1 })
-  return first === undefined ? null : first.id
 }
 
 function scopeOf(event: StoredEvent): Scope | undefined {

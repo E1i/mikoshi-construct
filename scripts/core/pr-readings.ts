@@ -1,4 +1,18 @@
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite'
+import { EITHER_JOURNAL, events } from './events-query.js'
+import { REVIEW_RECORDED } from './events.js'
+import { DRY_RUN_ACTOR, LIVE_REVIEWER, NodeRefused } from './node.js'
+
+export class NoLiveVerdict extends NodeRefused {
+  constructor(worker = 'merge') {
+    super(`no ${REVIEW_RECORDED} written by ${LIVE_REVIEWER}<session> yet; the ${worker} worker switches on after the review worker's first live verdict`)
+  }
+}
+
+export function firstLiveVerdict(db: DatabaseSync): number | null {
+  const [first] = events(db, { types: [REVIEW_RECORDED], actorPrefix: LIVE_REVIEWER, exceptActor: DRY_RUN_ACTOR, legacy: EITHER_JOURNAL, limit: 1 })
+  return first === undefined ? null : first.id
+}
 
 export interface PrRow {
   pr: number

@@ -22,6 +22,10 @@ export { GENERATION_VARIABLE, INSTANCE_VARIABLE, instanceOf, provenIdentity, rec
 
 export const SWITCH_FLAG = '--on'
 export const LIVE_FLAG = '--live'
+export const TREE_LEFT = 'tree_left'
+export const LIVE_REVIEWER = 'worker:review:'
+export const DRY_RUN_ACTOR = 'worker:review:dry-run'
+export const WINDOW_ACTOR = 'worker:window:'
 export const NODE_CURSORS = 'node_cursors'
 export const EXECUTOR_MODES = ['child', 'inline'] as const
 

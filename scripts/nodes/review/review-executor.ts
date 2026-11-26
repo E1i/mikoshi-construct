@@ -23,6 +23,7 @@ import { events, latest } from '../../core/events-query.js'
 import { ARTIFACT_REMOVED, BOARD_ALARM, POLICY_DENIED, REVIEW_DRIP, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, REVIEW_TREE_ORPHANED, ROUND_EXTENDED } from '../../core/events.js'
 import { REVIEW_ROUNDS, reviewInputOfKey } from '../../core/identifiers.js'
 import { completeTask, failTask, releaseTask, StaleLease, supersedeLease } from '../../core/lease.js'
+import { TREE_LEFT } from '../../core/node.js'
 import { pnpmCommand } from '../../core/owner-commands.js'
 import { allFindingsRepeat } from '../../policy/repeat-finding.js'
 import { BODIES_OWNER_AMENDED_FOR_A_PR, changesRoundsOf, limitRuleOf, ownerAmendedSinceThePreviousReview, REPEAT_FINDINGS, REVIEWS_OF_A_PR } from '../../policy/round-limit-decision.js'
@@ -99,7 +100,6 @@ export function windowRouteLine({ cardId, pr, head }: Pick<Lease, 'cardId' | 'pr
 }
 
 const STALE_HEAD = 'stale_head'
-export const TREE_LEFT = 'tree_left'
 export { REVIEW_ROUNDS_SPENT }
 export const ROUND_LIMIT_REACHED = 'round_limit_reached'
 export const SPAWNS_NO_SESSION = 'spawns-no-session'
