@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url'
 import { agentLabel, BUS_DB_VARIABLE, busDirOf, GH_ACCOUNT_VARIABLE, isOwnerCheckout, LAUNCH_AGENTS, OWNER_AGENT, OWNER_AGENT_FILE, pinBus, remoteUrlOf, repoSlugOfUrl } from '../core/bus-path.js'
 import { appendEvent, openBus } from '../core/db.js'
 import { SHARD_ISSUED, SHARD_REVOKED } from '../core/events.js'
-import { constructCommand } from '../core/owner-commands.js'
+import { ghostProtocolWord, MODE_FLAG, SAY_COMMAND, sayCommand, START_BIN } from '../core/owner-commands.js'
 import { consumeOwnerWord, ownerChannelOfBus, USED_WORD } from '../owner/channel.js'
 import { inForceInText, OWNER_SOURCE } from '../policy/decisions/decisions.js'
 import { decisionsAdderOpeningTheBus, projectionText } from '../policy/decisions/projection.js'
@@ -27,12 +27,12 @@ import { startBus, SUPERVISOR_LAUNCH } from './supervisor.js'
 import { DEFAULT_MODE, FACTORY_MODES, isBusWorker, isFactoryMode, MODE_LIVE, MODE_WORKERS, startingMode, switchDetection, switchMode } from './workers.js'
 
 export { AGENT_PREFIX, agentLabel, LAUNCH_AGENTS } from '../core/bus-path.js'
+export { ghostProtocolWord, MODE_FLAG, SAY_COMMAND, sayCommand, START_BIN } from '../core/owner-commands.js'
 
 export const START_PREFIX = '[factory:start] '
 export const KEEP_ALIVE_PLATFORM = 'darwin'
 export const AGENT_LOG = 'launchd.log'
 export const RAISED_WITHIN_S = 20
-export const START_BIN = 'construct-factory'
 export const HOLD_FLAG = '--hold'
 export const MIKO_FLAG = '--miko'
 export const MIKO_START = 'miko start'
@@ -40,11 +40,9 @@ export const STARTED_MARK = 'factory.started'
 export const HOLD_CHECK_MS = RAISED_WITHIN_S * 1000
 export const BOOT_READ_SLACK_MS = 5_000
 export const KEEP_ALIVE_PROGRAM = ['/usr/bin/env', START_BIN, HOLD_FLAG]
-export const MODE_FLAG = '--mode'
 export const HOURS_FLAG = '--hours'
 export const LIVE_SWITCH = '--live'
 export const SHADOW_SWITCH = '--shadow'
-export const SAY_COMMAND = constructCommand('say')
 export const MODE_SHARD_SCOPE = DECISIONS_SCOPE
 export const SHARD_DECIDES_LIVE: readonly BusWorker[] = ['merge', 'update']
 export const USAGE = `usage: ${MIKO_START} — the one way the factory starts: Miko runs ${START_BIN} ${MIKO_FLAG}, which marks the factory started, starts it for the git repository in the current directory and installs its keep-alive; ${START_BIN} ${HOLD_FLAG} — what the keep-alive runs: once ${MIKO_START} has marked the factory started in this boot of the machine, it restarts the factory and stays up while the supervisor of its bus runs, exiting once it is gone; ${START_BIN} ${MODE_FLAG} ${FACTORY_MODES[0]} | ${MODE_FLAG} ${FACTORY_MODES[1]} [${HOURS_FLAG} <n>] | ${LIVE_SWITCH} <worker> | ${SHADOW_SWITCH} <worker> — switches its mode or a worker's queue and writes bus/workers.json`
@@ -345,14 +343,6 @@ export function startCommandOf(argv: readonly string[]): StartCommand | null {
     return { kind: 'mode', mode: value, hours: WINDOW_SHARD_HOURS }
   const hours = rest[0] === HOURS_FLAG && rest.length === 2 && value !== DEFAULT_MODE ? positiveHours(rest[1]) : null
   return hours === null ? null : { kind: 'mode', mode: value, hours }
-}
-
-export function ghostProtocolWord(hours: number): string {
-  return `ghost-protocol ${hours}h`
-}
-
-export function sayCommand(words: string): string {
-  return `${SAY_COMMAND} "${words}"`
 }
 
 function switchedTo(mode: FactoryMode, on: readonly BusWorker[]): string {

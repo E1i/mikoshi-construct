@@ -96,6 +96,14 @@ export const FACTORY_LISTS = {
   changesetReaders: ['tests/changesets-one-line.test.ts'],
 } as const satisfies Record<string, readonly string[]>
 
+export function reportPath(dir: string, number: string): string {
+  return path.join(dir, `report-${number}.md`)
+}
+
+export function treeReportPath(worktree: string): string {
+  return path.join(worktree, '.construct', 'report.md')
+}
+
 export function scopeOf(entry: string): string {
   return path.posix.extname(entry) === '' ? `${entry}/` : entry
 }

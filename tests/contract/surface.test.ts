@@ -2,7 +2,8 @@ import type { Surface } from '../../scripts/contract/surface.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { generateSurface, renderSurface } from '../../scripts/contract/surface.js'
+import { generateSurface, renderSurface, scriptSurfaces } from '../../scripts/contract/surface.js'
+import { MODE_FLAG } from '../../scripts/core/owner-commands.js'
 import { REPORT_FORMATS } from '../../src/commands/mutate/index.js'
 import { AI_TARGETS, PRESET_IDS, REVIEW_PROVIDERS } from '../../src/presets/index.js'
 
@@ -53,4 +54,14 @@ describe('contract/surface.json records the surface the generator observes', () 
   it('records the options of every enumerable flag, taken from the constant that holds them', () => {
     expect(recordedOptions(generated())).toEqual(Object.fromEntries(Object.entries(ENUMERABLE_FLAG_OPTIONS).map(([key, options]) => [key, [...options]])))
   }, 180_000)
+})
+
+describe('the flags of a script entry are read through the constants it imports', () => {
+  it('factory:start keeps --mode on its surface though start.ts takes MODE_FLAG from owner-commands', () => {
+    const start = readFileSync(path.resolve(import.meta.dirname, '../../scripts/supervisor/start.ts'), 'utf8')
+
+    expect(start).not.toContain(`'${MODE_FLAG}'`)
+    expect(start).toMatch(/import \{[^}]*\bMODE_FLAG\b[^}]*\} from '\.\.\/core\/owner-commands\.js'/)
+    expect(scriptSurfaces()['factory:start']?.flags).toContain(MODE_FLAG.slice(2))
+  })
 })

@@ -4,6 +4,8 @@ import type { GhCaller } from '../ports/gh.js'
 import path from 'node:path'
 import { repoSlugOf } from './bus-path.js'
 
+export { reportPath, treeReportPath } from './factory-paths.js'
+
 export const SHIFT_JOURNAL = 'shift.jsonl'
 
 export function noGitRemoteReason(dir: string): string {
@@ -17,16 +19,8 @@ export function ghInRepositoryOf(dir: string, gh: GhCaller): GhCaller {
   }
 }
 
-export function reportPath(dir: string, number: string): string {
-  return path.join(dir, `report-${number}.md`)
-}
-
 export function exitCodePath(dir: string, number: string): string {
   return path.join(dir, `exit-${number}.txt`)
-}
-
-export function treeReportPath(worktree: string): string {
-  return path.join(worktree, '.construct', 'report.md')
 }
 
 export function logPath(dir: string, number: string, restart = 0): string {
