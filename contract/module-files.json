@@ -565,7 +565,6 @@
     "scripts/tests/bus/repeat-finding.test.ts",
     "scripts/tests/bus/replay-snapshot.test.ts",
     "scripts/tests/bus/replay.test.ts",
-    "scripts/tests/bus/resource-scheduler.test.ts",
     "scripts/tests/bus/restart-first-tick.test.ts",
     "scripts/tests/bus/restart-queue.test.ts",
     "scripts/tests/bus/review-bar.test.ts",
