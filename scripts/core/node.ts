@@ -9,7 +9,8 @@ import type { StoredEvent } from './stored.js'
 import { setImmediate as nextTurn } from 'node:timers/promises'
 import { BUS_VERSION, BUS_VERSION_BEFORE_GATE_RUN, BUS_VERSION_BEFORE_LADDER_RUN, BUS_VERSION_BEFORE_THRESHOLD_SET, BUS_VERSION_BEFORE_WAIT_LIFT, CARD_VERSION, CARD_VERSION_BEFORE_PLACEMENT_IMPORTS, CARD_VERSION_BEFORE_TOUCH_SCOPE, recordBusVersion, UNRECORDED_VERSION } from './bus-version.js'
 import { appendEvent, inTransaction, openBus } from './db.js'
-import { CARD_STOPPED, NODE_DETECTED, NODE_EQUIVALENCE, TASK_LEASED } from './events.js'
+import { EITHER_JOURNAL, events } from './events-query.js'
+import { CARD_STOPPED, NODE_DETECTED, NODE_EQUIVALENCE, REVIEW_RECORDED, TASK_LEASED } from './events.js'
 import { INLINE_QUEUES } from './executor-holds.js'
 import { aliveBy, instanceOf, leaseHandedOver, provenIdentity, prTree, recordChildEnded, recordChildStarted, recordWorkerIdentity, releaseUnstarted } from './handover.js'
 import { drainOpen, expireLeases, failTask, leasedByRetiring, RENEW_MS, renewLease, StaleLease, waitTask, workerRetiring } from './lease.js'
@@ -22,6 +23,10 @@ export { GENERATION_VARIABLE, INSTANCE_VARIABLE, instanceOf, provenIdentity, rec
 
 export const SWITCH_FLAG = '--on'
 export const LIVE_FLAG = '--live'
+export const TREE_LEFT = 'tree_left'
+export const LIVE_REVIEWER = 'worker:review:'
+export const DRY_RUN_ACTOR = 'worker:review:dry-run'
+export const WINDOW_ACTOR = 'worker:window:'
 export const NODE_CURSORS = 'node_cursors'
 export const EXECUTOR_MODES = ['child', 'inline'] as const
 
@@ -190,6 +195,17 @@ export class NodeUnsupplied extends Error {}
 export class NodeRefused extends Error {}
 
 export class ForeignVersion extends NodeRefused {}
+
+export class NoLiveVerdict extends NodeRefused {
+  constructor(worker = 'merge') {
+    super(`no ${REVIEW_RECORDED} written by ${LIVE_REVIEWER}<session> yet; the ${worker} worker switches on after the review worker's first live verdict`)
+  }
+}
+
+export function firstLiveVerdict(db: DatabaseSync): number | null {
+  const [first] = events(db, { types: [REVIEW_RECORDED], actorPrefix: LIVE_REVIEWER, exceptActor: DRY_RUN_ACTOR, legacy: EITHER_JOURNAL, limit: 1 })
+  return first === undefined ? null : first.id
+}
 
 const FOREIGN_CARD = 'foreign-card-version'
 

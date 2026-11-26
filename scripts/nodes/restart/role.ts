@@ -9,11 +9,11 @@ import { appendEvent, inTransaction, openBusWait, OWNER_ANSWER_LIFT } from '../.
 import { EITHER_JOURNAL, events, signStampsSince } from '../../core/events-query.js'
 import { OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, ROLE_LEASED, ROLE_RAISE_FAILED, ROLE_RAISED, ROLE_RETURNED, ROLE_STOPPED, ROLE_TO_OWNER, WINDOW_HEARTBEAT } from '../../core/events.js'
 import { LEASE_MS } from '../../core/lease.js'
+import { WINDOW_ACTOR } from '../../core/node.js'
 import { pnpmCommand } from '../../core/owner-commands.js'
 import { payloadOf, reject } from '../../core/stored.js'
 import { reduceProjection } from '../../core/watermark.js'
 import { windowLive } from '../../window/window-heartbeat.js'
-import { WINDOW_ACTOR } from '../../window/window-requests.js'
 
 export const ROLES = ['operator', 'miko'] as const
 export const THRESHOLDS = ['context', 'spend'] as const

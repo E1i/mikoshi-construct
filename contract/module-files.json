@@ -1923,6 +1923,7 @@
     "tests/contract/factory.test.ts",
     "tests/contract/help.test.ts",
     "tests/contract/json-samples.test.ts",
+    "tests/contract/node-vocabulary-to-bus.test.ts",
     "tests/contract/ratchet-branch-base.test.ts",
     "tests/contract/ratchet-held-on-base.test.ts",
     "tests/contract/ratchet-ownership-move.test.ts",
