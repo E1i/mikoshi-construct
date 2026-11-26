@@ -13,8 +13,8 @@ import { completeTask, leaseNext } from '../../core/lease.js'
 import { all as pullRequests } from '../../core/pr-readings.js'
 import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { AnswerSources } from '../../nodes/answer/duties/source.js'
-import { cardTransitions } from '../../supervisor/composition.js'
-import { DEAD_END_ACTOR, DeadEnds } from '../../supervisor/dead-ends.js'
+import { cardTransitions, waitLiftsTick } from '../../supervisor/composition.js'
+import { DEAD_END_ACTOR, DEAD_END_LIFTS, DeadEnds } from '../../supervisor/dead-ends.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from '../bus/github-fake.js'
 import { eventsOf, liveBench } from '../bus/merge-bench.js'
@@ -131,7 +131,13 @@ async function theQueuedRoundsRunNoAnswerSession(card: Card): Promise<string[]> 
   return answered
 }
 
-const NOBODY_STUCK: DeadEndEvents = { lastStopReason: () => null, cardsOfUnclosedOwnerWaits: () => [], cardsNobodyHolds: () => [], latestTaskKey: () => null }
+function swept(bench: MergeBench): string[] {
+  const lines = waitLiftsTick(bench.db, bench.clock.now).step()
+  bench.tick()
+  return lines
+}
+
+const NOBODY_STUCK: DeadEndEvents = { lastStopReason: () => null, cardsOfUnclosedOwnerWaits: () => [], cardsNobodyHolds: () => [], latestTaskKey: () => null, routedByADecision: () => false }
 
 describe('an owner wait over a card is opened from its current state and closes by itself when its condition holds', () => {
   it('an amend before the empty answer round opens no owner wait', () => {
@@ -170,9 +176,10 @@ describe('an owner wait over a card is opened from its current state and closes 
     greenWitness(card, HEAD)
     expect(card.sources.sourceOf(card.lease(HEAD))).toBeNull()
     card.bench.tick()
+    swept(card.bench)
 
     expect(card.waits()).toEqual([])
-    expect(eventsOf(card.bench.db, OWNER_WAIT_CLOSED)).toMatchObject([{ answer: `lifted: a review pass, green CI and green witnesses on ${HEAD} of pull request #${PR}` }])
+    expect(eventsOf(card.bench.db, OWNER_WAIT_CLOSED)).toMatchObject([{ answer: `lifted: green witnesses and a review pass on ${HEAD} of pull request #${PR}` }])
     await theQueuedRoundsRunNoAnswerSession(card)
     merges(card)
   })
@@ -196,17 +203,17 @@ describe('an owner wait over a card is opened from its current state and closes 
     merges(card)
   })
 
-  it('a review pass on a new head closes the open dead-end wait and queues the merge', () => {
+  it('a review pass on a new head closes the open dead-end wait through the sweep and queues the merge', () => {
     const card = aCard()
-    openOwnerWait(card.bench.db, card.at(), DEAD_END_ACTOR, { need: 'decision', text: `card #${CARD} is at a dead end in state stopped`, card: CARD, pr: PR })
+    openOwnerWait(card.bench.db, card.at(), DEAD_END_ACTOR, { need: 'decision', text: `card #${CARD} is at a dead end in state stopped`, card: CARD, pr: PR, lift: { on: DEAD_END_LIFTS, head: HEAD } })
     card.bench.tick()
     expect(card.bench.lease()).toBeNull()
 
     reviewPass(card, NEW_HEAD)
-    const lifted = new DeadEnds(card.bench.db, card.bench.clock.now, { selecting: () => [], events: NOBODY_STUCK }).step()
-    card.bench.tick()
+    expect(new DeadEnds(card.bench.db, card.bench.clock.now, { selecting: () => [], events: NOBODY_STUCK }).step()).toEqual([])
+    const lifted = swept(card.bench)
 
-    expect(lifted).toEqual([expect.stringContaining(`lifted: a review pass on ${NEW_HEAD} of pull request #${PR} after the dead end`)])
+    expect(lifted).toEqual([expect.stringContaining(`lifted: a new head ${NEW_HEAD} on pull request #${PR}`)])
     expect(card.waits()).toEqual([])
     merges(card)
   })
@@ -303,7 +310,7 @@ describe('a decision is answered unless every merge condition holds on the head 
   })
 })
 
-describe('the dead-end detector lifts only its own wait, and only on a review pass of the observed head', () => {
+describe('the dead-end detector closes no owner wait itself: the sweep of wait-lifts is the one closer', () => {
   function deadEndsStep(card: Card): string[] {
     const lifted = new DeadEnds(card.bench.db, card.bench.clock.now, { selecting: () => [], events: NOBODY_STUCK }).step()
     card.bench.tick()
@@ -399,6 +406,7 @@ describe('the owner wait an empty answer round opens names its own exits', () =>
 
     expect(card.sources.awaitedStop(card.answerLease(HELD_NEW_HEAD))).toBeNull()
     card.bench.tick()
+    swept(card.bench)
 
     expect(card.waitsOfTheCard()).toEqual([])
     expect(eventsOf(card.bench.db, OWNER_WAIT_CLOSED)).toMatchObject([{ answer: `lifted: a new head ${HELD_NEW_HEAD} on pull request #${HELD_PR}` }])
@@ -411,6 +419,7 @@ describe('the owner wait an empty answer round opens names its own exits', () =>
 
     card.sources.sourceOf(card.answerLease(HELD_NEW_HEAD))
     card.bench.tick()
+    swept(card.bench)
     expect(card.bench.lease()).toBeNull()
     const ts = card.bench.clock.now().toISOString()
     completeTask(card.bench.db, cardTransitions(), ts, leaseNext(card.bench.db, pullRequests(card.bench.db), ts, 'answer', 'worker:answer:worker-1')!, [])
@@ -427,6 +436,7 @@ describe('the owner wait an empty answer round opens names its own exits', () =>
 
     card.sources.awaitedStop(card.answerLease(HELD_NEW_HEAD))
     card.bench.tick()
+    swept(card.bench)
 
     expect(card.waitsOfTheCard()).toEqual(['which path?'])
   })

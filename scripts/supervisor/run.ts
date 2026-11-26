@@ -74,7 +74,7 @@ function askOwnerOfUnprovenHolder(busPath: string, question: string, lock: strin
   const bus = busContract()
   const db = bus.open(busPath)
   try {
-    return bus.openOwnerWait(db, closedWaitIds(db), new Date(nowMs).toISOString(), bus.queueActor, { need: 'command', text: question, command: `rm ${lock}` })
+    return bus.openOwnerWait(db, closedWaitIds(db), new Date(nowMs).toISOString(), bus.queueActor, { need: 'command', text: question, command: `rm ${lock}`, lift: { on: ['owner-answer'] } })
   }
   finally {
     db.close()

@@ -2692,6 +2692,7 @@
     "scripts/supervisor/stamp.ts",
     "scripts/supervisor/start.ts",
     "scripts/supervisor/supervisor.ts",
+    "scripts/supervisor/wait-lifts.ts",
     "scripts/supervisor/window-subagent-tick.ts",
     "scripts/supervisor/workers.ts",
     "src/card/closed.ts",

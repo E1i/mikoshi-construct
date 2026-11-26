@@ -375,12 +375,12 @@ export function lostRecutWaitText(cardId: number, pr: number): string {
 function openLostRecutWaits(db: DatabaseSync, ts: string, prs: QueuePrs): void {
   const settled = new Date(Date.parse(ts) - RECUT_GRACE_MS).toISOString()
   for (const row of roundLimitsWithNoOutcome(db, prs, settled))
-    inTransaction(db, () => openOwnerWait(db, ts, QUEUE_ACTOR, { need: 'decision', text: lostRecutWaitText(row.card_id as number, row.pr), card: row.card_id as number, pr: row.pr }))
+    inTransaction(db, () => openOwnerWait(db, ts, QUEUE_ACTOR, { need: 'decision', text: lostRecutWaitText(row.card_id as number, row.pr), card: row.card_id as number, pr: row.pr, lift: { on: ['decision', 'amend', 'pr-merged'] } }))
 }
 
 function openWindowWaits(db: DatabaseSync, ts: string, prs: QueuePrs): void {
   for (const row of questionsWithNoWindowWaitYet(db, prs))
-    inTransaction(db, () => openOwnerWait(db, ts, QUEUE_ACTOR, { need: 'command', text: windowWaitText(row), command: admitCommandOf(row.card_id, row.lane), card: row.card_id, ...(row.pr === null ? {} : { pr: row.pr }) }))
+    inTransaction(db, () => openOwnerWait(db, ts, QUEUE_ACTOR, { need: 'command', text: windowWaitText(row), command: admitCommandOf(row.card_id, row.lane), card: row.card_id, ...(row.pr === null ? {} : { pr: row.pr }), lift: { on: ['amend', 'decision'] } }))
 }
 
 function readmitLiftedLaunchStops(db: DatabaseSync, ts: string, prs: QueuePrs): void {

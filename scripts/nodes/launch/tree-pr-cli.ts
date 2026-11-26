@@ -209,7 +209,7 @@ function busOwnerWait(bus: PrOpenedBus): OwnerWaitOpener {
   return (cardId, text) => {
     const db = openBus(bus.busPath)
     try {
-      return openOwnerWait(db, bus.now().toISOString(), `worker:shift:${bus.pid}`, { need: 'decision', text, ...(cardId === null ? {} : { card: cardId }) })
+      return openOwnerWait(db, bus.now().toISOString(), `worker:shift:${bus.pid}`, { need: 'decision', text, ...(cardId === null ? {} : { card: cardId }), lift: { on: ['decision', 'amend'] } })
     }
     finally {
       db.close()

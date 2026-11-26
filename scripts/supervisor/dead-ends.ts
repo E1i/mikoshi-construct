@@ -1,11 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { WaitLift, WaitLiftKind } from '../core/db.js'
 import type { Shape } from './expected-time.js'
 import { CLOSED_CARD, DEFERRED_CARD, DROPPED_CARD, MERGED_CARD, QUEUED_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { holderOf, holdLayersOf } from '../core/card-hold.js'
-import { lastReducedOwnerWaits, openOwnerWaits } from '../core/card-readings.js'
-import { appendEvent, closeOwnerWait, inTransaction, openOwnerWait } from '../core/db.js'
-import { latest as latestEvent, ofCard } from '../core/events-query.js'
-import { BOARD_ALARM, OWNER_WAIT_OPENED, PR_CLOSED, PR_OBSERVED, REJECTED, REVIEW_RECORDED } from '../core/events.js'
+import { lastReducedOwnerWaits } from '../core/card-readings.js'
+import { appendEvent, currentHeadOf, inTransaction, liftHeldAtOpen, openOwnerWait } from '../core/db.js'
+import { events, ofCard } from '../core/events-query.js'
+import { BOARD_ALARM, CARD_HELD, CARD_RELEASED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, REJECTED, TASK_REQUEUED } from '../core/events.js'
 import { expectedMinutes, RoundMeasures } from './expected-time.js'
 
 export const DEAD_END = 'dead_end'
@@ -13,7 +14,8 @@ export const DEAD_END_ACTOR = 'worker:supervisor:dead-ends'
 export const UNMEASURED_ROUND_MINUTES = 60
 const MINUTE_MS = 60_000
 const RAISED_TYPES = [BOARD_ALARM, OWNER_WAIT_OPENED] as const
-const PASS_VERDICT = 'pass'
+export const DEAD_END_LIFTS: readonly WaitLiftKind[] = ['passed-on-head', 'new-head', 'amend', 'decision', 'pr-merged']
+const WINDOW_ACTIONS: readonly string[] = [CARD_RELEASED, CARD_HELD, TASK_REQUEUED]
 
 export const HELD_ELSEWHERE_STATES: readonly string[] = [MERGED_CARD, CLOSED_CARD, DROPPED_CARD, QUEUED_CARD, DEFERRED_CARD]
 
@@ -31,6 +33,7 @@ export interface DeadEndEvents {
   cardsOfUnclosedOwnerWaits: () => readonly number[]
   cardsNobodyHolds: (heldElsewhere: readonly string[], ignoredActor: string) => readonly UnheldCard[]
   latestTaskKey: (card: number) => string | null
+  routedByADecision: (card: number) => boolean
 }
 
 export interface DeadEndParts {
@@ -84,7 +87,7 @@ export class DeadEnds {
     const now = at.getTime()
     const held = this.cardsUnderAnOpenOwnerWait()
     const unheld = this.parts.events.cardsNobodyHolds(HELD_ELSEWHERE_STATES, DEAD_END_ACTOR)
-      .filter(card => !held.has(card.card) && !this.stoppedUnderAHold(card) && !this.lastMoveIsItsOwnRejectedRaise(card))
+      .filter(card => !held.has(card.card) && !this.stoppedUnderAHold(card) && !this.lastMoveIsItsOwnRejectedRaise(card) && !this.windowCarriesAnOwnerAnswer(card))
     if (unheld.length === 0)
       return []
     const samples = this.measures.samples()
@@ -104,34 +107,31 @@ export class DeadEnds {
 
   step(): string[] {
     const ts = this.clock().toISOString()
-    const lifted = this.liftStaleWaits(ts)
-    return [...lifted, ...this.found().flatMap(end => inTransaction(this.db, () => {
+    return this.found().flatMap(end => inTransaction(this.db, () => {
       const taskKey = this.parts.events.latestTaskKey(end.card)
       const payload = taskKey === null ? { reason: end.reason, detail: DEAD_END } : { reason: end.reason, detail: DEAD_END, task_key: taskKey }
       const raised = appendEvent(this.db, { ts, type: BOARD_ALARM, actor: DEAD_END_ACTOR, cardId: end.card, pr: end.pr, head: null, dedupeKey: `${BOARD_ALARM}:${DEAD_END}:${end.card}:${end.lastEvent.id}`, payload, legacy: false })
       if (!raised)
         return []
-      const wait = openOwnerWait(this.db, ts, DEAD_END_ACTOR, { need: 'decision', text: deadEndWaitText(end), card: end.card, ...(end.pr === null ? {} : { pr: end.pr }) })
-      return [`${BOARD_ALARM} #${end.card} ${end.reason}; owner wait ${wait}`]
-    }))]
+      const wait = this.ownerWaitOf(end, ts)
+      return [`${BOARD_ALARM} #${end.card} ${end.reason}${wait === null ? '' : `; owner wait ${wait}`}`]
+    }))
   }
 
-  private liftStaleWaits(ts: string): string[] {
-    return openOwnerWaits(this.db).flatMap((wait) => {
-      if (wait.card === null || wait.pr === null)
-        return []
-      const opened = ofCard(this.db, wait.card, { types: [OWNER_WAIT_OPENED] }).find(event => event.actor === DEAD_END_ACTOR && event.data?.id === wait.id)
-      const pull = latestEvent(this.db, { pr: wait.pr, types: [PR_OBSERVED, PR_CLOSED] })
-      const head = pull?.type === PR_OBSERVED ? pull.head ?? pull.data?.head ?? null : null
-      if (opened === undefined || typeof head !== 'string' || pull?.data?.verdict_on_head !== PASS_VERDICT)
-        return []
-      const review = ofCard(this.db, wait.card, { types: [REVIEW_RECORDED], since: opened.id })
-        .find(event => (event.head ?? event.data?.head) === head && event.data?.verdict === PASS_VERDICT)
-      if (review === undefined)
-        return []
-      const answer = `lifted: a review pass on ${head} of pull request #${wait.pr} after the dead end`
-      return inTransaction(this.db, () => closeOwnerWait(this.db, ts, DEAD_END_ACTOR, wait.id, answer, review.id)) ? [`${wait.id} #${wait.card} ${answer}`] : []
-    })
+  private ownerWaitOf(end: DeadEnd, ts: string): string | null {
+    if (this.parts.events.routedByADecision(end.card))
+      return null
+    const head = end.pr === null ? null : currentHeadOf(this.db, end.pr)
+    const lift: WaitLift = { on: DEAD_END_LIFTS, ...(head === null ? {} : { head }) }
+    const ask = { need: 'decision' as const, text: deadEndWaitText(end), card: end.card, ...(end.pr === null ? {} : { pr: end.pr }), lift }
+    return liftHeldAtOpen(this.db, ask) === null ? openOwnerWait(this.db, ts, DEAD_END_ACTOR, ask) : null
+  }
+
+  private windowCarriesAnOwnerAnswer(card: UnheldCard): boolean {
+    if (!WINDOW_ACTIONS.includes(card.lastEvent.type))
+      return false
+    const asked = new Set(ofCard(this.db, card.card, { types: [OWNER_WAIT_OPENED] }).map(opened => opened.data?.id))
+    return asked.size > 0 && events(this.db, { types: [OWNER_WAIT_CLOSED], before: card.lastEvent.id }).some(closed => asked.has(closed.data?.id))
   }
 
   private stoppedUnderAHold(card: UnheldCard): boolean {

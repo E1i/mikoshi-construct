@@ -28,6 +28,7 @@ import type { DeadEndEvents, DeadEndParts } from './dead-ends.js'
 import type { QueuePass } from './derive-queues.js'
 import type { SpoolPlaces } from './gate-run-spool.js'
 import type { SessionMeasure } from './heartbeat.js'
+import type { WaitLiftParts } from './wait-lifts.js'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import process from 'node:process'
@@ -46,7 +47,7 @@ import { cardDecisionReads, reviewedUnderTheCardDecision, reviewsTheCardDecision
 import { closedWaitIds, openDecisionWaitsOfCard, openOwnerWaits } from '../core/card-readings.js'
 import { cardsNobodyHolds } from '../core/cards-nobody-holds.js'
 import { CHAINS_PROJECTION } from '../core/chain.js'
-import { appendEvent, defaultBusPath, inTransaction, openBus, openBusWait } from '../core/db.js'
+import { appendEvent, defaultBusPath, inTransaction, openBus, openBusWait, OWNER_ANSWER_LIFT } from '../core/db.js'
 import { byId, EITHER_JOURNAL, events, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } from '../core/events-query.js'
 import { CARD_DEFERRED, CARD_MOVED, CARD_PLANNED, CARD_STOPPED, CARD_UNPLANNED, DECISION_EXPIRED, DECISION_RECORDED, DECISIONS_IMPORTED, DECISIONS_PROJECTED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OBSERVED, PR_OPENED, RATCHET_THRESHOLD_SET, SHARD_EXPIRED, SLICE_PARENTS_BACKFILLED, TASK_ENQUEUED, TASK_REQUEUED } from '../core/events.js'
 import { FACTORY_WORKERS } from '../core/factory-paths.js'
@@ -58,7 +59,7 @@ import { orderEventsFrom, prOrderTickAt } from '../core/order/turn.js'
 import { ownerWaitCommand, shardRenewalCommand } from '../core/owner-commands.js'
 import { linkRefusal, openedPrOf, prFolds, prRow } from '../core/pr-folds.js'
 import * as prs from '../core/pr-readings.js'
-import { closeCandidates, keyOf, reviewCandidates, taskRow, TASKS_PROJECTION } from '../core/queue.js'
+import { closeCandidates, keyOf, reviewCandidates, taskRow, TASKS_PROJECTION, unmergedDependenciesOf } from '../core/queue.js'
 import { payloadOf, storedByKey } from '../core/stored.js'
 import * as tasks from '../core/tasks-query.js'
 import { cardContract } from '../intake/card-contract.js'
@@ -94,6 +95,7 @@ import { SILENT_MS } from './liveness-sites.js'
 import { ownIdentity, tableIdentity } from './recorded-worker.js'
 import { slotsOf, slotsVariable } from './scheduler.js'
 import { namesNoticeOf, SHARD_TERM_ACTOR, ShardTerm } from './shard-term.js'
+import { WaitLifts } from './wait-lifts.js'
 import { FACTORY_MODES } from './workers.js'
 
 export const REVIEW_PREFIX = '[bus:review:bg] '
@@ -506,6 +508,7 @@ export function deadEndEvents(db: DatabaseSync): DeadEndEvents {
       const key = named.sort((a, b) => b.id - a.id)[0]?.fields.task_key
       return typeof key === 'string' ? key : null
     },
+    routedByADecision: card => decisionsInForceAt(db, new Date()).some(decision => decision.cards.includes(card)),
   }
 }
 
@@ -557,12 +560,27 @@ export function shardTermTick(db: DatabaseSync): ShardTerm {
     ask: (wait, now, expiring) => inTransaction(db, () => {
       if (expiring !== null)
         appendEvent(db, windowShardEnded(SHARD_EXPIRED, SHARD_TERM_ACTOR, expiring, now))
-      return openBusWait(db, closedWaitIds(db), now.toISOString(), SHARD_TERM_ACTOR, { need: 'command', ...wait })
+      return openBusWait(db, closedWaitIds(db), now.toISOString(), SHARD_TERM_ACTOR, { need: 'command', ...wait, lift: OWNER_ANSWER_LIFT })
     }),
   }, () => new Date(), PREFIX)
 }
 
+export function waitLiftParts(db: DatabaseSync, clock: () => Date): WaitLiftParts {
+  return {
+    decidedForTheCardSince: (card, eventId) => {
+      const recorded = new BusRead(db, { from: eventId + 1 }).slice(DECISION_RECORDED, ['decision_id']).map(each => Number(each.fields.decision_id))
+      return decisionsInForceAt(db, clock()).some(each => each.cards.includes(card) && recorded.includes(each.decisionId))
+    },
+    unmergedDependencies: card => unmergedDependenciesOf(db, prs.mergedCards(db), card),
+  }
+}
+
+export function waitLiftsTick(db: DatabaseSync, clock: () => Date = () => new Date()): { step: () => string[] } {
+  const lifts = new WaitLifts(db, clock, waitLiftParts(db, clock))
+  return { step: () => lifts.step().map(line => `${PREFIX}${line}`) }
+}
+
 export function orderAndShardTermTicks(db: DatabaseSync, root: string): { step: () => string[] } {
-  const ticks = [busOrderTick(db, root), shardTermTick(db)]
+  const ticks = [busOrderTick(db, root), shardTermTick(db), waitLiftsTick(db)]
   return { step: () => ticks.flatMap(tick => tick.step()) }
 }

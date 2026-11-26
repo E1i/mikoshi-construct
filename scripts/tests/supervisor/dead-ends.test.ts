@@ -201,6 +201,28 @@ describe('a stopped card the window holds, or one already raised, gets no new ow
     expect(alarmsOf(db, FAULT_STOP.card)).toHaveLength(1)
   })
 
+  it('an owner answer whose action is a release by the window raises no dead end', () => {
+    const db = bus()
+    placed(db, FAULT_STOP)
+    const wait = openOwnerWait(db, LAST_EVENT_AT, 'policy', { need: 'decision', text: 'release #2172?', card: FAULT_STOP.card, request: 1, lift: { on: ['owner-answer'] } })
+    appendEvent(db, { ts: LAST_EVENT_AT, type: OWNER_WAIT_CLOSED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `fixture:closed:${wait}`, payload: { id: wait, answer: 'release it', request: 2 }, legacy: false })
+    holdEvent(db, FAULT_STOP.card, CARD_RELEASED, 'release', { request: 2 })
+    reduced(db)
+
+    expect(ticksPastTheRound(db, 3)).toEqual([])
+    expect(alarmsOf(db, FAULT_STOP.card)).toEqual([])
+  })
+
+  it('a dead end whose route an in-force decision already gives raises its alarm and opens no owner wait', () => {
+    const db = bus()
+    placed(db, FAULT_STOP)
+    const lines = new DeadEnds(db, () => PAST_THE_ROUND, { ...deadEndParts(db), events: { ...deadEndEvents(db), routedByADecision: card => card === FAULT_STOP.card } }).step()
+
+    expect(lines).toEqual([expect.not.stringMatching(/; owner wait Q\d+$/)])
+    expect(alarmsOf(db, FAULT_STOP.card)).toHaveLength(1)
+    expect(waitsOf(db, FAULT_STOP.card)).toEqual([])
+  })
+
   it('a held stopped card gets no wait over several round times', () => {
     const db = bus()
     placed(db, FAULT_STOP)

@@ -1,0 +1,186 @@
+import type { DatabaseSync } from 'node:sqlite'
+import type { WaitLift } from '../../core/db.js'
+import { afterEach, describe, expect, it } from 'vitest'
+import { openOwnerWaits } from '../../core/card-readings.js'
+import { appendEvent, liftHeldAtOpen, openOwnerWait } from '../../core/db.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_STOPPED, CARD_WAITING, MERGE_DONE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_CLOSED, PR_OBSERVED, QUESTION_AGENT, REJECTED, REVIEW_RECORDED, WITNESS_DOWNGRADE, WITNESS_RECORDED } from '../../core/events.js'
+import { reduce } from '../../core/reducer.js'
+import { faultedAnswerLift } from '../../nodes/answer/answer-executor.js'
+import { EMPTY_ROUND_LIFTS } from '../../nodes/answer/duties/source.js'
+import { GROWTH_LIFTS } from '../../nodes/update/update-executor.js'
+import { recordDecision } from '../../policy/decisions/index.js'
+import { busProjections, deadEndParts, openComposedBus, waitLiftParts } from '../../supervisor/composition.js'
+import { DEAD_END_ACTOR, DEAD_END_LIFTS, DeadEnds, UNMEASURED_ROUND_MINUTES } from '../../supervisor/dead-ends.js'
+import { WAIT_LIFT_ACTOR, WaitLifts } from '../../supervisor/wait-lifts.js'
+
+const OPENED_AT = '2026-11-26T08:00:00.000Z'
+const NOW = new Date(Date.parse(OPENED_AT) + (UNMEASURED_ROUND_MINUTES + 5) * 60_000)
+const CARD = 2309
+const PR = 1960
+const DEPENDENCY = 2290
+const HEAD = 'a'.repeat(40)
+const NEW_HEAD = 'b'.repeat(40)
+
+const buses: DatabaseSync[] = []
+let sequence = 0
+
+afterEach(() => {
+  for (const db of buses.splice(0))
+    db.close()
+})
+
+function bus(): DatabaseSync {
+  const db = openComposedBus(':memory:')
+  buses.push(db)
+  return db
+}
+
+function put(db: DatabaseSync, type: string, fields: { card?: number, pr?: number, head?: string, payload?: Record<string, unknown> }): void {
+  sequence += 1
+  appendEvent(db, { ts: OPENED_AT, type, actor: 'netwatch', cardId: fields.card ?? null, pr: fields.pr ?? null, head: fields.head ?? null, dedupeKey: `fixture:${type}:${sequence}`, payload: fields.payload ?? {}, legacy: false })
+}
+
+function observed(db: DatabaseSync, head: string): void {
+  put(db, PR_OBSERVED, { card: CARD, pr: PR, head, payload: { head, base: 'main', ci: 'green', mergeable: 'clean', auto_merge: false, draft: false } })
+}
+
+function witnessed(db: DatabaseSync, head: string, verdict: 'green' | 'red'): void {
+  put(db, WITNESS_RECORDED, { card: CARD, pr: PR, head, payload: { head, verdict, detail: 'W1' } })
+}
+
+function reviewed(db: DatabaseSync, head: string, verdict: 'pass' | 'changes'): void {
+  put(db, REVIEW_RECORDED, { card: CARD, pr: PR, head, payload: { head, verdict, findings: [] } })
+}
+
+function admitted(db: DatabaseSync, source: string | null, depends: readonly number[] = []): void {
+  put(db, CARD_ADMITTED, { card: CARD, payload: { card: `#${CARD}`, lane: 'lane-1', text: `card: #${CARD}`, depends, ...(source === null ? {} : { source }) } })
+}
+
+function opened(db: DatabaseSync, lift: WaitLift, text = `card #${CARD} waits for the owner`): string {
+  const id = openOwnerWait(db, OPENED_AT, 'worker:answer:worker-1', { need: 'decision', text, card: CARD, pr: PR, lift })
+  reduce(db, 'pending', busProjections())
+  return id
+}
+
+function swept(db: DatabaseSync): string[] {
+  const lines = new WaitLifts(db, () => NOW, waitLiftParts(db, () => NOW)).step()
+  reduce(db, 'pending', busProjections())
+  return lines
+}
+
+function stillOpen(db: DatabaseSync, id: string): boolean {
+  return openOwnerWaits(db).some(wait => wait.id === id)
+}
+
+function reducedAnswerOf(db: DatabaseSync, id: string): unknown {
+  return { ...db.prepare('SELECT state, answer FROM owner_waits WHERE id = ?').get(id) as object }
+}
+
+function closesOf(db: DatabaseSync, id: string): string[] {
+  return (db.prepare(`SELECT json_extract(payload, '$.answer') AS answer FROM events WHERE type = '${OWNER_WAIT_CLOSED}' AND json_extract(payload, '$.id') = ? AND actor = '${WAIT_LIFT_ACTOR}'`).all(id) as { answer: string }[]).map(row => row.answer)
+}
+
+describe('one sweep closes an owner wait once its lift holds on the current state', () => {
+  it('a wait opened by a faulted answer closes once the current head has green witnesses and a review pass', () => {
+    const db = bus()
+    observed(db, HEAD)
+    const id = opened(db, faultedAnswerLift(HEAD))
+    expect(swept(db)).toEqual([])
+    witnessed(db, HEAD, 'green')
+    reviewed(db, HEAD, 'pass')
+
+    expect(swept(db)).toEqual([`${id} #${CARD} lifted: green witnesses and a review pass on ${HEAD} of pull request #${PR}`])
+    expect(closesOf(db, id)).toEqual([`lifted: green witnesses and a review pass on ${HEAD} of pull request #${PR}`])
+    expect(stillOpen(db, id)).toBe(false)
+  })
+
+  const OPENERS: Record<string, { lift: WaitLift, condition: (db: DatabaseSync) => void, answer: string }> = {
+    'faulted answer on a new head': { lift: faultedAnswerLift(HEAD), condition: db => observed(db, NEW_HEAD), answer: `lifted: a new head ${NEW_HEAD} on pull request #${PR}` },
+    'dead end on an amend': { lift: { on: DEAD_END_LIFTS, head: HEAD }, condition: db => admitted(db, 'amend'), answer: `card #${CARD} amended` },
+    'empty round on a decision bound to the card': { lift: { on: EMPTY_ROUND_LIFTS, head: HEAD }, condition: db => recordDecision(db, { ts: OPENED_AT, decisionId: 2333, text: `[owner] #${CARD}: go on`, cards: [CARD] }), answer: `lifted: a decision bound to card #${CARD} was recorded` },
+    'hold-until on its dependency merged': { lift: { on: [...EMPTY_ROUND_LIFTS, 'dependency-merged'], head: HEAD }, condition: db => put(db, MERGE_DONE, { card: DEPENDENCY, payload: {} }), answer: `lifted: every dependency of card #${CARD} is merged` },
+    'growth on the pull request merged': { lift: { on: GROWTH_LIFTS, head: HEAD }, condition: db => put(db, PR_CLOSED, { card: CARD, pr: PR, payload: { merged: true } }), answer: `card #${CARD} merged` },
+  }
+
+  it('each opener has a lift that closes its wait on the current state', () => {
+    for (const [name, opener] of Object.entries(OPENERS)) {
+      const db = bus()
+      observed(db, HEAD)
+      admitted(db, null, [DEPENDENCY])
+      const id = opened(db, opener.lift)
+      expect(swept(db), name).toEqual([])
+
+      opener.condition(db)
+      reduce(db, 'pending', busProjections())
+      swept(db)
+
+      expect(reducedAnswerOf(db, id), name).toEqual({ state: 'closed', answer: opener.answer })
+      expect(stillOpen(db, id), name).toBe(false)
+      expect(swept(db), name).toEqual([])
+    }
+  })
+
+  it('a wait whose lift has not happened stays open', () => {
+    const db = bus()
+    observed(db, HEAD)
+    const red = opened(db, faultedAnswerLift(HEAD), 'red witness')
+    witnessed(db, HEAD, 'red')
+    reviewed(db, HEAD, 'pass')
+    expect(swept(db)).toEqual([])
+
+    witnessed(db, HEAD, 'green')
+    reviewed(db, HEAD, 'changes')
+    expect(swept(db)).toEqual([])
+    const ownerOnly = opened(db, { on: ['owner-answer'] }, 'only the owner answers this')
+    put(db, PR_CLOSED, { card: CARD, pr: PR, payload: { merged: false } })
+    expect(swept(db)).toEqual([])
+
+    expect([stillOpen(db, red), stillOpen(db, ownerOnly)]).toEqual([true, true])
+  })
+})
+
+function deadEndCard(db: DatabaseSync): void {
+  put(db, CARD_STOPPED, { card: CARD, pr: PR, payload: { reason: QUESTION_AGENT } })
+  db.prepare('INSERT INTO cards (card_id, state, pr, event_id) VALUES (?, ?, ?, (SELECT max(id) FROM events))').run(CARD, 'stopped', PR)
+}
+
+function deadEndWaits(db: DatabaseSync): unknown[] {
+  return db.prepare(`SELECT id FROM events WHERE type = '${OWNER_WAIT_OPENED}' AND actor = '${DEAD_END_ACTOR}'`).all()
+}
+
+describe('a wait is never opened when its lift already holds, nor twice for one reason', () => {
+  it('an opener whose lift already holds opens no wait', () => {
+    const db = bus()
+    observed(db, HEAD)
+    witnessed(db, HEAD, 'green')
+    reviewed(db, HEAD, 'pass')
+    deadEndCard(db)
+
+    expect(liftHeldAtOpen(db, { pr: PR, lift: faultedAnswerLift(HEAD) })).toBe('passed-on-head')
+    expect(new DeadEnds(db, () => NOW, deadEndParts(db)).step()).toEqual([expect.not.stringMatching(/; owner wait Q\d+$/)])
+    expect(db.prepare(`SELECT count(*) AS n FROM events WHERE type = '${BOARD_ALARM}'`).get()).toEqual({ n: 1 })
+    expect(deadEndWaits(db)).toEqual([])
+    put(db, PR_CLOSED, { card: CARD, pr: PR, payload: { merged: true } })
+    expect(liftHeldAtOpen(db, { pr: PR, lift: { on: GROWTH_LIFTS } })).toBe('pr-merged')
+    expect(liftHeldAtOpen(db, { pr: PR, lift: { on: ['decision', 'amend'] } })).toBeNull()
+  })
+
+  it('an opener never opens a second wait for a reason already open on the card', () => {
+    const db = bus()
+    observed(db, HEAD)
+    const first = opened(db, faultedAnswerLift(HEAD), 'the tree cannot be read')
+    expect(opened(db, faultedAnswerLift(HEAD), 'the tree cannot be read')).toBe(first)
+    expect(db.prepare(`SELECT count(*) AS n FROM events WHERE type = '${OWNER_WAIT_OPENED}'`).get()).toEqual({ n: 1 })
+    expect(opened(db, faultedAnswerLift(HEAD), 'another question')).not.toBe(first)
+
+    const actions = [`allow the downgrade of W1 on #${CARD}`]
+    put(db, CARD_WAITING, { card: CARD, payload: { reason: WITNESS_DOWNGRADE, witnesses: ['W1'], actions, bodySha: 'first' } })
+    put(db, CARD_WAITING, { card: CARD, payload: { reason: WITNESS_DOWNGRADE, witnesses: ['W1'], actions, bodySha: 'readmitted' } })
+    reduce(db, 'pending', busProjections())
+
+    const downgrades = openOwnerWaits(db).filter(wait => wait.id.startsWith('W'))
+    expect(downgrades).toHaveLength(1)
+    const refused = db.prepare(`SELECT json_extract(payload, '$.reason') AS reason FROM events WHERE type = '${REJECTED}'`).all() as { reason: string }[]
+    expect(refused).toEqual([{ reason: expect.stringContaining(`the same downgrade is already open on card #${CARD} as ${downgrades[0]!.id}`) }])
+  })
+})

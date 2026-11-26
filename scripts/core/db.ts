@@ -4,7 +4,7 @@ import { appendFileSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { CLOSED_WAIT, OPEN_WAIT, OWNER_WAIT_NEEDS, OWNER_WAITS } from './bus-readings.js'
-import { OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PROCESS_HEARTBEAT } from './events.js'
+import { OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_CLOSED, PR_OBSERVED, PROCESS_HEARTBEAT, REJECTED, REVIEW_RECORDED, WITNESS_RECORDED } from './events.js'
 import { isActor, isFullSha, prOf } from './identifiers.js'
 import { openDatabase } from './sqlite.js'
 
@@ -301,9 +301,30 @@ export { CLOSED_WAIT, OPEN_WAIT, OWNER_WAIT_NEEDS, OWNER_WAITS }
 export type { OwnerWaitNeed }
 export const WAIT_ID = /^Q(\d+)$/
 
+export const WAIT_LIFT_KINDS = ['new-head', 'amend', 'passed-on-head', 'decision', 'pr-merged', 'dependency-merged', 'owner-answer'] as const
+
+export type WaitLiftKind = typeof WAIT_LIFT_KINDS[number]
+
+export interface WaitLift {
+  on: readonly WaitLiftKind[]
+  head?: string
+}
+
+export const OWNER_ANSWER_LIFT: WaitLift = { on: ['owner-answer'] }
+
+const HELD_AT_OPEN: readonly WaitLiftKind[] = ['passed-on-head', 'pr-merged']
+
+export function isWaitLift(value: unknown): value is WaitLift {
+  if (typeof value !== 'object' || value === null)
+    return false
+  const { on, head } = value as Record<string, unknown>
+  return Array.isArray(on) && on.length > 0 && on.every(kind => (WAIT_LIFT_KINDS as readonly unknown[]).includes(kind)) && (head === undefined || typeof head === 'string')
+}
+
 export interface OwnerWaitAsk {
   need: OwnerWaitNeed
   text: string
+  lift?: WaitLift
   command?: string
   card?: number
   pr?: number
@@ -315,13 +336,64 @@ export function isOwnerWaitNeed(value: unknown): value is OwnerWaitNeed {
   return typeof value === 'string' && (OWNER_WAIT_NEEDS as readonly string[]).includes(value)
 }
 
+const NOT_CLOSED_NOR_REFUSED = `
+    AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${OWNER_WAIT_CLOSED}' AND json_extract(closed.payload, '$.id') = json_extract(opened.payload, '$.id'))
+    AND NOT EXISTS (SELECT 1 FROM events AS refused WHERE refused.dedupe_key = '${REJECTED}:' || opened.dedupe_key)
+    AND NOT EXISTS (SELECT 1 FROM ${OWNER_WAITS} AS reduced WHERE reduced.id = json_extract(opened.payload, '$.id') AND reduced.state = '${CLOSED_WAIT}')
+`
+
 const UNCLOSED_WAIT_OF = `
   SELECT json_extract(opened.payload, '$.id') AS id FROM events AS opened
   WHERE opened.type = '${OWNER_WAIT_OPENED}' AND opened.legacy = 0
     AND json_extract(opened.payload, '$.need') = ? AND json_extract(opened.payload, '$.command') IS ? AND json_extract(opened.payload, '$.pr') IS ?
-    AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${OWNER_WAIT_CLOSED}' AND json_extract(closed.payload, '$.id') = json_extract(opened.payload, '$.id'))
+    ${NOT_CLOSED_NOR_REFUSED}
   ORDER BY opened.id
 `
+
+const OPEN_REASON_ON_THE_CARD = `
+  SELECT json_extract(opened.payload, '$.id') AS id FROM events AS opened
+  WHERE opened.type = '${OWNER_WAIT_OPENED}' AND opened.legacy = 0 AND opened.card_id = ?
+    AND json_extract(opened.payload, '$.need') = ? AND json_extract(opened.payload, '$.command') IS ? AND json_extract(opened.payload, '$.text') = ?
+    ${NOT_CLOSED_NOR_REFUSED}
+  ORDER BY opened.id LIMIT 1
+`
+
+const CURRENT_HEAD_OF = `SELECT head FROM events WHERE type = '${PR_OBSERVED}' AND pr = ? AND head IS NOT NULL ORDER BY id DESC LIMIT 1`
+const LATEST_VERDICT_ON = `SELECT json_extract(payload, '$.verdict') AS verdict FROM events WHERE type = ? AND pr = ? AND head = ? ORDER BY id DESC LIMIT 1`
+const MERGED_PR = `SELECT id FROM events WHERE type = '${PR_CLOSED}' AND pr = ? AND json_extract(payload, '$.merged') = 1 ORDER BY id LIMIT 1`
+const GREEN_WITNESS = 'green'
+const PASSED_REVIEW = 'pass'
+
+export function currentHeadOf(db: DatabaseSync, pr: number): string | null {
+  const row = db.prepare(CURRENT_HEAD_OF).get(pr) as { head: string } | undefined
+  return row?.head ?? null
+}
+
+function latestVerdict(db: DatabaseSync, type: string, pr: number, head: string): unknown {
+  return (db.prepare(LATEST_VERDICT_ON).get(type, pr, head) as { verdict: unknown } | undefined)?.verdict
+}
+
+export function headPassed(db: DatabaseSync, pr: number): string | null {
+  const head = currentHeadOf(db, pr)
+  if (head === null)
+    return null
+  return latestVerdict(db, WITNESS_RECORDED, pr, head) === GREEN_WITNESS && latestVerdict(db, REVIEW_RECORDED, pr, head) === PASSED_REVIEW ? head : null
+}
+
+export function mergeOfPr(db: DatabaseSync, pr: number): number | null {
+  return (db.prepare(MERGED_PR).get(pr) as { id: number } | undefined)?.id ?? null
+}
+
+export function liftHeldAtOpen(db: DatabaseSync, ask: Pick<OwnerWaitAsk, 'lift' | 'pr'>): WaitLiftKind | null {
+  const pr = ask.pr
+  if (pr === undefined || ask.lift === undefined)
+    return null
+  const held: Record<string, () => boolean> = {
+    'passed-on-head': () => headPassed(db, pr) !== null,
+    'pr-merged': () => mergeOfPr(db, pr) !== null,
+  }
+  return ask.lift.on.find(kind => HELD_AT_OPEN.includes(kind) && held[kind]!()) ?? null
+}
 
 function nextWaitId(db: DatabaseSync): string {
   const ids = db.prepare(`SELECT json_extract(payload, '$.id') AS id FROM events WHERE type = '${OWNER_WAIT_OPENED}'`).all() as { id: unknown }[]
@@ -329,7 +401,18 @@ function nextWaitId(db: DatabaseSync): string {
   return `Q${Math.max(0, ...numbers) + 1}`
 }
 
+function openForTheSameReason(db: DatabaseSync, ask: OwnerWaitAsk): string | null {
+  if (ask.card === undefined)
+    return null
+  return (db.prepare(OPEN_REASON_ON_THE_CARD).get(ask.card, ask.need, ask.command ?? null, ask.text) as { id: string } | undefined)?.id ?? null
+}
+
 export function openOwnerWait(db: DatabaseSync, ts: string, actor: string, ask: OwnerWaitAsk): string {
+  if (ask.lift !== undefined && !isWaitLift(ask.lift))
+    throw new Error(`an owner wait names a lift that is not one of ${WAIT_LIFT_KINDS.join(' | ')}: ${JSON.stringify(ask.lift)}; nothing written`)
+  const standing = openForTheSameReason(db, ask)
+  if (standing !== null)
+    return standing
   const id = nextWaitId(db)
   const { need, text, ...named } = ask
   appendEvent(db, { ts, type: OWNER_WAIT_OPENED, actor, cardId: ask.card ?? null, pr: ask.pr ?? null, head: null, dedupeKey: `${OWNER_WAIT_OPENED}:${id}`, payload: { id, need, text, ...named }, legacy: false })
