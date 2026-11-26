@@ -3,7 +3,7 @@
   const dialog = document.getElementById(names.drill)
   const content = document.getElementById(names.drillContent)
   const scroller = document.getElementById(names.backlogScroll)
-  const view = { filter: '', scroll: 0, open: null, agents: {}, folds: {} }
+  const view = { filter: '', scroll: 0, open: null, agents: {}, folds: {}, warningsCollapsed: false }
   let written = document.body.dataset.written
   let period = Number(document.body.dataset.tickMs)
   let due = null
@@ -31,8 +31,21 @@
       view.agents = stored.agents
     if (stored.folds !== null && typeof stored.folds === 'object')
       view.folds = stored.folds
+    if (typeof stored.warningsCollapsed === 'boolean')
+      view.warningsCollapsed = stored.warningsCollapsed
   }
   catch {}
+  const stampWarnings = () => {
+    document.querySelectorAll('[data-warnings-toggle]').forEach((toggle) => {
+      if (toggle.dataset && toggle.dataset.warningsToggle !== undefined)
+        toggle.setAttribute('aria-expanded', view.warningsCollapsed ? 'false' : 'true')
+    })
+  }
+  const toggleWarnings = () => {
+    view.warningsCollapsed = !view.warningsCollapsed
+    stampWarnings()
+    save()
+  }
   let boardFilters = null
   const showFilter = (hash) => {
     const backlog = document.getElementById(names.backlog)
@@ -156,6 +169,10 @@
       toggleFold(fold.dataset.fold)
       return
     }
+    if (event.target.closest && event.target.closest('[data-warnings-toggle]')) {
+      toggleWarnings()
+      return
+    }
     if (event.target.closest && event.target.closest('[data-pull]')) {
       pending += 1
       update()
@@ -250,7 +267,7 @@
     }
     node.classList.add(name)
   }
-  const KEYS = ['id', 'data-card', 'data-agents', 'data-task', 'data-lane', 'data-slot-queue', 'data-family', 'data-event', 'data-node', 'data-cell', 'data-open']
+  const KEYS = ['id', 'data-svc', 'data-card', 'data-agents', 'data-task', 'data-lane', 'data-slot-queue', 'data-family', 'data-event', 'data-node', 'data-cell', 'data-open']
   const keyOf = (node) => {
     if (node.nodeType !== 1)
       return null
@@ -385,16 +402,87 @@
         fadeOut(before[family])
     })
   }
+  const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+  const leaving = new WeakSet()
+  let servicesShown = !shell
+  const serviceCards = () => {
+    const cards = new Map()
+    document.querySelectorAll('[data-svc]').forEach((card) => {
+      if (card.dataset && card.dataset.svc && !leaving.has(card))
+        cards.set(card.dataset.svc, { card, parent: card.parentNode, at: card.parentNode ? Array.from(card.parentNode.childNodes).indexOf(card) : -1 })
+    })
+    return cards
+  }
+  const once = (node, name, done) => {
+    if (typeof node.addEventListener !== 'function')
+      return
+    const listener = (event) => {
+      if (event.target !== node)
+        return
+      node.removeEventListener(name, listener)
+      done()
+    }
+    node.addEventListener(name, listener)
+  }
+  const easeHeight = (change) => {
+    const wrap = first('[data-svc-wrap]')
+    const measurable = wrap !== null && typeof wrap.getBoundingClientRect === 'function' && Boolean(wrap.style) && !reducedMotion()
+    const from = measurable ? wrap.getBoundingClientRect().height : 0
+    change()
+    if (!measurable || first('[data-svc-wrap]') !== wrap)
+      return
+    wrap.style.height = ''
+    const to = wrap.getBoundingClientRect().height
+    if (from === to)
+      return
+    wrap.style.height = `${from}px`
+    void wrap.offsetWidth
+    wrap.style.height = `${to}px`
+    once(wrap, 'transitionend', () => {
+      wrap.style.height = ''
+    })
+  }
+  const enter = (card) => {
+    card.classList.add('enter')
+    once(card, 'animationend', () => card.classList.remove('enter'))
+  }
+  const leave = ({ card, parent, at }) => {
+    if (!parent || !parent.childNodes || !parent.parentNode)
+      return
+    leaving.add(card)
+    parent.insertBefore(card, parent.childNodes[at] || null)
+    card.classList.add('leave')
+    once(card, 'animationend', () => easeHeight(() => card.remove()))
+  }
+  const moveServices = (change) => {
+    const before = serviceCards()
+    const animate = servicesShown && !reducedMotion()
+    servicesShown = true
+    easeHeight(() => {
+      change()
+      if (!animate)
+        return
+      const now = serviceCards()
+      now.forEach(({ card }, key) => {
+        if (!before.has(key))
+          enter(card)
+      })
+      before.forEach((was, key) => {
+        if (!now.has(key))
+          leave(was)
+      })
+    })
+  }
   const apply = (board) => {
     const before = slotReadings()
     const minute = flowMinute()
     const families = familyReadings()
     document.title = names.titlePrefix + board.written
-    Object.keys(board.slots).forEach((name) => {
+    moveServices(() => Object.keys(board.slots).forEach((name) => {
       const slot = document.getElementById(names.slotPrefix + name)
       if (slot && typeof board.slots[name] === 'string')
         patch(slot, board.slots[name])
-    })
+    }))
     markSlots(before)
     shiftFlow(minute)
     moveFamilies(families)
@@ -414,6 +502,7 @@
       icon.setAttribute('href', board.alarms.length > 0 ? names.icon.alarm : names.icon.calm)
     stampAgents()
     stampFolds()
+    stampWarnings()
     showDaemon()
     countLoad()
     if (restored)
@@ -483,6 +572,7 @@
     }, delay)
   }
   stampFolds()
+  stampWarnings()
   countLoad()
   if (shell)
     update()

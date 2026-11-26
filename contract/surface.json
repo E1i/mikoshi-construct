@@ -1905,7 +1905,9 @@
         "scripts/nodes/restart/restart-worker.ts"
       ],
       "exits": [],
-      "flags": [],
+      "flags": [
+        "on"
+      ],
       "json": false,
       "unknownFlag": "not read"
     },

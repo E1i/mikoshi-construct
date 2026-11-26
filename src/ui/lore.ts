@@ -405,7 +405,7 @@ export interface Lore extends Omit<ExpectLore, 'expectRoleForecast'> {
   boardDaemonsHead: { title: string, installed: (count: number) => string }
   boardDaemonState: (loaded: boolean) => string
   boardDaemonSlot: (slot: number) => string
-  boardDaemonMutations: (count: number) => string
+  boardDaemonPane: { mutations: (count: number) => string, noDescription: string }
   boardDaemonsUnread: (reader: string, loadedIn: string) => string
 }
 
@@ -491,7 +491,7 @@ const BOARD_TABS_LORE = {
   boardDaemonsHead: { title: 'DAEMONS', installed: (count: number) => `INSTALLED \u00B7 ${count}` },
   boardDaemonState: (loaded: boolean) => loaded ? 'LOADED' : 'SLEEPING',
   boardDaemonSlot: (slot: number) => `SLOT ${String(slot).padStart(2, '0')}`,
-  boardDaemonMutations: (count: number) => `MUTATIONS \u00B7 ${count}`,
+  boardDaemonPane: { mutations: (count: number) => `MUTATIONS \u00B7 ${count}`, noDescription: 'no description' },
   boardDaemonsUnread: (reader: string, loadedIn: string) => `no daemon in the catalog yet \u00B7 ${reader} reads it \u00B7 LOADED is observed in ${loadedIn}`,
 } satisfies Partial<Lore>
 

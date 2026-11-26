@@ -28,7 +28,7 @@ import { BOARD_BUS, busFacts } from '../../src/commands/board/index.js'
 import { backlogCards, byStage, counted, inLiveView, isLive, liftedByTheWindow, markedName, matrixLines, screenLines, sliceMark, slotsReading, standingLine, standingOf, tallyLine, taskGroupLine, taskGroups, taskTally, waitAction, waitTarget, WINDOW_WAITS_ROLE } from '../../src/commands/board/screens.js'
 import { clientTranscriptReader, factoryLiveness, readTranscript } from '../../src/commands/liveness.js'
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
-import { currentVersion, interfaceVersion } from '../../src/version.js'
+import { currentVersion } from '../../src/version.js'
 import { cardRunsOf, catalogLayersByTest, catalogModuleLayers } from '../ci/card-runs.js'
 import { builtEntry } from '../core/built-entry.js'
 import { staleLine } from '../core/bus-readings.js'
@@ -53,7 +53,7 @@ import { BOARD_FILE, FRESH_MS, windowGauges } from '../window/board.js'
 import { mikoHandoff } from '../window/loop.js'
 import { planMarkdown } from '../window/plan-export.js'
 import { busFresh, busPanel, pulseAgeMs } from './board-page/bus-panel.js'
-import { BOARD_HISTORY_FILE, FILTER_ATTRIBUTE, filterId, filterRule, LIVE_FILTER, liveCardsOf, ownerHolds } from './board-page/live-cards.js'
+import { BOARD_HISTORY_FILE, cappedCell, cappedReferences, FILTER_ATTRIBUTE, filterId, filterRule, LIVE_FILTER, liveCardsOf, ownerHolds, uiReading, warningsStrip } from './board-page/live-cards.js'
 import { mikoBay, mikoPanel } from './board-page/miko-panel.js'
 import { LAYER_ENTRY, runsHtml, TOUCHED_TESTS } from './board-page/runs-html.js'
 import { agentsLine, CARD_TASK, compact, eddiesBar, escaped, modelLabel, NO_SESSION_VIEW, percent, ROUND_COLOURS, ROUND_LABELS, sessionCard, STEPPED_ROLE, terminalOf } from './board-page/session-card.js'
@@ -338,7 +338,7 @@ function barsOf(service: BusService, page: BoardPage): string {
 function serviceTile(service: BusService, page: BoardPage): string {
   const bars = barsOf(service, page)
   const dialog = tileDialog(service, page)
-  const parts = { opener: dialog === null ? '' : `${opener(dialog)} role="button"`, hint: dialog === null ? '' : OPEN_HINT, bars, agents: agentsLine(service, page.facts.at, page.limits, AGENT_WORDS), over: bars.includes(' data-over'), now: page.facts.at }
+  const parts = { opener: `${dialog === null ? '' : `${opener(dialog)} role="button"`} data-svc="${escaped(service.session ?? `${service.role} ${service.task}`)}"`, hint: dialog === null ? '' : OPEN_HINT, bars, agents: agentsLine(service, page.facts.at, page.limits, AGENT_WORDS), over: bars.includes(' data-over'), now: page.facts.at }
   return sessionCard(service, page.sessions?.get(`${service.role} ${service.task}`) ?? NO_SESSION_VIEW, parts)
 }
 
@@ -373,10 +373,10 @@ function servicesSlot(page: BoardPage): string {
   const { facts } = page
   return [
     `<div class="panel-head"><h2 id="h-services">${PLAIN_LORE.boardTabServices}</h2>${servicesMeta(page)}</div>`,
-    '<div class="svc-grid">',
+    '<div class="svc-wrap" data-svc-wrap><div class="svc-grid">',
     ...facts.services.filter(service => service.role !== WINDOW_ROLE).map(service => serviceTile(service, page)),
     ...matrixLines(facts, PLAIN_LORE).map(line => lineTile('matrix', line)),
-    '</div>',
+    '</div></div>',
     mikoStrip(page),
     busPanel({ facts, freshMs: FRESH_MS, snapshot: page.snapshot ?? null, startCommand: pnpmCommand('bus:run') }),
   ].join('\n')
@@ -443,7 +443,7 @@ function waitsSlot(page: BoardPage): string {
 
 function warningsSlot(warnings: readonly BoardWarning[]): string {
   const items = warnings.map(warning => `<span class="warning" data-level="${warning.level}">${escaped(warning.text)}</span>`)
-  return items.length === 0 ? '' : `<section class="warning-strip bevel" aria-label="Warnings"><span class="lbl">warnings</span>${items.join('')}</section>`
+  return warningsStrip(items)
 }
 
 function flowSlot(page: BoardPage): string {
@@ -470,11 +470,13 @@ function cardFields(card: BusCard): string[] {
   return [words.find(word => word !== tagWord) ?? NONE, ...fields, relation(parts, 'depends'), relation(parts, 'blocks')]
 }
 
+const COLUMNS = ['card', 'slug', 'kind', 'contour', 'size', 'path', 'gate', 'depends', 'blocks', 'state', '']
+
 function cardRowOf(facts: BusFacts, standing: CardStanding): (card: BusCard) => string {
   return (card) => {
-    const cells = cardFields(card).map((field, at) => `<td${at === 0 ? ' class="slug"' : ''}>${escaped(field)}</td>`).join('')
+    const cells = cardFields(card).map((field, at) => at === COLUMNS.indexOf('depends') - 1 ? cappedReferences(escaped(field)) : `<td${at === 0 ? ' class="slug"' : ''}>${escaped(field)}</td>`).join('')
     const [stage, why] = [escaped(card.stage), standingLine(card, facts, standing, PLAIN_LORE)]
-    return `<tr data-card="${card.id}" data-stage="${stage}"${inLiveView(card, standing) ? ' data-live' : ''}${opener(cardDialog(card.id))}><td class="id">${escaped(markedName(`#${card.id}`, card))}</td>${cells}<td><span class="st" data-stage="${stage}">${stage}</span>${why === null ? '' : `<span class="why">${escaped(why)}</span>`}</td><td>${OPEN_HINT}</td></tr>`
+    return `<tr data-card="${card.id}" data-stage="${stage}"${inLiveView(card, standing) ? ' data-live' : ''}${opener(cardDialog(card.id))}><td class="id">${escaped(markedName(`#${card.id}`, card))}</td>${cells}${cappedCell(`<span class="st" data-stage="${stage}">${stage}</span>${why === null ? '' : `<span class="why">${escaped(why)}</span>`}`)}<td>${OPEN_HINT}</td></tr>`
   }
 }
 
@@ -486,8 +488,6 @@ function stagesOf(cards: BusCard[]): string[] {
   const present = new Set(cards.map(card => card.stage))
   return CARD_STAGES.filter(stage => present.has(stage))
 }
-
-const COLUMNS = ['card', 'slug', 'kind', 'contour', 'size', 'path', 'gate', 'depends', 'blocks', 'state', '']
 
 function backlogFilters(facts: BusFacts): string[] {
   return [LIVE_FILTER, ...stagesOf(backlogCards(facts.cards, facts.at, true))]
@@ -548,7 +548,7 @@ function headerPanel(version: string, slots: BoardSlots): string {
 function headerReadings(page: BoardPage): string {
   const { facts } = page
   return [
-    `<span>model <b>${page.modelVersion === null ? NONE : `v${page.modelVersion}`}</b></span><span>ui <b>${escaped(interfaceVersion(page.version))}</b></span>`,
+    `<span>model <b>${page.modelVersion === null ? NONE : `v${page.modelVersion}`}</b></span>${uiReading()}`,
     `<span>written <b>${escaped(facts.at)}</b></span><span>live <b>${escaped(tallyLine(taskTally(facts.cards.filter(isLive))))}</b></span>`,
     `<span>refresh <b>${page.tickMs === null ? NONE : `${page.tickMs / 1000}s`}</b><i class="countdown" id="${REFRESH_IN}"></i></span>`,
     `<span>load <b><span data-count="${page.machine.load.toFixed(1)}">${page.machine.load.toFixed(1)}</span> / ${page.machine.cores} cores</b></span>`,

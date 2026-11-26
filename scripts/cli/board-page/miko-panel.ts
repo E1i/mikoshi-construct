@@ -32,7 +32,7 @@ export interface DaemonWords {
   boardDaemonsHead: { title: string, installed: (count: number) => string }
   boardDaemonState: (loaded: boolean) => string
   boardDaemonSlot: (slot: number) => string
-  boardDaemonMutations: (count: number) => string
+  boardDaemonPane: { mutations: (count: number) => string, noDescription: string }
   boardDaemonsUnread: (reader: string, loadedIn: string) => string
 }
 
@@ -119,7 +119,7 @@ function daemonSlot(daemon: Daemon, index: number, lore: DaemonWords): string {
 
 function daemonPane(daemon: Daemon, shown: boolean, lore: DaemonWords): string {
   const mutations = daemon.mutations.map(mutation => `<li>${escaped(mutation)}</li>`).join('')
-  return `<div class="daemon-pane" data-daemon-pane="${escaped(daemon.daemon)}" data-state="${daemonState(daemon)}"${installedMark(daemon)}${shown ? ' data-default data-shown' : ''}><span class="pane-name">${escaped(daemon.daemon)}</span><span class="pane-tag">${escaped(lore.boardDaemonState(runs(daemon)))}</span><span class="pane-head">${escaped(lore.boardDaemonMutations(daemon.mutations.length))}</span><ul class="pane-mutations">${mutations}</ul></div>`
+  return `<div class="daemon-pane" data-daemon-pane="${escaped(daemon.daemon)}" data-state="${daemonState(daemon)}"${installedMark(daemon)}${shown ? ' data-default data-shown' : ''}><span class="pane-name">${escaped(daemon.daemon)}</span><span class="pane-tag">${escaped(lore.boardDaemonState(runs(daemon)))}</span><span class="pane-description"${daemon.description === null ? ' data-none' : ''}>${escaped(daemon.description ?? lore.boardDaemonPane.noDescription)}</span><span class="pane-head">${escaped(lore.boardDaemonPane.mutations(daemon.mutations.length))}</span><ul class="pane-mutations">${mutations}</ul></div>`
 }
 
 export function daemonsCell(reading: DaemonsReading, lore: DaemonWords): string {

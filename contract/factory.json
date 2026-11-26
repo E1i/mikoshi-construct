@@ -6030,8 +6030,7 @@
       "src/version.ts": {
         "constants": [],
         "functions": {
-          "currentVersion": "(): string",
-          "interfaceVersion": "(version: string = currentVersion(), sha: string | null = BUILD_SHA): string"
+          "currentVersion": "(): string"
         },
         "reexports": [],
         "types": {}
