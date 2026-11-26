@@ -5693,6 +5693,22 @@
           "CardScope": "interface CardScope { touches: readonly string[]; creates: readonly string[]; }"
         }
       },
+      "src/detect/entry-points.ts": {
+        "constants": [],
+        "functions": {
+          "entryPointKindOf": "(relative: string): EntryPointKind | null",
+          "entryPointsIn": "(tree: SourceTree): EntryPoint[]",
+          "importReachIn": "(tree: SourceTree, entries: readonly string[]): string[]",
+          "isProductSource": "(file: string): boolean",
+          "listedTree": "(listed: readonly string[], read: (file: string) => string | null): SourceTree",
+          "packageDirIn": "(tree: SourceTree, relative: string, created: readonly string[] = []): string"
+        },
+        "reexports": [],
+        "types": {
+          "EntryPointKind": "type EntryPointKind = 'bin' | 'main' | 'page' | 'endpoint'",
+          "SourceTree": "interface SourceTree { isFile: (file: string) => boolean; read: (file: string) => string | null; filesUnder: (dir: string) => string[]; childDirs: (dir: string) => string[]; }"
+        }
+      },
       "src/detect/index.ts": {
         "constants": [],
         "functions": {

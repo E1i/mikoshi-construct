@@ -9,6 +9,7 @@ import type { Isolation, IsolationReader } from '../../ports/isolation.js'
 import type { SessionInput } from '../../ports/prompt-store.js'
 import type { TestSource } from './depth-sources.js'
 import type { RoundLimitAt, RoundLimitRecut } from './pr-close.js'
+import type { ReachSource } from './reachability.js'
 import type { Denial, VerdictWord } from './record-verdict.js'
 import type { EarlierVerdict, ReviewDepth, ReviewPlan, ReviewPlanner } from './review-depth.js'
 import type { HeldTree, LeftoverTree, Review, Reviewer } from './reviewer.js'
@@ -27,9 +28,10 @@ import { activeDecisionsShard } from '../../policy/shards.js'
 import { NO_ISOLATION } from '../../ports/isolation.js'
 import { storedInput } from '../../ports/prompt-store.js'
 import { gitDepthSources, gitTestSource, provenWitnesses } from './depth-sources.js'
+import { gitReachSource, unreachedFinding, unreachedModules, withUnreached } from './reachability.js'
 import { freshDenial, recordVerdict } from './record-verdict.js'
 import { fullReview } from './review-depth.js'
-import { PREFIX, REVIEW_BAR_LINE, REVIEW_CEILING, REVIEW_CEILING_MINUTES, ReviewFailed } from './reviewer.js'
+import { PREFIX, REVIEW_BAR_LINE, REVIEW_CEILING, REVIEW_CEILING_MINUTES, ReviewFailed, withBusFindings } from './reviewer.js'
 import { mutationOnlyFindings } from './tail-card.js'
 
 const CI_NOT_READY = 'ci_not_ready'
@@ -99,9 +101,9 @@ export const TREE_LEFT = 'tree_left'
 export { REVIEW_ROUNDS_SPENT }
 export const ROUND_LIMIT_REACHED = 'round_limit_reached'
 export const SPAWNS_NO_SESSION = 'spawns-no-session'
-export const REVIEW_RULES_VERSION = 2
+export const REVIEW_RULES_VERSION = 3
 export const REVIEW_RULES_FILE = '.claude/agents/review.md'
-export const REVIEW_RULES_SHA = 'edb05eb4bfc4dff057b61daad192fd82ecdcd55b8feba4b764a8120bd417d5a8'
+export const REVIEW_RULES_SHA = 'eb1f7a6f297465dc86437f2f4d64c6de76d1782178f6cb7fcaa2b79a77cb56e1'
 
 export function reviewRulesSha(rulesFileText: string): string {
   return createHash('sha256').update(`${rulesFileText}\n${REVIEW_BAR_LINE}`).digest('hex')
@@ -135,6 +137,7 @@ export interface ExecutorParts {
   dripSources?: DripSources
   testSource?: TestSource
   tail?: TailIntake
+  reach?: ReachSource
 }
 
 interface Reviewed {
@@ -143,6 +146,7 @@ interface Reviewed {
   ms: number
   isolation: Held | null
   card: string | null
+  unreached: string | null
 }
 
 type Held = Exclude<Isolation, { level: 'none' }>
@@ -409,15 +413,31 @@ export class ReviewExecutor {
     const { db, clock } = this.parts
     const prepared = this.preSession(lease)
     const plan = prepared instanceof Promise ? await prepared : prepared
+    const unreached = this.unreachedOnTheHead(lease)
     try {
       const started = clock().getTime()
       const card = cardBodyText(db, lease.cardId)
-      const review = await this.parts.reviewer(lease, plan, card, provenWitnesses(db, lease, card, this.parts.testSource ?? gitTestSource(process.cwd())))
-      return { outcome: { review, plan, ms: clock().getTime() - started, isolation, card }, held: review.tree ?? null }
+      const review = await this.parts.reviewer(lease, withBusFindings(plan, unreached === null ? [] : [unreached]), card, provenWitnesses(db, lease, card, this.parts.testSource ?? gitTestSource(process.cwd())))
+      return { outcome: { review, plan, ms: clock().getTime() - started, isolation, card, unreached }, held: review.tree ?? null }
     }
     catch (error) {
       const reason = error instanceof ReviewFailed && error.ceiling ? REVIEW_CEILING : REVIEW_FAILED
       return { outcome: { kind: 'technical', reason, detail: error instanceof Error ? error.message : String(error) }, held: error instanceof ReviewFailed ? error.held : null }
+    }
+  }
+
+  private unreachedOnTheHead(lease: Lease): string | null {
+    if (lease.head === null)
+      return null
+    try {
+      const finding = unreachedFinding(unreachedModules((this.parts.reach ?? gitReachSource(process.cwd()))(lease.head)))
+      if (finding !== null)
+        (this.parts.say ?? console.log)(`${PREFIX}${lease.taskKey}: ${finding}`)
+      return finding
+    }
+    catch (error) {
+      console.error(`${PREFIX}PR #${lease.pr}: the reach of new code from the entry points at ${lease.head} could not be read, so the review records no reachability finding: ${error instanceof Error ? error.message : String(error)}`)
+      return null
     }
   }
 
@@ -437,7 +457,7 @@ export class ReviewExecutor {
       return this.denied(lease, reviewed)
     const { plan } = reviewed
     const marked = this.markedDrip(lease, reviewed.review)
-    const { review, tailCard } = this.withTail(lease, notReopened(db, lease, marked.review))
+    const { review, tailCard } = this.withTail(lease, withUnreached(notReopened(db, lease, marked.review), reviewed.unreached))
     const outcome = recordVerdict(db, gitHub, publish, { lease, verdict: review.verdict, reviewerSession: review.session }, () => clock().getTime(), requiredCheck())
     if (outcome.kind === 'denied')
       return this.denied(lease, outcome.denial)

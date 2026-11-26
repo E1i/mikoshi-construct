@@ -1033,6 +1033,7 @@
     "scripts/tests/nodes/review-ceiling-goes-to-the-window.test.ts",
     "scripts/tests/nodes/review-mutation-only-tail.test.ts",
     "scripts/tests/nodes/review-owner-decisions.test.ts",
+    "scripts/tests/nodes/review-reachability.test.ts",
     "scripts/tests/nodes/review-reads-decisions-in-force.test.ts",
     "scripts/tests/nodes/review-sandbox-norm.test.ts",
     "scripts/tests/nodes/widen-from-the-tree-question-path.test.ts",
@@ -1637,6 +1638,7 @@
   "node-review": [
     "scripts/nodes/review/depth-sources.ts",
     "scripts/nodes/review/divergence-alarm.ts",
+    "scripts/nodes/review/reachability.ts",
     "scripts/nodes/review/review-depth.ts",
     "scripts/nodes/review/review-executor.ts",
     "scripts/nodes/review/review-planner-worker.ts",
