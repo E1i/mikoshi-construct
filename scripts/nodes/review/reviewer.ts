@@ -233,6 +233,21 @@ function prBodyLines(prBody: string | null): string[] {
   ]
 }
 
+export const BUS_FINDINGS_LINE = 'The bus checked the head before this session and recorded the findings between the bus-finding markers. Each stands as a finding of this review whatever you find: the bus adds it to the verdict itself, and no opinion clears it. Read it, and do not repeat it in your findings.'
+
+export type BusCheckedPlan = ReviewPlan & { busFindings?: readonly string[] }
+
+export function withBusFindings(plan: ReviewPlan, busFindings: readonly string[]): BusCheckedPlan {
+  return busFindings.length === 0 ? plan : { ...plan, busFindings }
+}
+
+function busFindingLines(plan: BusCheckedPlan): string[] {
+  const busFindings = plan.busFindings ?? []
+  if (busFindings.length === 0)
+    return []
+  return [BUS_FINDINGS_LINE, '<bus-findings>', ...busFindings, '</bus-findings>']
+}
+
 export function reviewPrompt(lease: Lease, plan: ReviewPlan, tree: string, verdictPath: string, card: string | null = null, prBody: string | null = null, proven: readonly ProvenWitness[] = [], decisions: readonly CardDecision[] = []): string {
   return [
     `[review:${lease.taskKey}]`,
@@ -243,6 +258,7 @@ export function reviewPrompt(lease: Lease, plan: ReviewPlan, tree: string, verdi
     ...prBodyLines(prBody),
     ...depthLines(lease, plan),
     ...witnessLines(lease, proven),
+    ...busFindingLines(plan),
     VERDICT_ENDS_LINE,
     `Finish by writing ${verdictPath} as JSON: {"verdict": "pass" | "changes", "findings": ["one finding per string"], "survivingMutations": ["a finding string, repeated exactly"], "advice": ["a finding string, repeated exactly"]}.`,
     SURVIVING_MUTATIONS_LINE,

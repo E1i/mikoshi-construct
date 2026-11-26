@@ -48,12 +48,17 @@ afterEach(() => {
 
 interface World { root: string, parking: string, repo: string, cards: Map<string, string> }
 
+const WITNESS_FILES = ['a.test.ts', 'b.test.ts', 'c.test.ts', 'd.test.ts', 'old.test.ts', 'moved.test.ts', 'board/run.test.ts']
+
 function world(): World {
   const root = mkdtempSync(path.join(tmpdir(), 'intake-admit-'))
   roots.push(root)
   const repo = path.join(root, 'repo')
   mkdirSync(path.join(repo, 'src', 'board'), { recursive: true })
   writeFileSync(path.join(repo, 'src', 'board', 'run.ts'), '')
+  mkdirSync(path.join(repo, 'scripts', 'tests', 'board'), { recursive: true })
+  for (const named of WITNESS_FILES)
+    writeFileSync(path.join(repo, 'scripts', 'tests', named), '')
   return { root, parking: path.join(root, 'parking'), repo, cards: new Map() }
 }
 
@@ -603,7 +608,7 @@ describe('construct intake --admit takes a card parked before the intake door', 
 
   it('admit refuses a witness whose -t is not a regex', () => {
     const w = world()
-    const witness = '`pnpm exec vitest run tests/a.test.ts -t \'a named file against tests/** is no conflict\'` exit 0'
+    const witness = '`pnpm exec vitest run scripts/tests/a.test.ts -t \'a named file against tests/** is no conflict\'` exit 0'
     const file = park(w, 80, CLEAN, 'src/board/**', `Do the thing.\n\nWitnesses:\n- ${witness}`)
     const before = readFileSync(file, 'utf8')
     const result = admit(w, file)
@@ -617,7 +622,7 @@ describe('construct intake --admit takes a card parked before the intake door', 
 
   it('admit takes a witness whose -t compiles', () => {
     const w = world()
-    const file = park(w, 80, CLEAN, 'src/board/**', 'Do the thing.\n\nWitnesses:\n- `pnpm exec vitest run tests/a.test.ts -t \'tests/\\*\\*\'` exit 0')
+    const file = park(w, 80, CLEAN, 'src/board/**', 'Do the thing.\n\nWitnesses:\n- `pnpm exec vitest run scripts/tests/a.test.ts -t \'tests/\\*\\*\'` exit 0')
     expect(admit(w, file).status).toBe('admitted')
   })
 
@@ -632,9 +637,9 @@ describe('construct intake --admit takes a card parked before the intake door', 
 })
 
 describe('construct intake --admit holds an amend that lowers an admitted witness for the owner', () => {
-  const ACCEPTANCE = '`pnpm exec vitest run tests/a.test.ts -t \'the change\'` exits 0; red on main'
-  const INVARIANT = '`pnpm exec vitest run tests/a.test.ts -t \'the change\'` exits 0'
-  const ANOTHER = '`pnpm exec vitest run tests/b.test.ts -t \'the change\'` exits 0; red on main'
+  const ACCEPTANCE = '`pnpm exec vitest run scripts/tests/a.test.ts -t \'the change\'` exits 0; red on main'
+  const INVARIANT = '`pnpm exec vitest run scripts/tests/a.test.ts -t \'the change\'` exits 0'
+  const ANOTHER = '`pnpm exec vitest run scripts/tests/b.test.ts -t \'the change\'` exits 0; red on main'
 
   function bodyWith(...witnesses: string[]): string {
     return `Do the thing.\n\nWitnesses:\n${witnesses.map(witness => `- ${witness}`).join('\n')}`
@@ -745,7 +750,7 @@ describe('construct intake --admit holds an amend that lowers an admitted witnes
   })
 
   it('one decision listing several witnesses lifts those it names and leaves the card refused for the rest', () => {
-    const THIRD = '`pnpm exec vitest run tests/c.test.ts -t \'the change\'` exits 0; red on main'
+    const THIRD = '`pnpm exec vitest run scripts/tests/c.test.ts -t \'the change\'` exits 0; red on main'
     const w = world()
     const { file, held } = amendedProse(w, [ACCEPTANCE, ANOTHER, THIRD], [INVARIANT])
     expect(held).toMatchObject({ status: 'ownerWait', actions: ['разрешить понижение свидетеля #80 W1', 'разрешить понижение свидетеля #80 W2', 'разрешить понижение свидетеля #80 W3'] })
@@ -784,7 +789,7 @@ describe('construct intake --admit holds an amend that lowers an admitted witnes
   })
 
   it('a negated witness with the inverted exit is not a downgrade', () => {
-    const run = `pnpm exec vitest run tests/a.test.ts -t 'the thing'`
+    const run = `pnpm exec vitest run scripts/tests/a.test.ts -t 'the thing'`
     const w = world()
     const file = park(w, 80, CLEAN, 'src/board/**', bodyWith(`\`${run}\` exits 1 on head and 0 on base`))
     admitThroughBus(w, file, { decisions: heldIn(decisionsOf(w)) })
@@ -803,11 +808,11 @@ describe('construct intake --admit holds an amend that lowers an admitted witnes
 
 describe('construct intake --admit takes an equivalent witness replacement under a standing owner decision', () => {
   const run = (file: string, name = 'the thing'): string => `pnpm exec vitest run ${file} -t '${name}'`
-  const IN_A = `\`${run('tests/a.test.ts')}\` exits 0 on head and fails on base`
-  const MOVED_TO_B = `\`${run('tests/b.test.ts')}\` exits 0 on head and fails on base`
-  const BY_EXIT = `\`${run('tests/c.test.ts', 'the other')}\` exits 1 on head and 0 on base`
-  const NEGATED = `\`! ${run('tests/c.test.ts', 'the other')}\` exits 0 on head and fails on base`
-  const KEPT = '`pnpm exec vitest run tests/d.test.ts` exits 0'
+  const IN_A = `\`${run('scripts/tests/a.test.ts')}\` exits 0 on head and fails on base`
+  const MOVED_TO_B = `\`${run('scripts/tests/b.test.ts')}\` exits 0 on head and fails on base`
+  const BY_EXIT = `\`${run('scripts/tests/c.test.ts', 'the other')}\` exits 1 on head and 0 on base`
+  const NEGATED = `\`! ${run('scripts/tests/c.test.ts', 'the other')}\` exits 0 on head and fails on base`
+  const KEPT = '`pnpm exec vitest run scripts/tests/d.test.ts` exits 0'
   const STANDING = `[owner] ${EQUIVALENT_REPLACEMENT_ALLOWANCE} a witness moved to another file or negated keeps its fact`
 
   function bodyWith(...witnesses: string[]): string {
@@ -857,10 +862,10 @@ describe('construct intake --admit takes an equivalent witness replacement under
 
   it('a replacement that changes the checked fact waits for the owner under a standing decision', () => {
     const renamed = world()
-    const renamedTo = `\`${run('tests/b.test.ts', 'another thing')}\` exits 0 on head and fails on base`
+    const renamedTo = `\`${run('scripts/tests/b.test.ts', 'another thing')}\` exits 0 on head and fails on base`
     expect(amended(renamed, decisions(renamed, `- D-7 · 2026-10-12 — ${STANDING} · decisions:add`), [IN_A], [renamedTo])).toMatchObject({ status: 'ownerWait', downgrades: [IN_A] })
     const inverted = world()
-    const invertedTo = `\`${run('tests/b.test.ts')}\` exits 1 on head and 0 on base`
+    const invertedTo = `\`${run('scripts/tests/b.test.ts')}\` exits 1 on head and 0 on base`
     expect(amended(inverted, decisions(inverted, `- D-7 · 2026-10-12 — ${STANDING} · decisions:add`), [IN_A], [invertedTo])).toMatchObject({ status: 'ownerWait', downgrades: [IN_A] })
   })
 
@@ -898,7 +903,7 @@ describe('construct intake --admit reads the witness fields', () => {
   })
 
   it('a moved field and a negated field with the opposite expectation are admitted with no decision', () => {
-    expect(amended(world(), [field({ run: 'pnpm exec vitest run tests/old.test.ts' })], [field({ run: 'pnpm exec vitest run tests/moved.test.ts' })])).toMatchObject({ status: 'admitted', source: 'amend' })
+    expect(amended(world(), [field({ run: 'pnpm exec vitest run scripts/tests/old.test.ts' })], [field({ run: 'pnpm exec vitest run scripts/tests/moved.test.ts' })])).toMatchObject({ status: 'admitted', source: 'amend' })
     const negatedBefore = field({ test: null, run: 'test -f src/board/run.ts', head: 'fail', base: 'pass' })
     expect(amended(world(), [negatedBefore], [field({ test: null, run: '! test -f src/board/run.ts' })])).toMatchObject({ status: 'admitted', source: 'amend' })
   })
@@ -987,14 +992,14 @@ describe('construct intake --admit reads the witness fields', () => {
     expect(witnessFieldsOf(latestText(w, noRuns))).toEqual(fields)
     expect(runsFieldOf(latestText(w, noRuns))).toEqual([])
 
-    const prose = 'Do the thing.\n\nRuns: tests/board/**\n\nWitnesses:\n- `pnpm exec vitest run tests/board/run.test.ts -t \'the board runs\'` exits 0; red on main'
+    const prose = 'Do the thing.\n\nRuns: tests/board/**\n\nWitnesses:\n- `pnpm exec vitest run scripts/tests/board/run.test.ts -t \'the board runs\'` exits 0; red on main'
     const backfilled = park(w, 82, CLEAN.replace('#80', '#82'), 'src/board/**', prose)
     expect(admitThroughBus(w, backfilled, { decisions: heldIn(decisionsOf(w)) })).toMatchObject({ status: 'admitted', source: 'admit' })
     const db2 = openBus(busOf(w))
     reduce(db2, 'pending', busProjections())
     const backfill = backfillWitnessFields(db2, '2026-11-04T12:00:00.000Z').backfill
     const shownBefore = witnessFieldsOfCard({ id: 82, witnessFields: [], runs: [], text: latestText(w, backfilled) }, backfill)
-    expect(shownBefore).toMatchObject({ witnesses: [{ id: 'W1', run: 'pnpm exec vitest run tests/board/run.test.ts', test: 'the board runs' }], runs: ['tests/board/**'] })
+    expect(shownBefore).toMatchObject({ witnesses: [{ id: 'W1', run: 'pnpm exec vitest run scripts/tests/board/run.test.ts', test: 'the board runs' }], runs: ['tests/board/**'] })
     const backfilledExport = runExport({ card: '#82', admissions: busCardAdmissions(db2) })
     db2.close()
     const backfilledBody = (backfilledExport as Extract<typeof backfilledExport, { status: 'exported' }>).text.replace('Do the thing.', 'Do the thing better.')
@@ -1027,14 +1032,14 @@ describe('witnessDowngrades', () => {
   })
 
   it('rewording a witness into the red on main form is not a downgrade', () => {
-    const before = '`pnpm exec vitest run tests/a.test.ts -t \'x\'` exits 0; non-zero on main'
-    expect(witnessDowngrades([before], ['`pnpm exec vitest run tests/a.test.ts -t \'x\'` exits 0 — red on main'])).toEqual([])
-    expect(witnessDowngrades([before], ['`pnpm exec vitest run tests/a.test.ts -t \'x\'` exits 0, red on main'])).toEqual([])
+    const before = '`pnpm exec vitest run scripts/tests/a.test.ts -t \'x\'` exits 0; non-zero on main'
+    expect(witnessDowngrades([before], ['`pnpm exec vitest run scripts/tests/a.test.ts -t \'x\'` exits 0 — red on main'])).toEqual([])
+    expect(witnessDowngrades([before], ['`pnpm exec vitest run scripts/tests/a.test.ts -t \'x\'` exits 0, red on main'])).toEqual([])
   })
 
   it('the negation of the same command with the inverted exit is the same fact, and an inverted expectation is not', () => {
-    const run = '`pnpm exec vitest run tests/a.test.ts -t \'x\'`'
-    const negated = '`! pnpm exec vitest run tests/a.test.ts -t \'x\'`'
+    const run = '`pnpm exec vitest run scripts/tests/a.test.ts -t \'x\'`'
+    const negated = '`! pnpm exec vitest run scripts/tests/a.test.ts -t \'x\'`'
     expect(witnessDowngrades([`${run} exits 1 on head and 0 on base`], [`${negated} exits 0 on head and fails on base`])).toEqual([])
     expect(witnessDowngrades([`${negated} exits 0 on head and fails on base`], [`${run} exits 1 on head and 0 on base`])).toEqual([])
     expect(witnessDowngrades([`${run} exits 0; red on main`], [`${negated} exits 1 on head and 0 on base`])).toEqual([])
@@ -1043,8 +1048,8 @@ describe('witnessDowngrades', () => {
   })
 
   it('rewording a red on main witness into the non-zero on main form is a downgrade', () => {
-    const before = '`pnpm exec vitest run tests/a.test.ts` exits 0 — red on main'
-    expect(witnessDowngrades([before], ['`pnpm exec vitest run tests/a.test.ts` exits 0; non-zero on main'])).toEqual([before])
+    const before = '`pnpm exec vitest run scripts/tests/a.test.ts` exits 0 — red on main'
+    expect(witnessDowngrades([before], ['`pnpm exec vitest run scripts/tests/a.test.ts` exits 0; non-zero on main'])).toEqual([before])
   })
 })
 

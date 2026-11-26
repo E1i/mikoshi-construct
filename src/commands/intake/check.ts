@@ -15,7 +15,7 @@ import { parseParkingFile } from '../../card/parking.js'
 import { RISK_LEVELS, riskOf, riskReading, touchedOrCreated } from '../../card/risk.js'
 import { touchError } from '../../card/task-file.js'
 import { commandInsideJudgedWrap } from '../../card/witness-fields.js'
-import { detectEntryPoints, entryPointKindOf, importReach, packageDirOf } from '../../detect/entry-points.js'
+import { detectEntryPoints, entryPointKindOf, importReach, isProductSource, packageDirOf } from '../../detect/entry-points.js'
 import { globToRegExp } from '../../model/glob.js'
 import { bashSyntaxProblem } from './bash-syntax.js'
 import { commandArguments, commandWord, HOME_REFERENCE, namesATest, pathsNamedBy, TEST_NAME_ARGUMENT } from './command-word.js'
@@ -557,23 +557,99 @@ function witnessesUnclear(card: DraftCard, repository: RepositoryFacts): Unclear
       ...bashSyntaxUnclear(witness),
       ...proseUnclear(witness),
       ...neverRedOnTheBaseUnclear(card, commands, witness, reach, unresolved.length === 0),
+      ...selectsNothingReasons(card, witness, repository).map(reason => ({ field: 'witnesses', reason })),
     ]
   })
 }
 
-function testNamePatterns(witness: string): string[] {
-  return [...witness.matchAll(BACKTICKED)].flatMap(command => [...command[1]!.matchAll(TEST_NAME_ARGUMENT)].map(match => match[1] ?? match[2]?.replace(/\\([\\"$`])/g, '$1') ?? match[3]!))
+function commandTestPatterns(command: string): string[] {
+  return [...command.matchAll(TEST_NAME_ARGUMENT)].map(match => match[1] ?? match[2]?.replace(/\\([\\"$`])/g, '$1') ?? match[3]!)
+}
+
+const TEST_CALL = /(?<![\w.$])(describe|suite|it|test)((?:\.\w+)*)\s*\(\s*/g
+const DYNAMIC_TEST_CALL = /\.(?:each|for)\b/
+const TEST_FILE_ARGUMENT = /\.(?:test|spec)\.[cm]?[jt]sx?$/
+const VITEST_WORD = /\bvitest\b/
+const REGEX_OPENER = /(?:^|[(,=:[!&|?{};]|\breturn)\s*$/
+const NAMED_FIXES = 8
+const FULL_NAME_JOINER = ' > '
+
+interface TestCall { name: string, suite: boolean, open: number, close: number }
+
+function quotedEnd(text: string, at: number): number {
+  let index = at + 1
+  while (index < text.length && text[index] !== text[at])
+    index += text[index] === '\\' ? 2 : 1
+  return index < text.length ? index : -1
+}
+
+function closingParen(text: string, open: number): number {
+  const after = (found: number, width: number): number => found < 0 ? text.length : found + width - 1
+  let depth = 0
+  for (let index = open; index < text.length; index++) {
+    const [char, next] = [text[index]!, text[index + 1]]
+    if (char === '/' && (next === '/' || next === '*'))
+      index = next === '/' ? after(text.indexOf('\n', index), 1) : after(text.indexOf('*/', index + 2), 2)
+    else if ('\'"`'.includes(char) || (char === '/' && REGEX_OPENER.test(text.slice(Math.max(0, index - 40), index))))
+      index = after(quotedEnd(text, index), 1)
+    else if (char === '(')
+      depth++
+    else if (char === ')' && --depth === 0)
+      return index
+  }
+  return -1
+}
+
+function declaredTestCalls(text: string): TestCall[] | null {
+  const calls = [...text.matchAll(TEST_CALL)].map((match) => {
+    const [at, open] = [match.index + match[0].length, match.index + match[0].lastIndexOf('(')]
+    const end = '\'"`'.includes(text[at] ?? '') ? quotedEnd(text, at) : -1
+    const name = end === -1 || DYNAMIC_TEST_CALL.test(match[2]!) ? null : text.slice(at + 1, end)
+    return name === null || name.includes('${') ? null : { name: name.replace(/\\(.)/g, '$1'), suite: ['describe', 'suite'].includes(match[1]!), open, close: closingParen(text, open) }
+  })
+  return calls.every(call => call !== null && call.close !== -1) ? calls as TestCall[] : null
+}
+
+function patternError(pattern: string): string | null {
+  try {
+    return new RegExp(pattern, '') && null
+  }
+  catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+}
+
+function filterSelectsNothing(command: string, reach: WitnessReach): string | null {
+  const patterns = commandTestPatterns(command)
+  const files = commandArguments(command).filter(token => TEST_FILE_ARGUMENT.test(token)).map(token => token.replace(/^\.\//, ''))
+  if (!VITEST_WORD.test(command) || patterns.length !== 1 || files.length !== 1 || patternError(patterns[0]!) !== null)
+    return null
+  const [pattern, file] = [patterns[0]!, files[0]!]
+  if (!reach.repository.exists(file))
+    return withinTouches(file, reach.created) ? null : `${file} is neither on the base nor in the card's creates; name a test file the base holds, or list it under creates`
+  const calls = declaredTestCalls(readerOf(reach.repository)?.(file) ?? '')
+  if (calls === null || !calls.some(call => !call.suite))
+    return null
+  const fullNames = calls.filter(call => !call.suite).map(call => calls.filter(other => other.suite && other.open < call.open && call.open < other.close).concat(call).map(each => each.name).join(FULL_NAME_JOINER))
+  const declared = [...new Set(calls.map(call => call.name))]
+  return fullNames.some(name => new RegExp(pattern).test(name)) ? null : `-t '${pattern}' matches no test name in ${file}; use a describe or test name the file declares: ${declared.slice(0, NAMED_FIXES).map(name => `'${name}'`).join(', ')}${declared.length > NAMED_FIXES ? ', …' : ''}`
+}
+
+export function selectsNothingReasons(card: DraftCard, witness: string, repository: RepositoryFacts): string[] {
+  const reach: WitnessReach = { repository, created: createdPaths(card.creates) }
+  return witnessCommands(witness).flatMap(command => filterSelectsNothing(command, reach) ?? []).map(why => `witness "${witness.trim()}" selects no test, so it is dead: ${why}`)
+}
+
+export function deadFilterRefusals(cards: readonly DraftCard[], repository: RepositoryFacts): string[] {
+  return cards.flatMap(card => card.witnesses.flatMap(witness => selectsNothingReasons(card, witness, repository)).map(reason => `${card.name}: ${reason}`))
+}
+
+export function deadAtIntake(card: DraftCard, witness: string, repository: RepositoryFacts): boolean {
+  return cannotBeRedOnTheBase(card, witness, repository) || selectsNothingReasons(card, witness, repository).length > 0
 }
 
 export function invalidTestPatterns(cards: readonly DraftCard[]): string[] {
-  return cards.flatMap(card => card.witnesses.flatMap(witness => testNamePatterns(witness).flatMap((pattern) => {
-    try {
-      return new RegExp(pattern, '') && []
-    }
-    catch (error) {
-      return [`${witness.trim()} — ${error instanceof Error ? error.message : String(error)}`]
-    }
-  })))
+  return cards.flatMap(card => card.witnesses.flatMap(witness => [...witness.matchAll(BACKTICKED)].flatMap(command => commandTestPatterns(command[1]!)).flatMap(pattern => patternError(pattern) ?? []).map(error => `${witness.trim()} — ${error}`)))
 }
 
 function runsUnclear(card: DraftCard): UnclearField[] {
@@ -651,18 +727,9 @@ export function checkDraft(cards: readonly DraftCard[], numbers: readonly number
   return cards.map((card, index) => checkCard(card, numbers[index]!, facts))
 }
 
-const PRODUCT_CODE = /\.(?:[cm]?[jt]sx?|vue|svelte|astro)$/
-const TEST_NAMED = /\.(?:test|spec)\.[^/]+$/
-const TEST_SEGMENTS = new Set(['tests', 'test', '__tests__', 'e2e', 'fixtures'])
-const NON_PRODUCT_ROOTS = new Set(['scripts', 'docs'])
 const BUILT_ROOT = /(^|\/)dist\//
 const BUILT_SCRIPT = /\.([cm]?)js$/
 const NAMED_ENTRY_POINTS = 5
-
-export function isProductSource(file: string): boolean {
-  const segments = file.split('/')
-  return PRODUCT_CODE.test(file) && !TEST_NAMED.test(file) && !NON_PRODUCT_ROOTS.has(segments[0]!) && !segments.some(segment => TEST_SEGMENTS.has(segment))
-}
 
 function sourceOfBuilt(file: string): string {
   return BUILT_ROOT.test(file) ? file.replace(BUILT_ROOT, `$1${SOURCE_OF_BUILT_ROOT.dist}/`).replace(BUILT_SCRIPT, '.$1ts') : file
