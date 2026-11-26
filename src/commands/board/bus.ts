@@ -1,11 +1,13 @@
-import type { BusPanelFacts, PanelRow } from './bus-panel.js'
+import type { EventRow as QueriedEvent, TaskRow } from '../../../scripts/core/card-readings.js'
+import type { BusPanelFacts } from './bus-panel.js'
 import type { GateRunRow } from './gate-runs.js'
 import type { Goal } from './goal.js'
 import type { BusDb, OwnerWait } from './index.js'
 import type { QueuedStanding, TranscriptReader } from './sessions.js'
+import { busPanelRow, cardsWithTheirLines, EITHER_JOURNAL, events as eventsOf, tasksInStates as inStates, lastObjectFieldPerCard, lastSlotsPerQueue, latest, newestEventsOfEachCard } from '../../../scripts/core/card-readings.js'
 import { BOARD_ALARM, BOARD_ALARM_CLEARED, BUS_PULSE, CARD_ADMITTED, CARD_CONTINUED, CARD_FELL, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, GATE_RUN, LANE_HELD, NETWATCH_SKIPPED, PR_GROUPS, PROCESS_HEARTBEAT, REVIEW_DRIP, SESSION_HEARTBEAT, SLICE_PARENTS_BACKFILLED, TASK_RENEWED, TERMINAL_LANES, WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
 import { PLAIN_LORE } from '../../ui/lore.js'
-import { busPanelFacts, PANEL_READING, panelSince, payloadOf, RECENT_EVENTS, text } from './bus-panel.js'
+import { busPanelFacts, panelSince, payloadOf, RECENT_EVENTS, text } from './bus-panel.js'
 import { gateRunFacts } from './gate-runs.js'
 import { goalOf } from './goal.js'
 import { clientTranscriptReader, sessionRowTime } from './sessions.js'
@@ -56,6 +58,7 @@ const SETTLED_STATES = new Set(['merged', 'stopped', 'dropped', 'closed'])
 const LANELESS_STATES = new Set(['merged', 'dropped', 'closed'])
 const LEASED = 'leased'
 const OPEN_TASK_STATES = ['queued', LEASED]
+const REVIEW_QUEUE = 'review'
 
 export interface SliceParent {
   card: number
@@ -191,13 +194,6 @@ export type BusReading
 
 export type BusReader = (bus: BoardBus) => BusReading
 
-interface TaskRow {
-  queue: string
-  card_id: number
-  head: string | null
-  verdict: string | null
-}
-
 interface EventRow {
   id: number
   ts: string | null
@@ -207,17 +203,6 @@ interface EventRow {
   dedupe_key: string | null
   legacy: number
   payload: string
-}
-
-interface CardRow {
-  id: number
-  state: string | null
-  pr: number | null
-  line: string | null
-  since: string | null
-  body: number
-  admitted_parent: string | null
-  backfilled_parent: string | null
 }
 
 interface RoleRow {
@@ -230,20 +215,18 @@ function count(value: unknown): number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0
 }
 
-function stepOf(row: TaskRow): string {
+function verdictOf(db: BusDb, pr: number | null): string | null {
+  return pr === null ? null : (db.prepare('SELECT verdict_on_head FROM prs WHERE pr = ?').get(pr) as { verdict_on_head: string | null } | undefined)?.verdict_on_head ?? null
+}
+
+function stepOf(db: BusDb, row: TaskRow): string {
   if (row.queue === 'review')
-    return `review ${row.verdict ?? 'pending'}`
+    return `review ${verdictOf(db, row.pr) ?? 'pending'}`
   return row.head === null ? row.queue : `${row.queue} ${row.head.slice(0, SHORT_SHA)}`
 }
 
 function taskServices(db: BusDb): BusService[] {
-  const rows = db.prepare(`
-    SELECT tasks.queue, tasks.card_id, tasks.head, prs.verdict_on_head AS verdict
-    FROM tasks LEFT JOIN prs ON prs.pr = tasks.pr
-    WHERE tasks.state = 'leased'
-    ORDER BY tasks.id
-  `).all() as unknown as TaskRow[]
-  return rows.map(row => ({ role: row.queue, task: `#${row.card_id}`, tree: null, step: stepOf(row) }))
+  return inStates(db, [LEASED]).map(row => ({ role: row.queue, task: `#${row.card_id}`, tree: null, step: stepOf(db, row) }))
 }
 
 function isSilent(row: EventRow, now: Date): boolean {
@@ -264,8 +247,12 @@ interface BoardEvents {
   of: (type: string) => EventRow[]
 }
 
+function boardRowOf(row: QueriedEvent): EventRow {
+  return { id: row.id, ts: row.ts, type: row.type, card_id: row.card_id, pr: row.pr, dedupe_key: row.dedupe_key, legacy: row.legacy ? 1 : 0, payload: row.payload }
+}
+
 function boardEvents(db: BusDb): BoardEvents {
-  const rows = db.prepare(`SELECT id, ts, type, card_id, pr, dedupe_key, legacy, payload FROM events WHERE type IN (${BOARD_EVENT_TYPES.map(() => '?').join(', ')}) ORDER BY id`).all(...BOARD_EVENT_TYPES) as unknown as EventRow[]
+  const rows = eventsOf(db, { types: BOARD_EVENT_TYPES, legacy: EITHER_JOURNAL }).map(boardRowOf)
   return { of: type => rows.filter(row => row.type === type) }
 }
 
@@ -324,7 +311,8 @@ function windowOfBeat(payload: Record<string, unknown>): BusWindow {
 const NO_WINDOW_BEAT: BusWindow = { core: null, skills: [], crawlers: [] }
 
 function lastWindowBeat(db: BusDb, now: Date): { session: string | null, subagents: SubagentReading[], window: BusWindow } {
-  const row = db.prepare('SELECT id, ts, type, card_id, pr, dedupe_key, legacy, payload FROM events WHERE type = ? AND legacy = 0 ORDER BY id DESC LIMIT 1').get(WINDOW_HEARTBEAT) as unknown as EventRow | undefined
+  const found = latest(db, { types: [WINDOW_HEARTBEAT] })
+  const row = found === null ? undefined : boardRowOf(found)
   if (row === undefined || isSilent(row, now))
     return { session: null, subagents: [], window: NO_WINDOW_BEAT }
   const payload = payloadOf(row.payload)
@@ -348,20 +336,15 @@ function windowTiles(db: BusDb, events: BoardEvents, now: Date): BusService[] {
   return tiles.includes(held) ? tiles.map(tile => tile === held ? withAgents : tile) : [withAgents]
 }
 
-interface MatrixRow {
-  pr: number
-  head: string | null
-  payload: string
-}
-
 function checkMatrices(db: BusDb): BusMatrix[] {
-  const rows = db.prepare('SELECT pr, head, payload FROM events WHERE type = ? AND pr IS NOT NULL ORDER BY id').all(CHECKS_MATRIX_EVENT) as unknown as MatrixRow[]
-  const latest = new Map<number, BusMatrix>()
+  const rows = eventsOf(db, { types: [CHECKS_MATRIX_EVENT], withPr: true, legacy: EITHER_JOURNAL })
+  const newest = new Map<number, BusMatrix>()
   for (const row of rows) {
     const payload = payloadOf(row.payload)
-    latest.set(row.pr, { pr: row.pr, head: row.head, full: text(payload.full), killed: count(payload.killed), survived: count(payload.survived), notRun: count(payload.notRun) })
+    const pr = row.pr!
+    newest.set(pr, { pr, head: row.head, full: text(payload.full), killed: count(payload.killed), survived: count(payload.survived), notRun: count(payload.notRun) })
   }
-  return [...latest.values()].sort((a, b) => a.pr - b.pr)
+  return [...newest.values()].sort((a, b) => a.pr - b.pr)
 }
 
 function minutesAgo(ts: string, now: Date): number {
@@ -506,8 +489,7 @@ function lastFailure(events: BoardEvents): string | null {
 }
 
 function queuesIn(db: BusDb, states: readonly string[]): Map<number, string> {
-  const rows = db.prepare(`SELECT card_id, queue FROM tasks WHERE state IN (${states.map(() => '?').join(', ')}) ORDER BY id`).all(...states) as unknown as { card_id: number, queue: string }[]
-  return new Map(rows.filter(row => STAGE_OF_QUEUE[row.queue] !== undefined).map(row => [row.card_id, row.queue] as const))
+  return new Map(inStates(db, states).filter(row => STAGE_OF_QUEUE[row.queue] !== undefined).map(row => [row.card_id, row.queue] as const))
 }
 
 function stageOf(state: string | null, closed: boolean, queue: string | undefined, leased: string | undefined): CardStage {
@@ -520,7 +502,7 @@ function stageOf(state: string | null, closed: boolean, queue: string | undefine
   return (queue === undefined ? undefined : STAGE_OF_QUEUE[queue]) ?? STAGE_OF_STATE[state ?? ''] ?? 'planned'
 }
 
-function laneOf(bus: BoardBus, db: BusDb, row: CardRow): string | null {
+function laneOf(bus: BoardBus, db: BusDb, row: { id: number, state: string | null }): string | null {
   return row.state !== null && LANELESS_STATES.has(row.state) ? null : bus.currentLane(db, row.id)
 }
 
@@ -536,38 +518,44 @@ export function sliceParentOf(value: unknown): SliceParent | null {
   return card === null || part === null || of === null || part > of ? null : { card, part, of }
 }
 
-function sliceParentIn(row: CardRow): SliceParent | null {
-  return sliceParentOf(payloadOf(row.admitted_parent ?? '')) ?? sliceParentOf(payloadOf(row.backfilled_parent ?? ''))
+interface SliceParents {
+  admitted: ReadonlyMap<number, string>
+  backfilled: Record<string, unknown>
+}
+
+function sliceParents(db: BusDb): SliceParents {
+  const backfill = eventsOf(db, { types: [SLICE_PARENTS_BACKFILLED], valid: true, limit: 1 })[0]
+  const cards = backfill === undefined ? undefined : payloadOf(backfill.payload).cards
+  return {
+    admitted: lastObjectFieldPerCard(db, CARD_ADMITTED, 'parent'),
+    backfilled: cards !== null && typeof cards === 'object' && !Array.isArray(cards) ? cards as Record<string, unknown> : {},
+  }
+}
+
+function sliceParentIn(parents: SliceParents, card: number): SliceParent | null {
+  return sliceParentOf(payloadOf(parents.admitted.get(card) ?? '')) ?? sliceParentOf(parents.backfilled[String(card)])
+}
+
+function stampsOf(db: BusDb, ids: readonly number[]): Map<number, string> {
+  return new Map(eventsOf(db, { ids: [...new Set(ids)], legacy: EITHER_JOURNAL }).map(row => [row.id, row.ts] as const))
 }
 
 function cardsOf(bus: BoardBus, db: BusDb, events: BoardEvents): BusCard[] {
-  const rows = db.prepare(`
-    SELECT c.card_id AS id, c.state, c.pr, b.card_line AS line, e.ts AS since, b.card_id IS NOT NULL AS body,
-      (SELECT json_extract(a.payload, '$.parent') FROM events a WHERE a.legacy = 0 AND a.type = '${CARD_ADMITTED}' AND a.card_id = c.card_id AND json_valid(a.payload) AND json_type(a.payload, '$.parent') = 'object' ORDER BY a.id DESC LIMIT 1) AS admitted_parent,
-      (SELECT json_extract(f.payload, '$.cards."' || c.card_id || '"') FROM events f WHERE f.legacy = 0 AND f.type = '${SLICE_PARENTS_BACKFILLED}' AND json_valid(f.payload) ORDER BY f.id LIMIT 1) AS backfilled_parent
-    FROM cards c LEFT JOIN card_bodies b ON b.card_id = c.card_id LEFT JOIN events e ON e.id = c.event_id
-    ORDER BY c.card_id
-  `).all() as unknown as CardRow[]
+  const rows = cardsWithTheirLines(db)
+  const since = stampsOf(db, rows.map(row => row.event_id))
+  const parents = sliceParents(db)
   const closed = new Map(events.of(CARD_VERIFIED).filter(row => row.legacy === 0).map(row => [row.card_id, row.ts] as const))
   const queues = queuesIn(db, OPEN_TASK_STATES)
   const leased = queuesIn(db, [LEASED])
   return rows.map((row) => {
     const lane = laneOf(bus, db, row)
-    const parent = sliceParentIn(row) ?? undefined
-    return { id: row.id, state: row.state, stage: TERMINAL_LANES.has(lane ?? '') ? 'dropped' : stageOf(row.state, closed.has(row.id), queues.get(row.id), leased.get(row.id)), lane, line: row.line, since: row.since, body: Boolean(row.body), closed: closed.has(row.id), closedAt: closed.get(row.id) ?? null, ...(parent === undefined ? {} : { parent }) }
+    const parent = sliceParentIn(parents, row.id) ?? undefined
+    return { id: row.id, state: row.state, stage: TERMINAL_LANES.has(lane ?? '') ? 'dropped' : stageOf(row.state, closed.has(row.id), queues.get(row.id), leased.get(row.id)), lane, line: row.line, since: since.get(row.event_id) ?? null, body: row.body, closed: closed.has(row.id), closedAt: closed.get(row.id) ?? null, ...(parent === undefined ? {} : { parent }) }
   })
 }
 
-const LAST_NODE_CAPACITY = `
-  SELECT queue, slots FROM (
-    SELECT json_extract(payload, '$.queue') AS queue, json_extract(payload, '$.slots') AS slots, row_number() OVER (PARTITION BY json_extract(payload, '$.queue') ORDER BY ts DESC) AS rank
-    FROM heartbeats WHERE type = ? AND json_valid(payload) AND json_type(payload, '$.queue') = 'text'
-  ) WHERE rank = 1
-`
-
 function nodeCapacity(db: BusDb): Map<string, number> {
-  const rows = db.prepare(LAST_NODE_CAPACITY).all(PROCESS_HEARTBEAT) as unknown as { queue: string, slots: unknown }[]
-  return new Map(rows.flatMap(row => typeof row.slots === 'number' && Number.isSafeInteger(row.slots) && row.slots > 0 ? [[row.queue, row.slots] as const] : []))
+  return new Map(lastSlotsPerQueue(db, PROCESS_HEARTBEAT).flatMap(row => typeof row.slots === 'number' && Number.isSafeInteger(row.slots) && row.slots > 0 ? [[row.queue, row.slots] as const] : []))
 }
 
 function tilesByRole(tiles: readonly BusService[]): Map<string, number> {
@@ -578,7 +566,9 @@ function tilesByRole(tiles: readonly BusService[]): Map<string, number> {
 }
 
 function slotsOf(db: BusDb, sessions: readonly BusService[]): BusSlot[] {
-  const leased = new Map((db.prepare(`SELECT queue, count(*) AS used FROM tasks WHERE state = 'leased' GROUP BY queue`).all() as unknown as { queue: string, used: number }[]).map(row => [row.queue, Number(row.used)] as const))
+  const leased = new Map<string, number>()
+  for (const task of inStates(db, [LEASED]))
+    leased.set(task.queue, (leased.get(task.queue) ?? 0) + 1)
   const capacity = nodeCapacity(db)
   const tiles = tilesByRole(sessions)
   const used = (queue: string): number => Math.max(leased.get(queue) ?? 0, tiles.get(queue) ?? 0)
@@ -602,21 +592,15 @@ export interface BusCardEvent {
   pr: number | null
 }
 
-const OPEN_TASKS = `SELECT tasks.id, tasks.queue, tasks.card_id AS card, tasks.pr, tasks.head, tasks.state, events.ts AS since FROM tasks LEFT JOIN events ON events.id = tasks.event_id WHERE tasks.state IN (${OPEN_TASK_STATES.map(() => '?').join(', ')}) ORDER BY tasks.id`
-
-const LATEST_CARD_EVENTS = `
-  SELECT id, ts, type, card_id AS card, pr FROM (
-    SELECT id, ts, type, card_id, pr, row_number() OVER (PARTITION BY card_id ORDER BY id DESC) AS rank FROM events WHERE card_id IS NOT NULL
-  ) WHERE rank <= ? ORDER BY card_id, id
-`
-
 export function openTasks(db: BusDb): BusTask[] {
-  return (db.prepare(OPEN_TASKS).all(...OPEN_TASK_STATES) as unknown as BusTask[]).map(task => ({ ...task }))
+  const tasks = inStates(db, OPEN_TASK_STATES)
+  const since = stampsOf(db, tasks.map(task => task.event_id))
+  return tasks.map(task => ({ id: task.id, queue: task.queue, card: task.card_id, pr: task.pr, head: task.head, state: task.state, since: since.get(task.event_id) ?? null }))
 }
 
 export function latestCardEvents(db: BusDb, perCard: number): Map<number, BusCardEvent[]> {
   const events = new Map<number, BusCardEvent[]>()
-  for (const { card, ...event } of db.prepare(LATEST_CARD_EVENTS).all(perCard) as unknown as (BusCardEvent & { card: number })[])
+  for (const { card, ...event } of newestEventsOfEachCard(db, perCard))
     events.set(card, [...events.get(card) ?? [], event])
   return events
 }
@@ -689,21 +673,21 @@ function queuedFacts(db: BusDb): Pick<BusFacts, 'queued'> {
 export const QUIET_EVENT_TYPES: readonly string[] = [SESSION_HEARTBEAT, BUS_PULSE, WINDOW_HEARTBEAT, PROCESS_HEARTBEAT, CARD_PULSE, NETWATCH_SKIPPED, TASK_RENEWED]
 
 function panelOf(bus: BoardBus, db: BusDb, now: Date): BusPanelFacts {
-  const row = db.prepare(PANEL_READING).get({
+  const row = busPanelRow(db, {
     since: panelSince(now),
     mark: bus.inOrderMark,
     pulse: BUS_PULSE,
-    quiet: JSON.stringify(QUIET_EVENT_TYPES),
+    quiet: QUIET_EVENT_TYPES,
     recent: RECENT_EVENTS,
     heartbeat: PROCESS_HEARTBEAT,
     alarm: BOARD_ALARM,
     cleared: BOARD_ALARM_CLEARED,
-  }) as unknown as PanelRow
+  })
   return busPanelFacts(row, now)
 }
 
 export function boardFacts(bus: BoardBus, db: BusDb, now: Date, transcripts: TranscriptReader = clientTranscriptReader): BusFacts {
-  const queue = db.prepare(`SELECT count(*) AS n FROM tasks WHERE queue = 'review' AND state IN ('queued', 'leased')`).get() as { n: number }
+  const reviewQueue = inStates(db, OPEN_TASK_STATES).filter(task => task.queue === REVIEW_QUEUE).length
   const events = boardEvents(db)
   const cardReading = bus.lastReducedCards(db, () => cardsOf(bus, db, events))
   const cards = cardReading.rows
@@ -723,7 +707,7 @@ export function boardFacts(bus: BoardBus, db: BusDb, now: Date, transcripts: Tra
     services: [...windowTiles(db, events, now), ...oneTilePerProcess(taskServices(db), sessions), ...sessions],
     matrices: checkMatrices(db),
     failure: lastFailure(events),
-    reviewQueue: Number(queue.n),
+    reviewQueue,
     ...orderFacts(events),
     ...tailFacts(events),
     ...queuedFacts(db),

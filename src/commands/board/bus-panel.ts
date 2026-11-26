@@ -1,3 +1,5 @@
+import type { BusPanelRow } from '../../../scripts/core/card-readings.js'
+
 export interface BusEventLine {
   id: number
   ts: string | null
@@ -80,25 +82,6 @@ function detailOf(payload: Record<string, unknown>): string | null {
   return found === null ? null : found.slice(0, DETAIL_CHARS)
 }
 
-export const PANEL_READING = `SELECT
-  (SELECT json_object('id', id, 'ts', ts) FROM events ORDER BY id DESC LIMIT 1) AS last,
-  (SELECT json_group_array(json_object('ts', ts, 'type', type)) FROM events WHERE ts >= :since) AS half_hour,
-  (SELECT through_event_id FROM projection_watermarks WHERE projection = :mark) AS through,
-  (SELECT json_group_array(json_object('id', id, 'ts', ts, 'payload', payload)) FROM (SELECT id, ts, payload FROM events WHERE type = :pulse ORDER BY id DESC LIMIT 2)) AS ticks,
-  (SELECT json_group_array(json_object('id', id, 'ts', ts, 'type', type, 'card', card_id, 'payload', payload)) FROM (SELECT id, ts, type, card_id, payload FROM events WHERE type NOT IN (SELECT value FROM json_each(:quiet)) ORDER BY id DESC LIMIT :recent)) AS recent,
-  (SELECT json_group_array(json_object('process', process, 'ts', ts)) FROM heartbeats WHERE type = :heartbeat AND json_extract(payload, '$.retired') IS NULL) AS workers,
-  (SELECT json_object('ts', a.ts, 'card', a.card_id, 'payload', a.payload) FROM events a WHERE a.type = :alarm AND NOT EXISTS (SELECT 1 FROM events c WHERE c.type = :cleared AND json_valid(c.payload) AND json_extract(c.payload, '$.alarm') = a.dedupe_key) ORDER BY a.id DESC LIMIT 1) AS alarm`
-
-export interface PanelRow {
-  last: string | null
-  half_hour: string
-  through: number | null
-  ticks: string
-  recent: string
-  workers: string
-  alarm: string | null
-}
-
 interface PanelEvent {
   id: number
   ts: string | null
@@ -124,7 +107,7 @@ export function panelSince(now: Date): string {
   return new Date(now.getTime() - FLOW_MINUTES * MINUTE_MS).toISOString()
 }
 
-export function busPanelFacts(row: PanelRow, now: Date): BusPanelFacts {
+export function busPanelFacts(row: BusPanelRow, now: Date): BusPanelFacts {
   const last = jsonOf<{ id: number, ts: string | null } | null>(row.last, null)
   const halfHour = jsonOf<{ ts: string | null, type: string }[]>(row.half_hour, [])
   const ticks = newestFirst(jsonOf<{ id: number, ts: string | null, payload: string }[]>(row.ticks, []))

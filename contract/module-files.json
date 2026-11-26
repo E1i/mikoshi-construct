@@ -751,6 +751,7 @@
     "scripts/tests/contract/modules-placed.test.ts",
     "scripts/tests/contract/one-writer-per-table.test.ts",
     "scripts/tests/contract/owner-commands-detector.test.ts",
+    "scripts/tests/contract/owner-reads/board.test.ts",
     "scripts/tests/contract/owner-reads/bus-domain.test.ts",
     "scripts/tests/contract/owner-reads/card-domain.test.ts",
     "scripts/tests/contract/owner-reads/card-reads-events-through-bus.test.ts",

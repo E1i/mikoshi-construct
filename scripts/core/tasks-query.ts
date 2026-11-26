@@ -22,6 +22,8 @@ export interface CardTasks {
 
 type StoredTask = Record<keyof TaskRow, SQLInputValue>
 
+const TASK_COLUMNS = 'id, task_key, queue, card_id, pr, head, state, lease_gen, lease_until, failures, event_id'
+
 function numberOrNull(value: SQLInputValue): number | null {
   return value === null ? null : Number(value)
 }
@@ -66,7 +68,14 @@ function selected(db: DatabaseSync, filter: TaskFilter): TaskRow[] {
   add('state = ?', filter.state)
   add('event_id > ?', filter.after)
   const condition = where.length === 0 ? '' : ` WHERE ${where.join(' AND ')}`
-  const rows = db.prepare(`SELECT id, task_key, queue, card_id, pr, head, state, lease_gen, lease_until, failures, event_id FROM tasks${condition} ORDER BY event_id, id`).all(...values) as StoredTask[]
+  const rows = db.prepare(`SELECT ${TASK_COLUMNS} FROM tasks${condition} ORDER BY event_id, id`).all(...values) as StoredTask[]
+  return rows.map(taskOf)
+}
+
+export function inStates(db: DatabaseSync, states: readonly string[]): TaskRow[] {
+  if (states.length === 0)
+    return []
+  const rows = db.prepare(`SELECT ${TASK_COLUMNS} FROM tasks WHERE state IN (${states.map(() => '?').join(', ')}) ORDER BY id`).all(...states) as StoredTask[]
   return rows.map(taskOf)
 }
 

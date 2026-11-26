@@ -1,5 +1,4 @@
 [
-  "scripts/cli/board-warnings.ts",
   "scripts/cli/card-chain.ts",
   "scripts/core/legacy-history.ts",
   "scripts/core/report.ts",
@@ -31,9 +30,6 @@
   "scripts/window/window-session-end.ts",
   "scripts/window/window.ts",
   "src/card/risk.ts",
-  "src/commands/board/bus-panel.ts",
   "src/commands/board/bus.ts",
-  "src/commands/board/drain.ts",
-  "src/commands/board/goal.ts",
-  "src/commands/board/heal.ts"
+  "src/commands/board/goal.ts"
 ]
