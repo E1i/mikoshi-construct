@@ -1,16 +1,21 @@
 import type { Linter } from 'eslint'
 import type { DatabaseSync } from 'node:sqlite'
-import { readFileSync } from 'node:fs'
+import type { BusSeed, SeedEvent } from '../../../../tests/board/bus-fixture.js'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { DatabaseSync as SqliteDatabase } from 'node:sqlite'
 import { pathToFileURL } from 'node:url'
 import { ESLint } from 'eslint'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { openDrains } from '../../../../src/commands/board/drain.js'
 import { lastHeal } from '../../../../src/commands/board/heal.js'
+import { busFacts } from '../../../../src/commands/board/index.js'
+import { subagent, writeBus } from '../../../../tests/board/bus-fixture.js'
 import { stalePassCountOf, stallLines } from '../../../cli/board-warnings.js'
 import { appendEvent, openBus } from '../../../core/db.js'
 import { lastObjectFieldPerCard, newestEventsOfEachCard } from '../../../core/events-query.js'
-import { BUS_HEAL_HELD, BUS_HEALED, CARD_ADMITTED, LEASES_DRAINING, RESTARTED, REVIEW_RECORDED } from '../../../core/events.js'
+import { BUS_HEAL_HELD, BUS_HEALED, CARD_ADMITTED, LEASES_DRAINING, RESTARTED, REVIEW_RECORDED, SLICE_PARENTS_BACKFILLED, WINDOW_HEARTBEAT } from '../../../core/events.js'
 import { leaseQueued } from '../../../core/lease.js'
 import { keyOf, queueTask } from '../../../core/queue.js'
 import { inStates } from '../../../core/tasks-query.js'
@@ -139,5 +144,60 @@ describe('the readings the board now takes from the owners keep their filters', 
     expect(stalePassCountOf(db)).toBe(0)
     expect(stallLines(db, null, new Date(TS))).toEqual([])
     db.close()
+  })
+})
+
+describe('the board keeps the journal and the order of the SQL each reading replaced', () => {
+  const NOW = new Date('2026-11-20T10:00:00.000Z')
+  const CARD = 4343
+  const roots: string[] = []
+
+  afterEach(() => {
+    for (const root of roots.splice(0))
+      rmSync(root, { recursive: true, force: true })
+  })
+
+  function minutesAgo(minutes: number): string {
+    return new Date(NOW.getTime() - minutes * 60_000).toISOString()
+  }
+
+  function readSeeded<T>(seed: BusSeed, read: (db: DatabaseSync) => T): T {
+    const root = mkdtempSync(path.join(tmpdir(), 'owner-reads-board-'))
+    roots.push(root)
+    const db = new SqliteDatabase(writeBus(path.join(root, 'bus.db'), seed), { readOnly: true })
+    try {
+      return read(db)
+    }
+    finally {
+      db.close()
+    }
+  }
+
+  function windowAgents(seed: BusSeed): string[] {
+    return readSeeded(seed, db => busFacts(db, NOW)).services.filter(service => service.role === 'window').flatMap(service => (service.subagents ?? []).map(agent => agent.name))
+  }
+
+  function windowBeat(minutes: number, agent: string, legacy: boolean): SeedEvent {
+    return { ts: minutesAgo(minutes), type: WINDOW_HEARTBEAT, card: null, legacy, payload: JSON.stringify({ session: `w-${agent}`, subagents: [{ name: agent, context: 1, spent: 1, at: minutesAgo(minutes) }] }) }
+  }
+
+  it('a card in flight whose own state event is its last one stalls from that event', () => {
+    const since = minutesAgo(30)
+    const lines = readSeeded({ cards: [{ id: CARD, state: 'running', lane: null, line: `#${CARD} in flight`, since }] }, db => stallLines(db, minutesAgo(1), NOW))
+    expect(lines).toEqual([`stall card ${CARD}: no new event for 30 minutes since card.state at ${since}, while the bus is alive`])
+  })
+
+  it('a window subagent written to the legacy journal still reads as running', () => {
+    expect(windowAgents({ events: [{ ...subagent(minutesAgo(1), { role: 'scan', phase: 'started', session: 'w-1' }), legacy: true }] })).toEqual(['scan'])
+  })
+
+  it('the window beat is the newest one of the live journal, never a legacy one', () => {
+    expect(windowAgents({ events: [windowBeat(2, 'live', false), windowBeat(1, 'legacy', true)] })).toEqual(['live'])
+  })
+
+  it('a slice parent backfilled twice keeps the first transfer', () => {
+    const backfill = (parent: number): SeedEvent => ({ ts: minutesAgo(5), type: SLICE_PARENTS_BACKFILLED, card: null, payload: JSON.stringify({ cards: { [CARD]: { card: parent, part: 1, of: 2 } }, unread: [] }) })
+    const seed: BusSeed = { cards: [{ id: CARD, state: 'running', lane: 'lane-1', line: `#${CARD} slice`, since: minutesAgo(10) }], events: [backfill(1), backfill(2)] }
+    expect(readSeeded(seed, db => busFacts(db, NOW)).cards.find(card => card.id === CARD)?.parent).toEqual({ card: 1, part: 1, of: 2 })
   })
 })
