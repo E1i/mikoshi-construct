@@ -1,11 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { WaitLift, WaitLiftKind } from '../../../core/db.js'
 import type { Lease } from '../../../core/lease.js'
 import type { AnswerSource, CardSession } from '../answer-source.js'
 import type { TreeMerge } from './tree.js'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../../../core/card-automaton.js'
 import { closedWaitAnswersOfCard, closedWaitIds, openDecisionWaitsOfCard, openOwnerWaits } from '../../../core/card-readings.js'
 import { cardsNobodyHolds } from '../../../core/cards-nobody-holds.js'
-import { closeOwnerWait, inTransaction, openBusWait } from '../../../core/db.js'
+import { inTransaction, liftHeldAtOpen, openBusWait } from '../../../core/db.js'
 import { latest } from '../../../core/events-query.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_DROPPED, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, WITNESS_RECORDED } from '../../../core/events.js'
 import { mergedCards, ofPr as pullRequestOf } from '../../../core/pr-readings.js'
@@ -24,12 +25,18 @@ export interface SourceParts {
 
 const EMPTY_ROUND = 'left_nothing'
 
+export const EMPTY_ROUND_LIFTS: readonly WaitLiftKind[] = ['decision', 'amend', 'new-head', 'passed-on-head']
+
 const AMENDED_ADMISSION = 'amend'
 
 const QUESTION_STOPS: readonly unknown[] = [QUESTION_AGENT, QUESTION_OWNER]
 
 function emptyRoundWaitPrefix(cardId: number): string {
   return `card #${cardId} waits for the owner: an answer round after its `
+}
+
+export function isEmptyRoundWaitText(text: string, cardId: number | null): boolean {
+  return cardId !== null && text.startsWith(emptyRoundWaitPrefix(cardId))
 }
 
 type EmptyRoundExit = 'decision' | 'closed' | 'amend' | 'merge-ready' | 'new-head'
@@ -160,7 +167,6 @@ export class AnswerSources {
     const exit = this.exitTaken(lease, card.where({ from: stop.id + 1 }), round)
     if (exit === null || this.heldByADependency(lease))
       return { id: stop.id, reason: stop.reason, emptyRound: round.id }
-    this.closeTheEmptyRoundWait(lease, exit, round.id)
     return null
   }
 
@@ -194,26 +200,6 @@ export class AnswerSources {
     return lease.head !== null && lease.head !== round.head ? 'new-head' : null
   }
 
-  private closeTheEmptyRoundWait(lease: Lease, exit: EmptyRoundExit, round: number): void {
-    if (exit === 'closed')
-      return
-    const db = this.parts.db
-    const prefix = emptyRoundWaitPrefix(lease.cardId)
-    const waits = openDecisionWaitsOfCard(db, lease.cardId).filter(wait => wait.text.startsWith(prefix))
-    const answers: Record<Exclude<EmptyRoundExit, 'closed'>, string> = {
-      'decision': `lifted: a decision bound to card #${lease.cardId} was recorded`,
-      'amend': `lifted: card #${lease.cardId} was amended`,
-      'merge-ready': `lifted: a review pass, green CI and green witnesses on ${lease.head} of pull request #${lease.pr}`,
-      'new-head': `lifted: a new head ${lease.head} on ${lease.pr === null ? `card #${lease.cardId}` : `pull request #${lease.pr}`}`,
-    }
-    if (waits.length === 0)
-      return
-    inTransaction(db, () => {
-      for (const wait of waits)
-        closeOwnerWait(db, this.parts.clock().toISOString(), lease.actor, wait.id, answers[exit], round)
-    })
-  }
-
   private standingQuestionStop(card: BusRead): { id: number, reason: string } | null {
     const stop = card.slice(CARD_STOPPED, ['reason'], 'last')[0]
     if (stop === undefined || !QUESTION_STOPS.includes(stop.fields.reason))
@@ -237,8 +223,11 @@ export class AnswerSources {
     if (openDecisionWaitsOfCard(db, lease.cardId).length > 0)
       return
     const text = `${emptyRoundWaitPrefix(lease.cardId)}${stop.reason} stop left nothing, so no answer round runs until a decision bound to the card, an amend or a new head`
+    const lift: WaitLift = { on: [...EMPTY_ROUND_LIFTS, ...(this.heldByADependency(lease) ? ['dependency-merged' as const] : [])], ...(lease.head === null ? {} : { head: lease.head }) }
     const ask = { need: 'decision' as const, text, command: cardDecisionCommand(lease.cardId), card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) }
-    inTransaction(db, () => openBusWait(db, closedWaitIds(db), this.parts.clock().toISOString(), lease.actor, ask))
+    if (liftHeldAtOpen(db, { ...ask, lift }) !== null)
+      return
+    inTransaction(db, () => openBusWait(db, closedWaitIds(db), this.parts.clock().toISOString(), lease.actor, { ...ask, lift }))
   }
 
   heldByADependency(lease: Lease): boolean {

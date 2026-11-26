@@ -12,6 +12,7 @@ import { runRequest, WindowRequests } from '../../window/window-requests.js'
 import { mergeBench } from '../bus/merge-bench.js'
 
 const CARD = 1876
+const ANOTHER_CARD = CARD + 1
 const ANSWER = 'the second path'
 const HOUR_MS = 3_600_000
 
@@ -36,8 +37,8 @@ function room(): Room {
   return { made, channel: path.join(root, 'owner-answers') }
 }
 
-function waitFor({ made }: Room, text = 'which path?'): string {
-  const wait = openOwnerWait(made.db, made.clock.now().toISOString(), 'policy', { need: 'decision', text, card: CARD, request: 7 })
+function waitFor({ made }: Room, text = 'which path?', card = CARD): string {
+  const wait = openOwnerWait(made.db, made.clock.now().toISOString(), 'policy', { need: 'decision', text, card, request: 7, lift: { on: ['owner-answer'] } })
   reduce(made.db, 'pending', busProjections())
   return wait
 }
@@ -63,7 +64,7 @@ describe('a word of the owner is bound to one wait, used once, within its term',
     const forTheEarlier = sayToOwnerChannel(open.channel, `${earlier}: ${ANSWER}`, open.made.clock.now())
     const bare = sayToOwnerChannel(open.channel, ANSWER, open.made.clock.now())
     open.made.clock.advance(OWNER_WORD_TERM_MS + 1)
-    const later = waitFor(open)
+    const later = waitFor(open, 'which path?', ANOTHER_CARD)
     const stale = sayToOwnerChannel(open.channel, `${later}: ${ANSWER}`, new Date(open.made.clock.now().getTime() - OWNER_WORD_TERM_MS - 1))
 
     expect(close(open, later, ANSWER).kind).toBe('refused')

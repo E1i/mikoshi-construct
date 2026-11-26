@@ -8,7 +8,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, rmS
 import path from 'node:path'
 import process from 'node:process'
 import { backupsDirOf, BUS_FILE, busDirOf } from '../core/bus-path.js'
-import { appendEvent, BUSY_TIMEOUT_MS, openOwnerWait } from '../core/db.js'
+import { appendEvent, BUSY_TIMEOUT_MS, openOwnerWait, OWNER_ANSWER_LIFT } from '../core/db.js'
 import { duplicateKeyUnindexed, eventRowsUnindexed, lastEventIdUnindexed, watermarkRows } from '../core/events-query.js'
 import { BUS_HEAL_HELD, BUS_HEALED } from '../core/events.js'
 import { reduce } from '../core/reducer.js'
@@ -341,7 +341,7 @@ function recordHeld(busPath: string, at: string, failure: string, backup: string
   try {
     live = openDatabase(busPath, { timeout: BUSY_TIMEOUT_MS })
     appendEvent(live, { ts: at, type: BUS_HEAL_HELD, actor: HEAL_ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${BUS_HEAL_HELD}:${at}`, payload: { failure, backup }, legacy: false })
-    openOwnerWait(live, at, HEAL_ACTOR, { need: 'decision', text: question })
+    openOwnerWait(live, at, HEAL_ACTOR, { need: 'decision', text: question, lift: OWNER_ANSWER_LIFT })
     return []
   }
   catch (error) {

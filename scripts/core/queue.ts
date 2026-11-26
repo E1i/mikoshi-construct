@@ -6,7 +6,7 @@ import type { IncrementalProjection } from './watermark.js'
 import { isFullSha, MAIN_BRANCH } from '../ports/identifier-shapes.js'
 import { appendEvent, inTransaction } from './db.js'
 import { dependencyWaitOf, mergedCardsBinding } from './dependency-wait.js'
-import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, declaredPart, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_GROUPS, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN } from './events.js'
+import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, declaredPart, INTAKE_EVENT, INTAKE_MOVE_EVENT, MERGE_DONE, POLICY_DENIED, PR_CLOSED, PR_GROUPS, PR_OBSERVED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, SCOPE_WIDENED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_LEASED, TASK_RELEASED, TASK_RENEWED, TASK_REQUEUED, TASK_SUPERSEDED, TASK_WITHDRAWN, UPDATE_DONE } from './events.js'
 import { A_CARD_DECISION_REOPENS, answerDecisionOfKey, BACKFILL_SOURCE, cardDecisionKeyOf, decidedTaskDecisionOfKey, decisionSegment, generationOfKey, QUEUES, reviewInputOf, reviewInputOfKey, taskKey } from './identifiers.js'
 import { payloadOf, reject } from './stored.js'
 import { lastEventId, markReduced, reduceProjection, watermarkOf } from './watermark.js'
@@ -301,10 +301,10 @@ function closeCandidateRows(db: DatabaseSync, prs: readonly CandidatePr[]): Cand
   })
 }
 
-const CARD_TURNS = `'${CARD_STOPPED}', '${CARD_ANSWERED}', '${CARD_STARTED}'`
+const CARD_TURNS = `turn.type IN ('${CARD_STOPPED}', '${CARD_ANSWERED}', '${CARD_STARTED}') OR (turn.type = '${UPDATE_DONE}' AND json_extract(turn.payload, '$.clean') = 1 AND json_extract(turn.payload, '$.to') IS NOT NULL)`
 
 export function latestTurnOf(card: string): string {
-  return `(SELECT id FROM events AS turn WHERE turn.card_id = ${card} AND turn.legacy = 0 AND turn.type IN (${CARD_TURNS}) ORDER BY turn.id DESC LIMIT 1)`
+  return `(SELECT id FROM events AS turn WHERE turn.card_id = ${card} AND turn.legacy = 0 AND (${CARD_TURNS}) ORDER BY turn.id DESC LIMIT 1)`
 }
 
 export const ASKS_TO_WIDEN_THE_TOUCHES = `EXISTS (
@@ -312,7 +312,7 @@ export const ASKS_TO_WIDEN_THE_TOUCHES = `EXISTS (
 )`
 
 const THE_TURN_BEFORE_THE_STOP = `(
-  SELECT id FROM events AS turn WHERE turn.card_id = stop.card_id AND turn.legacy = 0 AND turn.type IN (${CARD_TURNS}) AND turn.id < stop.id
+  SELECT id FROM events AS turn WHERE turn.card_id = stop.card_id AND turn.legacy = 0 AND (${CARD_TURNS}) AND turn.id < stop.id
   ORDER BY turn.id DESC LIMIT 1
 )`
 

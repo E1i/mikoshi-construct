@@ -630,8 +630,8 @@ describe('the launch node', () => {
     expect(node.stopOverdue()).toEqual([])
     expect(eventsOf(made.db, CARD_STOPPED)).toHaveLength(1)
     expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([
-      { id: 'Q1', need: 'decision', text: 'card #1225 session s-1225 asks: may the card widen its touches to src/card?', command: cardDecisionCommand(1225), card: 1225 },
-      { id: 'Q2', need: 'decision', text: 'card #1225 session s-1225 asks: which lane takes the follow-up?', command: cardDecisionCommand(1225), card: 1225 },
+      { id: 'Q1', need: 'decision', text: 'card #1225 session s-1225 asks: may the card widen its touches to src/card?', command: cardDecisionCommand(1225), card: 1225, lift: { on: ['decision', 'amend'] } },
+      { id: 'Q2', need: 'decision', text: 'card #1225 session s-1225 asks: which lane takes the follow-up?', command: cardDecisionCommand(1225), card: 1225, lift: { on: ['decision', 'amend'] } },
     ])
     made.tick()
     expect(made.db.prepare(`SELECT count(*) AS n FROM ${OWNER_WAITS} WHERE card_id = 1225 AND state = '${OPEN_WAIT}'`).get()).toEqual({ n: 2 })
@@ -643,7 +643,7 @@ describe('the launch node', () => {
 
     expect(node.stopOverdue()).toEqual([1226])
     expect(eventsOf(made.db, OWNER_WAIT_OPENED)).toEqual([
-      { id: 'Q1', need: 'decision', text: 'card #1226 session s-1226 asks: decide one of these three:\n(a) widen the touches\n(b) split the card\n(c) drop the card', command: cardDecisionCommand(1226), card: 1226 },
+      { id: 'Q1', need: 'decision', text: 'card #1226 session s-1226 asks: decide one of these three:\n(a) widen the touches\n(b) split the card\n(c) drop the card', command: cardDecisionCommand(1226), card: 1226, lift: { on: ['decision', 'amend'] } },
     ])
   })
 
