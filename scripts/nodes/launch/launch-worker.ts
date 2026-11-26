@@ -749,7 +749,7 @@ export class LaunchNode extends Node<LaunchStep> {
     const usageReset = ownerSaid ? null : this.usageLimitResetPending()
     if (usageReset !== null)
       return this.waitOn(lease, USAGE_LIMIT, usageReset)
-    const hold = ownerSaid ? null : startHold(this.db, lease.cardId, this.lanes(), this.machine)
+    const hold = ownerSaid ? null : startHold(this.db, lease.cardId, this.lanes(), this.machine, this.parts.clock().getTime())
     if (hold !== null)
       return this.waitOn(lease, holdReason(hold), new Date(this.parts.clock().getTime() + MACHINE_POLL_MS).toISOString())
     const claimant = this.machineClaimant(lease.cardId)
