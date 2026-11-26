@@ -12,6 +12,10 @@ const PURE_ADAPTERS = [
   'scripts/ports/client/codex/adapter.ts',
 ]
 
+const ROLE_POLICY = 'scripts/ports/client/role-policy.ts'
+
+const ADAPTERS_MODULE = [...PURE_ADAPTERS.slice(0, 4), ROLE_POLICY, ...PURE_ADAPTERS.slice(4)]
+
 const DECLARED_IN_BUS = [
   'scripts/ports/bus-read.ts',
   'scripts/ports/worktree-home.ts',
@@ -40,14 +44,14 @@ describe('ports-adapters is a decided module (D-503)', () => {
     }
   })
 
-  it('ports-adapters holds exactly the five pure adapters', () => {
+  it('ports-adapters holds exactly the five pure adapters and the role session policy (D-862)', () => {
     const adapters = MODULE_GRAPH.modules['ports-adapters']
     const ports = MODULE_GRAPH.modules.ports
 
-    expect(adapters).toEqual({ owns: PURE_ADAPTERS, contract: PURE_ADAPTERS, may_use: ['layout'], status: 'decided' })
+    expect(adapters).toEqual({ owns: ADAPTERS_MODULE, contract: ADAPTERS_MODULE, may_use: ['layout'], status: 'decided' })
     expect(ports?.status).toBe('decided')
     expect(ports?.may_use).toEqual(['layout', 'ports-adapters'])
-    expect(ports?.owns.filter(glob => glob.startsWith('!scripts/ports/')).map(glob => glob.slice(1)).sort()).toEqual([...PURE_ADAPTERS, ...DECLARED_IN_BUS].sort())
+    expect(ports?.owns.filter(glob => glob.startsWith('!scripts/ports/')).map(glob => glob.slice(1)).sort()).toEqual([...ADAPTERS_MODULE, ...DECLARED_IN_BUS].sort())
     expect(DECLARED_IN_BUS.filter(file => MODULE_GRAPH.modules.bus?.owns.includes(file))).toEqual(DECLARED_IN_BUS)
   })
 

@@ -62,6 +62,7 @@ on:
 
 permissions:
   contents: read
+  statuses: read
 
 jobs:
   changes:
@@ -111,6 +112,8 @@ jobs:
       - run: pnpm privacy:check
       - run: pnpm layers:check
       - run: pnpm exec tsx scripts/release/version-pr-guard.ts
+        env:
+          GH_TOKEN: ${{ github.token }}
       - name: Rehearse the version step over this pull request's changesets
         if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'changeset-release/')
         run: pnpm exec tsx scripts/release/version-rehearsal.ts

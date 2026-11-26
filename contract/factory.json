@@ -4298,6 +4298,7 @@
           "!scripts/ports/bus-read.ts",
           "!scripts/ports/client/codex/adapter.ts",
           "!scripts/ports/client/contract.ts",
+          "!scripts/ports/client/role-policy.ts",
           "!scripts/ports/disk.ts",
           "!scripts/ports/git.ts",
           "!scripts/ports/prompt-store.ts",
@@ -4314,6 +4315,7 @@
           "scripts/ports/disk.ts",
           "scripts/ports/prompt-store.ts",
           "scripts/ports/client/contract.ts",
+          "scripts/ports/client/role-policy.ts",
           "scripts/ports/client/codex/adapter.ts"
         ],
         "may_use": [
@@ -4324,6 +4326,7 @@
           "scripts/ports/disk.ts",
           "scripts/ports/prompt-store.ts",
           "scripts/ports/client/contract.ts",
+          "scripts/ports/client/role-policy.ts",
           "scripts/ports/client/codex/adapter.ts"
         ],
         "status": "decided"
@@ -6154,6 +6157,17 @@
         "types": {
           "ClientChoice": "interface ClientChoice { adapter: ClientAdapter; model: ModelChoice; }"
         }
+      },
+      "scripts/ports/client/role-policy.ts": {
+        "constants": [],
+        "functions": {
+          "answerPolicy": "(gateCommands: string[], writePaths: string[], tools?: readonly SessionTool[]): SessionPolicy",
+          "launchPolicy": "(gateCommands: string[], tools?: readonly SessionTool[]): SessionPolicy"
+        },
+        "language": "factory",
+        "reexports": [],
+        "technologyWords": [],
+        "types": {}
       },
       "scripts/ports/diff.ts": {
         "constants": [
