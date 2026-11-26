@@ -271,6 +271,31 @@ describe('a stopped card the window holds, or one already raised, gets no new ow
     expect(alarmsOf(db, FAULT_STOP.card)).toHaveLength(1)
   })
 
+  it('a card stopped again after an answered window release is a dead end again', () => {
+    const db = bus()
+    placed(db, FAULT_STOP)
+    const window = windowOf(db)
+    window.ownerAnswers(FAULT_STOP.card, 'release it')
+    expect(window.release(FAULT_STOP.card)).toMatchObject({ kind: 'done' })
+    appendEvent(db, { ts: LAST_EVENT_AT, type: CARD_STOPPED, actor: 'netwatch', cardId: FAULT_STOP.card, pr: null, head: null, dedupeKey: 'fixture:stopped-after-release', payload: { reason: QUESTION_AGENT }, legacy: false })
+    reduced(db)
+
+    expect(ticksPastTheRound(db, 1)).toHaveLength(1)
+    expect(alarmsOf(db, FAULT_STOP.card)).toEqual([expect.stringContaining(`last event ${CARD_STOPPED}`)])
+  })
+
+  it('a window release that follows an answer to a wait on another card is a dead end', () => {
+    const db = bus()
+    placed(db, FAULT_STOP)
+    const window = windowOf(db)
+    window.ownerAnswers(FAULT_STOP.card + 1, 'release it')
+    expect(window.release(FAULT_STOP.card)).toMatchObject({ kind: 'done' })
+    reduced(db)
+
+    expect(ticksPastTheRound(db, 1).filter(line => line.includes(`#${FAULT_STOP.card} `))).toHaveLength(1)
+    expect(alarmsOf(db, FAULT_STOP.card)).toEqual([expect.stringMatching(/^dead end: card #2172 is stopped/)])
+  })
+
   it('a dead end whose route an in-force decision already gives raises its alarm and opens no owner wait', () => {
     const db = bus()
     placed(db, FAULT_STOP)
