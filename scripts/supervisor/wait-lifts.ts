@@ -10,9 +10,16 @@ export const WAIT_LIFT_ACTOR = 'worker:supervisor:wait-lifts'
 
 const AMEND_ADMISSION = 'amend'
 
+export interface UnliftedWait {
+  actor: string | null
+  text: string
+  card: number | null
+}
+
 export interface WaitLiftParts {
   decidedForTheCardSince: (card: number, eventId: number) => boolean
   unmergedDependencies: (card: number) => readonly number[]
+  liftOfAnUnliftedWait: (wait: UnliftedWait) => WaitLift | null
 }
 
 export interface OpenedWait {
@@ -24,14 +31,6 @@ export interface OpenedWait {
 }
 
 type Lifting = (wait: OpenedWait) => string | null
-
-function openedWaitOf(event: EventRow): OpenedWait | null {
-  const id = event.data?.id
-  if (typeof id !== 'string')
-    return null
-  const lift = event.data?.lift
-  return { event: event.id, id, card: event.card_id, pr: event.pr, lift: isWaitLift(lift) ? lift : null }
-}
 
 export class WaitLifts {
   private readonly liftings: Readonly<Record<WaitLiftKind, Lifting>>
@@ -52,7 +51,7 @@ export class WaitLifts {
     const ts = this.clock().toISOString()
     const closed = new Set<unknown>([...events(this.db, { types: [OWNER_WAIT_CLOSED] }).map(event => event.data?.id), ...closedWaitIds(this.db)])
     return events(this.db, { types: [OWNER_WAIT_OPENED] }).flatMap((event) => {
-      const wait = openedWaitOf(event)
+      const wait = this.openedWaitOf(event)
       if (wait === null || closed.has(wait.id))
         return []
       const answer = this.refusalOf(event) ?? this.liftOf(wait)
@@ -60,6 +59,15 @@ export class WaitLifts {
         return []
       return inTransaction(this.db, () => closeOwnerWait(this.db, ts, WAIT_LIFT_ACTOR, wait.id, answer, wait.event)) ? [`${wait.id}${wait.card === null ? '' : ` #${wait.card}`} ${answer}`] : []
     })
+  }
+
+  private openedWaitOf(event: EventRow): OpenedWait | null {
+    const id = event.data?.id
+    if (typeof id !== 'string')
+      return null
+    const lift = event.data?.lift
+    const carried = isWaitLift(lift) ? lift : this.parts.liftOfAnUnliftedWait({ actor: event.actor, text: String(event.data?.text ?? ''), card: event.card_id })
+    return { event: event.id, id, card: event.card_id, pr: event.pr, lift: carried }
   }
 
   liftOf(wait: OpenedWait): string | null {

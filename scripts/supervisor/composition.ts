@@ -4,6 +4,7 @@ import type { Understood } from '../core/bus-version.js'
 import type { CardPrReadings } from '../core/card-automaton.js'
 import type { SliceParentsBackfill } from '../core/card-bodies.js'
 import type { ContinuationReads } from '../core/card-decisions.js'
+import type { WaitLift } from '../core/db.js'
 import type { EventType } from '../core/events.js'
 import type { InboxPrReadings } from '../core/inbox.js'
 import type { CardTransitions, HolderStart, Lease, PullHead } from '../core/lease.js'
@@ -28,7 +29,7 @@ import type { DeadEndEvents, DeadEndParts } from './dead-ends.js'
 import type { QueuePass } from './derive-queues.js'
 import type { SpoolPlaces } from './gate-run-spool.js'
 import type { SessionMeasure } from './heartbeat.js'
-import type { WaitLiftParts } from './wait-lifts.js'
+import type { UnliftedWait, WaitLiftParts } from './wait-lifts.js'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import process from 'node:process'
@@ -65,6 +66,8 @@ import * as tasks from '../core/tasks-query.js'
 import { cardContract } from '../intake/card-contract.js'
 import { BusWeightsRecompute } from '../intake/intake.js'
 import { answerSource } from '../nodes/answer/answer-candidates.js'
+import { faultedAnswerLift, isFaultedAnswerWaitText } from '../nodes/answer/answer-executor.js'
+import { EMPTY_ROUND_LIFTS, isEmptyRoundWaitText } from '../nodes/answer/duties/source.js'
 import { LAUNCH_SOURCE } from '../nodes/launch/launch-candidates.js'
 import { handFile } from '../nodes/launch/launch-starter.js'
 import { mergeCandidates, mergeSource } from '../nodes/merge/merge-candidates.js'
@@ -88,6 +91,7 @@ import { plans } from '../window/plan-readings.js'
 import { releasingTakeoverOnPush } from '../window/takeover-push-release.js'
 import { PREFIX } from './bg.js'
 import { cardWaitFolds, closeWaitsOfAnEndedCard, closingTheWaitsOfAClosedPr, ownerWaitFolds } from './card-waits.js'
+import { DEAD_END_ACTOR, DEAD_END_LIFTS } from './dead-ends.js'
 import { causeGoneSource, derivedQueues, downgradeParkedSource, dueAgainSource, noCardTreeSource, restartSource, settleSource, stopNoLongerHoldsSource } from './derive-queues.js'
 import { unendedStarts } from './expected-time.js'
 import { busSessionPulse, heartbeatEnv, measureCardSession, ownStart, recordProcessHeartbeat } from './heartbeat.js'
@@ -580,7 +584,18 @@ export function waitLiftParts(db: DatabaseSync, clock: () => Date): WaitLiftPart
       return decisionsInForceAt(db, clock()).some(each => each.cards.includes(card) && recorded.includes(each.decisionId))
     },
     unmergedDependencies: card => unmergedDependenciesOf(db, prs.mergedCards(db), card),
+    liftOfAnUnliftedWait: liftOfAWaitOpenedBeforeLifts,
   }
+}
+
+export function liftOfAWaitOpenedBeforeLifts(wait: UnliftedWait): WaitLift | null {
+  if (wait.actor === DEAD_END_ACTOR)
+    return { on: DEAD_END_LIFTS }
+  if (isEmptyRoundWaitText(wait.text, wait.card))
+    return { on: EMPTY_ROUND_LIFTS }
+  if (isFaultedAnswerWaitText(wait.text))
+    return faultedAnswerLift(null)
+  return null
 }
 
 export function waitLiftsTick(db: DatabaseSync, clock: () => Date = () => new Date()): { step: () => string[] } {

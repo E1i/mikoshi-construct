@@ -5,7 +5,7 @@ import { CLOSED_CARD, DEFERRED_CARD, DROPPED_CARD, MERGED_CARD, QUEUED_CARD, STO
 import { holderOf, holdLayersOf } from '../core/card-hold.js'
 import { closedWaitIds, lastReducedOwnerWaits } from '../core/card-readings.js'
 import { appendEvent, currentHeadOf, inTransaction, liftHeldAtOpen, openOwnerWait } from '../core/db.js'
-import { events, ofCard } from '../core/events-query.js'
+import { byId, events, ofCard } from '../core/events-query.js'
 import { BOARD_ALARM, CARD_HELD, CARD_RELEASED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, REJECTED, TASK_REQUEUED } from '../core/events.js'
 import { expectedMinutes, RoundMeasures } from './expected-time.js'
 
@@ -134,8 +134,11 @@ export class DeadEnds {
   private windowCarriesAnOwnerAnswer(card: UnheldCard): boolean {
     if (!WINDOW_ACTIONS.includes(card.lastEvent.type))
       return false
+    const request = byId(this.db, card.lastEvent.id)?.data?.request
+    if (request === undefined || request === null)
+      return false
     const asked = new Set(ofCard(this.db, card.card, { types: [OWNER_WAIT_OPENED] }).map(opened => opened.data?.id))
-    return asked.size > 0 && events(this.db, { types: [OWNER_WAIT_CLOSED], before: card.lastEvent.id }).some(closed => asked.has(closed.data?.id))
+    return events(this.db, { types: [OWNER_WAIT_CLOSED], before: card.lastEvent.id }).some(closed => asked.has(closed.data?.id) && closed.data?.request === request)
   }
 
   private waitsOnItsLift(card: UnheldCard): boolean {

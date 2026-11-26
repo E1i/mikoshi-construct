@@ -864,6 +864,18 @@ describe('the reducer of the owner_waits projection', () => {
     expect(openBusWait(db, closedWaitIds(db), ts, 'policy', { need: 'decision', text: 'card #2196 is at a dead end', card: 2196, lift })).not.toBe(unnamed)
     db.close()
   })
+
+  it('a bus wait is never answered by a wait the reducer refused, even before the sweep closes it', () => {
+    const db = busWith(event(CARD_DEFERRED, { cardId: 2196, actor: 'owner', payload: {} }))
+    const ts = '2026-10-09T12:00:00.000Z'
+    const ask = { need: 'decision' as const, text: 'card #2196 is at a dead end', card: 2196, lift: { on: ['decision', 'amend'] as const } }
+    const refused = openOwnerWait(db, ts, 'policy', ask)
+    reduce(db, 'pending', busProjections())
+    expect(rejections(db).some(row => String((row.payload as { reason?: string }).reason).startsWith(`${refused} is refused: `))).toBe(true)
+
+    expect(openBusWait(db, closedWaitIds(db), ts, 'policy', ask)).not.toBe(refused)
+    db.close()
+  })
 })
 
 describe('the plan journal', () => {

@@ -35,6 +35,10 @@ function emptyRoundWaitPrefix(cardId: number): string {
   return `card #${cardId} waits for the owner: an answer round after its `
 }
 
+export function isEmptyRoundWaitText(text: string, cardId: number | null): boolean {
+  return cardId !== null && text.startsWith(emptyRoundWaitPrefix(cardId))
+}
+
 type EmptyRoundExit = 'decision' | 'closed' | 'amend' | 'merge-ready' | 'new-head'
 
 export interface AwaitedStop {

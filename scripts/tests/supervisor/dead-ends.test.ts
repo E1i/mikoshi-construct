@@ -213,6 +213,18 @@ describe('a stopped card the window holds, or one already raised, gets no new ow
     expect(alarmsOf(db, FAULT_STOP.card)).toEqual([])
   })
 
+  it('a window release that names another request than the owner answer is a dead end again', () => {
+    const db = bus()
+    placed(db, FAULT_STOP)
+    const wait = openOwnerWait(db, LAST_EVENT_AT, 'policy', { need: 'decision', text: 'release #2172?', card: FAULT_STOP.card, request: 1, lift: { on: ['owner-answer'] } })
+    appendEvent(db, { ts: LAST_EVENT_AT, type: OWNER_WAIT_CLOSED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `fixture:closed:${wait}`, payload: { id: wait, answer: 'release it', request: 2 }, legacy: false })
+    holdEvent(db, FAULT_STOP.card, CARD_RELEASED, 'release', { request: 9 })
+    reduced(db)
+
+    expect(ticksPastTheRound(db, 1)).toHaveLength(1)
+    expect(alarmsOf(db, FAULT_STOP.card)).toHaveLength(1)
+  })
+
   it('a dead end whose route an in-force decision already gives raises its alarm and opens no owner wait', () => {
     const db = bus()
     placed(db, FAULT_STOP)

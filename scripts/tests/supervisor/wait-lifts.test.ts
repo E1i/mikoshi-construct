@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { WaitLift } from '../../core/db.js'
 import type { MergeBench } from '../bus/merge-bench.js'
+import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { closedWaitIds, openOwnerWaits } from '../../core/card-readings.js'
 import { appendEvent, isWaitLift, liftHeldAtOpen, openOwnerWait } from '../../core/db.js'
@@ -12,12 +13,13 @@ import { faultedAnswerLift } from '../../nodes/answer/answer-executor.js'
 import { EMPTY_ROUND_LIFTS } from '../../nodes/answer/duties/source.js'
 import { GROWTH_LIFTS } from '../../nodes/update/update-executor.js'
 import { recordDecision } from '../../policy/decisions/index.js'
-import { answerParts, busProjections, candidateRules, deadEndParts, openComposedBus, waitLiftParts } from '../../supervisor/composition.js'
+import { answerParts, busProjections, candidateRules, deadEndParts, openComposedBus, orderAndShardTermTicks, waitLiftParts } from '../../supervisor/composition.js'
 import { DEAD_END_ACTOR, DEAD_END_LIFTS, DeadEnds, UNMEASURED_ROUND_MINUTES } from '../../supervisor/dead-ends.js'
 import { WAIT_LIFT_ACTOR, WaitLifts } from '../../supervisor/wait-lifts.js'
 import { sha } from '../bus/github-fake.js'
 import { liveBench } from '../bus/merge-bench.js'
 
+const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const OPENED_AT = '2026-11-26T08:00:00.000Z'
 const NOW = new Date(Date.parse(OPENED_AT) + (UNMEASURED_ROUND_MINUTES + 5) * 60_000)
 const CARD = 2309
@@ -99,12 +101,12 @@ describe('one sweep closes an owner wait once its lift holds on the current stat
     expect(stillOpen(db, id)).toBe(false)
   })
 
-  const OPENERS: Record<string, { lift: WaitLift, condition: (db: DatabaseSync) => void, answer: string }> = {
-    'faulted answer on a new head': { lift: faultedAnswerLift(HEAD), condition: db => observed(db, NEW_HEAD), answer: `lifted: a new head ${NEW_HEAD} on pull request #${PR}` },
-    'dead end on an amend': { lift: { on: DEAD_END_LIFTS, head: HEAD }, condition: db => admitted(db, 'amend'), answer: `card #${CARD} amended` },
-    'empty round on a decision bound to the card': { lift: { on: EMPTY_ROUND_LIFTS, head: HEAD }, condition: db => recordDecision(db, { ts: OPENED_AT, decisionId: 2333, text: `[owner] #${CARD}: go on`, cards: [CARD] }), answer: `lifted: a decision bound to card #${CARD} was recorded` },
-    'hold-until on its dependency merged': { lift: { on: [...EMPTY_ROUND_LIFTS, 'dependency-merged'], head: HEAD }, condition: db => put(db, MERGE_DONE, { card: DEPENDENCY, payload: {} }), answer: `lifted: every dependency of card #${CARD} is merged` },
-    'growth on the pull request merged': { lift: { on: GROWTH_LIFTS, head: HEAD }, condition: db => put(db, PR_CLOSED, { card: CARD, pr: PR, payload: { merged: true } }), answer: `card #${CARD} merged` },
+  const OPENERS: Record<string, { lift: WaitLift, condition: (db: DatabaseSync) => void, sweep: string, reduced: string }> = {
+    'faulted answer on a new head': { lift: faultedAnswerLift(HEAD), condition: db => observed(db, NEW_HEAD), sweep: `lifted: a new head ${NEW_HEAD} on pull request #${PR}`, reduced: `lifted: a new head ${NEW_HEAD} on pull request #${PR}` },
+    'dead end on an amend': { lift: { on: DEAD_END_LIFTS, head: HEAD }, condition: db => admitted(db, 'amend'), sweep: `lifted: card #${CARD} was amended`, reduced: `card #${CARD} amended` },
+    'empty round on a decision bound to the card': { lift: { on: EMPTY_ROUND_LIFTS, head: HEAD }, condition: db => recordDecision(db, { ts: OPENED_AT, decisionId: 2333, text: `[owner] #${CARD}: go on`, cards: [CARD] }), sweep: `lifted: a decision bound to card #${CARD} was recorded`, reduced: `lifted: a decision bound to card #${CARD} was recorded` },
+    'hold-until on its dependency merged': { lift: { on: [...EMPTY_ROUND_LIFTS, 'dependency-merged'], head: HEAD }, condition: db => put(db, MERGE_DONE, { card: DEPENDENCY, payload: {} }), sweep: `lifted: every dependency of card #${CARD} is merged`, reduced: `lifted: every dependency of card #${CARD} is merged` },
+    'growth on the pull request merged': { lift: { on: GROWTH_LIFTS, head: HEAD }, condition: db => put(db, PR_CLOSED, { card: CARD, pr: PR, payload: { merged: true } }), sweep: `lifted: pull request #${PR} merged`, reduced: `card #${CARD} merged` },
   }
 
   it('each opener has a lift that closes its wait on the current state', () => {
@@ -116,10 +118,12 @@ describe('one sweep closes an owner wait once its lift holds on the current stat
       expect(swept(db), name).toEqual([])
 
       opener.condition(db)
-      reduce(db, 'pending', busProjections())
+      if (opener.sweep === opener.reduced)
+        reduce(db, 'pending', busProjections())
       swept(db)
 
-      expect(reducedAnswerOf(db, id), name).toEqual({ state: 'closed', answer: opener.answer })
+      expect(closesOf(db, id), name).toEqual([opener.sweep])
+      expect(reducedAnswerOf(db, id), name).toEqual({ state: 'closed', answer: opener.reduced })
       expect(stillOpen(db, id), name).toBe(false)
       expect(swept(db), name).toEqual([])
     }
@@ -191,6 +195,47 @@ describe('a wait is never opened when its lift already holds, nor twice for one 
     expect(downgrades).toHaveLength(1)
     const refused = db.prepare(`SELECT json_extract(payload, '$.reason') AS reason FROM events WHERE type = '${REJECTED}'`).all() as { reason: string }[]
     expect(refused).toContainEqual({ reason: expect.stringContaining(`the same reason is already open on card #${CARD} as ${downgrades[0]!.id}`) })
+  })
+})
+
+describe('a wait opened before lifts were data closes through the same sweep', () => {
+  const BEFORE_LIFTS: Record<string, { actor: string, text: string }> = {
+    'dead end': { actor: DEAD_END_ACTOR, text: `card #${CARD} is at a dead end in state stopped` },
+    'empty round': { actor: 'worker:answer:worker-1', text: `card #${CARD} waits for the owner: an answer round after its question.agent stop left nothing, so no answer round runs until a decision bound to the card, an amend or a new head` },
+    'faulted answer': { actor: 'worker:answer:worker-1', text: `pull request #${PR} conflicts with main at ${HEAD}, and the tree /trees/${CARD} of card #${CARD} cannot be read to answer it: EBADF` },
+  }
+
+  it('a lift-less wait of a known opener closes on its opener\'s lift and one of an unknown opener stays with the owner', () => {
+    const db = bus()
+    observed(db, HEAD)
+    const known = Object.entries(BEFORE_LIFTS).map(([name, wait]) => [name, openOwnerWait(db, OPENED_AT, wait.actor, { need: 'decision', text: wait.text, card: CARD, pr: PR })] as const)
+    const unknown = openOwnerWait(db, OPENED_AT, 'policy', { need: 'decision', text: 'which path for the card?', card: CARD, pr: PR })
+    reduce(db, 'pending', busProjections())
+    expect(swept(db)).toEqual([])
+
+    witnessed(db, HEAD, 'green')
+    reviewed(db, HEAD, 'pass')
+    swept(db)
+
+    for (const [name, id] of known)
+      expect([name, closesOf(db, id)]).toEqual([name, [`lifted: green witnesses and a review pass on ${HEAD} of pull request #${PR}`]])
+    expect(stillOpen(db, unknown)).toBe(true)
+  })
+})
+
+describe('the composition root runs the sweep', () => {
+  it('the supervisor\'s order tick closes a wait whose lift holds', () => {
+    const db = bus()
+    observed(db, HEAD)
+    const id = opened(db, faultedAnswerLift(HEAD))
+    witnessed(db, HEAD, 'green')
+    reviewed(db, HEAD, 'pass')
+
+    const lines = orderAndShardTermTicks(db, REPO_ROOT).step()
+    reduce(db, 'pending', busProjections())
+
+    expect(lines).toEqual(expect.arrayContaining([expect.stringContaining(`${id} #${CARD} lifted: green witnesses and a review pass on ${HEAD}`)]))
+    expect(stillOpen(db, id)).toBe(false)
   })
 })
 

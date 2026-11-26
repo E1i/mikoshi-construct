@@ -583,6 +583,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
       withLiveShard(made)
       ask(made, WAIT)
       expect(made.requests().run()).toMatchObject([{ kind: 'done', detail: 'opened Q1' }])
+      expect(eventsOf(made.bench.db, OWNER_WAIT_OPENED)).toMatchObject([{ id: 'Q1', need: 'merge', pr: PR, lift: { on: ['pr-merged'] } }])
     })
 
     it.each([

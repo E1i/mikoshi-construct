@@ -86,6 +86,12 @@ export function drainAnswerTreeGateRuns(db: DatabaseSync, worktree: string): num
 
 const MS_PER_MINUTE = 60_000
 
+const UNREADABLE_TREE = 'cannot be read to answer it'
+
+export function isFaultedAnswerWaitText(text: string): boolean {
+  return text.includes(` ${UNREADABLE_TREE}: `)
+}
+
 export function faultedAnswerLift(head: string | null): WaitLift {
   return { on: ['passed-on-head', 'new-head', 'decision', 'amend', 'pr-merged'], ...(head === null ? {} : { head }) }
 }
@@ -399,7 +405,7 @@ export class AnswerExecutor {
   }
 
   private waiting(lease: Lease, card: CardSession, why: string): AnswerOutcome {
-    const detail = `pull request #${lease.pr} conflicts with ${MAIN_BRANCH} at ${lease.head}, and the tree ${card.worktree} of card #${lease.cardId} cannot be read to answer it: ${why}`
+    const detail = `pull request #${lease.pr} conflicts with ${MAIN_BRANCH} at ${lease.head}, and the tree ${card.worktree} of card #${lease.cardId} ${UNREADABLE_TREE}: ${why}`
     completeTask(this.parts.db, this.parts.cards, this.ts(), lease, [])
     const ask = { need: 'decision' as const, text: detail, card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }), lift: faultedAnswerLift(lease.head) }
     const held = liftHeldAtOpen(this.parts.db, ask)
