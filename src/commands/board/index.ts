@@ -10,7 +10,9 @@ import type { BoardView } from './view.js'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { behindLine, CARDS, currentLane, IN_ORDER_MARK, readLastReduced } from '../../../scripts/core/bus-readings.js'
-import { lastReducedOwnerWaits } from '../../../scripts/core/card-readings.js'
+import { busPanelRow, cardsWithTheirLines, EITHER_JOURNAL, events, lastObjectFieldPerCard, lastReducedOwnerWaits, lastSlotsPerQueue, latest, newestEventsOfEachCard, tasksInStates } from '../../../scripts/core/card-readings.js'
+import { ofPr } from '../../../scripts/core/pr-readings.js'
+import { windowRoleRows } from '../../../scripts/nodes/restart/role-readings.js'
 import { withReadOnlyBus } from '../cost/bus.js'
 import { LEDGER_FILE, readLedger } from '../cost/ledger.js'
 import { boardFacts } from './bus.js'
@@ -24,6 +26,7 @@ import { tableLines } from './table.js'
 import { buildView, FINISHED_SHOWN_HOURS, STALE_HOURS } from './view.js'
 
 export type { OwnerWait, OwnerWaitNeed } from '../../../scripts/core/bus-readings.js'
+export type { EventRow, TaskRow } from '../../../scripts/core/card-readings.js'
 export type { BusDb } from '../cost/bus.js'
 export { PRS_FROM_STDIN } from './prs.js'
 export { STALE_HOURS }
@@ -75,13 +78,36 @@ function behindAsLine<T>(reading: LastReduced<T>): LastReducedRows<T> {
   return { rows: reading.rows, behind: reading.behind === null ? null : behindLine(reading.behind) }
 }
 
+export interface BoardReads {
+  eitherJournal: typeof EITHER_JOURNAL
+  events: typeof events
+  latest: typeof latest
+  lastObjectFieldPerCard: typeof lastObjectFieldPerCard
+  lastSlotsPerQueue: typeof lastSlotsPerQueue
+  newestEventsOfEachCard: typeof newestEventsOfEachCard
+  busPanelRow: typeof busPanelRow
+  tasksInStates: typeof tasksInStates
+  cardsWithTheirLines: typeof cardsWithTheirLines
+}
+
 export const BOARD_BUS: BoardBus = {
+  eitherJournal: EITHER_JOURNAL,
+  events,
+  latest,
+  lastObjectFieldPerCard,
+  lastSlotsPerQueue,
+  newestEventsOfEachCard,
+  busPanelRow,
+  tasksInStates,
+  cardsWithTheirLines,
   exists: existsSync,
   readOnly: withReadOnlyBus,
   inOrderMark: IN_ORDER_MARK,
   lastReducedCards: (db, read) => behindAsLine(readLastReduced(db, [CARDS], read)),
   lastReducedOwnerWaits: db => behindAsLine(lastReducedOwnerWaits(db)),
   currentLane,
+  windowRoles: windowRoleRows,
+  reviewVerdict: (db, pr) => ofPr(db, pr)?.verdict_on_head ?? null,
 }
 
 export function busFacts(db: BusDb, now: Date): BusFacts {

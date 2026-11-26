@@ -1083,7 +1083,6 @@ describe('board.html', () => {
         events: [{ ts: minutesAgo(1), type: 'netwatch.tick', card: null, payload: '{}' }, ...events],
       })
       const db = new DatabaseSync(file)
-      db.exec('ALTER TABLE prs ADD COLUMN head TEXT')
       db.prepare('UPDATE prs SET head = ? WHERE pr = 40').run(head)
       db.close()
       return file

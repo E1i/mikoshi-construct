@@ -1,5 +1,6 @@
 import type { Lore } from '../../ui/lore.js'
 import type { BusDb } from '../cost/bus.js'
+import { EITHER_JOURNAL, lastPer, latest } from '../../../scripts/core/card-readings.js'
 import { LEASES_DRAINING, RESTARTED } from '../../../scripts/core/events.js'
 import { withReadOnlyBus } from '../cost/bus.js'
 import { SHORT_SHA } from './bus.js'
@@ -11,15 +12,14 @@ export interface BoardDrain {
   until: string
 }
 
-const LAST_DRAIN_OF_EACH_NODE_SINCE_RESTART = `
-  SELECT payload FROM events WHERE id IN (
-    SELECT max(id) FROM events
-    WHERE type = '${LEASES_DRAINING}' AND json_valid(payload)
-      AND id > (SELECT coalesce(max(id), 0) FROM events WHERE type = '${RESTARTED}')
-    GROUP BY json_extract(payload, '$.node')
-  )
-  ORDER BY json_extract(payload, '$.node')
-`
+const DRAIN_NODE = '$.node'
+
+function lastDrainOfEachNodeSinceRestart(db: BusDb): BoardDrain[] {
+  const restart = latest(db, { types: [RESTARTED], legacy: EITHER_JOURNAL })?.id ?? 0
+  return lastPer(db, DRAIN_NODE, { types: [LEASES_DRAINING], since: restart, legacy: EITHER_JOURNAL })
+    .flatMap(row => drainOf(row.payload) ?? [])
+    .sort((a, b) => a.node < b.node ? -1 : a.node > b.node ? 1 : 0)
+}
 
 function drainOf(payload: string): BoardDrain | null {
   const { node, sha, from, until } = JSON.parse(payload) as Record<string, unknown>
@@ -30,10 +30,7 @@ function drainOf(payload: string): BoardDrain | null {
 
 export function openDrains(db: BusDb, now: Date): BoardDrain[] {
   const at = now.toISOString()
-  return (db.prepare(LAST_DRAIN_OF_EACH_NODE_SINCE_RESTART).all() as { payload: string }[]).flatMap((row) => {
-    const drain = drainOf(row.payload)
-    return drain !== null && drain.until > at ? [drain] : []
-  })
+  return lastDrainOfEachNodeSinceRestart(db).filter(drain => drain.until > at)
 }
 
 export function drainsAt(file: string, now: Date): BoardDrain[] {

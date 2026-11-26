@@ -429,7 +429,7 @@ describe('the board bus reader', () => {
         { ts: ago(HOUR), type: 'netwatch.tick', card: null, payload: '{}' },
       ],
     })
-    const { tasks, events } = withReadOnlyBus(file, db => ({ tasks: openTasks(db), events: latestCardEvents(db, 2) }))
+    const { tasks, events } = withReadOnlyBus(file, db => ({ tasks: openTasks(BOARD_BUS, db), events: latestCardEvents(BOARD_BUS, db, 2) }))
     expect(tasks.map(task => [task.queue, task.card, task.state])).toEqual([['review', 7, 'leased'], ['answer', 8, 'queued']])
     expect([...events.keys()]).toEqual([7, 8])
     expect(events.get(7)!.map(event => event.type)).toEqual(['card.launched', 'pr.observed'])
