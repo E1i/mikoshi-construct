@@ -13,11 +13,11 @@ interface Layer {
 const NODES = ['node-answer', 'node-close', 'node-launch', 'node-merge', 'node-restart', 'node-review', 'node-update', 'node-witness']
 
 const TARGET_LAYERS: readonly Layer[] = [
-  { modules: ['layout', 'ports-adapters', 'ports'], ordered: true },
-  { modules: ['events', 'command-registry', 'bus'], ordered: true },
+  { modules: ['layout', 'command-registry', 'ui', 'ports-adapters', 'ports'], ordered: true },
+  { modules: ['events', 'bus'], ordered: true },
   { modules: ['card-model', 'card-record', 'project', 'plan', 'order', 'decisions', 'session', 'model', 'quality', 'intake', 'rules', 'pr-record', 'factory-contract'], ordered: true },
   { modules: NODES, ordered: false },
-  { modules: ['ui', 'cli', 'atlas', 'release', 'cost', 'window', 'board'], ordered: true },
+  { modules: ['cli', 'atlas', 'release', 'cost', 'window', 'board'], ordered: true },
 ]
 
 const TOOLS = ['contract-generator', 'node-laws']

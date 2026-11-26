@@ -34,7 +34,7 @@ const NODE_TO_ADAPTER = [
 
 const PORTS_GRANTED_BY_D778 = ['card-record']
 
-const NOT_ABOVE_ADAPTERS = ['layout', 'ports-adapters']
+const NOT_ABOVE_ADAPTERS = ['layout', 'command-registry', 'ui', 'ports-adapters']
 
 const NOT_ABOVE_PORTS = [...NOT_ABOVE_ADAPTERS, 'ports']
 
@@ -54,9 +54,9 @@ describe('ports-adapters is a decided module (D-503)', () => {
     const adapters = MODULE_GRAPH.modules['ports-adapters']
     const ports = MODULE_GRAPH.modules.ports
 
-    expect(adapters).toEqual({ owns: ADAPTERS_MODULE, contract: ADAPTERS_MODULE, may_use: ['layout'], status: 'decided' })
+    expect(adapters).toEqual({ owns: ADAPTERS_MODULE, contract: ADAPTERS_MODULE, may_use: ['layout', 'command-registry', 'ui'], status: 'decided' })
     expect(ports?.status).toBe('decided')
-    expect(ports?.may_use).toEqual(['layout', 'ports-adapters'])
+    expect(ports?.may_use).toEqual(['layout', 'command-registry', 'ui', 'ports-adapters'])
     expect(ports?.owns.filter(glob => glob.startsWith('!scripts/ports/')).map(glob => glob.slice(1)).sort()).toEqual([...ADAPTERS_MODULE, ...DECLARED_IN_BUS].sort())
     expect(DECLARED_IN_BUS.filter(file => MODULE_GRAPH.modules.bus?.owns.includes(file))).toEqual(DECLARED_IN_BUS)
   })
