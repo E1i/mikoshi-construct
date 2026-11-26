@@ -15,6 +15,7 @@ import { readShiftGate } from '../../../src/manifest.js'
 import { BUS_DB_VARIABLE } from '../../core/bus-path.js'
 import { messageOf } from '../../core/errors.js'
 import { exitCodePath, treeReportPath } from '../../core/places.js'
+import { launchPolicy } from '../../ports/client/role-policy.js'
 import { accountToken, recordedAccount } from '../../ports/gh.js'
 import { processGit } from '../../ports/git.js'
 import { identityOf, OsProcessTable, rowsOf } from '../../ports/process-table.js'
@@ -274,7 +275,7 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
       const session = this.ports.uuid()
       const places = { worktree, report: treeReportPath(worktree), gate: readShiftGate(worktree) }
       const prompt = this.ports.prompt({ ...task, body: body(task, places) }, places)
-      const client = chainedClient({ kind: 'start', role: 'launch', session, cwd: worktree, prompt, addDirs: [], pick: { model: null }, policy: { profile: 'sandboxed', gateCommands: places.gate.prepush, writePaths: [], mcpOff: true, tools } }, LAUNCH_POSITIONAL_WORDS, this.places.claude)
+      const client = chainedClient({ kind: 'start', role: 'launch', session, cwd: worktree, prompt, addDirs: [], pick: { model: null }, policy: launchPolicy(places.gate.prepush, tools) }, LAUNCH_POSITIONAL_WORDS, this.places.claude)
       const pid = this.ports.spawnDetached({
         command: 'sh',
         args: launchArgv({ command: client.command, treePr: this.places.treePr, cardId: card.cardId, worktree, report: this.reportOf(card.cardId), exit: exitCodePath(this.places.launchDir, String(card.cardId)), id: session }, client.positional),

@@ -6,6 +6,7 @@
     "scripts/ports/disk.ts",
     "scripts/ports/prompt-store.ts",
     "scripts/ports/client/contract.ts",
+    "scripts/ports/client/role-policy.ts",
     "scripts/ports/client/codex/adapter.ts"
   ],
   "exclude": [],
