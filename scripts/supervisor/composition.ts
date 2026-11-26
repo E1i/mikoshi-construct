@@ -43,19 +43,19 @@ import { CHECK_MS, TICK_MS } from '../core/cadence.js'
 import { appendedOnCard, cardFolds, cardLinkObserved, cardPrMerged, cardPrOpened, CARDS_PROJECTION, cardsAnswered, CHANGES_CARD, CLOSED_CARD, DEFERRED_CARD, DROPPED_CARD, FALLEN_CARD, IN_REVIEW_CARD, MERGED_CARD, QUEUED_CARD, READY_CARD, RUNNING_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { admittedCardVersion, backfillPendingSliceParents, cardOfBranch } from '../core/card-bodies.js'
 import { cardDecisionReads, reviewedUnderTheCardDecision, reviewsTheCardDecisionReopens, withDecidedContinuations } from '../core/card-decisions.js'
-import { openDecisionWaitsOfCard, openOwnerWaits } from '../core/card-readings.js'
+import { closedWaitIds, openDecisionWaitsOfCard, openOwnerWaits } from '../core/card-readings.js'
 import { cardsNobodyHolds } from '../core/cards-nobody-holds.js'
 import { CHAINS_PROJECTION } from '../core/chain.js'
-import { defaultBusPath, openBus } from '../core/db.js'
+import { appendEvent, defaultBusPath, inTransaction, openBus, openBusWait } from '../core/db.js'
 import { byId, EITHER_JOURNAL, events, unspentShardsOf, WINDOW_SHARDS_LIVE_AT } from '../core/events-query.js'
-import { CARD_DEFERRED, CARD_MOVED, CARD_PLANNED, CARD_STOPPED, CARD_UNPLANNED, DECISION_EXPIRED, DECISION_RECORDED, DECISIONS_IMPORTED, DECISIONS_PROJECTED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OBSERVED, PR_OPENED, RATCHET_THRESHOLD_SET, SLICE_PARENTS_BACKFILLED, TASK_ENQUEUED, TASK_REQUEUED } from '../core/events.js'
+import { CARD_DEFERRED, CARD_MOVED, CARD_PLANNED, CARD_STOPPED, CARD_UNPLANNED, DECISION_EXPIRED, DECISION_RECORDED, DECISIONS_IMPORTED, DECISIONS_PROJECTED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED, PR_OBSERVED, PR_OPENED, RATCHET_THRESHOLD_SET, SHARD_EXPIRED, SLICE_PARENTS_BACKFILLED, TASK_ENQUEUED, TASK_REQUEUED } from '../core/events.js'
 import { FACTORY_WORKERS } from '../core/factory-paths.js'
 import { isFullSha, prOf } from '../core/identifiers.js'
 import { amendLeavesTheWidenOfTheWaitUncovered, CARD_BLOCKS, OWNER, OWNER_QUESTION_ANSWERED, ownerQuestionAnswered, ownerQuestionAnsweredAt } from '../core/inbox.js'
 import { foreignVersion, instanceOf, provenIdentity, recordWorkerIdentity, SWITCH_FLAG, UNHANDED } from '../core/node.js'
 import { orderDeclarationsAt, overlaps } from '../core/order/overlap.js'
 import { orderEventsFrom, prOrderTickAt } from '../core/order/turn.js'
-import { ownerWaitCommand } from '../core/owner-commands.js'
+import { ownerWaitCommand, shardRenewalCommand } from '../core/owner-commands.js'
 import { linkRefusal, openedPrOf, prFolds, prRow } from '../core/pr-folds.js'
 import * as prs from '../core/pr-readings.js'
 import { closeCandidates, keyOf, reviewCandidates, taskRow, TASKS_PROJECTION } from '../core/queue.js'
@@ -74,7 +74,7 @@ import { witnessSource } from '../nodes/witness/witness-candidates.js'
 import { archiveSpentDecisions, BusDecisions, decisionFolds } from '../policy/decisions/index.js'
 import { answersOfTheDecisions } from '../policy/decisions/wait-folds.js'
 import { mayRequeueUnderTheRounds, mergeDecidedPastRoundLimit, outOfRounds, RECUT_ACTOR, REVIEWS_OF_A_PR } from '../policy/round-limit-decision.js'
-import { decisionsInForceAt, withDecisionsHeldAt } from '../policy/shards.js'
+import { activeWindowShards, decisionsInForceAt, expiredWindowShards, SHARD_NOTICE_HOURS, WINDOW_SHARD_HOURS, windowShardEnded, withDecisionsHeldAt } from '../policy/shards.js'
 import { cardAllowancesIn, derivedHoldOf } from '../policy/touch-scope.js'
 import { ANY, BusRead } from '../ports/bus-read.js'
 import { cardTreeReading } from '../ports/card-tree.js'
@@ -93,6 +93,8 @@ import { busSessionPulse, heartbeatEnv, measureCardSession, ownStart, recordProc
 import { SILENT_MS } from './liveness-sites.js'
 import { ownIdentity, tableIdentity } from './recorded-worker.js'
 import { slotsOf, slotsVariable } from './scheduler.js'
+import { namesNoticeOf, SHARD_TERM_ACTOR, ShardTerm } from './shard-term.js'
+import { FACTORY_MODES } from './workers.js'
 
 export const REVIEW_PREFIX = '[bus:review:bg] '
 export const REVIEW_SCRIPT = 'bus:review'
@@ -541,4 +543,26 @@ export function weightsDriftWatch(gitHub: GitHub, busPath: string): (db: Databas
 
 export function busOrderTick(db: DatabaseSync, root: string): PrOrderTick {
   return prOrderTickAt(BUS_CONTRACT, db, root, PREFIX, orderEventsFrom((type, fields, after) => new BusRead(db, { from: after + 1 }).slice(type as EventType, fields as never)), () => openOwnerWaits(db), card => cardContract(db, card)?.touches ?? null)
+}
+
+const SHARD_TERM_WAITS = [OWNER_WAIT_OPENED]
+
+export function shardTermTick(db: DatabaseSync): ShardTerm {
+  return new ShardTerm({
+    noticeHours: SHARD_NOTICE_HOURS,
+    renewal: shardRenewalCommand(WINDOW_SHARD_HOURS, FACTORY_MODES[1]),
+    active: now => activeWindowShards(db, now),
+    expired: now => expiredWindowShards(db, now, SHARD_TERM_ACTOR).map(ended => ended.payload.id),
+    noticed: id => events(db, { types: SHARD_TERM_WAITS, actorPrefix: SHARD_TERM_ACTOR }).some(opened => namesNoticeOf(String(opened.data?.text ?? ''), id)),
+    ask: (wait, now, expiring) => inTransaction(db, () => {
+      if (expiring !== null)
+        appendEvent(db, windowShardEnded(SHARD_EXPIRED, SHARD_TERM_ACTOR, expiring, now))
+      return openBusWait(db, closedWaitIds(db), now.toISOString(), SHARD_TERM_ACTOR, { need: 'command', ...wait })
+    }),
+  }, () => new Date(), PREFIX)
+}
+
+export function orderAndShardTermTicks(db: DatabaseSync, root: string): { step: () => string[] } {
+  const ticks = [busOrderTick(db, root), shardTermTick(db)]
+  return { step: () => ticks.flatMap(tick => tick.step()) }
 }

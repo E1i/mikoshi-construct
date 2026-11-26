@@ -1821,7 +1821,8 @@
       "flags": [
         "card",
         "count",
-        "silent"
+        "silent",
+        "withdraw-legacy"
       ],
       "json": false,
       "unknownFlag": "not read"
@@ -1916,7 +1917,9 @@
       "flags": [
         "body-file",
         "dry-run",
-        "json"
+        "json",
+        "on",
+        "plan"
       ],
       "json": true,
       "unknownFlag": "not read"
