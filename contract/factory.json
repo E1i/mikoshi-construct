@@ -1370,6 +1370,14 @@
           "unparsed"
         ]
       },
+      "witness.phase": {
+        "complete": true,
+        "keys": [
+          "phase",
+          "task_key",
+          "witness"
+        ]
+      },
       "witness.recorded": {
         "complete": true,
         "keys": [

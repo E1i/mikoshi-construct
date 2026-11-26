@@ -1,4 +1,7 @@
 import type { BusService, SubagentReading } from '../../../src/commands/board/bus.js'
+import type { EventType } from '../../core/events.js'
+import type { BusRead } from '../../ports/bus-read.js'
+import { ANSWER_STEP, CARD_CLOSED, MERGE_DONE, TASK_LEASED, UPDATE_DONE, WITNESS_PHASE, WITNESS_RECORDED } from '../../core/events.js'
 
 export interface Gauges {
   context: number | null
@@ -28,11 +31,28 @@ export interface Terminal {
   command: string
 }
 
+export interface NodePhase {
+  phase: string
+  witness: string | null
+  at: string
+}
+
+export interface NodeOutcome {
+  word: string
+  at: string | null
+}
+
+export interface NodeView {
+  phases: NodePhase[]
+  outcome: NodeOutcome | null
+}
+
 export interface SessionView {
   startedAt: string | null
   expectedMs: number | null
   steps: RoundStep[]
   terminal: Terminal | null
+  node?: NodeView
 }
 
 export interface TranscriptAction {
@@ -80,6 +100,39 @@ const WAIT_CAUSE = /waits on the (.+?) for \d+ min/
 const ACTING_PART = / · now \S/
 const AGENT_HEAT = ['', ' data-hot', ' data-over'] as const
 export const NO_SESSION_VIEW: SessionView = { startedAt: null, expectedMs: null, steps: [], terminal: null }
+export const WITNESS_ROLE = 'witness'
+export const WITNESS_STEPS = ['base', 'head', 'verdict'] as const
+const WITNESS_STEP_ORDER: readonly string[] = WITNESS_STEPS
+function recordedAs(read: BusRead, type: EventType, word: string): NodeOutcome | null {
+  const row = read.slice(type, [], 'last')[0]
+  return row === undefined ? null : { word, at: row.ts }
+}
+
+function verdictOf(read: BusRead): NodeOutcome | null {
+  const row = read.slice(WITNESS_RECORDED, ['verdict'], 'last')[0]
+  return row === undefined ? null : { word: typeof row.fields.verdict === 'string' ? row.fields.verdict : NONE, at: row.ts }
+}
+
+const OUTCOMES: Readonly<Record<string, (read: BusRead) => NodeOutcome | null>> = {
+  [WITNESS_ROLE]: verdictOf,
+  update: read => recordedAs(read, UPDATE_DONE, 'updated'),
+  merge: read => recordedAs(read, MERGE_DONE, 'merged'),
+  close: read => recordedAs(read, CARD_CLOSED, 'closed'),
+}
+export const SESSIONLESS_ROLES: ReadonlySet<string> = new Set(Object.keys(OUTCOMES))
+
+export function stepsAfter(read: BusRead, lease: number): RoundStep[] {
+  return read.slice(ANSWER_STEP, ['step', 'seconds']).filter(row => row.id > lease).flatMap(({ fields }) => typeof fields.step === 'string' && typeof fields.seconds === 'number' ? [{ step: fields.step, seconds: fields.seconds }] : [])
+}
+
+export function nodeViewOf(read: BusRead, role: string): SessionView {
+  const lease = read.slice(TASK_LEASED, ['queue']).filter(row => row.fields.queue === role).at(-1)
+  const since = read.where({ from: (lease?.id ?? 0) + 1 })
+  const phases = role !== WITNESS_ROLE
+    ? []
+    : since.slice(WITNESS_PHASE, ['phase', 'witness']).flatMap(({ ts, fields }) => typeof fields.phase === 'string' && ts !== null ? [{ phase: fields.phase, witness: typeof fields.witness === 'string' ? fields.witness : null, at: ts }] : [])
+  return { startedAt: lease?.ts ?? null, expectedMs: null, steps: [], terminal: null, node: { phases, outcome: OUTCOMES[role]?.(since) ?? null } }
+}
 
 export function escaped(text: string): string {
   return text.replace(/[&<>"']/g, char => ESCAPES[char]!)
@@ -254,13 +307,46 @@ function stepsLine(view: SessionView, role: string, now: string): string {
   return `<div class="round-steps"><ol>${items}</ol><span class="round-step-now">${escaped(reading)}</span></div>`
 }
 
+function nodeState(node: NodeView): string {
+  if (node.outcome !== null)
+    return `<div class="svc-state" data-state="recorded">RECORDED · ${escaped(node.outcome.word.toUpperCase())}</div>`
+  const running = node.phases.at(-1)
+  return `<div class="svc-state" data-state="acting">RUNNING${running === undefined ? '' : ` · ${escaped(`${running.witness ?? NONE} ON ${running.phase}`.toUpperCase())}`}</div>`
+}
+
+function nodeReading(view: SessionView, node: NodeView, now: string): string {
+  const since = (at: string | null): string => at === null ? NONE : lasting(Math.max(0, Date.parse(now) - Date.parse(at)))
+  const running = node.phases.at(-1)
+  if (node.outcome !== null)
+    return `${node.outcome.word} · recorded ${node.outcome.at === null ? NONE : clockOf(node.outcome.at)}`
+  return running === undefined ? `leased · ${since(view.startedAt)}` : `${running.witness ?? NONE} · ${running.phase} · ${since(running.at)}`
+}
+
+function nodeSteps(role: string, node: NodeView): string {
+  if (role !== WITNESS_ROLE)
+    return ''
+  const reached = node.outcome !== null ? WITNESS_STEPS.length - 1 : Math.max(-1, ...node.phases.map(one => WITNESS_STEP_ORDER.indexOf(one.phase)))
+  const done = node.outcome !== null
+  return `<ol>${WITNESS_STEPS.map((step, at) => `<li${at < reached || (done && at === reached) ? ' data-passed' : at === reached ? ' data-current' : ''}>${step}</li>`).join('')}</ol>`
+}
+
+function nodeBlock(role: string, view: SessionView, node: NodeView, now: string): string {
+  return `<div class="round-steps" data-node="${escaped(role)}">${nodeSteps(role, node)}<span class="round-step-now">${escaped(nodeReading(view, node, now))}</span></div>`
+}
+
+function liveLines(service: BusService, view: SessionView, parts: SessionCardParts): string[] {
+  const node = view.node ?? (SESSIONLESS_ROLES.has(service.role) ? { phases: [], outcome: null } : null)
+  if (node !== null)
+    return [nodeState(node), nodeBlock(service.role, view, node, parts.now)]
+  return [stateLine(service.step, parts.over), terminalBlock(view.terminal, parts.now)]
+}
+
 export function sessionCard(service: BusService, view: SessionView, parts: SessionCardParts): string {
   return [
     `<div class="svc bevel" data-role="${escaped(service.role)}"${parts.opener}>`,
     `<div class="svc-top"><span class="svc-kind">${escaped(service.role)}</span><span class="lore">Runner</span><span class="svc-target">${escaped(service.task)}</span>${parts.hint}</div>`,
     roundBlock(view, service.step, parts.now, modelLabel(service.gauges?.model)),
-    stateLine(service.step, parts.over),
-    terminalBlock(view.terminal, parts.now),
+    ...liveLines(service, view, parts),
     parts.bars,
     parts.agents,
     stepsLine(view, service.role, parts.now),
