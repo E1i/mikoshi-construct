@@ -2,10 +2,10 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../../core/lease.js'
 import { DatabaseSync as Sqlite } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
-import { bodyAdmittedAfter, cardsAmong, cardsWithAState, openWaitEventsByCard, waitClosedBefore, waitStatesAmong } from '../../../core/card-readings.js'
+import { bodyAdmittedAfter, cardBodyLanes, cardsAmong, cardsWithAState, openCardWaits, openWaitEventsByCard, waitClosedBefore, waitStatesAmong } from '../../../core/card-readings.js'
 import { appendEvent, openBus } from '../../../core/db.js'
-import { all, byId, EITHER_JOURNAL, eventLog, events, latest, latestOfCardWhere, ofCard, ofPr, perCard, unspentShardRows } from '../../../core/events-query.js'
-import { CARD_ADMITTED, CARD_ANSWERED, CARD_HELD, CARD_STARTED, CARD_STOPPED, DECISIONS_IMPORTED, DECISIONS_PROJECTED, PR_OBSERVED, QUESTION_AGENT, REVIEW_RECORDED, SHARD_ISSUED, TASK_COMPLETED, TASK_FAILED, TASK_RELEASED } from '../../../core/events.js'
+import { all, byId, countOf, EITHER_JOURNAL, eventLog, events, lastTsPerActor, latest, latestOfCardWhere, latestTs, ofCard, ofPr, perCard, unspentShardRows } from '../../../core/events-query.js'
+import { CARD_ADMITTED, CARD_ANSWERED, CARD_HELD, CARD_STARTED, CARD_STOPPED, DECISIONS_IMPORTED, DECISIONS_PROJECTED, OWNER_WAIT_CLOSED, PR_OBSERVED, QUESTION_AGENT, REVIEW_RECORDED, SHARD_ISSUED, TASK_COMPLETED, TASK_FAILED, TASK_RELEASED } from '../../../core/events.js'
 import { TREE_CARRIER_QUEUE } from '../../../core/lease.js'
 import { NETWATCH } from '../../../core/observations.js'
 import * as prs from '../../../core/pr-readings.js'
@@ -439,5 +439,56 @@ describe('the readings report and tasks take from bus and card-record', () => {
     tick(db, REPORT_TS, 'second')
     db.prepare(`INSERT INTO cards (card_id, state, pr, event_id) VALUES (7, 'closed', NULL, 1), (8, NULL, NULL, 2)`).run()
     expect(cardsWithAState(db)).toEqual(new Map([[7, 'closed']]))
+  })
+})
+
+describe('the readings the window board takes from bus and card-record', () => {
+  it('bus counts and dates the events a query names, the live journal unless asked for either', () => {
+    const db = bus()
+    append(db, { type: REVIEW_RECORDED, card: CARD, key: 'r1', ts: TS })
+    append(db, { type: REVIEW_RECORDED, card: OTHER_CARD, key: 'r2', ts: LATER })
+    append(db, { type: REVIEW_RECORDED, card: CARD, key: 'r3', ts: '2026-11-20T10:00:00.000Z', legacy: true })
+    expect(countOf(db, { types: [REVIEW_RECORDED] })).toBe(2)
+    expect(countOf(db, { types: [REVIEW_RECORDED], legacy: EITHER_JOURNAL })).toBe(3)
+    expect(countOf(db, { types: [] })).toBe(0)
+    expect(latestTs(db, { types: [REVIEW_RECORDED], card: CARD })).toBe(TS)
+    expect(latestTs(db, { types: [REVIEW_RECORDED] })).toBe(LATER)
+    expect(latestTs(db, { types: ['nothing.recorded'] })).toBeNull()
+    expect(latestTs(db, { types: [] })).toBeNull()
+  })
+
+  it('bus keeps the newest live sign of each actor', () => {
+    const db = bus()
+    append(db, { type: REVIEW_RECORDED, key: 'a1', actor: 'worker:review:1', ts: TS })
+    append(db, { type: REVIEW_RECORDED, key: 'a2', actor: 'worker:review:1', ts: LATER })
+    append(db, { type: REVIEW_RECORDED, key: 'a3', actor: 'worker:review:1', ts: '2026-11-20T10:00:00.000Z', legacy: true })
+    append(db, { type: REVIEW_RECORDED, key: 'a4', actor: 'worker:merge:1', ts: TS })
+    expect(Object.fromEntries(lastTsPerActor(db))).toEqual({ 'worker:review:1': LATER, 'worker:merge:1': TS })
+  })
+
+  it('card-record answers each body with its lane, who, priority and depends', () => {
+    const db = bus()
+    const event = append(db, { type: CARD_ADMITTED, card: CARD, key: 'b1' })
+    db.prepare(`INSERT INTO card_bodies (card_id, admission_event_id, text, text_sha, lane, who, priority, depends) VALUES (?, ?, 't', 's', 'lane-1', 'shift', 'p0', '[1, 2]'), (?, ?, 't', 's', NULL, NULL, NULL, NULL)`).run(OTHER_CARD, event, CARD, event)
+    expect(cardBodyLanes(db)).toEqual([
+      { card_id: CARD, lane: null, who: null, priority: null, depends: [] },
+      { card_id: OTHER_CARD, lane: 'lane-1', who: 'shift', priority: 'p0', depends: [1, 2] },
+    ])
+  })
+
+  it('card-record answers the open waits of cards in the order they opened, none an event closed', () => {
+    const db = bus()
+    const ids = [1, 2, 3, 4].map(at => append(db, { type: CARD_ADMITTED, key: `w${at}` }))
+    db.prepare(`INSERT INTO owner_waits (id, need, text, card_id, state, opened_at, event_id) VALUES
+      ('Q2', 'decision', 't', ?, 'open', ?, ?),
+      ('Q1', 'merge', 't', ?, 'open', ?, ?),
+      ('Q3', 'decision', 't', ?, 'closed', ?, ?),
+      ('Q4', 'decision', 't', NULL, 'open', ?, ?),
+      ('Q5', 'decision', 't', ?, 'open', ?, ?)`).run(CARD, LATER, ids[1]!, OTHER_CARD, TS, ids[0]!, CARD, TS, ids[2]!, TS, ids[3]!, CARD, TS, ids[3]!)
+    append(db, { type: OWNER_WAIT_CLOSED, key: 'closed-Q5', payload: { id: 'Q5' } })
+    expect(openCardWaits(db)).toEqual([
+      { id: 'Q1', need: 'merge', card: OTHER_CARD, since: TS, event_id: ids[0] },
+      { id: 'Q2', need: 'decision', card: CARD, since: LATER, event_id: ids[1] },
+    ])
   })
 })

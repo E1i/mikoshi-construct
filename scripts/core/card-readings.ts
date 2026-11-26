@@ -42,6 +42,28 @@ export function openOwnerWaits(db: DatabaseSync): OwnerWait[] {
   })
 }
 
+export interface OpenCardWait {
+  id: string
+  need: string | null
+  card: number
+  since: string | null
+  event_id: number
+}
+
+const OPEN_WAITS_WITH_A_CARD = `SELECT id, need, card_id, opened_at, event_id FROM ${OWNER_WAITS} WHERE state = '${OPEN_WAIT}' AND card_id IS NOT NULL ORDER BY event_id`
+
+export function openCardWaits(db: DatabaseSync): OpenCardWait[] {
+  const closed = closedByAnEvent(db)
+  const rows = db.prepare(OPEN_WAITS_WITH_A_CARD).all() as { id: string, need: string | null, card_id: number, opened_at: string | null, event_id: number }[]
+  return rows.filter(wait => !closed.has(wait.id)).map(wait => ({
+    id: String(wait.id),
+    need: wait.need === null ? null : String(wait.need),
+    card: Number(wait.card_id),
+    since: wait.opened_at === null ? null : String(wait.opened_at),
+    event_id: Number(wait.event_id),
+  }))
+}
+
 export function lastReducedOwnerWaits(db: DatabaseSync): LastReduced<OwnerWait[]> {
   return readLastReduced(db, [OWNER_WAITS], () => openOwnerWaits(db))
 }
@@ -88,6 +110,25 @@ function listOf(stored: unknown): unknown[] {
 
 function bodyOf(row: StoredBody | undefined): AdmittedBody | null {
   return row === undefined ? null : { admission_event_id: Number(row.admission_event_id), touches: listOf(row.touches), creates: listOf(row.creates) }
+}
+
+export interface CardBodyLane {
+  card_id: number
+  lane: string | null
+  who: string | null
+  priority: string | null
+  depends: unknown[]
+}
+
+const BODY_LANES = `SELECT card_id, lane, who, priority, depends FROM ${CARD_BODIES} ORDER BY card_id`
+
+function textOrNull(value: unknown): string | null {
+  return value === null || value === undefined ? null : String(value)
+}
+
+export function cardBodyLanes(db: DatabaseSync): CardBodyLane[] {
+  const rows = db.prepare(BODY_LANES).all() as { card_id: number, lane: unknown, who: unknown, priority: unknown, depends: unknown }[]
+  return rows.map(row => ({ card_id: Number(row.card_id), lane: textOrNull(row.lane), who: textOrNull(row.who), priority: textOrNull(row.priority), depends: listOf(row.depends) }))
 }
 
 export function bodyAdmittedAfter(db: DatabaseSync, cardId: number, eventId: number): AdmittedBody | null {
