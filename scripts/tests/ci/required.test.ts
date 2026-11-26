@@ -135,15 +135,16 @@ describe('ci.yml wiring', () => {
     expect(workflow.jobs.required!.steps.map(step => step.run ?? '').join('\n')).toContain('scripts/ci/verdict.ts')
   })
 
-  it('gives only the required job a token that reads the run\'s jobs, and only its verdict step the token', () => {
+  it('gives only the required job a token that reads the run\'s jobs, the workflow statuses read, and the token only to the verdict step and the version pr guard step', () => {
     const workflowWide = (YAML.parse(readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8')) as { permissions?: Record<string, string> }).permissions
     const required = workflow.jobs.required!
     const withToken = Object.entries(workflow.jobs).flatMap(([name, job]) => job.steps.filter(step => step.env?.GH_TOKEN !== undefined).map(step => `${name}: ${step.run ?? ''}`))
 
-    expect(workflowWide).toEqual({ contents: 'read' })
+    expect(workflowWide).toEqual({ contents: 'read', statuses: 'read' })
     expect(required.permissions).toEqual({ contents: 'read', actions: 'read' })
     expect(Object.entries(workflow.jobs).filter(([name, job]) => name !== 'required' && job.permissions !== undefined)).toEqual([])
-    expect(withToken).toEqual(['required: pnpm exec tsx scripts/ci/verdict.ts'])
+    expect(withToken).toEqual(['checks: pnpm exec tsx scripts/release/version-pr-guard.ts', 'required: pnpm exec tsx scripts/ci/verdict.ts'])
+    expect(workflow.jobs.checks!.steps.find(step => step.run === 'pnpm exec tsx scripts/release/version-pr-guard.ts')?.env).toEqual({ GH_TOKEN: GITHUB_TOKEN_EXPRESSION })
     expect(required.steps.find(step => step.run === 'pnpm exec tsx scripts/ci/verdict.ts')?.env?.GH_TOKEN).toBe(GITHUB_TOKEN_EXPRESSION)
   })
 
