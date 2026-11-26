@@ -107,8 +107,9 @@ describe('the daemons cell', () => {
     const html = panelOf(repository())
     expect(paneOf(html, 'MCP_DEVKIT')).toContain('data-default data-shown')
     expect(paneOf(html, 'BROWSER_LAB')).not.toContain('data-shown')
-    expect(paneOf(html, 'MCP_DEVKIT')).toContain('<span class="pane-tag">LOADED</span><span class="pane-head">MUTATIONS · 0</span><ul class="pane-mutations"></ul>')
-    expect(paneOf(html, 'BROWSER_LAB')).toContain('<span class="pane-tag">SLEEPING</span><span class="pane-head">MUTATIONS · 2</span><ul class="pane-mutations"><li>ver_hands</li><li>ver_headed</li></ul>')
+    const undescribed = `<span class="pane-description" data-none>${LORE.boardDaemonPane.noDescription}</span>`
+    expect(paneOf(html, 'MCP_DEVKIT')).toContain(`<span class="pane-tag">LOADED</span>${undescribed}<span class="pane-head">MUTATIONS · 0</span><ul class="pane-mutations"></ul>`)
+    expect(paneOf(html, 'BROWSER_LAB')).toContain(`<span class="pane-tag">SLEEPING</span>${undescribed}<span class="pane-head">MUTATIONS · 2</span><ul class="pane-mutations"><li>ver_hands</li><li>ver_headed</li></ul>`)
   })
 
   it('an empty catalog names the reader it adds and where LOADED is observed', () => {
@@ -318,7 +319,7 @@ describe('a daemon the window cannot run', () => {
 describe('the daemon catalog reader', () => {
   it('reads the daemon and its sketch from the skill manifest frontmatter, and no mutation from it', () => {
     expect(manifestFields('---\na: 1\nb:\n---\nc: 3\n')).toEqual(new Map([['a', '1'], ['b', '']]))
-    expect(daemonOf('lab', '---\ndaemon: LAB\ndaemon-mutations: ver_a, ver_b\n---\n')).toEqual({ daemon: 'LAB', skill: 'lab', sketch: null, mutations: [], commands: [] })
+    expect(daemonOf('lab', '---\ndaemon: LAB\ndaemon-mutations: ver_a, ver_b\n---\n')).toEqual({ daemon: 'LAB', skill: 'lab', sketch: null, description: null, mutations: [], commands: [] })
     expect(daemonOf('lab', '---\ndaemon: LAB\ndaemon-command: node <home>/lab.mjs *\n---\n', '/h')?.commands).toEqual(['node /h/lab.mjs *'])
     expect(daemonOf('intake', MANIFESTS.intake!)).toBeNull()
     expect(daemonOf('x', 'no frontmatter')).toBeNull()

@@ -15,6 +15,7 @@ export const LOADED_SOURCE = 'the skills of window.heartbeat'
 export const SKETCH_KEY = 'daemon-sketch'
 const MUTATION_PREFIX = 'ver_'
 const NAME_KEY = 'name'
+const DESCRIPTION_KEY = 'description'
 
 export const WINDOW_SETTINGS_FILES = [PROJECT_SETTINGS_FILE, SETTINGS_FILE] as const
 
@@ -22,6 +23,7 @@ export interface DaemonEntry {
   daemon: string
   skill: string
   sketch: string | null
+  description: string | null
   mutations: string[]
   commands: string[]
 }
@@ -69,8 +71,7 @@ export function daemonOf(directory: string, text: string, home: string = homedir
   const daemon = fields.get(DAEMON_KEY)
   if (daemon === undefined || daemon === '')
     return null
-  const sketch = fields.get(SKETCH_KEY)
-  return { daemon, skill: fields.get(NAME_KEY) || directory, sketch: sketch === undefined || sketch === '' ? null : sketch, mutations: [], commands: declaredCommands(text, home) }
+  return { daemon, skill: fields.get(NAME_KEY) || directory, sketch: fields.get(SKETCH_KEY) || null, description: fields.get(DESCRIPTION_KEY) || null, mutations: [], commands: declaredCommands(text, home) }
 }
 
 function settingsLists(text: string | null): { allow: unknown[], excluded: unknown[] } {

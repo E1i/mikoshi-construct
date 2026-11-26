@@ -18,10 +18,9 @@ import { WINDOW_SILENT_MS } from '../../../src/commands/liveness.js'
 import { createUi } from '../../../src/ui/console.js'
 import { BANNER, LORE } from '../../../src/ui/lore.js'
 import { resolveTheme } from '../../../src/ui/theme.js'
-import { interfaceVersion } from '../../../src/version.js'
 import { checkMatrix, subagent, writeBus } from '../../../tests/board/bus-fixture.js'
 import { BOARD_DATA_FILE, boardProjection, DISK_FILES, escaped, FLOW_META, printBoard, PROGRESS_ORDER, readEddiesLimits, readModelVersion, readOnlyBoardProjection, RELEASE_PROGRESS_ORDER, renderShell, VIEW_KEY, writeBoardPage } from '../../cli/board-page.js'
-import { filterRule } from '../../cli/board-page/live-cards.js'
+import { filterRule, readUiVersionPin } from '../../cli/board-page/live-cards.js'
 import { boardBeatRecorder, boardBeatUnrecordedLine } from '../../cli/board-page/timer.js'
 import { BUS_VERSION } from '../../core/bus-version.js'
 import { TICK_MS } from '../../core/cadence.js'
@@ -449,7 +448,7 @@ describe('board.html', () => {
       expect(filterRule(state)).toContain(`tr[data-card]:not([data-stage="${state}"])`)
     }
     expect(html).toContain('<a class="chip" href="#show-all">all</a>')
-    expect(html).toContain('<tr data-card="864" data-stage="merged" data-open="card-864" tabindex="0" aria-haspopup="dialog"><td class="id">#864</td><td class="slug">old-lease</td><td>implement</td><td>netwatch</td><td>M</td><td>cheap</td><td>owner</td><td>#860</td><td>—</td>')
+    expect(html).toContain('<tr data-card="864" data-stage="merged" data-open="card-864" tabindex="0" aria-haspopup="dialog"><td class="id">#864</td><td class="slug">old-lease</td><td>implement</td><td>netwatch</td><td>M</td><td>cheap</td><td>owner</td><td><span class="capped"><span>#860</span></span></td><td>—</td>')
   })
 
   it('every number on the page is in the bus, in eddies.json or in the machine load', () => {
@@ -487,12 +486,12 @@ describe('board.html', () => {
     expect(html.indexOf('id="h-backlog"')).toBeLessThan(html.indexOf('<footer class="statusline"'))
   })
 
-  it('the page header shows the ui version', () => {
+  it('the page header shows the board ui version, not the package version', () => {
     const html = pageText(seededBus())
     const version = JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../../../package.json'), 'utf8')) as { version: string }
     const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'))
-    expect(header).toContain(`<span>ui <b>${escaped(interfaceVersion(version.version))}</b></span>`)
-    expect(interfaceVersion(version.version)).toMatch(new RegExp(`^${version.version.replace(/\./g, '\\.')}(?:\\+\\w+)?$`))
+    expect(header).toContain(`<span>ui <b>v${readUiVersionPin().version}</b></span>`)
+    expect(header).not.toContain(`<span>ui <b>${escaped(version.version)}`)
   })
 
   it('the logo wrapper clips the glitch instead of scrolling', () => {
@@ -1209,7 +1208,7 @@ describe('board.html', () => {
     before.scroller.scrollTop = 120
     before.scroller.dispatch('scroll')
     before.click('TR', 'card-862')
-    expect(JSON.parse(storage.getItem(VIEW_KEY)!)).toEqual({ filter: '#show-planned', scroll: 120, open: 'card-862', agents: {}, folds: {} })
+    expect(JSON.parse(storage.getItem(VIEW_KEY)!)).toEqual({ filter: '#show-planned', scroll: 120, open: 'card-862', agents: {}, folds: {}, warningsCollapsed: false })
     const after = boardWindow(html, storage)
     expect(after.location.hash).toBe('#show-planned')
     expect(after.scroller.scrollTop).toBe(120)
