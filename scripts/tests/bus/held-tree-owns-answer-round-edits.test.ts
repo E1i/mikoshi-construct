@@ -1,14 +1,13 @@
+import type { DatabaseSync } from 'node:sqlite'
+import type { BusContract, BusEventRow } from '../../core/bus-contract.js'
 import type { CardStart } from '../../nodes/launch/launch-executor.js'
 import type { StarterPorts } from '../../nodes/launch/launch-starter.js'
 import type { TreeFile } from '../../nodes/launch/session-journal.js'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
-import { appendEvent, openBus } from '../../core/db.js'
+import { cardSessionsIn } from '../../core/card-bodies.js'
 import { CARD_STARTED, CARD_STOPPED, SESSION_HEARTBEAT } from '../../core/events.js'
-import { busCardSessions } from '../../nodes/launch/launch-root.js'
 import { ShiftCardStarter } from '../../nodes/launch/launch-starter.js'
 
 const CARD = 2137
@@ -53,34 +52,23 @@ const TREE_FILES: Record<string, TreeFile> = {
 
 const CARD_TEXT = parkingFileText({ card: `#${CARD} card-${CARD} [implement/construct/S/cheap/auto] · depends — · blocks —`, branch: `feat/card-${CARD}`, touches: ['src/**'], continue: 'auto', who: 'shift', body: 'Do the card.' })
 
-const roots: string[] = []
-
-afterEach(() => {
-  for (const root of roots.splice(0))
-    rmSync(root, { recursive: true, force: true })
-})
-
-function busOfAStoppedAnswerRound(): string {
-  const root = mkdtempSync(path.join(tmpdir(), 'held-tree-answer-round-'))
-  roots.push(root)
-  const busPath = path.join(root, 'bus.db')
-  const db = openBus(busPath)
-  let sequence = 0
-  const record = (minutes: number, type: string, payload: Record<string, unknown>): void => {
-    appendEvent(db, { ts: stamp(minutes), type, actor: 'worker:launch:launch-1', cardId: CARD, pr: null, head: null, dedupeKey: `test:${++sequence}`, payload, legacy: false })
-  }
-  try {
-    record(0, CARD_STARTED, { session: LAUNCH_SESSION, worktree: TREE })
-    record(10, CARD_STOPPED, { reason: 'question.owner', detail: 'a question' })
-    record(20, SESSION_HEARTBEAT, { step: 'answer', session: ANSWER_ROUND_SESSION })
-    record(25, CARD_STOPPED, { reason: 'fault', detail: 'the answer commit was refused outside the touches' })
-    record(30, SESSION_HEARTBEAT, { step: 'review', session: REVIEW_SESSION })
-  }
-  finally {
-    db.close()
-  }
-  return busPath
+function row(id: number, type: string, data: Record<string, unknown>): BusEventRow {
+  return { id, ts: stamp(id), type, card_id: CARD, pr: null, head: null, dedupe_key: `test:${id}`, payload: JSON.stringify(data), actor: 'worker:launch:launch-1', legacy: false, data }
 }
+
+const STOPPED_ANSWER_ROUND: BusEventRow[] = [
+  row(0, CARD_STARTED, { session: LAUNCH_SESSION, worktree: TREE }),
+  row(10, CARD_STOPPED, { reason: 'question.owner', detail: 'a question' }),
+  row(20, SESSION_HEARTBEAT, { step: 'answer', session: ANSWER_ROUND_SESSION }),
+  row(25, CARD_STOPPED, { reason: 'fault', detail: 'the answer commit was refused outside the touches' }),
+  row(30, SESSION_HEARTBEAT, { step: 'review', session: REVIEW_SESSION }),
+]
+
+const RECORDED_BUS = {
+  ofCard: (_db: DatabaseSync, card: number, query?: { types?: readonly string[] }) => STOPPED_ANSWER_ROUND.filter(event => event.card_id === card && (query?.types?.includes(event.type) ?? true)),
+} as Partial<BusContract> as BusContract
+
+const NO_DB = {} as DatabaseSync
 
 function continuation(changed: string[]): CardStart {
   const ports: StarterPorts = {
@@ -97,12 +85,12 @@ function continuation(changed: string[]): CardStart {
     prompt: task => task.body,
     changedPaths: () => changed,
     readReport: () => null,
-    cardSessions: busCardSessions(busOfAStoppedAnswerRound()),
+    cardSessions: cardId => [...new Set(cardSessionsIn(RECORDED_BUS, NO_DB, cardId))],
     readTranscript: (worktree, session) => worktree === TREE ? JOURNALS[session] ?? null : null,
     treeFile: file => TREE_FILES[path.relative(TREE, file)] ?? null,
     freshen: () => ({ kind: 'kept', why: 'the fake tree is not a git tree' }),
   }
-  return new ShiftCardStarter({ launchDir: LAUNCH_DIR, claude: 'claude', treePr: 'true' }, ports).start({ cardId: CARD, lane: 'lane-1', continueIn: { worktree: TREE, base: null } })
+  return new ShiftCardStarter({ launchDir: LAUNCH_DIR, treePr: 'true' }, ports).start({ cardId: CARD, lane: 'lane-1', continueIn: { worktree: TREE, base: null } })
 }
 
 describe('the held tree guard and an answer round that stopped without card.answered', () => {
