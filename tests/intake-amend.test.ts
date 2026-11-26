@@ -17,8 +17,8 @@ import { INTAKE_EXIT } from '../src/commands/intake/index.js'
 
 const NOW = new Date('2026-10-13T09:00:00.000Z')
 const CARD = '#80 amend-card [implement/runner/S/cheap/owner] · depends — · blocks —'
-const ACCEPTANCE = '`pnpm exec vitest run tests/a.test.ts -t \'the change\'` exits 0; red on main'
-const INVARIANT = '`pnpm exec vitest run tests/a.test.ts -t \'the change\'` exits 0'
+const ACCEPTANCE = '`pnpm exec vitest run scripts/tests/a.test.ts -t \'the change\'` exits 0; red on main'
+const INVARIANT = '`pnpm exec vitest run scripts/tests/a.test.ts -t \'the change\'` exits 0'
 const LANE = 'lane-3'
 const roots: string[] = []
 
@@ -37,6 +37,8 @@ function world(): World {
   mkdirSync(path.join(repo, 'src', 'board'), { recursive: true })
   writeFileSync(path.join(repo, 'src', 'board', 'run.ts'), '')
   writeFileSync(path.join(repo, 'src', 'board', 'tail.ts'), '')
+  mkdirSync(path.join(repo, 'scripts', 'tests'), { recursive: true })
+  writeFileSync(path.join(repo, 'scripts', 'tests', 'a.test.ts'), '')
   const parking = path.join(root, 'parking')
   mkdirSync(parking, { recursive: true })
   return { root, parking, repo, bus: path.join(root, 'bus.db'), decisions: new InMemoryDecisions([]) }

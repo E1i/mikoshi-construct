@@ -162,9 +162,10 @@ describe('construct intake --admit derives the decision from architecture/owner-
 })
 
 describe('a refused witness downgrade hands the owner the decision admit accepts', () => {
-  const FIRST = '`pnpm exec vitest run tests/a.test.ts -t \'the change\'` exits 0; red on main'
-  const SECOND = '`pnpm exec vitest run tests/b.test.ts -t \'the change\'` exits 0; red on main'
-  const KEPT = '`pnpm exec vitest run tests/c.test.ts -t \'the change\'` exits 0'
+  const FIRST = '`pnpm exec vitest run scripts/tests/a.test.ts -t \'the change\'` exits 0; red on main'
+  const SECOND = '`pnpm exec vitest run scripts/tests/b.test.ts -t \'the change\'` exits 0; red on main'
+  const KEPT = '`pnpm exec vitest run scripts/tests/c.test.ts -t \'the change\'` exits 0'
+  const WITH_WITNESS_FILES = ['src/board/run.ts', 'scripts/tests/a.test.ts', 'scripts/tests/b.test.ts', 'scripts/tests/c.test.ts']
 
   function body(...witnesses: string[]): string {
     return `Do the thing.\n\nWitnesses:\n${witnesses.map(witness => `- ${witness}`).join('\n')}`
@@ -185,7 +186,7 @@ describe('a refused witness downgrade hands the owner the decision admit accepts
   }
 
   it('a refused witness downgrade prints the decisions:add command with the exact phrase admit accepts', () => {
-    const w = world(['src/board/run.ts'])
+    const w = world(WITH_WITNESS_FILES)
     const held = amended(w, path.join(path.dirname(w.repo), 'owner-decisions.md'))
     const command = 'pnpm decisions:add --card #90 "[owner] разрешить понижение свидетелей #90 W1 W2"'
     expect(held).toMatchObject({ status: 'ownerWait', downgrades: [FIRST, SECOND], command })
@@ -197,11 +198,11 @@ describe('a refused witness downgrade hands the owner the decision admit accepts
 
   it('a decision naming the card and the witnesses in any order with the word понижение allows the downgrade', () => {
     for (const words of ['[owner] W2 и W1 у #90: понижение разрешаю', '[owner] #90 — понижение W1, W2', '[owner] Понижение W2 W1 карты #90 разрешено']) {
-      const w = world(['src/board/run.ts'])
+      const w = world(WITH_WITNESS_FILES)
       expect(amended(w, decided(w, words)), words).toMatchObject({ status: 'admitted', source: 'amend' })
     }
     for (const [words, cards] of [['[owner] #90 W1 W2 разрешаю'], ['[owner] понижение W1 W2'], ['[owner] понижение #901 W1 W2'], ['[owner] понижение #90 W1 W21'], ['[owner] понижение #90 W1 W2', '#91']]) {
-      const w = world(['src/board/run.ts'])
+      const w = world(WITH_WITNESS_FILES)
       expect(amended(w, decided(w, words!, cards)), words).toMatchObject({ status: 'ownerWait' })
     }
   })

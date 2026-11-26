@@ -25,7 +25,7 @@ import { priorityLineOf, withKeptPriority } from '../../card/text-sha.js'
 import { isWitnessFieldLine, renderedWitness, runsFieldLine, runsFieldOf, witnessesOf, witnessFieldsOf, witnessText } from '../../card/witness-fields.js'
 import { readMilestones } from '../../manifest.js'
 import { findsNoTest, namedAbsentOutside, namedPaths, withinScope } from '../test-runner.js'
-import { cannotBeRedOnTheBase, CARD_REFERENCE, checkDraft, correctionText, FACTORY_TWIN, invalidTestPatterns, isChangeWitness, nonPathTouchRefusals, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf, unreachableCreatesRefusal } from './check.js'
+import { CARD_REFERENCE, checkDraft, correctionText, deadAtIntake, deadFilterRefusals, FACTORY_TWIN, invalidTestPatterns, isChangeWitness, nonPathTouchRefusals, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf, unreachableCreatesRefusal } from './check.js'
 import { TEST_NAME_ARGUMENT } from './command-word.js'
 import { admitCorrectionsNeedPerson, bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, isConfirmation, sameHeader, tokenConfirmation, TOUCHES_HEADER, windowShard } from './confirm.js'
 import { withoutWitnessKind } from './draft.js'
@@ -444,7 +444,7 @@ function admittedDraft(file: string, text: string | undefined): DraftCard | null
 }
 
 function withoutDead(downgrades: readonly string[], records: readonly RecordedWitnessVerdict[], admitted: DraftCard | null, repository: RepositoryFacts): string[] {
-  return downgrades.filter(witness => !deadOnTheBase(witness, records) && !(admitted !== null && cannotBeRedOnTheBase(admitted, witness, repository)))
+  return downgrades.filter(witness => !deadOnTheBase(witness, records) && !(admitted !== null && deadAtIntake(admitted, witness, repository)))
 }
 
 function standingReplacementAllowed(decisions: DecisionsPort, cardId: number): boolean {
@@ -643,7 +643,7 @@ export function runAdmit(options: AdmitOptions, now: () => Date = () => new Date
   if (invalidPatterns.length > 0)
     return { status: 'invalidTestPattern', reasons: invalidPatterns }
   const repository = new DirectoryFacts(options.dir, process.env.PATH ?? '')
-  const nonPaths = nonPathTouchRefusals([draft], repository)
+  const nonPaths = [...nonPathTouchRefusals([draft], repository), ...deadFilterRefusals([draft], repository)]
   if (nonPaths.length > 0)
     return { status: 'refused', why: nonPaths.join('; ') }
   const cards = options.cardStates?.()
