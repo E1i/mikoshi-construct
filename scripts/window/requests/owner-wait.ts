@@ -68,6 +68,7 @@ export const execute: RequestExecutor = (context, request, payload) => {
   const leftToTheBus = need === 'merge' ? mergeLeftToTheBus(context, pr, card) : null
   if (leftToTheBus !== null)
     return { done: false, why: leftToTheBus }
-  const id = openOwnerWait(context.db, context.now(), QUEUE_ACTOR, { need, text: waitText, request, ...(command === null ? {} : { command }), ...(card === null ? {} : { card }), ...(pr === null ? {} : { pr }) })
+  const lift = { on: [need === 'merge' && pr !== null ? 'pr-merged' as const : 'owner-answer' as const] }
+  const id = openOwnerWait(context.db, context.now(), QUEUE_ACTOR, { need, text: waitText, request, lift, ...(command === null ? {} : { command }), ...(card === null ? {} : { card }), ...(pr === null ? {} : { pr }) })
   return { done: true, why: `opened ${id}` }
 }

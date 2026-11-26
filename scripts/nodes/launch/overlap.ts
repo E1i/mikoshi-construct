@@ -69,6 +69,80 @@ export function taskConflicts(tasks: readonly ShiftTask[], shared: readonly stri
   })
 }
 
+export type Narrowing = (task: ShiftTask) => ShiftTask
+
+export function overlapPath(task: ShiftTask | null, other: ShiftTask | null, shared: readonly string[], narrow: Narrowing): string | null {
+  if (task === null || other === null)
+    return null
+  const meets = (touches: string[]): boolean => taskConflicts([narrow(other), narrow({ ...task, touches })], shared).length > 0
+  if (!meets(task.touches))
+    return null
+  return task.touches.find(touch => meets([touch])) ?? task.touches[0]!
+}
+
+export interface Contender {
+  cardId: number
+  priority: string | null
+  task: ShiftTask | null
+}
+
+export interface Overlap<H extends Contender> {
+  holder: H
+  path: string
+}
+
+export type Yields<H extends Contender> = (holder: H, claimant: Contender) => boolean
+
+export class OverlapVerdict<H extends Contender> {
+  private readonly held = new Map<number, Overlap<H>>()
+  private readonly taken: H[]
+
+  constructor(holding: readonly H[], private readonly holds: Yields<H>, private readonly shared: readonly string[], private readonly narrow: Narrowing) {
+    this.taken = [...holding]
+  }
+
+  get holding(): readonly H[] {
+    return this.taken
+  }
+
+  against(card: Contender): Overlap<H> | null {
+    for (const holder of this.taken) {
+      if (holder.cardId === card.cardId || !this.holds(holder, card))
+        continue
+      const path = overlapPath(card.task, holder.task, this.shared, this.narrow)
+      if (path !== null)
+        return { holder, path }
+    }
+    return null
+  }
+
+  claim(card: Contender, holder: H | null): Overlap<H> | null {
+    const overlap = this.against(card)
+    if (overlap !== null)
+      this.held.set(card.cardId, overlap)
+    else if (holder !== null)
+      this.taken.push(holder)
+    return overlap
+  }
+
+  of(cardId: number): Overlap<H> | null {
+    return this.held.get(cardId) ?? null
+  }
+
+  on(card: Contender): Overlap<H> | null {
+    return this.of(card.cardId) ?? this.against(card)
+  }
+}
+
+export type OverlapHold
+  = { kind: 'open-pr', pr: number, cardId: number, path: string }
+    | { kind: 'session', cardId: number, path: string }
+
+export function overlapHold({ holder, path }: Overlap<Contender>, openPrs: ReadonlyMap<number, number>): OverlapHold {
+  const pr = openPrs.get(holder.cardId)
+  return pr === undefined ? { kind: 'session', cardId: holder.cardId, path } : { kind: 'open-pr', pr, cardId: holder.cardId, path }
+}
+
 export function openPrWarnings(tasks: readonly ShiftTask[], prs: readonly OpenPr[], shared: readonly string[] = sharedAppendFiles()): string[] {
   return tasks.flatMap(task => prs.flatMap(pr => task.touches
     .filter(entry => pr.files.some(file => taskRelation(entry, file, shared) !== null))

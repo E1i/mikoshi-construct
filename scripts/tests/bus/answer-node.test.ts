@@ -198,7 +198,7 @@ async function askedUnderShard(made: MergeBench, question: string, isolation?: I
 }
 
 function ownerWaitOf(detail: string): Record<string, unknown> {
-  return { id: expect.stringMatching(/^Q\d+$/) as unknown, need: 'decision', text: `card #905 asks: ${detail}`, command: cardDecisionCommand(905), card: 905 }
+  return { id: expect.stringMatching(/^Q\d+$/) as unknown, need: 'decision', text: `card #905 asks: ${detail}`, command: cardDecisionCommand(905), card: 905, lift: { on: ['decision', 'amend'] } }
 }
 
 const KEPT_BY_THE_OWNER: Record<string, string[]> = {

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { isFullSha, prOf } from '../../core/identifiers.js'
+import { prOf } from '../../core/identifiers.js'
+import { isFullSha } from '../../ports/identifier-shapes.js'
 
 export interface DryRunRecord {
   pr: number

@@ -17,7 +17,7 @@ import { BUS_DB_VARIABLE, busDirOf } from '../../core/bus-path.js'
 import { factoryMode } from '../../core/card-bodies.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { BOARD_ALARM, BUS_PULSE, CARD_ADMITTED, CARD_DROPPED, CARD_RELEASED, CARD_STOPPED, OWNER_WAIT_OPENED, PR_CLOSED, PR_OPENED, REQUEST_DONE, REQUEST_REFUSED, SHARD_ISSUED, WINDOW_REQUEST } from '../../core/events.js'
-import { prBodySha, taskKey } from '../../core/identifiers.js'
+import { taskKey } from '../../core/identifiers.js'
 import { ownerInbox } from '../../core/inbox.js'
 import { failTask, leaseNext } from '../../core/lease.js'
 import { all as pullRequests } from '../../core/pr-readings.js'
@@ -34,6 +34,7 @@ import { decisionsAdder } from '../../policy/decisions/projection.js'
 import { roundLimitDecisionOf } from '../../policy/round-limit-decision.js'
 import { decisionsInForceAt } from '../../policy/shards.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
+import { prBodySha } from '../../ports/identifier-shapes.js'
 import { WORKTREE_HOME_VARIABLE } from '../../ports/worktree-home.js'
 import { busProjections, cardTransitions, DECISION_EVENT_READS, windowRequestBus } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
@@ -583,6 +584,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
       withLiveShard(made)
       ask(made, WAIT)
       expect(made.requests().run()).toMatchObject([{ kind: 'done', detail: 'opened Q1' }])
+      expect(eventsOf(made.bench.db, OWNER_WAIT_OPENED)).toMatchObject([{ id: 'Q1', need: 'merge', pr: PR, lift: { on: ['pr-merged'] } }])
     })
 
     it.each([

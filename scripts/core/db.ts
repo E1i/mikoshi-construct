@@ -3,9 +3,11 @@ import type { OwnerWaitNeed } from './bus-readings.js'
 import { appendFileSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
+import { isFullSha } from '../ports/identifier-shapes.js'
 import { CLOSED_WAIT, OPEN_WAIT, OWNER_WAIT_NEEDS, OWNER_WAITS } from './bus-readings.js'
-import { OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PROCESS_HEARTBEAT } from './events.js'
-import { isActor, isFullSha, prOf } from './identifiers.js'
+import { events } from './events-query.js'
+import { OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_CLOSED, PR_OBSERVED, PROCESS_HEARTBEAT, REJECTED, REVIEW_RECORDED, WITNESS_RECORDED } from './events.js'
+import { isActor, prOf } from './identifiers.js'
 import { openDatabase } from './sqlite.js'
 
 export { BUS_DB_VARIABLE, defaultBusPath } from './bus-path.js'
@@ -301,9 +303,30 @@ export { CLOSED_WAIT, OPEN_WAIT, OWNER_WAIT_NEEDS, OWNER_WAITS }
 export type { OwnerWaitNeed }
 export const WAIT_ID = /^Q(\d+)$/
 
+export const WAIT_LIFT_KINDS = ['new-head', 'amend', 'passed-on-head', 'decision', 'pr-merged', 'dependency-merged', 'owner-answer'] as const
+
+export type WaitLiftKind = typeof WAIT_LIFT_KINDS[number]
+
+export interface WaitLift {
+  on: readonly WaitLiftKind[]
+  head?: string
+}
+
+export const OWNER_ANSWER_LIFT: WaitLift = { on: ['owner-answer'] }
+
+const HELD_AT_OPEN: readonly WaitLiftKind[] = ['passed-on-head', 'pr-merged']
+
+export function isWaitLift(value: unknown): value is WaitLift {
+  if (typeof value !== 'object' || value === null)
+    return false
+  const { on, head } = value as Record<string, unknown>
+  return Array.isArray(on) && on.length > 0 && on.every(kind => (WAIT_LIFT_KINDS as readonly unknown[]).includes(kind)) && (head === undefined || typeof head === 'string')
+}
+
 export interface OwnerWaitAsk {
   need: OwnerWaitNeed
   text: string
+  lift?: WaitLift
   command?: string
   card?: number
   pr?: number
@@ -323,13 +346,68 @@ const UNCLOSED_WAIT_OF = `
   ORDER BY opened.id
 `
 
+const GREEN_WITNESS = 'green'
+const PASSED_REVIEW = 'pass'
+
+function refusedByTheReducer(db: DatabaseSync, id: string): boolean {
+  return events(db, { types: [REJECTED], keys: [`${REJECTED}:${OWNER_WAIT_OPENED}:${id}`], limit: 1 }).length > 0
+}
+
+function closedByAnEvent(db: DatabaseSync, id: string): boolean {
+  return events(db, { types: [OWNER_WAIT_CLOSED] }).some(closed => closed.data?.id === id)
+}
+
+export function currentHeadOf(db: DatabaseSync, pr: number): string | null {
+  return events(db, { types: [PR_OBSERVED], pr, newestFirst: true }).find(observed => observed.head !== null)?.head ?? null
+}
+
+function latestVerdict(db: DatabaseSync, type: string, pr: number, head: string): unknown {
+  return events(db, { types: [type], pr, head, newestFirst: true, limit: 1 })[0]?.data?.verdict
+}
+
+export function headPassed(db: DatabaseSync, pr: number): string | null {
+  const head = currentHeadOf(db, pr)
+  if (head === null)
+    return null
+  return latestVerdict(db, WITNESS_RECORDED, pr, head) === GREEN_WITNESS && latestVerdict(db, REVIEW_RECORDED, pr, head) === PASSED_REVIEW ? head : null
+}
+
+export function mergeOfPr(db: DatabaseSync, pr: number): number | null {
+  return events(db, { types: [PR_CLOSED], pr }).find(closed => closed.data?.merged === true)?.id ?? null
+}
+
+export function liftHeldAtOpen(db: DatabaseSync, ask: Pick<OwnerWaitAsk, 'lift' | 'pr'>): WaitLiftKind | null {
+  const pr = ask.pr
+  if (pr === undefined || ask.lift === undefined)
+    return null
+  const held: Record<string, () => boolean> = {
+    'passed-on-head': () => headPassed(db, pr) !== null,
+    'pr-merged': () => mergeOfPr(db, pr) !== null,
+  }
+  return ask.lift.on.find(kind => HELD_AT_OPEN.includes(kind) && held[kind]!()) ?? null
+}
+
 function nextWaitId(db: DatabaseSync): string {
   const ids = db.prepare(`SELECT json_extract(payload, '$.id') AS id FROM events WHERE type = '${OWNER_WAIT_OPENED}'`).all() as { id: unknown }[]
   const numbers = ids.map(row => WAIT_ID.exec(typeof row.id === 'string' ? row.id : '')?.[1]).filter(found => found !== undefined).map(Number)
   return `Q${Math.max(0, ...numbers) + 1}`
 }
 
-export function openOwnerWait(db: DatabaseSync, ts: string, actor: string, ask: OwnerWaitAsk): string {
+function openForTheSameReason(db: DatabaseSync, ask: OwnerWaitAsk, closedWaits: readonly string[] | null): string | null {
+  if (ask.card === undefined || closedWaits === null)
+    return null
+  const sameReason = events(db, { types: [OWNER_WAIT_OPENED], card: ask.card })
+    .filter(opened => opened.data?.need === ask.need && (opened.data?.command ?? null) === (ask.command ?? null) && opened.data?.text === ask.text)
+    .map(opened => String(opened.data?.id))
+  return sameReason.find(id => !closedWaits.includes(id) && !closedByAnEvent(db, id) && !refusedByTheReducer(db, id)) ?? null
+}
+
+export function openOwnerWait(db: DatabaseSync, ts: string, actor: string, ask: OwnerWaitAsk, closedWaits: readonly string[] | null = null): string {
+  if (ask.lift !== undefined && !isWaitLift(ask.lift))
+    throw new Error(`an owner wait names a lift that is not one of ${WAIT_LIFT_KINDS.join(' | ')}: ${JSON.stringify(ask.lift)}; nothing written`)
+  const standing = openForTheSameReason(db, ask, closedWaits)
+  if (standing !== null)
+    return standing
   const id = nextWaitId(db)
   const { need, text, ...named } = ask
   appendEvent(db, { ts, type: OWNER_WAIT_OPENED, actor, cardId: ask.card ?? null, pr: ask.pr ?? null, head: null, dedupeKey: `${OWNER_WAIT_OPENED}:${id}`, payload: { id, need, text, ...named }, legacy: false })
@@ -338,7 +416,7 @@ export function openOwnerWait(db: DatabaseSync, ts: string, actor: string, ask: 
 
 export function openBusWait(db: DatabaseSync, closedWaits: readonly string[], ts: string, actor: string, ask: OwnerWaitAsk): string {
   const unclosed = db.prepare(UNCLOSED_WAIT_OF).all(ask.need, ask.command ?? null, ask.pr ?? null) as { id: string }[]
-  return unclosed.find(wait => !closedWaits.includes(wait.id))?.id ?? openOwnerWait(db, ts, actor, ask)
+  return unclosed.find(wait => !closedWaits.includes(wait.id) && !refusedByTheReducer(db, wait.id))?.id ?? openOwnerWait(db, ts, actor, ask, closedWaits)
 }
 
 const UNREDUCED_CLOSE_OF = `

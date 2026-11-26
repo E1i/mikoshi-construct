@@ -6,6 +6,7 @@ import type { EventRow } from '../../core/events-query.js'
 import type { MachineHold, MachineSessions } from '../../core/machine-sessions.js'
 import type { QueuedTask, QueueSource } from '../../core/queue.js'
 import type { Holder } from './holders.js'
+import type { OverlapHold } from './overlap.js'
 import { existsSync } from 'node:fs'
 import process from 'node:process'
 import { parseParkingFile, PRIORITIES, WINDOW_WHO } from '../../../src/card/parking.js'
@@ -30,7 +31,7 @@ import { isAlive } from '../../quality/lock.js'
 import { beatsLive } from '../../supervisor/liveness-sites.js'
 import { holderOf, HoldRule, observedDiff, unclearField, withDiff } from './holders.js'
 import { chainLaneNumber, currentLane, heldByStall, ownerMergeHolders, repositoryLanes, stalledCards, startOrder, withoutDerived } from './lane-assign.js'
-import { taskConflicts } from './overlap.js'
+import { overlapHold, overlapPath, OverlapVerdict } from './overlap.js'
 import { sharedAppendFiles } from './shared-files.js'
 
 export const FALLS_BEFORE_CUT = 2
@@ -229,17 +230,7 @@ function parkedOf(row: LifeRow, payload: Record<string, unknown>): ParkedTask | 
   return parsed.kind === 'parked' ? parsed.parked : null
 }
 
-function conflicting(task: ShiftTask | null, other: ShiftTask | null, shared: readonly string[]): boolean {
-  return task !== null && other !== null && taskConflicts([withoutDerived(other), withoutDerived(task)], shared).length > 0
-}
-
-function overlappingPath(task: ShiftTask, other: ShiftTask | null, shared: readonly string[]): string {
-  return task.touches.find(touch => conflicting({ ...task, touches: [touch] }, other, shared)) ?? task.touches[0]!
-}
-
-function overlapsAny(life: CardLife, taken: readonly Holder<ShiftTask, Priority>[], shared: readonly string[]): boolean {
-  return taken.some(holder => HOLDS.holdsAgainst(holder, life) && conflicting(life.task, holder.task, shared))
-}
+type CardHolder = Holder<ShiftTask, Priority>
 
 function generationOf(row: LifeRow, payload: Record<string, unknown>): string {
   return typeof payload.admission === 'string' && payload.admission !== '' ? payload.admission : row.dedupe_key
@@ -402,7 +393,7 @@ function waitOnDroppedDependencies(db: DatabaseSync, queued: readonly CardLife[]
     for (const parent of life.depends.filter(each => dropped.has(each))) {
       const text = droppedDependencyWaitText(life.cardId, parent)
       if (!asked.has(text))
-        openOwnerWait(db, stamp.ts, stamp.actor, { need: 'decision', text, card: life.cardId })
+        openOwnerWait(db, stamp.ts, stamp.actor, { need: 'decision', text, card: life.cardId, lift: { on: ['amend', 'decision'] } })
     }
   }
 }
@@ -414,9 +405,9 @@ function withAssignedLanes(db: DatabaseSync, lives: Map<number, CardLife>): Map<
 }
 
 interface Holds {
-  holding: Holder<ShiftTask, Priority>[]
-  busy: Holder<ShiftTask, Priority>[]
-  heldByStalls: Map<string, Holder<ShiftTask, Priority>[]>
+  verdict: OverlapVerdict<CardHolder>
+  busy: CardHolder[]
+  heldByStalls: Map<string, CardHolder[]>
   launching: ReadonlySet<number>
 }
 
@@ -424,12 +415,13 @@ function launchHeldByItsQuestion(db: DatabaseSync, cardId: number, beating: Read
   return !beating.has(cardId) && heldSessionStop(db, cardId) !== null
 }
 
-function holdsOf(db: DatabaseSync, lives: ReadonlyMap<number, CardLife>, merged: ReadonlySet<number>, openPrs: ReadonlySet<number>, beating: ReadonlySet<number>): Holds {
+function holdsOf(db: DatabaseSync, lives: ReadonlyMap<number, CardLife>, merged: ReadonlySet<number>, openPrs: ReadonlySet<number>, beating: ReadonlySet<number>, shared: readonly string[]): Holds {
   const launching = cardSet(db, OPEN_LAUNCHES)
   const ended = cardSet(db, ENDED_CARDS)
   const stalled = new Set(stalledCards(db).map(stall => stall.cardId))
   const waitingOnOwner = ownerMergeHolders(db)
-  const holds: Holds = { holding: [], busy: [], heldByStalls: new Map(), launching }
+  const holds: Omit<Holds, 'verdict'> = { busy: [], heldByStalls: new Map(), launching }
+  const [holders, launches]: [CardHolder[], [CardLife, CardHolder][]] = [[], []]
   for (const life of lives.values()) {
     const running = runs(life) && !merged.has(life.cardId) && !ended.has(life.cardId)
     const launchHolds = launching.has(life.cardId) && !launchHeldByItsQuestion(db, life.cardId, beating)
@@ -443,15 +435,19 @@ function holdsOf(db: DatabaseSync, lives: ReadonlyMap<number, CardLife>, merged:
       holds.heldByStalls.set(life.lane!, [...(holds.heldByStalls.get(life.lane!) ?? []), holder])
     else if (life.lane !== null && !pullRequestOnly)
       holds.busy.push(holder)
-    if (holding)
-      holds.holding.push(holder)
+    if (launchHolds && !running && !openPrs.has(life.cardId))
+      launches.push([life, holder])
+    else if (holding)
+      holders.push(holder)
   }
-  return holds
+  const verdict = new OverlapVerdict(holders, (holder, claimant) => HOLDS.holdsAgainst(holder, claimant), shared, withoutDerived)
+  const order = startOrder([...lives.values()])
+  launches.sort(([a], [b]) => order(a, b)).forEach(([life, holder]) => verdict.claim(life, holder))
+  return { ...holds, verdict }
 }
 
 export type StartableHold
-  = { kind: 'open-pr', pr: number, cardId: number, path: string }
-    | { kind: 'session', cardId: number, path: string }
+  = OverlapHold
     | { kind: 'lane', cardId: number, lane: string }
     | { kind: 'slots' }
     | { kind: 'launching' }
@@ -537,12 +533,9 @@ function residualHold(life: CardLife, holds: Holds, machine: MachineReader): Sta
 function holdOf(life: CardLife, holds: Holds, openPrs: ReadonlyMap<number, number>, shared: readonly string[], lanes: number, machine: MachineReader): StartableHold {
   if (life.windowsToWork)
     return windowHold(life)
-  const overlapping = holds.holding.find(holder => holder.cardId !== life.cardId && HOLDS.holdsAgainst(holder, life) && conflicting(life.task, holder.task, shared))
-  if (overlapping !== undefined) {
-    const path = overlappingPath(life.task!, overlapping.task, shared)
-    const pr = openPrs.get(overlapping.cardId)
-    return pr === undefined ? { kind: 'session', cardId: overlapping.cardId, path } : { kind: 'open-pr', pr, cardId: overlapping.cardId, path }
-  }
+  const overlap = holds.verdict.on(life)
+  if (overlap !== null)
+    return overlapHold(overlap, openPrs)
   if (life.lane === null)
     return residualHold(life, holds, machine)
   if (outsideTheLanes(life.lane, lanes))
@@ -570,11 +563,13 @@ export function waitHeldAtTheExit(db: DatabaseSync, ts: string, actor: string, e
   return true
 }
 
-export function startHold(db: DatabaseSync, cardId: number, lanes: number, machine: MachineReader): StartableHold | null {
-  const life = withAssignedLanes(db, cardLives(db)).get(cardId)
-  if (life !== undefined && outsideTheLanes(life.lane, lanes) && isQueued(life, settledCards(db, cardSet(db, MERGED_CARDS))))
+export function startHold(db: DatabaseSync, cardId: number, lanes: number, machine: MachineReader, nowMs: number = Date.now(), shared: readonly string[] = sharedAppendFiles()): StartableHold | null {
+  const lives = withAssignedLanes(db, cardLives(db))
+  const [life, merged] = [lives.get(cardId), cardSet(db, MERGED_CARDS)]
+  if (life !== undefined && outsideTheLanes(life.lane, lanes) && isQueued(life, settledCards(db, merged)))
     return { kind: 'lane-outside', lane: life.lane!, lanes }
-  return machineHoldOf(machine)
+  const overlap = holdsOf(db, lives, merged, cardSet(db, OPEN_PR_CARDS), cardsBeatingLive(db, nowMs), shared).verdict.of(cardId)
+  return overlap === null ? machineHoldOf(machine) : overlapHold(overlap, openPrNumbers(db))
 }
 
 export const dependencyReadings = (db: DatabaseSync) => ({ pullRequests: () => prs.all(db), journal: () => legacyHistory(db) })
@@ -586,7 +581,7 @@ interface QueuedView {
   prNumbers: Map<number, number>
 }
 
-function queuedView(db: DatabaseSync, treeLive: TreeReader, nowMs: number, withWindowCards = false): QueuedView {
+function queuedView(db: DatabaseSync, treeLive: TreeReader, nowMs: number, shared: readonly string[], withWindowCards = false): QueuedView {
   const lives = withAssignedLanes(db, cardLives(db))
   const merged = cardSet(db, MERGED_CARDS)
   const settled = settledCards(db, merged)
@@ -597,11 +592,11 @@ function queuedView(db: DatabaseSync, treeLive: TreeReader, nowMs: number, withW
   const falls = fallCounts(db)
   const queued = [...lives.values()]
     .filter(life => !noLongerCandidates.has(life.cardId) && (withWindowCards || !life.windowsToWork) && (falls.get(life.cardId) ?? 0) < FALLS_BEFORE_CUT && isQueued(life, settled) && !heldOutside(life, openPrs, trees, beating) && cardHoldOf(db, life.cardId) === null)
-  return { queued, unsatisfied: unsatisfiedDependencies(BUS_CONTRACT, db, dependencyReadings(db)), holds: holdsOf(db, lives, merged, openPrs, beating), prNumbers: openPrNumbers(db) }
+  return { queued, unsatisfied: unsatisfiedDependencies(BUS_CONTRACT, db, dependencyReadings(db)), holds: holdsOf(db, lives, merged, openPrs, beating, shared), prNumbers: openPrNumbers(db) }
 }
 
 export function startableCards(db: DatabaseSync, treeLive: TreeReader = existsSync, now: () => number = Date.now, shared: readonly string[] = sharedAppendFiles(), lanes: () => number = repositoryLanes(process.cwd()), machine: MachineReader = machineSessions(isAlive)): StartableCard[] {
-  const view = queuedView(db, treeLive, now(), true)
+  const view = queuedView(db, treeLive, now(), shared, true)
   return view.queued
     .filter(life => view.unsatisfied(life.depends).length === 0)
     .map(life => ({ cardId: life.cardId, admittedTs: life.admittedTs, hold: startableHold(db, life, view, shared, lanes(), machine) }))
@@ -627,7 +622,7 @@ function dependencyHold(life: CardLife, dropped: ReadonlySet<number>, unsatisfie
 }
 
 export function laneHeadHolds(db: DatabaseSync, treeLive: TreeReader = existsSync, now: () => number = Date.now, shared: readonly string[] = sharedAppendFiles(), lanes: () => number = repositoryLanes(process.cwd()), machine: MachineReader = machineSessions(isAlive)): LaneHeadHold[] {
-  const view = queuedView(db, treeLive, now())
+  const view = queuedView(db, treeLive, now(), shared)
   const dropped = droppedCards(db)
   const laned = view.queued.filter(life => life.lane !== null)
   const heads = new Map<string, CardLife>()
@@ -690,8 +685,8 @@ export function questionReleasedOverlaps(db: DatabaseSync, nowMs: number, shared
   const settled = settledCards(db, cardSet(db, MERGED_CARDS))
   const released = [...cardSet(db, OPEN_LAUNCHES)].filter(cardId => launchHeldByItsQuestion(db, cardId, beating)).flatMap(cardId => lives.get(cardId) ?? [])
   return released.flatMap(stopped => [...lives.values()]
-    .filter(life => life.cardId !== stopped.cardId && isQueued(life, settled) && conflicting(life.task, stopped.task, shared))
-    .map(life => ({ cardId: life.cardId, stopped: stopped.cardId, path: overlappingPath(life.task!, stopped.task, shared), waits: openWaitsOf(db, stopped.cardId) })))
+    .filter(life => life.cardId !== stopped.cardId && isQueued(life, settled))
+    .flatMap(life => [overlapPath(life.task, stopped.task, shared, withoutDerived)].filter(path => path !== null).map(path => ({ cardId: life.cardId, stopped: stopped.cardId, path, waits: openWaitsOf(db, stopped.cardId) }))))
 }
 
 export function questionReleasedLine(overlap: QuestionReleasedOverlap): string {
@@ -728,10 +723,12 @@ export function plannedStalls(db: DatabaseSync, nowMs: number, treeLive: TreeRea
   return [...startableStalls(db, nowMs, treeLive, shared, lanes, machine), ...heldSessions(db, nowMs, machine)]
 }
 
-function logSkips(db: DatabaseSync, onSkip: LaunchCatch['skipped'], launching: ReadonlySet<number>, nowMs: number, treeLive: TreeReader, shared: readonly string[], lanes: () => number, machine: MachineReader): void {
-  for (const card of startableStalls(db, nowMs, treeLive, shared, lanes, machine)) {
-    if (card.hold.kind !== 'slots' || launching.has(card.cardId))
-      onSkip(card.cardId, holdReason(card.hold))
+function logSkips(db: DatabaseSync, onSkip: LaunchCatch['skipped'], verdict: OverlapVerdict<CardHolder>, lives: ReadonlyMap<number, CardLife>, launching: ReadonlySet<number>, stalls: readonly StartableCard[]): void {
+  for (const card of stalls) {
+    const overlap = card.hold.kind === 'window' || card.hold.kind === 'unclear' ? null : verdict.on(lives.get(card.cardId)!)
+    const hold = overlap === null ? card.hold : overlapHold(overlap, openPrNumbers(db))
+    if (hold.kind !== 'slots' || launching.has(card.cardId))
+      onSkip(card.cardId, holdReason(hold))
   }
 }
 
@@ -748,9 +745,8 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
   const beating = cardsBeatingLive(db, now())
   const noLongerCandidates = cardSet(db, NO_LONGER_CANDIDATES)
   const falls = fallCounts(db)
-  const { holding, busy: busyCards, heldByStalls } = holdsOf(db, lives, merged, openPrs, beating)
+  const { verdict, busy: busyCards, heldByStalls } = holdsOf(db, lives, merged, openPrs, beating, shared)
   const busy = [...busyCards]
-  const taken = [...holding]
   const chosen: LaunchCandidate[] = []
   const open = [...lives.values()].filter(life => !noLongerCandidates.has(life.cardId))
   if ('stamp' in onOverlap)
@@ -765,24 +761,28 @@ export function launchCandidates(db: DatabaseSync, treeLive: TreeReader = exists
       }
       continue
     }
+    if (launching.has(life.cardId)) {
+      if (verdict.of(life.cardId) !== null)
+        onOverlap(life.cardId, life.generation)
+      continue
+    }
     if (!isQueued(life, settled) || (life.lane !== null && (outsideTheLanes(life.lane, laneLimit) || busy.some(holder => holder.lane === life.lane && HOLDS.holdsAgainst(holder, life)) || heldByStall(life, (heldByStalls.get(life.lane) ?? []).filter(holder => HOLDS.holdsAgainst(holder, life)), shared))) || unsatisfied(life.depends).length > 0 || heldOutside(life, openPrs, trees, beating) || heldSessionStop(db, life.cardId)?.code === OUTSIDE_TOUCHES)
       continue
     if (bodyNotFoldedYet(BUS_CONTRACT, db, life.cardId))
       continue
-    if (overlapsAny(life, taken, shared)) {
+    const started = holderOf(life, life.task, false)
+    if (verdict.claim(life, free > 0 ? started : null) !== null) {
       onOverlap(life.cardId, life.generation)
       continue
     }
     if (free <= 0)
       continue
     free -= 1
-    const started = holderOf(life, life.task, false)
     busy.push(started)
-    taken.push(started)
     chosen.push({ cardId: life.cardId, generation: life.generation, ...continuedTree(life, trees) })
   }
   if ('skipped' in onOverlap)
-    logSkips(db, onOverlap.skipped, launching, now(), treeLive, shared, lanes, machine)
+    logSkips(db, onOverlap.skipped, verdict, lives, launching, startableStalls(db, now(), treeLive, shared, lanes, machine).filter(card => !chosen.some(each => each.cardId === card.cardId)))
   if ('stamp' in onOverlap) {
     const starting = new Set(chosen.map(candidate => candidate.cardId))
     recordLaneHolds(db, laneHeadHolds(db, treeLive, now, shared, lanes, machine).filter(head => !starting.has(head.cardId)), onOverlap.stamp)

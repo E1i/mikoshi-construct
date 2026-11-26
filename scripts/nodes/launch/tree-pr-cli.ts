@@ -15,6 +15,7 @@ import { treeReportPath } from '../../core/places.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
 import { openDatabase } from '../../core/sqlite.js'
 import { cardContract } from '../../intake/card-contract.js'
+import { launchPolicy } from '../../ports/client/role-policy.js'
 import { execGh, stdoutOrThrow } from '../../ports/gh.js'
 import { pnpmRerun, processGit } from '../../ports/git.js'
 import { clientInvocation, sessionEnv } from '../../ports/session.js'
@@ -163,7 +164,7 @@ export function claudeResume(busPath: string, binary?: string, ceilingMs = RETUR
     }
     if (session === undefined)
       return false
-    const invocation = clientInvocation({ kind: 'resume', role: 'launch', session, cwd: worktree, prompt, addDirs: [], pick: { model: null }, policy: { profile: 'sandboxed', gateCommands: readShiftGate(worktree).prepush, writePaths: [], mcpOff: true, tools: cardToolsOf(`${cardId}.md`, cardText) } })
+    const invocation = clientInvocation({ kind: 'resume', role: 'launch', session, cwd: worktree, prompt, addDirs: [], pick: { model: null }, policy: launchPolicy(readShiftGate(worktree).prepush, cardToolsOf(`${cardId}.md`, cardText)) })
     const run = spawnSync(binary ?? invocation.command, invocation.args, { cwd: worktree, env: { ...sessionEnv(process.env, cardId), ...invocation.env }, stdio: ['ignore', 'inherit', 'inherit'], timeout: ceilingMs, killSignal: 'SIGKILL' })
     return run.error === undefined && run.status === 0
   }
@@ -209,7 +210,7 @@ function busOwnerWait(bus: PrOpenedBus): OwnerWaitOpener {
   return (cardId, text) => {
     const db = openBus(bus.busPath)
     try {
-      return openOwnerWait(db, bus.now().toISOString(), `worker:shift:${bus.pid}`, { need: 'decision', text, ...(cardId === null ? {} : { card: cardId }) })
+      return openOwnerWait(db, bus.now().toISOString(), `worker:shift:${bus.pid}`, { need: 'decision', text, ...(cardId === null ? {} : { card: cardId }), lift: { on: ['decision', 'amend'] } })
     }
     finally {
       db.close()

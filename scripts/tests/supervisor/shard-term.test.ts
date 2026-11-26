@@ -18,8 +18,8 @@ class FakeBus {
   readonly waits: OpenedWait[] = []
   readonly closed = new Set<string>()
 
-  issue(id: string, until: Date): void {
-    this.shards.push({ id, scope: 'merge+decisions', until: until.toISOString() })
+  issue(id: string, until: Date, scope = 'merge+decisions'): void {
+    this.shards.push({ id, scope, until: until.toISOString() })
   }
 
   parts(): ShardTermParts {
@@ -28,7 +28,7 @@ class FakeBus {
       noticeHours: NOTICE_HOURS,
       renewal: RENEWAL,
       active: now => unended().filter(shard => Date.parse(shard.until) > now.getTime()),
-      expired: now => unended().filter(shard => Date.parse(shard.until) <= now.getTime()).map(shard => shard.id),
+      expired: now => unended().filter(shard => Date.parse(shard.until) <= now.getTime()),
       noticed: id => this.waits.some(wait => namesNoticeOf(wait.text, id)),
       ask: (wait, _now, expiring) => {
         if (expiring !== null)
@@ -39,6 +39,9 @@ class FakeBus {
         const id = `Q${this.waits.length + 1}`
         this.waits.push({ id, ...wait })
         return id
+      },
+      retire: (id) => {
+        this.expiries.push(id)
       },
     }
   }

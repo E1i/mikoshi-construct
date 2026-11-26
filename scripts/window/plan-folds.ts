@@ -1,8 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { StoredEvent } from '../core/stored-event.js'
 import { CARD_PLANNED, CARD_UNPLANNED, CLOSED_PLAN, OPEN_PLAN, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_ITEM_ADDED, PLAN_ITEM_LINKED, PLAN_ITEM_REMOVED, PLAN_OPENED } from '../core/events.js'
-import { cardIdOf } from '../core/identifiers.js'
 import { reject } from '../core/stored-event.js'
+import { cardIdOf } from '../ports/identifier-shapes.js'
 
 export interface PlanParts {
   owner: string

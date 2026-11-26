@@ -13,9 +13,10 @@ export interface ShardTermParts {
   noticeHours: number
   renewal: string
   active: (now: Date) => ShardOnTerm[]
-  expired: (now: Date) => string[]
+  expired: (now: Date) => ShardOnTerm[]
   noticed: (id: string) => boolean
   ask: (wait: ShardWait, now: Date, expiring: string | null) => string
+  retire: (id: string, now: Date) => void
 }
 
 export const SHARD_TERM_ACTOR = 'worker:supervisor:shard-term'
@@ -42,6 +43,17 @@ export function expiredShardText(id: string, now: Date): string {
   return `window shard ${id} expired at ${now.toISOString()}; until a renewal the window works without a shard and merges under it are refused`
 }
 
+const SCOPE_PARTS = '+'
+
+export function coversScope(live: string, ended: string): boolean {
+  const held = new Set(live.split(SCOPE_PARTS))
+  return ended.split(SCOPE_PARTS).every(part => held.has(part))
+}
+
+export function supersededShardText(id: string, by: string): string {
+  return `window shard ${id} expired, superseded by the live shard ${by} of equal or wider scope; no owner wait`
+}
+
 export class ShardTerm {
   private readonly reported = new Set<string>()
 
@@ -61,8 +73,15 @@ export class ShardTerm {
   }
 
   private sweep(now: Date): string[] {
-    const expired = this.parts.expired(now).map(id => this.ask(now, expiredShardText(id, now), id))
-    const due = this.parts.active(now).filter(shard => this.noticeDue(shard, now))
+    const live = this.parts.active(now)
+    const expired = this.parts.expired(now).map((shard) => {
+      const successor = live.find(each => coversScope(each.scope, shard.scope))
+      if (successor === undefined)
+        return this.ask(now, expiredShardText(shard.id, now), shard.id)
+      this.parts.retire(shard.id, now)
+      return `${this.prefix}${supersededShardText(shard.id, successor.id)}`
+    })
+    const due = live.filter(shard => this.noticeDue(shard, now))
     const ending = due.length === 0 ? [] : [this.ask(now, endingShardsText(due, now), null)]
     return [...expired, ...ending].flatMap(line => line === null ? [] : [line])
   }

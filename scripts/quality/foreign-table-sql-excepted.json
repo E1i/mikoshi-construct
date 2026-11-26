@@ -5,7 +5,6 @@
   "scripts/intake/parking-reads.ts",
   "scripts/ports/netwatch.ts",
   "scripts/ports/task-start.ts",
-  "scripts/ports/worktree-home.ts",
   "scripts/release/evidence.ts",
   "scripts/window/board.ts",
   "scripts/window/card-measure.ts",

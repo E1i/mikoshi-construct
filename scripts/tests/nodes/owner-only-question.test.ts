@@ -110,6 +110,8 @@ describe('a question only the owner can answer', () => {
     expect(ratchetRowsAskedToGrow(`${ROW} 5→4, the import left`)).toEqual([])
     expect(ratchetRowsAskedToGrow(PLAIN_QUESTION)).toEqual([])
     expect(ratchetRowsAskedToGrow(`grow lines:scripts/board/board-page.ts. to 1941?`)).toEqual(['lines:scripts/board/board-page.ts'])
+    expect(ratchetRowsAskedToGrow('may contract/ratchet.json raise gate:bus to 647?')).toEqual(['gate:bus'])
+    expect(ratchetRowsAskedToGrow('gate:bus 648→647 after the cure')).toEqual([])
   })
 
   it('another question after a plain stop stays with the agent', async () => {

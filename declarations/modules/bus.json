@@ -11,8 +11,6 @@
     "scripts/core/executor-holds.ts",
     "scripts/core/node.ts",
     "scripts/core/stored.ts",
-    "scripts/core/errors.ts",
-    "scripts/core/bus-path.ts",
     "scripts/core/bus-readings.ts",
     "scripts/core/projection-types.ts",
     "scripts/core/bus-version.ts",
@@ -27,7 +25,10 @@
     "scripts/core/projection-writes.ts",
     "scripts/core/projection-writes.known.json",
     "scripts/core/rejection.ts",
-    "scripts/core/bus-adapter.ts"
+    "scripts/core/bus-adapter.ts",
+    "scripts/core/identifiers.ts",
+    "scripts/ports/bus-read.ts",
+    "scripts/ports/worktree-home.ts"
   ],
   "exclude": [],
   "shared": []

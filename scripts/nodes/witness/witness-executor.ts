@@ -17,13 +17,13 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { stripVTControlCharacters } from 'node:util'
 import { latest, ofCard } from '../../core/events-query.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, POLICY_DENIED, QUESTION_AGENT, WITNESS_RECORDED } from '../../core/events.js'
-import { isFullSha } from '../../core/identifiers.js'
 import { assertHeld, completeTask, failTask, RENEW_MS, StaleLease } from '../../core/lease.js'
 import { instanceOf, recordChildEnded, recordChildStarted } from '../../core/node.js'
 import { ofCard as prsOfCard } from '../../core/pr-readings.js'
 import { baseOfKey, LEASE_MS } from '../../core/queue.js'
 import { GREEN, RED, UNCHECKED, witnessSubjectOf } from '../../policy/policy.js'
 import { execGh, stdoutOrThrow } from '../../ports/gh.js'
+import { isFullSha } from '../../ports/identifier-shapes.js'
 import { serveRecordAt } from '../../ports/serve-record.js'
 import { witnessEnv } from '../../ports/session.js'
 import { BASE_PHASE, cardScopeOfAdmitted, namedOutsideTheCard, redOnMainProposal, runOnTreeAsync, witnessesFindingNoTest } from '../../ports/witnesses.js'
@@ -303,8 +303,21 @@ function anOpenPrOfItsOwn(db: DatabaseSync, cardId: number): boolean {
   return prsOfCard(db, cardId).some(pr => pr.state === 'open')
 }
 
+const TURNS = [CARD_ADMITTED, ...SESSION_STARTS, ...SESSION_ENDS]
+
+function everStarted(db: DatabaseSync, cardId: number): boolean {
+  return latest(db, { card: cardId, types: SESSION_STARTS }) !== null
+}
+
+function anOpenTurn(db: DatabaseSync, cardId: number): boolean {
+  const turn = latest(db, { card: cardId, types: TURNS })
+  if (turn?.type === CARD_STOPPED)
+    return true
+  return turn?.type === CARD_ADMITTED && everStarted(db, cardId)
+}
+
 function closableOnMain(db: DatabaseSync, cardId: number): boolean {
-  return !aLiveSession(db, cardId) && !anOpenPrOfItsOwn(db, cardId)
+  return !aLiveSession(db, cardId) && !anOpenPrOfItsOwn(db, cardId) && !anOpenTurn(db, cardId)
 }
 
 export class WitnessExecutor {

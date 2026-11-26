@@ -4,11 +4,11 @@ import type { Candidate, CandidateRules, QuestionAnswered, QueuedTask, QueueSour
 import { aDowngradeWaitOpenOn, latestQuestionStopsWithTheirCard, notACardOf } from '../../core/card-readings.js'
 import { eventsWhere, latestEventIdWhere } from '../../core/events-query.js'
 import { CARD_HELD, CARD_RELEASED, CARD_STOPPED, POLICY_DENIED, WITNESS_RECORDED } from '../../core/events.js'
-import { MAIN_BRANCH } from '../../core/identifiers.js'
 import { A_RERUN_DUE } from '../../core/observations.js'
 import { latestQuestionStops, openPrsWhere } from '../../core/pr-readings.js'
 import { A_LAUNCH_STOP_WITH_NO_PULL_REQUEST, anOpenQuestion, answerCardBodyOf, candidateRows, cardBodyShaOf, everyRow, HELD_BY_A_DEPENDENCY, keyOf, latestTurnOf, LEASED, MERGE_REFUSED, openCandidates, THE_WINDOW_AMENDS_THE_CARD_FIRST } from '../../core/queue.js'
 import { ofQueue } from '../../core/tasks-query.js'
+import { MAIN_BRANCH } from '../../ports/identifier-shapes.js'
 import { strandedAnswers } from './duties/index.js'
 
 export interface CardSqlParts {

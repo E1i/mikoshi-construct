@@ -14,13 +14,13 @@ import { cardTreeRoots } from '../../ports/worktree-home.js'
 import { FREE_TREE_CAPACITY } from '../../ports/worktree.js'
 import { cardSessionOf } from '../answer/answer-source.js'
 import { TREE_LEFT } from '../review/review-worker.js'
+import { ENDED_TREE_PATCHES, rootOfKind } from './artifact-lifetimes.js'
 import { cardClosed, failureOf, parkedOrNull, treeMayBeReused } from './close-executor.js'
 
 export const DIRTY = 'dirty'
 export const UNSAVED = 'unsaved'
 export const BRANCH_LEFT = 'branch left'
 export const TREE_PATCH = 'tree.patch'
-const ENDED_TREES = ['probes', 'ended-trees']
 const MAIN_REFS = ['origin/main', 'main']
 const DETACHED = 'HEAD'
 const PREFIXED_TREE_NAME = /^mc-(\d+)$/
@@ -204,7 +204,7 @@ export class EndedCardTrees {
   private saved(tree: string, cardId: number): SavedTree {
     if (this.busDir === null)
       throw new Error('no bus directory to save the tree into')
-    return this.git.save(tree, path.join(this.busDir, ...ENDED_TREES, String(cardId)))
+    return this.git.save(tree, path.join(rootOfKind(ENDED_TREE_PATCHES, { home: path.dirname(this.busDir), busDir: this.busDir }), String(cardId)))
   }
 
   private freeTree(tree: string, cardId: number): TreeOutcome {

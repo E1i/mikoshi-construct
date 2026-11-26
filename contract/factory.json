@@ -1,6 +1,6 @@
 {
   "bus": {
-    "busVersion": 5,
+    "busVersion": 6,
     "events": {
       "answer.step": {
         "complete": true,
@@ -700,6 +700,7 @@
           "command",
           "decision",
           "id",
+          "lift",
           "need",
           "pr",
           "request",
@@ -2521,6 +2522,7 @@
         "derived": false,
         "directory": true,
         "namedIn": [
+          "scripts/nodes/close/artifact-lifetimes.ts",
           "scripts/nodes/review/dry-run-record.ts",
           "scripts/nodes/review/review-worker.ts",
           "scripts/window/window-request-tools.ts"
@@ -3478,7 +3480,8 @@
           "node-review",
           "node-update",
           "node-witness",
-          "ui"
+          "ui",
+          "cli"
         ],
         "owns": [
           "src/atlas/**",
@@ -3523,6 +3526,7 @@
           "node-update",
           "node-witness",
           "ui",
+          "cli",
           "atlas",
           "release",
           "cost",
@@ -3537,7 +3541,9 @@
         "status": "decided"
       },
       "bus": {
-        "concepts": [],
+        "concepts": [
+          "bus-read"
+        ],
         "contract": [
           "scripts/core/db.ts",
           "scripts/core/sqlite.ts",
@@ -3546,8 +3552,6 @@
           "scripts/core/lease.ts",
           "scripts/core/node.ts",
           "scripts/core/stored.ts",
-          "scripts/core/errors.ts",
-          "scripts/core/bus-path.ts",
           "scripts/core/bus-readings.ts",
           "scripts/core/bus-version.ts",
           "scripts/core/reducer.ts",
@@ -3558,7 +3562,10 @@
           "scripts/core/entry.ts",
           "scripts/core/observations.ts",
           "scripts/core/task-must-wait.ts",
-          "scripts/core/bus-adapter.ts"
+          "scripts/core/bus-adapter.ts",
+          "scripts/core/identifiers.ts",
+          "scripts/ports/bus-read.ts",
+          "scripts/ports/worktree-home.ts"
         ],
         "may_use": [
           "layout",
@@ -3577,8 +3584,6 @@
           "scripts/core/executor-holds.ts",
           "scripts/core/node.ts",
           "scripts/core/stored.ts",
-          "scripts/core/errors.ts",
-          "scripts/core/bus-path.ts",
           "scripts/core/bus-readings.ts",
           "scripts/core/projection-types.ts",
           "scripts/core/bus-version.ts",
@@ -3593,7 +3598,10 @@
           "scripts/core/projection-writes.ts",
           "scripts/core/projection-writes.known.json",
           "scripts/core/rejection.ts",
-          "scripts/core/bus-adapter.ts"
+          "scripts/core/bus-adapter.ts",
+          "scripts/core/identifiers.ts",
+          "scripts/ports/bus-read.ts",
+          "scripts/ports/worktree-home.ts"
         ],
         "status": "decided"
       },
@@ -3605,7 +3613,6 @@
           "src/card/task-file.ts",
           "src/card/risk.ts",
           "src/card/complexity.ts",
-          "scripts/core/identifiers.ts",
           "scripts/policy/touch-scope.ts",
           "scripts/policy/derived-files.ts",
           "scripts/policy/placement-growth.ts"
@@ -3624,7 +3631,6 @@
           "src/card/task-file.ts",
           "src/card/risk.ts",
           "src/card/complexity.ts",
-          "scripts/core/identifiers.ts",
           "scripts/policy/touch-scope.ts",
           "scripts/policy/derived-files.ts",
           "scripts/policy/placement-growth.ts"
@@ -3671,6 +3677,98 @@
           "scripts/core/card-hold.ts",
           "scripts/supervisor/card-waits.ts",
           "scripts/core/card-readings.ts"
+        ],
+        "status": "decided"
+      },
+      "cli": {
+        "concepts": [],
+        "contract": [
+          "src/commands/attach/carriers.ts",
+          "src/commands/attach/constructed.ts",
+          "src/commands/attach/earlier.ts",
+          "src/commands/attach/exclude.ts",
+          "src/commands/attach/forge.ts",
+          "src/commands/attach/harness.ts",
+          "src/commands/attach/index.ts",
+          "src/commands/attach/refusals.ts",
+          "src/commands/attach/rollback.ts",
+          "src/commands/attach/shell-word.ts",
+          "src/commands/attach/write.ts",
+          "src/commands/detach/beside.ts",
+          "src/commands/detach/classify.ts",
+          "src/commands/detach/index.ts",
+          "src/commands/detach/preview.ts",
+          "src/commands/detach/remove.ts",
+          "src/commands/detach/restore.ts",
+          "src/commands/detach/runtime.ts",
+          "src/commands/doctor/**",
+          "src/commands/sync/**",
+          "src/commands/graph.ts",
+          "src/commands/init.ts",
+          "src/commands/soulkill.ts",
+          "src/commands/mutate/index.ts",
+          "src/failure.ts",
+          "src/known-flags.ts",
+          "src/ui/prompts.ts"
+        ],
+        "may_use": [
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry",
+          "bus",
+          "card-model",
+          "card-record",
+          "project",
+          "plan",
+          "order",
+          "decisions",
+          "session",
+          "model",
+          "quality",
+          "intake",
+          "rules",
+          "pr-record",
+          "factory-contract",
+          "node-answer",
+          "node-close",
+          "node-launch",
+          "node-merge",
+          "node-restart",
+          "node-review",
+          "node-update",
+          "node-witness",
+          "ui"
+        ],
+        "owns": [
+          "src/commands/attach/carriers.ts",
+          "src/commands/attach/constructed.ts",
+          "src/commands/attach/earlier.ts",
+          "src/commands/attach/exclude.ts",
+          "src/commands/attach/forge.ts",
+          "src/commands/attach/harness.ts",
+          "src/commands/attach/index.ts",
+          "src/commands/attach/refusals.ts",
+          "src/commands/attach/rollback.ts",
+          "src/commands/attach/shell-word.ts",
+          "src/commands/attach/write.ts",
+          "src/commands/detach/beside.ts",
+          "src/commands/detach/classify.ts",
+          "src/commands/detach/index.ts",
+          "src/commands/detach/preview.ts",
+          "src/commands/detach/remove.ts",
+          "src/commands/detach/restore.ts",
+          "src/commands/detach/runtime.ts",
+          "src/commands/doctor/**",
+          "src/commands/sync/**",
+          "src/commands/graph.ts",
+          "src/commands/init.ts",
+          "src/commands/soulkill.ts",
+          "src/commands/mutate/index.ts",
+          "src/failure.ts",
+          "src/known-flags.ts",
+          "src/ui/prompts.ts"
         ],
         "status": "decided"
       },
@@ -3738,6 +3836,7 @@
           "node-update",
           "node-witness",
           "ui",
+          "cli",
           "atlas",
           "release"
         ],
@@ -3833,7 +3932,20 @@
         "contract": [
           "scripts/intake/lane-json.ts",
           "scripts/intake/parking-reads.ts",
-          "src/commands/intake/**"
+          "src/commands/intake/admit.ts",
+          "src/commands/intake/amend.ts",
+          "src/commands/intake/bash-syntax.ts",
+          "src/commands/intake/check.ts",
+          "src/commands/intake/confirm.ts",
+          "src/commands/intake/draft.ts",
+          "src/commands/intake/export.ts",
+          "src/commands/intake/facts.ts",
+          "src/commands/intake/index.ts",
+          "src/commands/intake/move.ts",
+          "src/commands/intake/numbers.ts",
+          "src/commands/intake/parking-tree.ts",
+          "src/commands/intake/shared-code-masks.ts",
+          "src/commands/intake/slice.ts"
         ],
         "may_use": [
           "layout",
@@ -3859,7 +3971,8 @@
           "!scripts/intake/card-archive.ts",
           "!scripts/intake/card-contract.ts",
           "!scripts/intake/intake.ts",
-          "!scripts/intake/witness-fields-backfill.ts"
+          "!scripts/intake/witness-fields-backfill.ts",
+          "!src/commands/intake/command-word.ts"
         ],
         "status": "decided"
       },
@@ -3872,7 +3985,9 @@
           "scripts/core/factory-paths.ts",
           "scripts/core/generated-files.ts",
           "scripts/core/declarations.ts",
-          "scripts/core/declared-events.ts"
+          "scripts/core/declared-events.ts",
+          "scripts/core/bus-path.ts",
+          "scripts/core/errors.ts"
         ],
         "may_use": [],
         "owns": [
@@ -3880,7 +3995,9 @@
           "scripts/core/factory-paths.ts",
           "scripts/core/generated-files.ts",
           "scripts/core/declarations.ts",
-          "scripts/core/declared-events.ts"
+          "scripts/core/declared-events.ts",
+          "scripts/core/bus-path.ts",
+          "scripts/core/errors.ts"
         ],
         "status": "decided"
       },
@@ -4228,11 +4345,10 @@
       },
       "ports": {
         "concepts": [
-          "bus-read",
+          "ci-reading",
           "process-table"
         ],
         "contract": [
-          "scripts/ports/bus-read.ts",
           "scripts/ports/card-tree.ts",
           "scripts/ports/ci-reading.ts",
           "scripts/ports/client/claude/adapter.ts",
@@ -4241,6 +4357,7 @@
           "scripts/ports/gh.ts",
           "scripts/ports/github-status.ts",
           "scripts/ports/github.ts",
+          "scripts/ports/identifier-shapes.ts",
           "scripts/ports/isolation.ts",
           "scripts/ports/main-merge.ts",
           "scripts/ports/meter.ts",
@@ -4256,9 +4373,11 @@
           "scripts/ports/task-start.ts",
           "scripts/ports/tree-publish.ts",
           "scripts/ports/witnesses.ts",
-          "scripts/ports/worktree-home.ts",
           "scripts/ports/worktree.ts",
-          "scripts/core/bus-contract.ts"
+          "scripts/core/bus-contract.ts",
+          "scripts/ci/required.ts",
+          "src/commands/ci/state.ts",
+          "src/commands/intake/command-word.ts"
         ],
         "may_use": [
           "layout",
@@ -4270,11 +4389,17 @@
           "scripts/core/gh-callers.known.json",
           "scripts/core/bus-contract.ts",
           "scripts/core/process-listing.ts",
+          "scripts/ci/required.ts",
+          "src/commands/ci/state.ts",
+          "src/commands/intake/command-word.ts",
+          "!scripts/ports/bus-read.ts",
           "!scripts/ports/client/codex/adapter.ts",
           "!scripts/ports/client/contract.ts",
+          "!scripts/ports/client/role-policy.ts",
           "!scripts/ports/disk.ts",
           "!scripts/ports/git.ts",
-          "!scripts/ports/prompt-store.ts"
+          "!scripts/ports/prompt-store.ts",
+          "!scripts/ports/worktree-home.ts"
         ],
         "status": "decided"
       },
@@ -4287,6 +4412,7 @@
           "scripts/ports/disk.ts",
           "scripts/ports/prompt-store.ts",
           "scripts/ports/client/contract.ts",
+          "scripts/ports/client/role-policy.ts",
           "scripts/ports/client/codex/adapter.ts"
         ],
         "may_use": [
@@ -4297,6 +4423,7 @@
           "scripts/ports/disk.ts",
           "scripts/ports/prompt-store.ts",
           "scripts/ports/client/contract.ts",
+          "scripts/ports/client/role-policy.ts",
           "scripts/ports/client/codex/adapter.ts"
         ],
         "status": "decided"
@@ -4351,21 +4478,18 @@
       "project": {
         "concepts": [],
         "contract": [
-          "src/commands/attach/**",
-          "src/commands/detach/**",
-          "src/commands/doctor/**",
-          "src/commands/sync/**",
-          "src/commands/graph.ts",
-          "src/commands/init.ts",
-          "src/commands/soulkill.ts",
+          "src/commands/attach/record.ts",
+          "src/commands/attach/settings.ts",
+          "src/commands/attach/daemon-commands.ts",
+          "src/commands/attach/beside.ts",
+          "src/commands/attach/original.ts",
+          "src/commands/detach/index-reader.ts",
           "src/detect/**",
           "src/manifest.ts",
           "src/materialize/**",
           "src/presets/**",
           "src/record-ahead.ts",
           "src/sync/**",
-          "src/failure.ts",
-          "src/known-flags.ts",
           "src/version.ts",
           "scripts/composition/**",
           "scripts/harness-command/**",
@@ -4382,21 +4506,18 @@
           "card-record"
         ],
         "owns": [
-          "src/commands/attach/**",
-          "src/commands/detach/**",
-          "src/commands/doctor/**",
-          "src/commands/sync/**",
-          "src/commands/graph.ts",
-          "src/commands/init.ts",
-          "src/commands/soulkill.ts",
+          "src/commands/attach/record.ts",
+          "src/commands/attach/settings.ts",
+          "src/commands/attach/daemon-commands.ts",
+          "src/commands/attach/beside.ts",
+          "src/commands/attach/original.ts",
+          "src/commands/detach/index-reader.ts",
           "src/detect/**",
           "src/manifest.ts",
           "src/materialize/**",
           "src/presets/**",
           "src/record-ahead.ts",
           "src/sync/**",
-          "src/failure.ts",
-          "src/known-flags.ts",
           "src/version.ts",
           "scripts/composition/**",
           "scripts/harness-command/**",
@@ -4406,7 +4527,6 @@
       },
       "quality": {
         "concepts": [
-          "ci-reading",
           "layers"
         ],
         "contract": [
@@ -4416,13 +4536,42 @@
           "scripts/cli/check-catalog.ts",
           "scripts/cli/check-matrix.ts",
           "scripts/cli/mutate.ts",
-          "scripts/ci/**",
           "scripts/quality/**",
           "scripts/privacy/**",
-          "src/commands/ci/**",
-          "src/commands/mutate/**",
+          "src/commands/mutate/apply.ts",
+          "src/commands/mutate/journal.ts",
+          "src/commands/mutate/judge.ts",
+          "src/commands/mutate/lines.ts",
+          "src/commands/mutate/record.ts",
           "src/commands/test-runner.ts",
-          "src/card/covering-tests.ts"
+          "src/card/covering-tests.ts",
+          "scripts/ci/browser-tests-ran.mjs",
+          "scripts/ci/card-automaton.ts",
+          "scripts/ci/card-runs.ts",
+          "scripts/ci/classify.ts",
+          "scripts/ci/fast-path.ts",
+          "scripts/ci/file-weights-reporter.ts",
+          "scripts/ci/gate-mutations.ts",
+          "scripts/ci/gate-runs.ts",
+          "scripts/ci/layers.ts",
+          "scripts/ci/no-match-reporter.ts",
+          "scripts/ci/prepush.ts",
+          "scripts/ci/sandbox-failing.jsonl",
+          "scripts/ci/sandbox-failing.ts",
+          "scripts/ci/sandbox-liveness.ts",
+          "scripts/ci/sandbox-refusals.ts",
+          "scripts/ci/sandbox-trace-child.mjs",
+          "scripts/ci/sandbox-trace.config.ts",
+          "scripts/ci/sandbox-trace.ts",
+          "scripts/ci/select.ts",
+          "scripts/ci/shard.ts",
+          "scripts/ci/test-command.ts",
+          "scripts/ci/test-weights.json",
+          "scripts/ci/test-weights.ts",
+          "scripts/ci/tree-scanners.ts",
+          "scripts/ci/verdict.ts",
+          "scripts/ci/vitest-report.ts",
+          "scripts/ci/weights-law.ts"
         ],
         "may_use": [
           "layout",
@@ -4450,10 +4599,14 @@
           "scripts/ci/**",
           "scripts/quality/**",
           "scripts/privacy/**",
-          "src/commands/ci/**",
-          "src/commands/mutate/**",
+          "src/commands/mutate/apply.ts",
+          "src/commands/mutate/journal.ts",
+          "src/commands/mutate/judge.ts",
+          "src/commands/mutate/lines.ts",
+          "src/commands/mutate/record.ts",
           "src/commands/test-runner.ts",
-          "src/card/covering-tests.ts"
+          "src/card/covering-tests.ts",
+          "!scripts/ci/required.ts"
         ],
         "status": "decided"
       },
@@ -4494,6 +4647,7 @@
           "node-update",
           "node-witness",
           "ui",
+          "cli",
           "atlas"
         ],
         "owns": [
@@ -4623,7 +4777,11 @@
       "ui": {
         "concepts": [],
         "contract": [
-          "src/ui/**"
+          "src/ui/console.ts",
+          "src/ui/expect-lore.ts",
+          "src/ui/lore.ts",
+          "src/ui/signal.ts",
+          "src/ui/theme.ts"
         ],
         "may_use": [
           "layout",
@@ -4655,7 +4813,8 @@
           "node-witness"
         ],
         "owns": [
-          "src/ui/**"
+          "src/ui/**",
+          "!src/ui/prompts.ts"
         ],
         "status": "decided"
       },
@@ -4707,6 +4866,7 @@
           "node-update",
           "node-witness",
           "ui",
+          "cli",
           "atlas",
           "release",
           "cost"
@@ -4745,7 +4905,8 @@
             2,
             3,
             4,
-            5
+            5,
+            6
           ],
           "card": [
             1,
@@ -4768,7 +4929,8 @@
             2,
             3,
             4,
-            5
+            5,
+            6
           ],
           "card": [
             1,
@@ -4805,7 +4967,8 @@
             2,
             3,
             4,
-            5
+            5,
+            6
           ],
           "card": [
             1,
@@ -4832,7 +4995,8 @@
             2,
             3,
             4,
-            5
+            5,
+            6
           ],
           "card": [
             1,
@@ -4863,7 +5027,8 @@
             2,
             3,
             4,
-            5
+            5,
+            6
           ],
           "card": [
             1,
@@ -4888,7 +5053,8 @@
             2,
             3,
             4,
-            5
+            5,
+            6
           ],
           "card": [
             1,
@@ -4910,7 +5076,8 @@
             2,
             3,
             4,
-            5
+            5,
+            6
           ],
           "card": [
             1,
@@ -4920,7 +5087,7 @@
         }
       }
     },
-    "nodesVersion": 4
+    "nodesVersion": 5
   },
   "overlaps": {
     "answer-duties": {
@@ -6100,6 +6267,17 @@
           "ClientChoice": "interface ClientChoice { adapter: ClientAdapter; model: ModelChoice; }"
         }
       },
+      "scripts/ports/client/role-policy.ts": {
+        "constants": [],
+        "functions": {
+          "answerPolicy": "(gateCommands: string[], writePaths: string[], tools?: readonly SessionTool[]): SessionPolicy",
+          "launchPolicy": "(gateCommands: string[], tools?: readonly SessionTool[]): SessionPolicy"
+        },
+        "language": "factory",
+        "reexports": [],
+        "technologyWords": [],
+        "types": {}
+      },
       "scripts/ports/diff.ts": {
         "constants": [
           "TECHNOLOGY_WORDS",
@@ -6286,6 +6464,22 @@
           "GitHub": "type GitHub = (endpoint: string) => GhResponse",
           "GitHubPut": "type GitHubPut = (endpoint: string, fields: Record<string, string>) => GhResponse"
         }
+      },
+      "scripts/ports/identifier-shapes.ts": {
+        "constants": [
+          "MAIN_BRANCH"
+        ],
+        "functions": {
+          "cardIdOf": "(value: unknown): number | null",
+          "cardIdOfDescription": "(description: string | null | undefined): number | null",
+          "isFullSha": "(value: unknown): value is string",
+          "positiveInteger": "(value: unknown): number | null",
+          "prBodySha": "(body: string | null | undefined): string"
+        },
+        "language": "factory",
+        "reexports": [],
+        "technologyWords": [],
+        "types": {}
       },
       "scripts/ports/isolation.ts": {
         "constants": [
@@ -6716,8 +6910,7 @@
           "busStartedTree": "(busPath: string, id: string): string | null",
           "busWorktreeHome": "(busPath: string): string",
           "cardTree": "(env: NodeJS.ProcessEnv, busPath: string, id: string, oldHome: string = DEFAULT_WORKTREE_HOME, exists: (target: string) => boolean = existsSync, startedTree: StartedTreeReader = busStartedTree): string",
-          "cardTreeRoots": "(env: NodeJS.ProcessEnv, busPath: string, repo: string): { homes: string[]; perBus: string; }",
-          "taskWorktree": "(home: string, id: string): string"
+          "cardTreeRoots": "(env: NodeJS.ProcessEnv, busPath: string, repo: string): { homes: string[]; perBus: string; }"
         },
         "language": "factory",
         "reexports": [
@@ -6751,6 +6944,7 @@
           "stageSketch": "(tree: string, base: string, sketchSha: string): void",
           "tailLines": "(output: string, count = TAIL_LINES): string",
           "takeFreeTree": "(git: GitRun, repo: string, target: string, settle: (tree: string) => void): boolean",
+          "taskWorktree": "(home: string, id: string): string",
           "treeOriginIn": "(output: string): TreeOrigin | null",
           "treeOriginLine": "(origin: TreeOrigin): string",
           "withWorktree": "<T>(repo: string, base: string, run: (tree: string) => T): T",

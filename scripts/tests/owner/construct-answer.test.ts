@@ -68,8 +68,8 @@ function roomWithPr(card: number, pr: number): Room {
   return { bench, channel: path.join(root, 'owner-answers'), lines: [] }
 }
 
-function waitOn(room: Room, card: number, pr: number, need: Fixture['need']): string {
-  const wait = openOwnerWait(room.bench.db, room.bench.clock.now().toISOString(), 'policy', { need, text: `card #${card} waits for the owner`, card, pr, ...(need === 'command' ? { command: `pnpm bus:request amend --card ${card}` } : {}) })
+function waitOn(room: Room, card: number, pr: number, need: Fixture['need'], reason = 0): string {
+  const wait = openOwnerWait(room.bench.db, room.bench.clock.now().toISOString(), 'policy', { need, text: `card #${card} waits for the owner on reason ${reason}`, card, pr, ...(need === 'command' ? { command: `pnpm bus:request amend --card ${card}` } : {}), lift: { on: ['owner-answer'] } })
   reduce(room.bench.db, 'pending', busProjections())
   return wait
 }
@@ -106,7 +106,7 @@ function decisionsOn(room: Room, card: number): string[] {
 describe('owner:answer <Q|#card> "words"', () => {
   it.each(Object.entries(FIXTURES))('the waits of 2026-11-12 close through one command: %s', (_name, fixture) => {
     const room = roomWithPr(fixture.card, fixture.pr)
-    const waits = Array.from({ length: fixture.waits }, () => waitOn(room, fixture.card, fixture.pr, fixture.need))
+    const waits = Array.from({ length: fixture.waits }, (_, reason) => waitOn(room, fixture.card, fixture.pr, fixture.need, reason))
 
     if (waits.length > 1) {
       const many = answer(room, `#${fixture.card}`, 'the second path')

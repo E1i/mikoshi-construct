@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { BusEvent } from '../../../core/db.js'
+import type { BusEvent, WaitLift } from '../../../core/db.js'
 import type { EventPayload } from '../../../core/events.js'
 import type { AfterFailure, CardTransitions, Lease } from '../../../core/lease.js'
 import type { WaitStep } from '../../../core/node.js'
@@ -54,6 +54,8 @@ export interface CardPaths {
 
 const SUPERSEDED_SESSION_ENDING = 'superseded_session_ending'
 
+const OWNER_QUESTION_LIFT: WaitLift = { on: ['decision', 'amend'] }
+
 const WITHDRAWN_REASONS: ReadonlySet<AnswerTechnicalReason> = new Set(['nothing_to_answer', 'card_tree_gone', 'held_for_owner', DOWNGRADE_WAIT_OPEN])
 
 export class AnswerOutcomes {
@@ -78,7 +80,7 @@ export class AnswerOutcomes {
 
   ownersStop(lease: Lease, detail: string, scope: BusEvent[] = [], text = `card #${lease.cardId} asks: ${detail}`, widen = this.windowWidens(lease, detail)): AnswerOutcome {
     const ask = { need: 'decision' as const, text, command: cardDecisionCommand(lease.cardId), card: lease.cardId, ...(lease.pr === null ? {} : { pr: lease.pr }) }
-    return this.stopped(lease, QUESTION_OWNER, detail, widen.length === 0 ? {} : { widen }, scope, db => openBusWait(db, closedWaitIds(db), this.ts(), lease.actor, ask))
+    return this.stopped(lease, QUESTION_OWNER, detail, widen.length === 0 ? {} : { widen }, scope, db => openBusWait(db, closedWaitIds(db), this.ts(), lease.actor, { ...ask, lift: OWNER_QUESTION_LIFT }))
   }
 
   ownersStopOnce(lease: Lease, detail: string, text: string, sameAsk: readonly string[], scope: BusEvent[] = []): AnswerOutcome {

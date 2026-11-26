@@ -355,7 +355,7 @@ export class RoundLimitRecutter implements RoundLimitRecut {
 
   private waited(at: RoundLimitAt, why: string): RecutOutcome {
     const text = `PR #${at.pr} of card #${at.cardId} reached the review round limit (D-104) and was not re-cut: ${why}`
-    const wait = inTransaction(this.parts.db, () => openBusWait(this.parts.db, this.parts.closedWaits(), this.now(), RECUT_ACTOR, { need: 'decision', text, card: at.cardId, pr: at.pr }))
+    const wait = inTransaction(this.parts.db, () => openBusWait(this.parts.db, this.parts.closedWaits(), this.now(), RECUT_ACTOR, { need: 'decision', text, card: at.cardId, pr: at.pr, lift: { on: ['decision', 'amend', 'pr-merged'] } }))
     return { kind: 'owner_wait', pr: at.pr, wait, why }
   }
 }

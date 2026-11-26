@@ -8,8 +8,7 @@ import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { appendedOnCard } from '../../core/card-automaton.js'
 import { closedWaitIds } from '../../core/card-readings.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus, openBusWait, openOwnerWait } from '../../core/db.js'
-import { CARD_WAITING, DECISIONS_IMPORTED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, REJECTED, WITNESS_DOWNGRADE } from '../../core/events.js'
-import { cardIdOfDescription } from '../../core/identifiers.js'
+import { CARD_DEFERRED, CARD_WAITING, DECISIONS_IMPORTED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, REJECTED, WITNESS_DOWNGRADE } from '../../core/events.js'
 import { ANSWER_SOURCE } from '../../core/inbox.js'
 import { ghostLines } from '../../core/journal.js'
 import { DIRTY_ROWS, projectionDump, reduce, REDUCE_BATCH, reducedThrough, SNAPSHOT } from '../../core/reducer.js'
@@ -18,9 +17,11 @@ import { recordFall } from '../../ladder/supervise.js'
 import { sayToOwnerChannel } from '../../owner/channel.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { allowLiveCommand } from '../../policy/live-decision.js'
+import { cardIdOfDescription } from '../../ports/identifier-shapes.js'
 import { closeWaitsOfEndedCards } from '../../supervisor/card-waits.js'
-import { busProjections, openComposedBus } from '../../supervisor/composition.js'
+import { busProjections, openComposedBus, waitLiftParts } from '../../supervisor/composition.js'
 import { lostRecutWaitText } from '../../supervisor/derive-queues.js'
+import { WaitLifts } from '../../supervisor/wait-lifts.js'
 import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
 
 const HEAD = '0123456789abcdef0123456789abcdef01234567'
@@ -553,8 +554,8 @@ describe('the reducer of the owner_waits projection', () => {
     expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 0, rejected: 2 })
     expect(waits(db)).toEqual([])
     expect(rejections(db).map(row => (row.payload as { reason?: string }).reason)).toEqual([
-      'the bus names no owner action for this decision: a finding for the backlog, not an owner wait',
-      'the bus names no owner action for this merge: a finding for the backlog, not an owner wait',
+      'Q1 is refused: the bus names no owner action for this decision: a finding for the backlog, not an owner wait',
+      'Q2 is refused: the bus names no owner action for this merge: a finding for the backlog, not an owner wait',
     ])
     db.close()
   })
@@ -839,6 +840,40 @@ describe('the reducer of the owner_waits projection', () => {
     const db = busWith(event(CARD_WAITING, { cardId: 1216, payload: { reason: WITNESS_DOWNGRADE, actions: [] } }), event(CARD_WAITING, { payload: { reason: WITNESS_DOWNGRADE, actions: ['a'] } }))
     expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 0, rejected: 2 })
     expect(waits(db)).toEqual([])
+    db.close()
+  })
+
+  it('an owner wait opened for a deferred card is either reduced into owner_waits or refused with a rejected event naming it', () => {
+    const db = busWith(event(CARD_DEFERRED, { cardId: 2196, actor: 'owner', payload: {} }))
+    const ts = '2026-10-09T12:00:00.000Z'
+    const lift = { on: ['decision', 'amend'] as const }
+    const named = openOwnerWait(db, ts, 'policy', { need: 'decision', text: 'route the deferred card', command: 'pnpm owner:answer #2196 "…"', card: 2196, lift })
+    const unnamed = openOwnerWait(db, ts, 'policy', { need: 'decision', text: 'card #2196 is at a dead end', card: 2196, lift })
+    reduce(db, 'pending', busProjections())
+
+    for (const id of [named, unnamed]) {
+      const reduced = waits(db).some(wait => wait.id === id)
+      const refused = rejections(db).some(row => String((row.payload as { reason?: string }).reason).startsWith(`${id} is refused: `))
+      expect([id, reduced || refused]).toEqual([id, true])
+    }
+    expect(waits(db).map(wait => [wait.id, wait.state])).toEqual([[named, 'open']])
+
+    const closed = new WaitLifts(db, () => new Date(ts), waitLiftParts(db, () => new Date(ts))).step()
+    expect(closed).toEqual([expect.stringMatching(new RegExp(`^${unnamed} #2196 refused by the reducer: ${unnamed} is refused: the bus names no owner action`))])
+    expect(reduce(db, 'pending', busProjections())).toEqual({ applied: 1, rejected: 0 })
+    expect(openBusWait(db, closedWaitIds(db), ts, 'policy', { need: 'decision', text: 'card #2196 is at a dead end', card: 2196, lift })).not.toBe(unnamed)
+    db.close()
+  })
+
+  it('a bus wait is never answered by a wait the reducer refused, even before the sweep closes it', () => {
+    const db = busWith(event(CARD_DEFERRED, { cardId: 2196, actor: 'owner', payload: {} }))
+    const ts = '2026-10-09T12:00:00.000Z'
+    const ask = { need: 'decision' as const, text: 'card #2196 is at a dead end', card: 2196, lift: { on: ['decision', 'amend'] as const } }
+    const refused = openOwnerWait(db, ts, 'policy', ask)
+    reduce(db, 'pending', busProjections())
+    expect(rejections(db).some(row => String((row.payload as { reason?: string }).reason).startsWith(`${refused} is refused: `))).toBe(true)
+
+    expect(openBusWait(db, closedWaitIds(db), ts, 'policy', ask)).not.toBe(refused)
     db.close()
   })
 })

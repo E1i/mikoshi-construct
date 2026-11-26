@@ -220,7 +220,7 @@ export const EVENT_PAYLOADS = {
   [NODE_EQUIVALENCE]: ['event_id', 'only_derive', 'only_node', 'same'],
   [NUMBERS_FOREIGN]: ['ids', 'request'],
   [OWNER_WAIT_CLOSED]: ['answer', 'id', 'request'],
-  [OWNER_WAIT_OPENED]: ['card', 'command', 'decision', 'id', 'need', 'pr', 'request', 'text'],
+  [OWNER_WAIT_OPENED]: ['card', 'command', 'decision', 'id', 'lift', 'need', 'pr', 'request', 'text'],
   [PLAN_BACKFILLED]: ['cards', 'gate', 'plan', 'request'],
   [PLAN_CLOSED]: ['plan', 'request'],
   [PLAN_ITEM_ADDED]: ['item', 'plan', 'request', 'title'],
