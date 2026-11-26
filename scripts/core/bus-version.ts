@@ -1,9 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite'
 
-export const BUS_VERSION = 5
+export const BUS_VERSION = 6
 export const BUS_VERSION_BEFORE_LADDER_RUN = 2
 export const BUS_VERSION_BEFORE_GATE_RUN = 3
 export const BUS_VERSION_BEFORE_THRESHOLD_SET = 4
+export const BUS_VERSION_BEFORE_WAIT_LIFT = 5
 export const CARD_VERSION_BEFORE_TOUCH_SCOPE = 1
 export const CARD_VERSION_BEFORE_PLACEMENT_IMPORTS = 2
 export const CARD_VERSION = 3

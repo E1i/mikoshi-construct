@@ -509,6 +509,7 @@ export function deadEndEvents(db: DatabaseSync): DeadEndEvents {
       return typeof key === 'string' ? key : null
     },
     routedByADecision: card => decisionsInForceAt(db, new Date()).some(decision => decision.cards.includes(card)),
+    unmergedDependencies: card => unmergedDependenciesOf(db, prs.mergedCards(db), card),
   }
 }
 
@@ -549,19 +550,26 @@ export function busOrderTick(db: DatabaseSync, root: string): PrOrderTick {
 }
 
 const SHARD_TERM_WAITS = [OWNER_WAIT_OPENED]
+const BEFORE_ANY_SHARD_MS = 0
 
 export function shardTermTick(db: DatabaseSync): ShardTerm {
   return new ShardTerm({
     noticeHours: SHARD_NOTICE_HOURS,
     renewal: shardRenewalCommand(WINDOW_SHARD_HOURS, FACTORY_MODES[1]),
     active: now => activeWindowShards(db, now),
-    expired: now => expiredWindowShards(db, now, SHARD_TERM_ACTOR).map(ended => ended.payload.id),
+    expired: (now) => {
+      const ended = new Set(expiredWindowShards(db, now, SHARD_TERM_ACTOR).map(each => each.payload.id))
+      return activeWindowShards(db, new Date(BEFORE_ANY_SHARD_MS)).filter(shard => ended.has(shard.id))
+    },
     noticed: id => events(db, { types: SHARD_TERM_WAITS, actorPrefix: SHARD_TERM_ACTOR }).some(opened => namesNoticeOf(String(opened.data?.text ?? ''), id)),
     ask: (wait, now, expiring) => inTransaction(db, () => {
       if (expiring !== null)
         appendEvent(db, windowShardEnded(SHARD_EXPIRED, SHARD_TERM_ACTOR, expiring, now))
       return openBusWait(db, closedWaitIds(db), now.toISOString(), SHARD_TERM_ACTOR, { need: 'command', ...wait, lift: OWNER_ANSWER_LIFT })
     }),
+    retire: (id, now) => {
+      appendEvent(db, windowShardEnded(SHARD_EXPIRED, SHARD_TERM_ACTOR, id, now))
+    },
   }, () => new Date(), PREFIX)
 }
 

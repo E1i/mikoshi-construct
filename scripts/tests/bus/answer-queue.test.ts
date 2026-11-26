@@ -302,7 +302,7 @@ describe('the answer queue', () => {
     expect(answerTaskCount(bench)).toBe(0)
     expect(bench.leaseAnswer()).toBeNull()
     expect(admitCommandOf(910, 'lane-a')).toBe('pnpm intake --admit <parking>/lane-a/910.md')
-    expect(eventsOf(bench.db, OWNER_WAIT_OPENED)).toEqual([{ id: 'Q1', need: 'command', text: expect.stringContaining('card #910 asks to widen its touches: the lease query must admit a card with no pull request'), command: 'pnpm intake --admit <parking>/lane-a/910.md', card: 910 }])
+    expect(eventsOf(bench.db, OWNER_WAIT_OPENED)).toEqual([{ id: 'Q1', need: 'command', text: expect.stringContaining('card #910 asks to widen its touches: the lease query must admit a card with no pull request'), command: 'pnpm intake --admit <parking>/lane-a/910.md', card: 910, lift: { on: ['amend', 'decision'] } }])
     reduce(bench.db, 'pending', busProjections())
     expect(bench.db.prepare('SELECT id, need, command, card_id, state FROM owner_waits').all().map(row => ({ ...row }))).toEqual([{ id: 'Q1', need: 'command', command: 'pnpm intake --admit <parking>/lane-a/910.md', card_id: 910, state: 'open' }])
     bench.close()
@@ -359,7 +359,7 @@ describe('the answer queue', () => {
     expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', reason: 'question.owner', detail: expect.stringContaining('.claude/settings.json is an owner path') })
     expect(bench.tools.runs).toHaveLength(0)
     expect(ownerInbox(bench.db).map(line => line.card_id)).toEqual([914])
-    expect(eventsOf(bench.db, OWNER_WAIT_OPENED).at(-1)).toEqual({ id: 'Q2', need: 'decision', text: 'card #914 asks: .claude/settings.json is an owner path: the ladder must know the answer queue', command: cardDecisionCommand(914), card: 914 })
+    expect(eventsOf(bench.db, OWNER_WAIT_OPENED).at(-1)).toEqual({ id: 'Q2', need: 'decision', text: 'card #914 asks: .claude/settings.json is an owner path: the ladder must know the answer queue', command: cardDecisionCommand(914), card: 914, lift: { on: ['decision', 'amend'] } })
     bench.close()
   })
 

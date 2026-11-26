@@ -3,7 +3,7 @@ import type { WaitLift, WaitLiftKind } from '../core/db.js'
 import type { Shape } from './expected-time.js'
 import { CLOSED_CARD, DEFERRED_CARD, DROPPED_CARD, MERGED_CARD, QUEUED_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { holderOf, holdLayersOf } from '../core/card-hold.js'
-import { lastReducedOwnerWaits } from '../core/card-readings.js'
+import { closedWaitIds, lastReducedOwnerWaits } from '../core/card-readings.js'
 import { appendEvent, currentHeadOf, inTransaction, liftHeldAtOpen, openOwnerWait } from '../core/db.js'
 import { events, ofCard } from '../core/events-query.js'
 import { BOARD_ALARM, CARD_HELD, CARD_RELEASED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, REJECTED, TASK_REQUEUED } from '../core/events.js'
@@ -34,6 +34,7 @@ export interface DeadEndEvents {
   cardsNobodyHolds: (heldElsewhere: readonly string[], ignoredActor: string) => readonly UnheldCard[]
   latestTaskKey: (card: number) => string | null
   routedByADecision: (card: number) => boolean
+  unmergedDependencies: (card: number) => readonly number[]
 }
 
 export interface DeadEndParts {
@@ -87,7 +88,7 @@ export class DeadEnds {
     const now = at.getTime()
     const held = this.cardsUnderAnOpenOwnerWait()
     const unheld = this.parts.events.cardsNobodyHolds(HELD_ELSEWHERE_STATES, DEAD_END_ACTOR)
-      .filter(card => !held.has(card.card) && !this.stoppedUnderAHold(card) && !this.lastMoveIsItsOwnRejectedRaise(card) && !this.windowCarriesAnOwnerAnswer(card))
+      .filter(card => !held.has(card.card) && !this.waitsOnItsLift(card) && !this.lastMoveIsItsOwnRejectedRaise(card) && !this.windowCarriesAnOwnerAnswer(card))
     if (unheld.length === 0)
       return []
     const samples = this.measures.samples()
@@ -121,6 +122,9 @@ export class DeadEnds {
   private ownerWaitOf(end: DeadEnd, ts: string): string | null {
     if (this.parts.events.routedByADecision(end.card))
       return null
+    const standing = this.openDeadEndWaitOf(end.card)
+    if (standing !== null)
+      return standing
     const head = end.pr === null ? null : currentHeadOf(this.db, end.pr)
     const lift: WaitLift = { on: DEAD_END_LIFTS, ...(head === null ? {} : { head }) }
     const ask = { need: 'decision' as const, text: deadEndWaitText(end), card: end.card, ...(end.pr === null ? {} : { pr: end.pr }), lift }
@@ -134,8 +138,17 @@ export class DeadEnds {
     return asked.size > 0 && events(this.db, { types: [OWNER_WAIT_CLOSED], before: card.lastEvent.id }).some(closed => asked.has(closed.data?.id))
   }
 
-  private stoppedUnderAHold(card: UnheldCard): boolean {
-    return card.state === STOPPED_CARD && holderOf(holdLayersOf(this.db, card.card)) !== null
+  private waitsOnItsLift(card: UnheldCard): boolean {
+    const layers = holdLayersOf(this.db, card.card)
+    const heldUntil = layers.owner !== null || (card.state === STOPPED_CARD && holderOf(layers) !== null)
+    return heldUntil || this.parts.events.unmergedDependencies(card.card).length > 0
+  }
+
+  private openDeadEndWaitOf(card: number): string | null {
+    const closed = new Set<unknown>([...closedWaitIds(this.db), ...events(this.db, { types: [OWNER_WAIT_CLOSED] }).map(each => each.data?.id)])
+    const open = ofCard(this.db, card, { types: [OWNER_WAIT_OPENED] }).filter(opened => opened.actor === DEAD_END_ACTOR && !closed.has(opened.data?.id))
+    const id = open.at(-1)?.data?.id
+    return typeof id === 'string' ? id : null
   }
 
   private lastMoveIsItsOwnRejectedRaise(card: UnheldCard): boolean {

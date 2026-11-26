@@ -1,6 +1,6 @@
 {
   "bus": {
-    "busVersion": 5,
+    "busVersion": 6,
     "events": {
       "answer.step": {
         "complete": true,
@@ -4746,7 +4746,8 @@
             2,
             3,
             4,
-            5
+            5,
+            6
           ],
           "card": [
             1,
@@ -4769,7 +4770,8 @@
             2,
             3,
             4,
-            5
+            5,
+            6
           ],
           "card": [
             1,
@@ -4806,7 +4808,8 @@
             2,
             3,
             4,
-            5
+            5,
+            6
           ],
           "card": [
             1,
@@ -4833,7 +4836,8 @@
             2,
             3,
             4,
-            5
+            5,
+            6
           ],
           "card": [
             1,
@@ -4864,7 +4868,8 @@
             2,
             3,
             4,
-            5
+            5,
+            6
           ],
           "card": [
             1,
@@ -4889,7 +4894,8 @@
             2,
             3,
             4,
-            5
+            5,
+            6
           ],
           "card": [
             1,
@@ -4911,7 +4917,8 @@
             2,
             3,
             4,
-            5
+            5,
+            6
           ],
           "card": [
             1,
@@ -4921,7 +4928,7 @@
         }
       }
     },
-    "nodesVersion": 4
+    "nodesVersion": 5
   },
   "overlaps": {
     "answer-duties": {
@@ -4935,7 +4942,7 @@
       "scripts/core/card-automaton.ts": 3,
       "scripts/core/card-readings.ts": 11,
       "scripts/core/chain.ts": 2,
-      "scripts/core/db.ts": 8,
+      "scripts/core/db.ts": 3,
       "scripts/core/dependency-wait.ts": 3,
       "scripts/core/events-query.ts": 20,
       "scripts/core/inbox.ts": 1,
@@ -4961,7 +4968,7 @@
       "scripts/ports/task-start.ts": 3,
       "scripts/ports/worktree-home.ts": 1,
       "scripts/release/evidence.ts": 2,
-      "scripts/supervisor/card-waits.ts": 5,
+      "scripts/supervisor/card-waits.ts": 4,
       "scripts/supervisor/derive-queues.ts": 1,
       "scripts/window/board.ts": 19,
       "scripts/window/card-measure.ts": 4,

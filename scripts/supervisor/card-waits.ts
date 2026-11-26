@@ -61,6 +61,23 @@ function refusing(id: string): (why: string) => never {
   return why => reject(`${id} is refused: ${why}`)
 }
 
+interface WaitReason {
+  id: string
+  card: number | null
+  need: string
+  text: string
+  prefix: string
+}
+
+const STANDING_WAIT = `SELECT id, id = ? AS same_id FROM owner_waits WHERE id = ? OR (? IS NOT NULL AND state = '${OPEN_WAIT}' AND card_id = ? AND need = ? AND text = ? AND id LIKE ? || '%') ORDER BY same_id DESC LIMIT 1`
+
+function refusedAsStanding(db: DatabaseSync, reason: WaitReason, refuse: (why: string) => never): void {
+  const standing = db.prepare(STANDING_WAIT).get(reason.id, reason.id, reason.card, reason.card, reason.need, reason.text, reason.prefix) as { id: string, same_id: number } | undefined
+  if (standing === undefined)
+    return
+  refuse(Number(standing.same_id) === 1 ? `${reason.id} is already opened` : `the same reason is already open on card #${reason.card} as ${standing.id}`)
+}
+
 function foldOwnerWaitOpened(db: DatabaseSync, event: StoredEvent, parts: OwnerWaitParts): void {
   const payload = payloadOf(event)
   const id = typeof payload.id === 'string' && WAIT_ID.test(payload.id) ? payload.id : reject('id is not Q<N>')
@@ -74,8 +91,7 @@ function foldOwnerWaitOpened(db: DatabaseSync, event: StoredEvent, parts: OwnerW
     refuse('a command wait names no command')
   if (optional(payload, 'request', prOf) === null && !busNamesTheAction(need, command, pr))
     refuse(`the bus names no owner action for this ${need}: a finding for the backlog, not an owner wait`)
-  if (db.prepare('SELECT 1 FROM owner_waits WHERE id = ?').get(id) !== undefined)
-    refuse(`${id} is already opened`)
+  refusedAsStanding(db, { id, card, need, text, prefix: 'Q' }, refuse)
   db.prepare(`INSERT INTO owner_waits (id, need, text, command, card_id, pr, state, answer, opened_at, event_id) VALUES (?, ?, ?, ?, ?, ?, '${OPEN_WAIT}', NULL, ?, ?)`)
     .run(id, need, text, parts.commandOf({ id, need, card, pr }, command), card, pr, event.ts, event.id)
 }
@@ -111,9 +127,7 @@ function foldWitnessDowngradeWait(db: DatabaseSync, event: StoredEvent, parts: O
   if (actions.length === 0 || actions.includes(null))
     reject('a witness downgrade names no action for the owner')
   const id = downgradeWaitId(event.id)
-  const standing = db.prepare(`SELECT id FROM owner_waits WHERE state = '${OPEN_WAIT}' AND card_id = ? AND text = ? AND id LIKE '${DOWNGRADE_WAIT_PREFIX}%'`).get(cardId, actions.join('; ')) as { id: string } | undefined
-  if (standing !== undefined)
-    reject(`${id} is refused: the same downgrade is already open on card #${cardId} as ${standing.id}`)
+  refusedAsStanding(db, { id, card: cardId, need: 'decision', text: actions.join('; '), prefix: DOWNGRADE_WAIT_PREFIX }, refusing(id))
   db.prepare(`INSERT INTO owner_waits (id, need, text, command, card_id, pr, state, answer, opened_at, event_id) VALUES (?, 'decision', ?, ?, ?, NULL, '${OPEN_WAIT}', NULL, ?, ?)`)
     .run(id, actions.join('; '), parts.commandOf({ id, need: 'decision', card: cardId, pr: null }, null), cardId, event.ts, event.id)
   parts.closeWaitsOfAnEndedCard(db, cardId, event.id)

@@ -1,17 +1,22 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { WaitLift } from '../../core/db.js'
-import { afterEach, describe, expect, it } from 'vitest'
-import { openOwnerWaits } from '../../core/card-readings.js'
+import type { MergeBench } from '../bus/merge-bench.js'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { closedWaitIds, openOwnerWaits } from '../../core/card-readings.js'
 import { appendEvent, liftHeldAtOpen, openOwnerWait } from '../../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_STOPPED, CARD_WAITING, MERGE_DONE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_CLOSED, PR_OBSERVED, QUESTION_AGENT, REJECTED, REVIEW_RECORDED, WITNESS_DOWNGRADE, WITNESS_RECORDED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_STOPPED, CARD_WAITING, MERGE_DONE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_CLOSED, PR_OBSERVED, QUESTION_AGENT, REJECTED, REVIEW_RECORDED, UPDATE_DONE, WITNESS_DOWNGRADE, WITNESS_RECORDED } from '../../core/events.js'
+import { reviewCandidates } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
+import { answerCandidates } from '../../nodes/answer/answer-candidates.js'
 import { faultedAnswerLift } from '../../nodes/answer/answer-executor.js'
 import { EMPTY_ROUND_LIFTS } from '../../nodes/answer/duties/source.js'
 import { GROWTH_LIFTS } from '../../nodes/update/update-executor.js'
 import { recordDecision } from '../../policy/decisions/index.js'
-import { busProjections, deadEndParts, openComposedBus, waitLiftParts } from '../../supervisor/composition.js'
+import { answerParts, busProjections, candidateRules, deadEndParts, openComposedBus, waitLiftParts } from '../../supervisor/composition.js'
 import { DEAD_END_ACTOR, DEAD_END_LIFTS, DeadEnds, UNMEASURED_ROUND_MINUTES } from '../../supervisor/dead-ends.js'
 import { WAIT_LIFT_ACTOR, WaitLifts } from '../../supervisor/wait-lifts.js'
+import { sha } from '../bus/github-fake.js'
+import { liveBench } from '../bus/merge-bench.js'
 
 const OPENED_AT = '2026-11-26T08:00:00.000Z'
 const NOW = new Date(Date.parse(OPENED_AT) + (UNMEASURED_ROUND_MINUTES + 5) * 60_000)
@@ -169,8 +174,12 @@ describe('a wait is never opened when its lift already holds, nor twice for one 
     const db = bus()
     observed(db, HEAD)
     const first = opened(db, faultedAnswerLift(HEAD), 'the tree cannot be read')
-    expect(opened(db, faultedAnswerLift(HEAD), 'the tree cannot be read')).toBe(first)
+    const ask = { need: 'decision' as const, text: 'the tree cannot be read', card: CARD, pr: PR, lift: faultedAnswerLift(HEAD) }
+    expect(openOwnerWait(db, OPENED_AT, 'worker:answer:worker-1', ask, closedWaitIds(db))).toBe(first)
     expect(db.prepare(`SELECT count(*) AS n FROM events WHERE type = '${OWNER_WAIT_OPENED}'`).get()).toEqual({ n: 1 })
+    const blind = opened(db, faultedAnswerLift(HEAD), 'the tree cannot be read')
+    expect([stillOpen(db, first), stillOpen(db, blind)]).toEqual([true, false])
+    expect(swept(db)).toEqual([expect.stringContaining(`${blind} #${CARD} refused by the reducer: ${blind} is refused: the same reason is already open on card #${CARD} as ${first}`)])
     expect(opened(db, faultedAnswerLift(HEAD), 'another question')).not.toBe(first)
 
     const actions = [`allow the downgrade of W1 on #${CARD}`]
@@ -181,6 +190,56 @@ describe('a wait is never opened when its lift already holds, nor twice for one 
     const downgrades = openOwnerWaits(db).filter(wait => wait.id.startsWith('W'))
     expect(downgrades).toHaveLength(1)
     const refused = db.prepare(`SELECT json_extract(payload, '$.reason') AS reason FROM events WHERE type = '${REJECTED}'`).all() as { reason: string }[]
-    expect(refused).toEqual([{ reason: expect.stringContaining(`the same downgrade is already open on card #${CARD} as ${downgrades[0]!.id}`) }])
+    expect(refused).toContainEqual({ reason: expect.stringContaining(`the same reason is already open on card #${CARD} as ${downgrades[0]!.id}`) })
+  })
+})
+
+describe('a clean update moves the card past its question stop', () => {
+  const UPDATED_PR = 2198
+  const UPDATED_CARD = UPDATED_PR + 100
+  const OLD = sha('a')
+  const UPDATED = sha('d')
+  const benches: MergeBench[] = []
+
+  afterEach(() => {
+    for (const made of benches.splice(0))
+      made.close()
+    vi.restoreAllMocks()
+  })
+
+  function settled(bench: MergeBench): void {
+    bench.tick()
+    bench.tick()
+  }
+
+  function appended(bench: MergeBench, type: string, head: string, payload: Record<string, unknown>): void {
+    sequence += 1
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type, actor: 'worker:update:worker-1', cardId: UPDATED_CARD, pr: UPDATED_PR, head, dedupeKey: `fixture:${type}:${sequence}`, payload, legacy: false })
+  }
+
+  function candidatesOf(bench: MergeBench): { answer: (string | undefined)[], review: (string | undefined)[] } {
+    const ts = bench.clock.now().toISOString()
+    return {
+      answer: answerCandidates(bench.db, ts, answerParts()).filter(task => task.cardId === UPDATED_CARD).map(task => task.head),
+      review: reviewCandidates(bench.db, ts, candidateRules()).filter(task => task.cardId === UPDATED_CARD).map(task => task.head),
+    }
+  }
+
+  it('after a clean update to a new head with no open question no changes verdict and no red check the card routes to review and no answer round is queued', () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const bench = liveBench()
+    benches.push(bench)
+    bench.gitHub.open({ number: UPDATED_PR, head: OLD, mergeable_state: 'blocked' })
+    appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId: UPDATED_CARD, pr: null, head: null, dedupeKey: `fixture:${UPDATED_CARD}:admitted`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: 'admission-1' }, legacy: false })
+    settled(bench)
+    appended(bench, CARD_STOPPED, OLD, { reason: QUESTION_AGENT, detail: 'which path?' })
+    settled(bench)
+    expect(candidatesOf(bench).answer).toEqual([OLD])
+
+    appended(bench, UPDATE_DONE, OLD, { from: OLD, to: UPDATED, carried: null, why: 'main moved under the layers', clean: true })
+    bench.gitHub.open({ number: UPDATED_PR, head: UPDATED, mergeable_state: 'clean' })
+    settled(bench)
+
+    expect(candidatesOf(bench)).toEqual({ answer: [], review: [UPDATED] })
   })
 })

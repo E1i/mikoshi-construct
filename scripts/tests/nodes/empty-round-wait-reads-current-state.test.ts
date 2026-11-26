@@ -137,7 +137,7 @@ function swept(bench: MergeBench): string[] {
   return lines
 }
 
-const NOBODY_STUCK: DeadEndEvents = { lastStopReason: () => null, cardsOfUnclosedOwnerWaits: () => [], cardsNobodyHolds: () => [], latestTaskKey: () => null, routedByADecision: () => false }
+const NOBODY_STUCK: DeadEndEvents = { lastStopReason: () => null, cardsOfUnclosedOwnerWaits: () => [], cardsNobodyHolds: () => [], latestTaskKey: () => null, routedByADecision: () => false, unmergedDependencies: () => [] }
 
 describe('an owner wait over a card is opened from its current state and closes by itself when its condition holds', () => {
   it('an amend before the empty answer round opens no owner wait', () => {
