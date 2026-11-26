@@ -3,6 +3,7 @@ import type { Lease } from '../../core/lease.js'
 import type { DetectionMode, NodeDeclaration, Scope } from '../../core/node.js'
 import type { QueuedTask } from '../../core/queue.js'
 import type { StoredEvent } from '../../core/stored.js'
+import type { FreedArtifact, RootSize } from './artifact-lifetimes.js'
 import type { CardTreeRemover, CloseOutcome, ReportedVerification } from './close-executor.js'
 import type { EndedTree } from './ended-card-trees.js'
 import { randomUUID } from 'node:crypto'
@@ -12,6 +13,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { busDirOf } from '../../core/bus-path.js'
 import { defaultBusPath } from '../../core/db.js'
 import { CARD_VERIFIED, PR_CLOSED, PR_OPENED, REDUCED, WITNESS_RECORDED } from '../../core/events.js'
 import { Node, prefixOf, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
@@ -19,6 +21,7 @@ import { answerCardBodyOf, cardBodyShaOfCard, closeCandidates } from '../../core
 import { loadedCodeSha } from '../../ports/git.js'
 import { candidateRules, nodeLiveness, nodeSupply } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
+import { alarmOverBudget, HOME_BUDGET_BYTES, recordFreedArtifacts, sweepArtifacts } from './artifact-lifetimes.js'
 import { cardClosed, CloseExecutor, failureOf, probeClosingCardIds } from './close-executor.js'
 import { cardTreeSweep, gitWorktrees, recordEndedTrees } from './ended-card-trees.js'
 import { cardVerifiedClosings, closingVerificationOf, legacyLines } from './task-close.js'
@@ -44,7 +47,18 @@ export interface CloseNodeParts {
   silentMs: number
   trees?: CardTreeRemover
   endedTrees?: () => EndedTree[]
+  artifacts?: () => FreedArtifact[]
+  home?: HomeWatch
 }
+
+export interface HomeWatch {
+  path: string
+  budget: number
+  everyMs: number
+  sizes?: (home: string) => RootSize[]
+}
+
+export const HOME_MEASURED_EVERY_MS = 60 * 60 * 1000
 
 function probeCandidates(db: DatabaseSync): QueuedTask[] {
   return probeClosingCardIds(db).map(cardId => reportCloseTask(db, cardId))
@@ -69,6 +83,7 @@ function inScope(task: QueuedTask, scope: Scope): boolean {
 
 export class CloseNode extends Node<CloseStep> {
   private readonly executor: CloseExecutor
+  private homeMeasuredAt: number | null = null
 
   constructor(private readonly closeParts: CloseNodeParts) {
     super('close', { db: closeParts.db, clock: closeParts.clock, session: closeParts.session, mode: closeParts.mode, env: closeParts.env, silentMs: closeParts.silentMs, supply: nodeSupply() })
@@ -87,8 +102,39 @@ export class CloseNode extends Node<CloseStep> {
     }
   }
 
-  protected override before(): void {
+  freeEndedArtifacts(): void {
+    if (this.closeParts.artifacts === undefined)
+      return
+    try {
+      recordFreedArtifacts(this.db, this.actor, this.ts(), this.closeParts.artifacts())
+    }
+    catch (error) {
+      console.error(`${PREFIX}the pass over ended artifacts failed, the close goes on: ${failureOf(error)}`)
+    }
+  }
+
+  measureHome(): void {
+    const home = this.closeParts.home
+    const now = this.closeParts.clock().getTime()
+    if (home === undefined || (this.homeMeasuredAt !== null && now - this.homeMeasuredAt < home.everyMs))
+      return
+    this.homeMeasuredAt = now
+    try {
+      alarmOverBudget(this.db, this.actor, this.ts(), home.path, home.budget, home.sizes)
+    }
+    catch (error) {
+      console.error(`${PREFIX}measuring the construct home failed, the close goes on: ${failureOf(error)}`)
+    }
+  }
+
+  private keepTheHome(): void {
     this.freeEndedTrees()
+    this.freeEndedArtifacts()
+    this.measureHome()
+  }
+
+  protected override before(): void {
+    this.keepTheHome()
   }
 
   protected candidates(scope: Scope = {}): QueuedTask[] {
@@ -100,7 +146,7 @@ export class CloseNode extends Node<CloseStep> {
   }
 
   protected handle(lease: Lease): CloseStep {
-    this.freeEndedTrees()
+    this.keepTheHome()
     const outcome = this.executor.close(lease)
     if (outcome.kind === 'closed' && outcome.cycle.treeLeft !== null)
       recordEndedTrees(this.db, this.actor, this.ts(), [{ cardId: lease.cardId, ...outcome.cycle.treeLeft }])
@@ -125,21 +171,30 @@ export interface CloseRun {
   parking: string
   pause: (ms: number) => Promise<unknown>
   endedTrees?: (db: DatabaseSync) => () => EndedTree[]
+  artifacts?: (db: DatabaseSync) => () => FreedArtifact[]
+  home?: HomeWatch
+}
+
+export function closeNodeOf(run: CloseRun, db: DatabaseSync, mode: DetectionMode, clock: () => Date = () => new Date()): CloseNode {
+  return new CloseNode({ ...nodeLiveness(), db, reported: run.reported, clock, session: run.session, parking: run.parking, mode, env: process.env, endedTrees: run.endedTrees?.(db), artifacts: run.artifacts?.(db), home: run.home })
 }
 
 export async function runCloseWorker(argv: string[], run: CloseRun): Promise<number> {
-  return runNode(argv, 'close', run.busPath, (db, mode) => new CloseNode({ ...nodeLiveness(), db, reported: run.reported, clock: () => new Date(), session: run.session, parking: run.parking, mode, env: process.env, endedTrees: run.endedTrees?.(db) }), { pause: run.pause, codeSha: loadedCodeSha, supply: nodeSupply() })
+  return runNode(argv, 'close', run.busPath, (db, mode) => closeNodeOf(run, db, mode), { pause: run.pause, codeSha: loadedCodeSha, supply: nodeSupply() })
 }
 
 async function main(): Promise<number> {
   const construct = path.join(os.homedir(), '.construct')
   const repo = process.cwd()
+  const busPath = defaultBusPath()
+  const places = { home: construct, busDir: busDirOf(busPath) }
   const endedTrees = (db: DatabaseSync) => {
-    const trees = cardTreeSweep(db, process.env, defaultBusPath(), repo, gitWorktrees(repo), () => new Date())
+    const trees = cardTreeSweep(db, process.env, busPath, repo, gitWorktrees(repo), () => new Date())
     return () => trees.free()
   }
-  const busPath = defaultBusPath()
-  return runCloseWorker(process.argv.slice(2), { busPath, reported: closingVerification(busPath), session: randomUUID(), parking: path.join(construct, 'parking'), pause: sleep, endedTrees })
+  const artifacts = (db: DatabaseSync) => () => sweepArtifacts(db, places, gitWorktrees(repo), new Date())
+  const home = { path: construct, budget: HOME_BUDGET_BYTES, everyMs: HOME_MEASURED_EVERY_MS }
+  return runCloseWorker(process.argv.slice(2), { busPath, reported: closingVerification(busPath), session: randomUUID(), parking: path.join(construct, 'parking'), pause: sleep, endedTrees, artifacts, home })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
