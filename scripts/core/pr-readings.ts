@@ -1,5 +1,8 @@
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite'
 
+export type { PlanMember, PlanRow } from '../window/plan-readings.js'
+export { holdsPlans, plans, releases } from '../window/plan-readings.js'
+
 export interface PrRow {
   pr: number
   card_id: number | null
@@ -58,6 +61,10 @@ export function ofCard(db: DatabaseSync, cardId: number): PrRow[] {
 
 export function all(db: DatabaseSync): PrRow[] {
   return selected(db, '')
+}
+
+export function open(db: DatabaseSync): PrRow[] {
+  return selected(db, 'WHERE state = ?', 'open')
 }
 
 export interface MainsSinceMechanics {

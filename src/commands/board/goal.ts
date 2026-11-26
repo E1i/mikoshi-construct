@@ -1,6 +1,9 @@
+import type { PlanRow } from '../../../scripts/core/pr-readings.js'
 import type { Lore } from '../../ui/lore.js'
 import type { BusDb } from '../cost/bus.js'
-import { CARD_ADMITTED, CARD_MOVED, OPEN_PLAN, TERMINAL_LANES } from '../../../scripts/core/events.js'
+import { cardBodyLanes, cardsWithTheirLines, lanesOfCards, stampsAmong, tasksInStates } from '../../../scripts/core/card-readings.js'
+import { OPEN_PLAN, TERMINAL_LANES } from '../../../scripts/core/events.js'
+import { all as allPrs, holdsPlans, plans, releases } from '../../../scripts/core/pr-readings.js'
 
 export const RELEASE_STAGES = ['queued', 'in_progress', 'review', 'delivered'] as const
 const RECENT_HOURS = 24
@@ -62,28 +65,7 @@ interface CardReading {
   at: string | null
 }
 
-interface ReleaseRow {
-  id: string
-  title: string
-  goal: string
-  gate: string | null
-}
-
-const CARD_READINGS = `
-  SELECT cards.card_id AS id, cards.state, prs.state AS pr_state, coalesce(merge.ts, own.ts) AS at,
-    (SELECT tasks.queue FROM tasks WHERE tasks.card_id = cards.card_id AND tasks.state IN ('queued', 'leased') ORDER BY tasks.id DESC LIMIT 1) AS queue,
-    coalesce((SELECT json_extract(lane.payload, '$.lane') FROM events AS lane WHERE lane.legacy = 0 AND lane.type IN ('${CARD_ADMITTED}', '${CARD_MOVED}') AND lane.card_id = cards.card_id AND json_type(lane.payload, '$.lane') = 'text' ORDER BY lane.id DESC LIMIT 1), bodies.lane) AS lane
-  FROM cards LEFT JOIN prs ON prs.pr = cards.pr
-    LEFT JOIN card_bodies AS bodies ON bodies.card_id = cards.card_id
-    LEFT JOIN events AS own ON own.id = cards.event_id
-    LEFT JOIN events AS merge ON merge.id = prs.event_id AND prs.state = '${MERGED}'
-`
-
-const RELEASE_MEMBERS = `
-  SELECT card_releases.card_id AS card, card_releases.release FROM card_releases
-  JOIN plans ON plans.plan_id = card_releases.release
-  WHERE plans.state = ? ORDER BY card_releases.card_id
-`
+const OPEN_TASK_STATES = ['queued', 'leased']
 
 function markOf(row: CardRow): CardMark {
   if (row.state === MERGED || row.pr_state === MERGED)
@@ -97,16 +79,41 @@ function markOf(row: CardRow): CardMark {
   return 'queued'
 }
 
+function queuesOfCards(db: BusDb): Map<number, string> {
+  const queues = new Map<number, string>()
+  for (const task of tasksInStates(db, OPEN_TASK_STATES))
+    queues.set(task.card_id, task.queue)
+  return queues
+}
+
+function cardRows(db: BusDb): CardRow[] {
+  const prs = new Map(allPrs(db).map(pr => [pr.pr, pr] as const))
+  const queues = queuesOfCards(db)
+  const lanes = lanesOfCards(db)
+  const cards = cardsWithTheirLines(db).map((card) => {
+    const pr = card.pr === null ? undefined : prs.get(card.pr)
+    return { card, pr, mergedAt: pr?.state === MERGED ? [pr.event_id] : [] }
+  })
+  const stamps = stampsAmong(db, cards.flatMap(({ card, mergedAt }) => [card.event_id, ...mergedAt]))
+  return cards.map(({ card, pr, mergedAt }) => ({
+    id: card.id,
+    state: card.state,
+    pr_state: pr?.state ?? null,
+    queue: queues.get(card.id) ?? null,
+    lane: lanes.get(card.id) ?? null,
+    at: mergedAt.map(id => stamps.get(id) ?? null).find(ts => ts !== null) ?? stamps.get(card.event_id) ?? null,
+  }))
+}
+
 function cardReadings(db: BusDb): Map<number, CardReading> {
-  const rows = db.prepare(CARD_READINGS).all() as unknown as CardRow[]
-  return new Map(rows.map(row => [Number(row.id), { mark: markOf(row), at: row.at }] as const))
+  return new Map(cardRows(db).map(row => [row.id, { mark: markOf(row), at: row.at }] as const))
 }
 
 function gateOf(word: string | null, remainder: number): ReleaseGate | null {
   return word === null ? null : { word, status: remainder === 0 ? GATE_DUE : GATE_OPEN }
 }
 
-function progressOf(release: ReleaseRow, cards: readonly (readonly [number, CardReading])[], now: Date): PlanProgress {
+function progressOf(release: PlanRow, cards: readonly (readonly [number, CardReading])[], now: Date): PlanProgress {
   const stages = Object.fromEntries(RELEASE_STAGES.map(stage => [stage, 0])) as Record<ReleaseStage, number>
   let deliveredRecently = 0
   for (const [, reading] of cards) {
@@ -122,28 +129,23 @@ function progressOf(release: ReleaseRow, cards: readonly (readonly [number, Card
 }
 
 function backlogOf(db: BusDb, readings: Map<number, CardReading>, planned: Set<number>): number {
-  const bodies = db.prepare('SELECT card_id AS id, lane FROM card_bodies').all() as unknown as { id: number, lane: string | null }[]
-  return bodies.filter((body) => {
-    const mark = readings.get(Number(body.id))?.mark ?? 'queued'
-    return !planned.has(Number(body.id)) && !TERMINAL_LANES.has(body.lane ?? '') && mark !== 'delivered' && mark !== 'dropped'
+  return cardBodyLanes(db).filter((body) => {
+    const mark = readings.get(body.card_id)?.mark ?? 'queued'
+    return !planned.has(body.card_id) && !TERMINAL_LANES.has(body.lane ?? '') && mark !== 'delivered' && mark !== 'dropped'
   }).length
 }
 
-function holdsReleases(db: BusDb): boolean {
-  return db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('plans', 'card_releases')`).all().length === 2
-}
-
 export function goalOf(db: BusDb, now: Date = new Date()): Goal | null {
-  if (!holdsReleases(db))
+  if (!holdsPlans(db))
     return null
-  const releases = db.prepare('SELECT plan_id AS id, title, goal, gate FROM plans WHERE state = ? ORDER BY plan_id').all(OPEN_PLAN) as unknown as ReleaseRow[]
-  if (releases.length === 0)
+  const open = plans.inState(db, OPEN_PLAN)
+  if (open.length === 0)
     return null
-  const members = (db.prepare(RELEASE_MEMBERS).all(OPEN_PLAN) as unknown as { card: number, release: string }[]).map(member => ({ card: Number(member.card), release: member.release }))
+  const members = releases.ofPlansIn(db, OPEN_PLAN)
   const readings = cardReadings(db)
   const reading = (card: number): CardReading => readings.get(card) ?? { mark: 'queued', at: null }
   return {
-    plans: releases.map(release => progressOf(release, members.filter(member => member.release === release.id).map(member => [member.card, reading(member.card)] as const), now)),
+    plans: open.map(release => progressOf(release, members.filter(member => member.release === release.id).map(member => [member.card, reading(member.card)] as const), now)),
     backlog: backlogOf(db, readings, new Set(members.map(member => member.card))),
   }
 }
