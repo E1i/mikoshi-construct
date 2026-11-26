@@ -97,12 +97,14 @@ function amendWorld(): AmendWorld {
   mkdirSync(path.join(repo, 'src', 'board'), { recursive: true })
   writeFileSync(path.join(repo, TOUCH), '')
   writeFileSync(path.join(repo, REFUSED), '')
+  mkdirSync(path.join(repo, 'scripts', 'tests'), { recursive: true })
+  writeFileSync(path.join(repo, 'scripts', 'tests', 'w1.test.ts'), '')
   mkdirSync(path.join(root, '.construct', 'parking'), { recursive: true })
   const bus = path.join(root, 'bus.db')
   vi.stubEnv(BUS_DB_VARIABLE, bus)
   vi.stubEnv('HOME', root)
   const db = openComposedBus(bus)
-  const body = `card: #${CARD} stopped-card [implement/runner/S/cheap/owner] · depends — · blocks —\nbranch: feat/card-${CARD}\ntouches: ${TOUCH}\ncontinue: stop\nwho: shift\n\nDo the thing.\n\nwitnesses: ${JSON.stringify([{ id: 'W1', run: 'pnpm exec vitest run tests/w1.test.ts', test: 'the W1 test', head: 'pass', base: 'fail', proves: 'what W1 proves' }])}\n`
+  const body = `card: #${CARD} stopped-card [implement/runner/S/cheap/owner] · depends — · blocks —\nbranch: feat/card-${CARD}\ntouches: ${TOUCH}\ncontinue: stop\nwho: shift\n\nDo the thing.\n\nwitnesses: ${JSON.stringify([{ id: 'W1', run: 'pnpm exec vitest run scripts/tests/w1.test.ts', test: 'the W1 test', head: 'pass', base: 'fail', proves: 'what W1 proves' }])}\n`
   const admitted = runAdmit({ file: path.join(root, `${CARD}.md`), body, dir: repo, dryRun: false, autoConfirm: true, events: busCardEvents(db), admissions: busCardAdmissions(db), cardStates: () => busHeldCards(db) }, () => NOW)
   expect(admitted.status).toBe('admitted')
   reduce(db, 'pending', busProjections())

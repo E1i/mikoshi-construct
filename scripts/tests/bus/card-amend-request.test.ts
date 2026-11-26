@@ -28,7 +28,7 @@ afterEach(() => {
 })
 
 function witness(id: string): Record<string, unknown> {
-  return { id, run: `pnpm exec vitest run tests/${id}.test.ts`, test: `the ${id} test`, head: 'pass', base: 'fail', proves: `what ${id} proves` }
+  return { id, run: `pnpm exec vitest run scripts/tests/${id}.test.ts`, test: `the ${id} test`, head: 'pass', base: 'fail', proves: `what ${id} proves` }
 }
 
 function body(id: number, fields: unknown[] = [witness('W1'), witness('W2')]): string {
@@ -44,6 +44,9 @@ function world(): World {
   mkdirSync(path.join(repo, 'src', 'board'), { recursive: true })
   writeFileSync(path.join(repo, 'src', 'board', 'run.ts'), '')
   writeFileSync(path.join(repo, 'src', 'board', 'tail.ts'), '')
+  mkdirSync(path.join(repo, 'scripts', 'tests'), { recursive: true })
+  for (const id of ['W1', 'W2', 'W3'])
+    writeFileSync(path.join(repo, 'scripts', 'tests', `${id}.test.ts`), '')
   mkdirSync(path.join(root, '.construct', 'parking'), { recursive: true })
   const bus = path.join(root, 'bus.db')
   vi.stubEnv(BUS_DB_VARIABLE, bus)
