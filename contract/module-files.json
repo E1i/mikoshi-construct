@@ -737,6 +737,7 @@
     "scripts/tests/contract/layer-cuts/bus-card-sql-function.test.ts",
     "scripts/tests/contract/layer-cuts/claude-adapter-shift-settings.test.ts",
     "scripts/tests/contract/layer-cuts/decisions-window-runner.test.ts",
+    "scripts/tests/contract/layer-cuts/identifiers-under-bus.test.ts",
     "scripts/tests/contract/layer-cuts/ports-card-and-attach.test.ts",
     "scripts/tests/contract/layer-cuts/prepush-heavy-step.test.ts",
     "scripts/tests/contract/layer-cuts/workers-review-launch.test.ts",
