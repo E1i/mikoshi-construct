@@ -769,6 +769,7 @@
     "scripts/tests/contract/bus-cut/pr-status-to-pr-record.test.ts",
     "scripts/tests/contract/bus-cut/reducer-takes-projections.test.ts",
     "scripts/tests/contract/bus-cut/ui-in-the-ports-layer.test.ts",
+    "scripts/tests/contract/bus-cut/witnesses-run-in-quality.test.ts",
     "scripts/tests/contract/bus-cut/witnesses-to-card.test.ts",
     "scripts/tests/contract/bus-gate.test.ts",
     "scripts/tests/contract/bus-port-board-reader.test.ts",
@@ -1774,7 +1775,6 @@
     "scripts/ports/task-start.ts",
     "scripts/ports/tree-publish.ts",
     "scripts/ports/wide-vitest-guard.ts",
-    "scripts/ports/witnesses.ts",
     "scripts/ports/worktree.ts",
     "src/commands/ci/state.ts",
     "src/commands/intake/command-word.ts"
@@ -2576,6 +2576,7 @@
     "scripts/core/layer-map.json",
     "scripts/core/layer-map.ts",
     "scripts/core/verification.ts",
+    "scripts/ports/witnesses.ts",
     "scripts/privacy/allowlist.ts",
     "scripts/privacy/check.ts",
     "scripts/privacy/scan.ts",
