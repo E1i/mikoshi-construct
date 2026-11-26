@@ -1066,6 +1066,7 @@
     "scripts/tests/ports/result.test.ts",
     "scripts/tests/ports/review-planner-closed-argv.test.ts",
     "scripts/tests/ports/session.test.ts",
+    "scripts/tests/ports/shapes-home.test.ts",
     "scripts/tests/ports/task-start-window.test.ts",
     "scripts/tests/ports/wide-vitest-guard.test.ts",
     "scripts/tests/privacy/fixtures/home-paths.md",
