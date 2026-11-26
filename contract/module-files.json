@@ -725,6 +725,7 @@
     "scripts/tests/contract/bus-port-merge-executor-tick.test.ts",
     "scripts/tests/contract/card-grammar-ownership.test.ts",
     "scripts/tests/contract/cards-fold-in-composition.test.ts",
+    "scripts/tests/contract/ci-state-and-command-word-are-ports.test.ts",
     "scripts/tests/contract/codegen-events-cards-lint.test.ts",
     "scripts/tests/contract/codegen-events-cards.test.ts",
     "scripts/tests/contract/codegen-files-surface-lint.test.ts",
@@ -1213,7 +1214,6 @@
     "src/commands/intake/amend.ts",
     "src/commands/intake/bash-syntax.ts",
     "src/commands/intake/check.ts",
-    "src/commands/intake/command-word.ts",
     "src/commands/intake/confirm.ts",
     "src/commands/intake/draft.ts",
     "src/commands/intake/export.ts",
@@ -1688,6 +1688,7 @@
     "src/card/slice-depends.ts"
   ],
   "ports": [
+    "scripts/ci/required.ts",
     "scripts/core/bus-contract.ts",
     "scripts/core/gh-callers.known.json",
     "scripts/core/gh-callers.ts",
@@ -1718,7 +1719,9 @@
     "scripts/ports/tree-publish.ts",
     "scripts/ports/wide-vitest-guard.ts",
     "scripts/ports/witnesses.ts",
-    "scripts/ports/worktree.ts"
+    "scripts/ports/worktree.ts",
+    "src/commands/ci/state.ts",
+    "src/commands/intake/command-word.ts"
   ],
   "ports-adapters": [
     "scripts/ports/client/codex/adapter.ts",
@@ -2532,7 +2535,6 @@
     "scripts/ci/layers.ts",
     "scripts/ci/no-match-reporter.ts",
     "scripts/ci/prepush.ts",
-    "scripts/ci/required.ts",
     "scripts/ci/sandbox-failing.jsonl",
     "scripts/ci/sandbox-failing.ts",
     "scripts/ci/sandbox-liveness.ts",
@@ -2568,7 +2570,6 @@
     "scripts/scratch/vitest-bus.ts",
     "scripts/scratch/vitest-setup.ts",
     "src/card/covering-tests.ts",
-    "src/commands/ci/state.ts",
     "src/commands/mutate/apply.ts",
     "src/commands/mutate/index.ts",
     "src/commands/mutate/journal.ts",
