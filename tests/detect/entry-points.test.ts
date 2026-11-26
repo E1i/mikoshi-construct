@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { detectEntryPoints, entryPointKindOf, importReach, packageDirOf } from '../../src/detect/entry-points.js'
+import { detectEntryPoints, entryPointKindOf, entryPointsIn, importReach, importReachIn, listedTree, packageDirIn, packageDirOf } from '../../src/detect/entry-points.js'
 
 const roots: string[] = []
 
@@ -104,5 +104,26 @@ describe('the entry points of the stack are facts of detect', () => {
     const parent = tree({ 'outside.ts': '', 'repo/src/cli.ts': 'import \'../../outside.js\'\n' })
 
     expect(importReach(path.join(parent, 'repo'), ['src/cli.ts'])).toEqual(['src/cli.ts'])
+  })
+})
+
+describe('a listed tree reads the same entry points and reach as the disk', () => {
+  const files: Record<string, string> = {
+    'package.json': JSON.stringify({ bin: 'dist/cli.js', main: './dist/cli.js' }),
+    'src/cli.ts': 'import \'./a.js\'\n',
+    'src/a.ts': 'import \'./b\'\n',
+    'src/b/index.ts': '',
+    'apps/web/package.json': JSON.stringify({ name: 'web' }),
+    'apps/web/app/page.tsx': '',
+    'packages/loose/src/x.ts': '',
+  }
+
+  it('lists the same entry points, reach and package of a file from a list of paths as from the disk', () => {
+    const root = tree(files)
+    const listed = listedTree(Object.keys(files), file => files[file] ?? null)
+
+    expect(entryPointsIn(listed)).toEqual(detectEntryPoints(root))
+    expect(importReachIn(listed, ['src/cli.ts'])).toEqual(importReach(root, ['src/cli.ts']))
+    expect(['apps/web/app/page.tsx', 'packages/loose/src/x.ts'].map(file => packageDirIn(listed, file))).toEqual(['apps/web/app/page.tsx', 'packages/loose/src/x.ts'].map(file => packageDirOf(root, file)))
   })
 })
