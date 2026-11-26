@@ -20,6 +20,8 @@ Your depth is the one the prompt names, set by the card's risk through `reviewDe
 
 A review is exhaustive in one pass: walk every mutation over the changed lines and report every finding of this pass in one verdict, never in portions across rounds. A re-review, at any depth, after a `changes` verdict checks that each earlier finding is closed and explores the diff `since..head`. A new finding is allowed on the changed lines and on code the change affects: its callers, the modules that depend on it, its tests, and a regression outside the diff that the change causes. It does not re-read the whole pull request without a reason, and raises no new finding on code the change neither touches nor affects that the first pass already read.
 
+A finding the bus recorded before the session, between the `<bus-findings>` markers of the prompt (new product code that no entry point of its package reaches, from `scripts/nodes/review/reachability.ts`), stands whatever you find: the bus adds it to the verdict itself. Read it and check the rest of the pull request around it, but never clear it, soften it or argue it away by opinion, and do not repeat it in your findings.
+
 A report on a pull request that changes `src/` or `templates/` ends with the compact matrix described in
 [architecture/code-matrix.md](../../architecture/code-matrix.md), over its four common rules and any the brief declares;
 on one that changes only `scripts/`, the matrix is optional.

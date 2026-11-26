@@ -172,6 +172,9 @@
   ],
   "card-model": [
     "scripts/core/identifiers.ts",
+    "scripts/policy/derived-files.ts",
+    "scripts/policy/placement-growth.ts",
+    "scripts/policy/touch-scope.ts",
     "src/card/complexity.ts",
     "src/card/grammar.ts",
     "src/card/parking.ts",
@@ -477,7 +480,7 @@
     "scripts/tests/bus/hold-keeps-launch-and-merge.test.ts",
     "scripts/tests/bus/import.test.ts",
     "scripts/tests/bus/inbox.test.ts",
-    "scripts/tests/bus/independent-card-leaves-a-chain.test.ts",
+    "scripts/tests/bus/intake-move-sets-the-bus-lane.test.ts",
     "scripts/tests/bus/intake.test.ts",
     "scripts/tests/bus/journal-guard.test.ts",
     "scripts/tests/bus/journal-outside.test.ts",
@@ -721,6 +724,7 @@
     "scripts/tests/contract/bus-gate.test.ts",
     "scripts/tests/contract/bus-port-board-reader.test.ts",
     "scripts/tests/contract/bus-port-merge-executor-tick.test.ts",
+    "scripts/tests/contract/card-grammar-ownership.test.ts",
     "scripts/tests/contract/cards-fold-in-composition.test.ts",
     "scripts/tests/contract/codegen-events-cards-lint.test.ts",
     "scripts/tests/contract/codegen-events-cards.test.ts",
@@ -1033,6 +1037,7 @@
     "scripts/tests/nodes/review-ceiling-goes-to-the-window.test.ts",
     "scripts/tests/nodes/review-mutation-only-tail.test.ts",
     "scripts/tests/nodes/review-owner-decisions.test.ts",
+    "scripts/tests/nodes/review-reachability.test.ts",
     "scripts/tests/nodes/review-reads-decisions-in-force.test.ts",
     "scripts/tests/nodes/review-sandbox-norm.test.ts",
     "scripts/tests/nodes/widen-from-the-tree-question-path.test.ts",
@@ -1638,6 +1643,7 @@
   "node-review": [
     "scripts/nodes/review/depth-sources.ts",
     "scripts/nodes/review/divergence-alarm.ts",
+    "scripts/nodes/review/reachability.ts",
     "scripts/nodes/review/review-depth.ts",
     "scripts/nodes/review/review-executor.ts",
     "scripts/nodes/review/review-planner-worker.ts",
@@ -2623,11 +2629,9 @@
   "rules": [
     "scripts/core/push-policy.ts",
     "scripts/morse/cli.ts",
-    "scripts/policy/derived-files.ts",
     "scripts/policy/morse/journal.ts",
     "scripts/policy/morse/predict.ts",
     "scripts/policy/morse/rules.ts",
-    "scripts/policy/placement-growth.ts",
     "scripts/policy/policy.ts",
     "scripts/policy/repeat-finding.ts",
     "scripts/policy/round-limit-decision.ts",
@@ -2637,7 +2641,6 @@
     "scripts/policy/shredder/reader.ts",
     "scripts/policy/shredder/row.ts",
     "scripts/policy/shredder/vocabulary.ts",
-    "scripts/policy/touch-scope.ts",
     "scripts/policy/widening.ts"
   ],
   "session": [
