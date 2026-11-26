@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest'
 import { RELEASE_BODY_BUDGET, SUMMARY_LINE_LIMIT } from '../../release-notes/release-body.js'
 import { guardVersionPr } from '../../release/version-pr-guard.js'
 
+const GREEN_SMOKE = { state: 'success', note: 'every step green' } as const
+
 function changesetDir(files: string[]): string {
   const dir = mkdtempSync(path.join(tmpdir(), 'construct-version-pr-'))
   for (const name of files)
@@ -36,7 +38,7 @@ describe('a version pull request cannot merge over a changeset it has not consum
   })
 
   it('passes changeset-release/main once every changeset is consumed', () => {
-    expect(guardVersionPr('changeset-release/main', changesetDir(['README.md', 'config.json']), changelogOf('9.9.9', 1, 'Short.')).passed).toBe(true)
+    expect(guardVersionPr('changeset-release/main', changesetDir(['README.md', 'config.json']), changelogOf('9.9.9', 1, 'Short.'), GREEN_SMOKE).passed).toBe(true)
   })
 
   it('passes any other branch carrying a pending changeset, which is the ordinary feature pull request', () => {
@@ -70,7 +72,7 @@ describe('a version pull request renders its GitHub release body within the budg
   })
 
   it('passes a version pull request whose release body fits the budget', () => {
-    expect(guardVersionPr('changeset-release/main', consumed(), changelogOf('9.9.9', 3, 'Short.')).passed).toBe(true)
+    expect(guardVersionPr('changeset-release/main', consumed(), changelogOf('9.9.9', 3, 'Short.'), GREEN_SMOKE).passed).toBe(true)
   })
 
   it('is red when the changelog carries no entry for the version being released', () => {
