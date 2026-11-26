@@ -1,6 +1,7 @@
-import type { ClientRecord } from '../../../src/manifest.js'
+import type { ClientRecord, ClientRole } from '../../../src/manifest.js'
+import type { ClientConfig } from '../../ports/client/index.js'
 import { describe, expect, it } from 'vitest'
-import { CLIENT_IDS, CLIENT_ROLES, DEFAULT_CLIENT_MODEL } from '../../../src/manifest.js'
+import { CLIENT_IDS, CLIENT_ROLES, clientIdFor, clientModelOf, DEFAULT_CLIENT_MODEL } from '../../../src/manifest.js'
 import { codexAdapter } from '../../ports/client/codex/adapter.js'
 import { ClientPort } from '../../ports/client/index.js'
 import { clientAdapter } from '../../ports/session.js'
@@ -9,16 +10,16 @@ const claudeAdapter = clientAdapter()
 
 const UNKNOWN = 'no-such-client'
 
-const RECORD_OF_ROOT: Record<string, ClientRecord | undefined> = { '/a-repository': { roles: { window: 'codex' } } }
+const CONFIG_OF_ROOT: Record<string, ClientConfig> = { '/a-repository': { id: codexAdapter.id, model: DEFAULT_CLIENT_MODEL } }
 
-const port = new ClientPort(claudeAdapter, root => RECORD_OF_ROOT[root])
+const port = new ClientPort(claudeAdapter, root => CONFIG_OF_ROOT[root] ?? { id: null, model: DEFAULT_CLIENT_MODEL })
 
 function clientAdapterById(id: string): ReturnType<ClientPort['clientAdapterById']> {
   return port.clientAdapterById(id)
 }
 
-function clientForRole(...args: Parameters<ClientPort['clientForRole']>): ReturnType<ClientPort['clientForRole']> {
-  return port.clientForRole(...args)
+function clientForRole(record: ClientRecord | undefined, role: ClientRole): ReturnType<ClientPort['clientFor']> {
+  return port.clientFor({ id: clientIdFor(record, role), model: clientModelOf(record) })
 }
 
 describe('client choice is configuration (D-323)', () => {
@@ -58,7 +59,7 @@ describe('client choice is configuration (D-323)', () => {
     expect(clientForRole({ id: UNKNOWN }, 'launch')).toEqual(refusal)
   })
 
-  it('reads the record of a root only through the reader its builder hands it', () => {
+  it('reads the client config of a root only through the reader its builder hands it', () => {
     expect(port.clientForRoleIn('/a-repository', 'window')).toEqual({ adapter: codexAdapter, model: 'auto' })
     expect(port.clientForRoleIn('/another-repository', 'window')).toEqual({ adapter: claudeAdapter, model: 'auto' })
     expect(port.windowCommandIn('/a-repository')).toEqual(codexAdapter.window())

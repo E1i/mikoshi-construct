@@ -2,4 +2,4 @@
 'mikoshi-construct': patch
 ---
 
-Internal: the client record symbols (`ClientRecord`, `ClientRole`, `CLIENT_ROLES`, `clientIdFor`, `clientModelOf`, `DEFAULT_CLIENT_MODEL`) are declared beside the client contract and re-exported from the manifest module unchanged, and the client port receives the manifest reader and the shift settings from whoever builds it instead of importing them. The `construct.json` shape and its reading are unchanged.
+Internal: the client port no longer reads the manifest or the shift settings itself. Whoever builds it hands it the default adapter and a reader of the client configuration of a repository, and the default Claude adapter is built once beside the session port. Which client each role runs, and the `construct.json` shape, are unchanged.

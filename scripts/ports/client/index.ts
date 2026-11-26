@@ -1,30 +1,33 @@
-import type { ClientAdapter, ClientRecord, ClientRole, ModelChoice, Refusal, WindowCommand } from './contract.js'
+import type { ClientAdapter, ModelChoice, Refusal, Role, WindowCommand } from './contract.js'
 import { codexAdapter } from './codex/adapter.js'
-import { clientIdFor, clientModelOf } from './contract.js'
 
 export interface ClientChoice {
   adapter: ClientAdapter
   model: ModelChoice
 }
 
-export type ClientRecordReader = (root: string) => ClientRecord | undefined
+export interface ClientConfig {
+  id: string | null
+  model: ModelChoice
+}
+
+export type ClientConfigReader = (root: string, role: Role) => ClientConfig
 
 export class ClientPort {
-  constructor(private readonly defaultAdapter: ClientAdapter, private readonly recordOf: ClientRecordReader) {}
+  constructor(private readonly defaultAdapter: ClientAdapter, private readonly configOf: ClientConfigReader) {}
 
   clientAdapterById(id: string): ClientAdapter | Refusal {
     return this.adapters().find(adapter => adapter.id === id) ?? this.noAdapterFor(id)
   }
 
-  clientForRole(record: ClientRecord | undefined, role: ClientRole): ClientChoice | Refusal {
-    const id = clientIdFor(record, role)
+  clientFor({ id, model }: ClientConfig): ClientChoice | Refusal {
     const adapter = id == null ? this.defaultAdapter : this.clientAdapterById(id)
-    return 'kind' in adapter ? adapter : { adapter, model: clientModelOf(record) }
+    return 'kind' in adapter ? adapter : { adapter, model }
   }
 
-  clientForRoleIn(root: string, role: ClientRole): ClientChoice | Refusal {
-    const record = this.recordedClientIn(root)
-    return record !== undefined && 'kind' in record ? record : this.clientForRole(record, role)
+  clientForRoleIn(root: string, role: Role): ClientChoice | Refusal {
+    const config = this.configIn(root, role)
+    return 'kind' in config ? config : this.clientFor(config)
   }
 
   windowCommandIn(root: string): WindowCommand | Refusal {
@@ -47,9 +50,9 @@ export class ClientPort {
     return { kind: 'refused', reason: `no client adapter for id ${JSON.stringify(id)}; known: ${this.adapters().map(adapter => adapter.id).join(', ')}` }
   }
 
-  private recordedClientIn(root: string): ClientRecord | undefined | Refusal {
+  private configIn(root: string, role: Role): ClientConfig | Refusal {
     try {
-      return this.recordOf(root)
+      return this.configOf(root, role)
     }
     catch (error) {
       return { kind: 'refused', reason: `the client record of ${root} is unreadable: ${error instanceof Error ? error.message : String(error)}` }

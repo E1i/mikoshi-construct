@@ -1,5 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Status } from '../core/handoff-status.js'
+import type { Role } from '../ports/client/contract.js'
+import type { ClientConfig } from '../ports/client/index.js'
 import type { WindowMode } from '../ports/session.js'
 import type { ProcessRow } from './exit.js'
 import { spawn, spawnSync } from 'node:child_process'
@@ -9,7 +11,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { readManifest } from '../../src/manifest.js'
+import { CLIENT_ROLES, clientIdFor, clientModelOf, readManifest } from '../../src/manifest.js'
 import { isOwnerCheckout } from '../core/bus-path.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
 import { PROCESS_ENDED, PROCESS_HEARTBEAT, PROCESS_REFUSED } from '../core/events.js'
@@ -29,7 +31,13 @@ import { lastLoopBeats, LOOP_PROCESS } from './window-heartbeat.js'
 export const PREFIX = '[miko] '
 export const HANDOFF_VARIABLE = 'CONSTRUCT_HANDOFF'
 
-const CLIENT_PORT = new ClientPort(clientAdapter(), root => readManifest(root)?.client)
+function clientConfigIn(root: string, role: Role): ClientConfig {
+  const record = readManifest(root)?.client
+  const recordedRole = CLIENT_ROLES.find(clientRole => clientRole === role)
+  return { id: recordedRole === undefined ? record?.id ?? null : clientIdFor(record, recordedRole), model: clientModelOf(record) }
+}
+
+const CLIENT_PORT = new ClientPort(clientAdapter(), clientConfigIn)
 
 export function windowCommandIn(root: string): ReturnType<ClientPort['windowCommandIn']> {
   return CLIENT_PORT.windowCommandIn(root)
