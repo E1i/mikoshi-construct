@@ -9,6 +9,7 @@ import { events } from '../core/events-query.js'
 import { BOARD_ALARM } from '../core/events.js'
 import { HOST_DEGRADED } from '../ports/host-fault.js'
 import { HOST_THERMAL } from '../ports/host-thermal.js'
+import { userProcessCount } from '../ports/process-table.js'
 
 export interface LastHostFailures {
   github: string | null
@@ -51,8 +52,7 @@ function processesOfUser(): number | null {
   const uid = process.getuid?.()
   if (uid === undefined)
     return null
-  const run = spawnSync('ps', ['-U', String(uid), '-o', 'pid='], { encoding: 'utf8', timeout: COMMAND_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'ignore'] })
-  return run.status === 0 ? run.stdout.split('\n').filter(line => line.trim() !== '').length : null
+  return userProcessCount(uid)
 }
 
 function ownDescriptors(): number | null {

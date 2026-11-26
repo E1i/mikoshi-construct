@@ -5190,9 +5190,7 @@
       "scripts/scratch/run-root.ts": 1,
       "scripts/supervisor/bg.ts": 1
     },
-    "process-table": {
-      "scripts/supervisor/host-vitals.ts": 1
-    },
+    "process-table": {},
     "window-requests": {}
   },
   "ports": {
@@ -6720,7 +6718,8 @@
           "lstartOf": "(row: ProcessRow): string | null",
           "parseListing": "(output: string): ProcessRow[]",
           "rowOf": "(snapshot: ProcessSnapshot, pid: number): ProcessRow | null",
-          "rowsOf": "(snapshot: ProcessSnapshot): readonly ProcessRow[]"
+          "rowsOf": "(snapshot: ProcessSnapshot): readonly ProcessRow[]",
+          "userProcessCount": "(uid: number): number | null"
         },
         "language": "factory",
         "reexports": [],
