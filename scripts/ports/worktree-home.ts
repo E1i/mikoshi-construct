@@ -5,12 +5,9 @@ import { busDirOf } from '../core/bus-path.js'
 import { BUSY_TIMEOUT_MS } from '../core/db.js'
 import { CARD_STARTED } from '../core/events.js'
 import { openDatabase } from '../core/sqlite.js'
+import { taskWorktree } from './worktree.js'
 
 export { DEFAULT_WORKTREE_HOME, WORKTREE_HOME_VARIABLE, worktreeHome }
-
-export function taskWorktree(home: string, id: string): string {
-  return path.join(home, `mc-${id}`)
-}
 
 export function busWorktreeHome(busPath: string): string {
   return path.join(busDirOf(busPath), 'worktrees')
