@@ -30,6 +30,5 @@
   "scripts/window/window-session-end.ts",
   "scripts/window/window.ts",
   "src/card/risk.ts",
-  "src/commands/board/bus.ts",
   "src/commands/board/goal.ts"
 ]

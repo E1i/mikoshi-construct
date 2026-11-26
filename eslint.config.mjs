@@ -65,6 +65,15 @@ const intakeReadsDecisionsThroughTheirParser = {
   },
 }
 
+const boardTakesRolesAndVerdictsFromTheirOwners = {
+  files: ['src/commands/board/**'],
+  rules: {
+    'no-restricted-imports': ['error', {
+      patterns: [dependencyBoundary(['src/commands', ALLOWED_INTERNAL_IMPORTS['src/commands']]).rules['no-restricted-imports'][1].patterns[0], factoryReach('src/commands/board')],
+    }],
+  },
+}
+
 const ATTACH_DECIDES_WITHOUT_THE_STACK = 'attach decides without reading the stack (0034): it refuses only a tree with nothing to attach to'
 
 const attachDecidesWithoutTheStack = {
@@ -553,6 +562,7 @@ export default antfu(
   ...dependencyBoundaries,
   doctorReadsThroughOneReader,
   intakeReadsDecisionsThroughTheirParser,
+  boardTakesRolesAndVerdictsFromTheirOwners,
   attachDecidesWithoutTheStack,
   spawnPolicy,
   thePnpmProbeMaySpawnAndNothingElse,

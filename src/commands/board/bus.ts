@@ -24,6 +24,14 @@ export interface BoardBus {
   lastReducedCards: <T>(db: BusDb, read: () => T) => LastReducedRows<T>
   lastReducedOwnerWaits: (db: BusDb) => LastReducedRows<OwnerWait[]>
   currentLane: (db: BusDb, card: number) => string | null
+  windowRoles: (db: BusDb) => WindowRole[]
+  reviewVerdict: (db: BusDb, pr: number) => string | null
+}
+
+export interface WindowRole {
+  role: string
+  status: string
+  state: string
 }
 
 export const SESSION_DEATH_KEY = `${CARD_STOPPED}:session-end:`
@@ -205,28 +213,18 @@ interface EventRow {
   payload: string
 }
 
-interface RoleRow {
-  role: string
-  status: string
-  state: string
-}
-
 function count(value: unknown): number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0
 }
 
-function verdictOf(db: BusDb, pr: number | null): string | null {
-  return pr === null ? null : (db.prepare('SELECT verdict_on_head FROM prs WHERE pr = ?').get(pr) as { verdict_on_head: string | null } | undefined)?.verdict_on_head ?? null
-}
-
-function stepOf(db: BusDb, row: TaskRow): string {
-  if (row.queue === 'review')
-    return `review ${verdictOf(db, row.pr) ?? 'pending'}`
+function stepOf(bus: BoardBus, db: BusDb, row: TaskRow): string {
+  if (row.queue === REVIEW_QUEUE)
+    return `review ${(row.pr === null ? null : bus.reviewVerdict(db, row.pr)) ?? 'pending'}`
   return row.head === null ? row.queue : `${row.queue} ${row.head.slice(0, SHORT_SHA)}`
 }
 
-function taskServices(db: BusDb): BusService[] {
-  return inStates(db, [LEASED]).map(row => ({ role: row.queue, task: `#${row.card_id}`, tree: null, step: stepOf(db, row) }))
+function taskServices(bus: BoardBus, db: BusDb): BusService[] {
+  return inStates(db, [LEASED]).map(row => ({ role: row.queue, task: `#${row.card_id}`, tree: null, step: stepOf(bus, db, row) }))
 }
 
 function isSilent(row: EventRow, now: Date): boolean {
@@ -234,9 +232,8 @@ function isSilent(row: EventRow, now: Date): boolean {
   return Number.isNaN(at) || now.getTime() - at > SUBAGENT_SHOWN_HOURS * HOUR_MS
 }
 
-function windowRoles(db: BusDb): BusService[] {
-  const rows = db.prepare('SELECT role, status, state FROM roles ORDER BY role').all() as unknown as RoleRow[]
-  return rows.map(row => ({ role: 'window', task: row.role, tree: null, step: `${row.state} · ${row.status}` }))
+function windowRoles(bus: BoardBus, db: BusDb): BusService[] {
+  return bus.windowRoles(db).map(row => ({ role: 'window', task: row.role, tree: null, step: `${row.state} · ${row.status}` }))
 }
 
 const SESSION_STARTS = [CARD_STARTED, CARD_CONTINUED]
@@ -322,8 +319,8 @@ function lastWindowBeat(db: BusDb, now: Date): { session: string | null, subagen
 const WINDOW_TILE_ROLE = 'window'
 const WINDOW_TILE_TASK = 'miko'
 
-function windowTiles(db: BusDb, events: BoardEvents, now: Date): BusService[] {
-  const tiles = windowRoles(db)
+function windowTiles(bus: BoardBus, db: BusDb, events: BoardEvents, now: Date): BusService[] {
+  const tiles = windowRoles(bus, db)
   const beat = lastWindowBeat(db, now)
   const measured = new Set(beat.subagents.map(reading => reading.name))
   const running = runningWindowAgents(events, now)
@@ -704,7 +701,7 @@ export function boardFacts(bus: BoardBus, db: BusDb, now: Date, transcripts: Tra
     window: lastWindowBeat(db, now).window,
     cards,
     ...cardReading.behind === null ? {} : { cardsStale: cardReading.behind },
-    services: [...windowTiles(db, events, now), ...oneTilePerProcess(taskServices(db), sessions), ...sessions],
+    services: [...windowTiles(bus, db, events, now), ...oneTilePerProcess(taskServices(bus, db), sessions), ...sessions],
     matrices: checkMatrices(db),
     failure: lastFailure(events),
     reviewQueue,

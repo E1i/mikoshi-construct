@@ -11,6 +11,8 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { behindLine, CARDS, currentLane, IN_ORDER_MARK, readLastReduced } from '../../../scripts/core/bus-readings.js'
 import { lastReducedOwnerWaits } from '../../../scripts/core/card-readings.js'
+import { ofPr } from '../../../scripts/core/pr-readings.js'
+import { windowRoleRows } from '../../../scripts/nodes/restart/role.js'
 import { withReadOnlyBus } from '../cost/bus.js'
 import { LEDGER_FILE, readLedger } from '../cost/ledger.js'
 import { boardFacts } from './bus.js'
@@ -82,6 +84,8 @@ export const BOARD_BUS: BoardBus = {
   lastReducedCards: (db, read) => behindAsLine(readLastReduced(db, [CARDS], read)),
   lastReducedOwnerWaits: db => behindAsLine(lastReducedOwnerWaits(db)),
   currentLane,
+  windowRoles: windowRoleRows,
+  reviewVerdict: (db, pr) => ofPr(db, pr)?.verdict_on_head ?? null,
 }
 
 export function busFacts(db: BusDb, now: Date): BusFacts {

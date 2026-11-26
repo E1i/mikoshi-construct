@@ -4951,7 +4951,7 @@
       "scripts/core/watermark.ts": 2,
       "scripts/intake/card-contract.ts": 1,
       "scripts/intake/parking-reads.ts": 1,
-      "scripts/nodes/restart/role.ts": 4,
+      "scripts/nodes/restart/role.ts": 5,
       "scripts/nodes/review/pr-close.ts": 1,
       "scripts/policy/decisions/index.ts": 8,
       "scripts/policy/decisions/wait-folds.ts": 1,
@@ -4982,7 +4982,6 @@
       "scripts/window/window-requests.ts": 2,
       "scripts/window/window-session-end.ts": 7,
       "scripts/window/window.ts": 3,
-      "src/commands/board/bus.ts": 2,
       "src/commands/board/goal.ts": 4
     },
     "ci-reading": {},
