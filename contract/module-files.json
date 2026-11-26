@@ -825,6 +825,7 @@
     "scripts/tests/contract/owner-reads/pr.test.ts",
     "scripts/tests/contract/owner-reads/quality-intake.test.ts",
     "scripts/tests/contract/owner-reads/queue-report.test.ts",
+    "scripts/tests/contract/owner-reads/roots-release.test.ts",
     "scripts/tests/contract/owner-reads/rules.test.ts",
     "scripts/tests/contract/owner-reads/session-supervisor.test.ts",
     "scripts/tests/contract/owner-wait-has-a-lift.test.ts",
