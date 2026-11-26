@@ -15,7 +15,7 @@ import { parseParkingFile } from '../../card/parking.js'
 import { RISK_LEVELS, riskOf, riskReading, touchedOrCreated } from '../../card/risk.js'
 import { touchError } from '../../card/task-file.js'
 import { commandInsideJudgedWrap } from '../../card/witness-fields.js'
-import { detectEntryPoints, entryPointKindOf, importReach, packageDirOf } from '../../detect/entry-points.js'
+import { detectEntryPoints, entryPointKindOf, importReach, isProductSource, packageDirOf } from '../../detect/entry-points.js'
 import { globToRegExp } from '../../model/glob.js'
 import { bashSyntaxProblem } from './bash-syntax.js'
 import { commandArguments, commandWord, HOME_REFERENCE, namesATest, pathsNamedBy, TEST_NAME_ARGUMENT } from './command-word.js'
@@ -651,18 +651,9 @@ export function checkDraft(cards: readonly DraftCard[], numbers: readonly number
   return cards.map((card, index) => checkCard(card, numbers[index]!, facts))
 }
 
-const PRODUCT_CODE = /\.(?:[cm]?[jt]sx?|vue|svelte|astro)$/
-const TEST_NAMED = /\.(?:test|spec)\.[^/]+$/
-const TEST_SEGMENTS = new Set(['tests', 'test', '__tests__', 'e2e', 'fixtures'])
-const NON_PRODUCT_ROOTS = new Set(['scripts', 'docs'])
 const BUILT_ROOT = /(^|\/)dist\//
 const BUILT_SCRIPT = /\.([cm]?)js$/
 const NAMED_ENTRY_POINTS = 5
-
-export function isProductSource(file: string): boolean {
-  const segments = file.split('/')
-  return PRODUCT_CODE.test(file) && !TEST_NAMED.test(file) && !NON_PRODUCT_ROOTS.has(segments[0]!) && !segments.some(segment => TEST_SEGMENTS.has(segment))
-}
 
 function sourceOfBuilt(file: string): string {
   return BUILT_ROOT.test(file) ? file.replace(BUILT_ROOT, `$1${SOURCE_OF_BUILT_ROOT.dist}/`).replace(BUILT_SCRIPT, '.$1ts') : file
