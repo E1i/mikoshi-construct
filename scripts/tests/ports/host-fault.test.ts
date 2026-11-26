@@ -11,8 +11,9 @@ import { HOST_FAULT_RETRY_MS } from '../../nodes/launch/host-gate.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { syncThroughPort } from '../../ports/git.js'
-import { githubStatusFault, HOST_DEGRADED, hostFaultOf, retryingHostFaults } from '../../ports/host-fault.js'
+import { HOST_DEGRADED, hostFaultOf, HostFaultPersists } from '../../ports/host-fault.js'
 import { fixedThermal } from '../../ports/host-thermal.js'
+import { spawnSession } from '../../ports/session.js'
 import { nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
@@ -85,14 +86,11 @@ function noCardFault(made: MergeBench): void {
 describe('a host fault is not a card fault', () => {
   it('an injected ENOENT from userInfo or a failed fetch at start is retried and the card is not stopped', async () => {
     const sleeps: number[] = []
-    let lookups = 0
-    expect(retryingHostFaults(() => {
-      lookups += 1
-      if (lookups === 1)
-        throw passwdLookupFailed()
-      return 501
-    }, { attempts: 3, firstMs: 10, sleep: ms => sleeps.push(ms) })).toBe(501)
-    expect(sleeps).toEqual([10])
+    const work = mkdtempSync(path.join(tmpdir(), 'host-fault-spawn-'))
+    roots.push(work)
+    const spawned = spawnSession({ cwd: work, sessionId: 's-enoent', prompt: 'p', stdoutPath: path.join(work, 'out'), stderrPath: path.join(work, 'err'), env: { PATH: work } })
+    await expect(spawned).rejects.toBeInstanceOf(HostFaultPersists)
+    await expect(spawned).rejects.toMatchObject({ fault: { source: 'os' }, code: 'ENOENT' })
 
     let fetches = 0
     const fetch = (): string => {
@@ -102,7 +100,7 @@ describe('a host fault is not a card fault', () => {
       return ''
     }
     expect(syncThroughPort(fetch, '/tree', ['fetch', '-q', 'origin', 'main'], { attempts: 4, firstMs: 10, sleep: ms => sleeps.push(ms) })).toBe('')
-    expect(sleeps).toEqual([10, 10, 20])
+    expect(sleeps).toEqual([10, 20])
 
     const made = bench()
     admit(made, 2340, 'lane-a')
@@ -143,8 +141,8 @@ describe('a host fault is not a card fault', () => {
   })
 
   it('gitHub 5xx, DNS and OS limits are host faults; a missing file and a refusal are not', () => {
-    expect(githubStatusFault(599, 'netwatch')).toMatchObject({ source: 'github' })
-    expect(githubStatusFault(404, 'netwatch')).toBeNull()
+    expect(hostFaultOf(new Error('gh: Server Error (HTTP 599)'))).toMatchObject({ source: 'github', detail: 'gh: Server Error (HTTP 599)' })
+    expect(hostFaultOf(new Error('gh: Not Found (HTTP 404)'))).toBeNull()
     expect(hostFaultOf(Object.assign(new Error('spawnSync git EAGAIN'), { code: 'EAGAIN', syscall: 'spawnSync git' }))).toMatchObject({ source: 'os' })
     expect(hostFaultOf(Object.assign(new Error('EMFILE: too many open files'), { code: 'EMFILE' }))).toMatchObject({ source: 'os' })
     expect(hostFaultOf(new Error('gh api: HTTP 502 Bad Gateway'))).toMatchObject({ source: 'github' })

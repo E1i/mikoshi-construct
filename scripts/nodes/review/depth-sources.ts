@@ -18,15 +18,13 @@ import { openDatabase } from '../../core/sqlite.js'
 import { predict } from '../../policy/morse/predict.js'
 import { createdPaths } from '../../policy/touch-scope.js'
 import { ANY, BusRead } from '../../ports/bus-read.js'
-import { GIT_BACKOFF, processGit, syncThroughPort, throughGitPort } from '../../ports/git.js'
+import { portGit as git, GIT_BACKOFF, syncThroughPort } from '../../ports/git.js'
 import { planReview } from './review-depth.js'
 import { TAIL_ACTOR, TAIL_SOURCE } from './tail-card.js'
 
 const MAIN = 'origin/main'
 
 export type GitRun = (repo: string, args: string[]) => string
-
-const git = throughGitPort((repo, args) => processGit.read(repo, args))
 
 function fetchPr(run: GitRun, repo: string, pr: number, backoff: Backoff): void {
   syncThroughPort(run, repo, ['fetch', '--quiet', 'origin', 'main', `pull/${pr}/head`], backoff)

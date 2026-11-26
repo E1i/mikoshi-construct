@@ -5,7 +5,7 @@ import process from 'node:process'
 import { BUS_DB_VARIABLE } from '../core/bus-path.js'
 import { CLIENT_ENV_PREFIXES, compactWindowOverlay } from './client/claude/adapter.js'
 import { clientAdapter } from './client/index.js'
-import { hostFaultOf, HostFaultPersists } from './host-fault.js'
+import { HOST_FAILURES, HostFaultPersists } from './host-fault.js'
 import { PREPARE_ENV_KEYS } from './prepare-tree.js'
 
 export { WIDE_VITEST_RULE } from './wide-vitest-guard.js'
@@ -146,7 +146,7 @@ export function spawnSession(params: SpawnSessionParams): Promise<number> {
 
     child.on('error', (error) => {
       closeOnce()
-      const fault = hostFaultOf(error)
+      const fault = HOST_FAILURES.notice(error)
       reject(fault === null ? error : Object.assign(new HostFaultPersists(fault, 1), { message: error.message, code: (error as NodeJS.ErrnoException).code, cause: error }))
     })
 

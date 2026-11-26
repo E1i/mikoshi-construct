@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import process from 'node:process'
 import { GH_ACCOUNT_VARIABLE } from '../core/bus-path.js'
-import { hostFaultInText, hostFaultOf } from './host-fault.js'
+import { HOST_FAILURES, hostFaultInText } from './host-fault.js'
 
 export const TECHNOLOGY_WORDS = ['errno', 'exec', 'gh', 'spawn', 'stderr', 'stdout'] as const
 
@@ -67,16 +67,23 @@ function blockFor(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 }
 
+function noticedInText(stderr: string): boolean {
+  const fault = hostFaultInText(stderr)
+  if (fault !== null)
+    HOST_FAILURES.record(fault)
+  return fault !== null
+}
+
 function callOutcome(run: GhSpawned, args: string[], timeoutSeconds: number, attempts: number): GhCall {
   const failed = (cause: GhFailureCause, reason: string): GhCall => ({ kind: 'failed', cause, reason, stdout: run.stdout, stderr: run.stderr, attempts })
   if (run.error?.code === 'ETIMEDOUT')
     return failed('timeout', `gh timed out after ${timeoutSeconds} s`)
   if (run.error !== undefined)
-    return failed(TRANSIENT_STDERR.test(run.error.message) || hostFaultOf(run.error) !== null ? 'transient' : 'failed', `gh ${args.join(' ')}: ${run.error.message}`)
+    return failed(HOST_FAILURES.notice(run.error) !== null || TRANSIENT_STDERR.test(run.error.message) ? 'transient' : 'failed', `gh ${args.join(' ')}: ${run.error.message}`)
   if (run.status === 0)
     return { kind: 'ran', stdout: run.stdout, attempts }
   const detail = run.stderr.trim() === '' ? `exit ${run.status ?? 'signal'}` : run.stderr.trim()
-  return failed(TRANSIENT_STDERR.test(run.stderr) || hostFaultInText(run.stderr) !== null ? 'transient' : 'failed', `gh ${args.join(' ')}: ${detail}`)
+  return failed(noticedInText(run.stderr) || TRANSIENT_STDERR.test(run.stderr) ? 'transient' : 'failed', `gh ${args.join(' ')}: ${detail}`)
 }
 
 export function recordedAccount(env: NodeJS.ProcessEnv): string | null {

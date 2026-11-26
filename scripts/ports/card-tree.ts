@@ -6,7 +6,7 @@ import { existsSync } from 'node:fs'
 import process from 'node:process'
 import { defaultBusPath } from '../core/bus-path.js'
 import { cardSessionOf, NO_RECORDED_SESSION, openPrHeadOf, openPrOfCard } from '../nodes/answer/answer-source.js'
-import { pnpmRerun, processGit, throughGitPort, treeReading } from './git.js'
+import { portGit as git, pnpmRerun, treeReading } from './git.js'
 import { ghApi } from './github.js'
 import { Meter } from './meter.js'
 import { cardTree, worktreeHome } from './worktree-home.js'
@@ -24,8 +24,6 @@ export interface CardTreeTools {
   recreate: (worktree: string, branch: string) => void
   bringTo: (worktree: string, branch: string, head: string) => void
 }
-
-const git = throughGitPort((repo, args) => processGit.read(repo, args))
 
 function headRefOf(pull: unknown, pr: number): string {
   const ref = (pull as { head?: { ref?: unknown } } | null)?.head?.ref

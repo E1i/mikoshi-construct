@@ -6,12 +6,10 @@ import type { CardStarter } from './launch-executor.js'
 import { appendEvent } from '../../core/db.js'
 import { BOARD_ALARM } from '../../core/events.js'
 import { MACHINE_POLL_MS, machineHoldLine } from '../../core/machine-sessions.js'
-import { HOST_DEGRADED, hostDegradedLine, hostFaultInText, hostFaultOf, HostFaultPersists } from '../../ports/host-fault.js'
+import { HOST_DEGRADED, HOST_FAILURES, hostAlarmKey, hostDegradedLine, hostFaultInText, HostFaultPersists } from '../../ports/host-fault.js'
 import { HOST_HOT, hostHotLine, thermalFree, UNREAD_THERMAL } from '../../ports/host-thermal.js'
 
 export const HOST_FAULT_RETRY_MS = MACHINE_POLL_MS
-
-const HOUR_OF_TS = 13
 
 export interface LaunchHost {
   lanes: () => number
@@ -64,7 +62,7 @@ export class HostGate {
   }
 
   degraded(cardId: number, error: unknown): typeof HOST_DEGRADED | null {
-    const fault = hostFaultOf(error)
+    const fault = HOST_FAILURES.notice(error)
     if (fault === null)
       return null
     this.alarm(HOST_DEGRADED, fault.source, hostDegradedLine(`card #${cardId} could not start: ${fault.detail}`))
@@ -77,6 +75,6 @@ export class HostGate {
 
   private alarm(reason: string, cause: string, detail: string): void {
     const ts = this.ts()
-    appendEvent(this.db, { ts, type: BOARD_ALARM, actor: this.actor, cardId: null, pr: null, head: null, dedupeKey: `${BOARD_ALARM}:${reason}:${ts.slice(0, HOUR_OF_TS)}`, payload: { reason, cause, detail }, legacy: false })
+    appendEvent(this.db, { ts, type: BOARD_ALARM, actor: this.actor, cardId: null, pr: null, head: null, dedupeKey: `${BOARD_ALARM}:${hostAlarmKey(reason, cause, ts)}`, payload: { reason, cause, detail }, legacy: false })
   }
 }

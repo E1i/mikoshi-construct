@@ -5,7 +5,7 @@ import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { commandLine, REBUILD_COMMANDS } from '../core/generated-files.js'
-import { backoffDelay, HOST_BACKOFF, hostFaultInText, hostFaultOf, HostFaultPersists } from './host-fault.js'
+import { backoffDelay, HOST_BACKOFF, HOST_FAILURES, hostFaultInText, hostFaultOf, HostFaultPersists } from './host-fault.js'
 
 export const TECHNOLOGY_WORDS = ['exec', 'git', 'porcelain'] as const
 
@@ -205,13 +205,22 @@ function settled(error: unknown, outcome: GitOutcome, attempts: number): unknown
   return error
 }
 
+const UNPORTED = new WeakMap<GitCommand, GitCommand>()
+
+function unported(run: GitCommand): GitCommand {
+  return UNPORTED.get(run) ?? run
+}
+
 export function syncThroughPort(run: GitCommand, cwd: string, args: string[], backoff: Backoff = GIT_BACKOFF): string {
+  const raw = unported(run)
   for (let attempt = 0; ; attempt += 1) {
     try {
-      return run(cwd, args)
+      return raw(cwd, args)
     }
     catch (error) {
       const outcome = gitOutcomeOf(error)
+      if (outcome.kind === 'host')
+        HOST_FAILURES.record(outcome.fault)
       if (outcome.kind === 'refused' || attempt + 1 >= backoff.attempts)
         throw settled(error, outcome, attempt + 1)
       backoff.sleep(backoffDelay(backoff, attempt))
@@ -220,7 +229,10 @@ export function syncThroughPort(run: GitCommand, cwd: string, args: string[], ba
 }
 
 export function throughGitPort(run: GitCommand, backoff: Backoff = GIT_BACKOFF): GitCommand {
-  return (cwd, args) => SYNC.has(args[0] ?? '') ? syncThroughPort(run, cwd, args, backoff) : run(cwd, args)
+  const raw = unported(run)
+  const ported: GitCommand = (cwd, args) => SYNC.has(args[0] ?? '') ? syncThroughPort(raw, cwd, args, backoff) : raw(cwd, args)
+  UNPORTED.set(ported, raw)
+  return ported
 }
 
 export const portGit: GitCommand = throughGitPort((cwd, args) => processGit.read(cwd, args))

@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED } from '../../core/events.js'
 import { MachineSessions } from '../../core/machine-sessions.js'
+import { DERIVE_EVERY_TICKS } from '../../core/node.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { nodeSupply } from '../../supervisor/composition.js'
@@ -120,10 +121,11 @@ describe('launch under machine overload', () => {
     made.tick()
     Object.assign(spawns, { sessions: 0, continued: 0, published: 0, gates: 0, lanes: 0, processTable: 0, thermal: 0 })
 
-    await once(node)
     expect(node.stopOverdue()).toEqual([])
-    made.tick()
-    await once(node)
+    for (let tick = 0; tick < DERIVE_EVERY_TICKS; tick += 1) {
+      await once(node)
+      made.tick()
+    }
 
     expect(spawns).toEqual({ sessions: 0, continued: 0, published: 0, gates: 0, lanes: 0, processTable: 0, thermal: 0 })
     expect(eventsOf(made.db, CARD_STARTED)).toHaveLength(1)

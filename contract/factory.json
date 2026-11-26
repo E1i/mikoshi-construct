@@ -2349,6 +2349,7 @@
           "scripts/policy/decisions/read.ts",
           "scripts/policy/shard.ts",
           "scripts/ports/card-tree.ts",
+          "scripts/ports/host-fault.ts",
           "scripts/ports/netwatch.ts",
           "scripts/ports/tree-publish.ts",
           "scripts/ports/worktree-home.ts",
@@ -6501,25 +6502,26 @@
         "constants": [
           "HOST_BACKOFF: Backoff",
           "HOST_DEGRADED",
+          "HOST_FAILURES",
           "HOST_FAULT_CODES"
         ],
         "functions": {
           "backoffDelay": "(backoff: Backoff, attempt: number): number",
-          "githubStatusFault": "(status: number | null, detail: string): HostFault | null",
-          "hostDegradedKey": "(ts: string): string",
+          "hostAlarmKey": "(reason: string, cause: string, ts: string): string",
           "hostDegradedLine": "(cause: string): string",
           "hostFaultInText": "(text: string): HostFault | null",
-          "hostFaultOf": "(error: unknown): HostFault | null",
-          "retryingHostFaults": "<T>(work: () => T, backoff: Backoff = HOST_BACKOFF): T"
+          "hostFaultOf": "(error: unknown): HostFault | null"
         },
         "language": "factory",
         "reexports": [],
         "technologyWords": [],
         "types": {
           "Backoff": "interface Backoff { attempts: number; firstMs: number; sleep: (ms: number) => void; }",
+          "HostFailureLog": "class HostFailureLog { constructor(private readonly file: () => string | null = busFailuresFile, private readonly now: () => Date = () => new Date()); notice(error: unknown): HostFault | null; record(fault: HostFault): void; last(): LastHostFailures }",
           "HostFault": "interface HostFault { source: HostFaultSource; detail: string; }",
           "HostFaultPersists": "class HostFaultPersists extends Error { constructor(readonly fault: HostFault, readonly attempts: number) }",
-          "HostFaultSource": "type HostFaultSource = 'os' | 'network' | 'github'"
+          "HostFaultSource": "type HostFaultSource = 'os' | 'network' | 'github'",
+          "LastHostFailures": "interface LastHostFailures { github: string | null; dns: string | null; getpwuid: string | null; }"
         }
       },
       "scripts/ports/host-thermal.ts": {

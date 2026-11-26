@@ -19,7 +19,7 @@ import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { archiveCardFile } from '../../intake/card-archive.js'
 import { cardContract } from '../../intake/card-contract.js'
 import { closeWitnessDenial, MERGE_RECORD, WITNESS_REASON } from '../../policy/policy.js'
-import { processGit, throughGitPort } from '../../ports/git.js'
+import { portGit as git } from '../../ports/git.js'
 import { FREE_TREE_CAPACITY, liveSessionHolds, parkTree } from '../../ports/worktree.js'
 import { cardSessionOf } from '../answer/answer-source.js'
 
@@ -70,8 +70,6 @@ export interface CloseParts {
   trees?: CardTreeRemover
   cwds?: () => ProcessCwds
 }
-
-const git = throughGitPort((repo, args) => processGit.read(repo, args))
 
 export function failureOf(error: unknown): string {
   const stderr = (error as { stderr?: unknown }).stderr

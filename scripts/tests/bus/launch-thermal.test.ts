@@ -1,3 +1,4 @@
+import type { MachineReader } from '../../nodes/launch/launch-candidates.js'
 import type { CardStart, CardStarter, QueuedCard } from '../../nodes/launch/launch-executor.js'
 import type { ProcessTable } from '../../nodes/restart/chain-process.js'
 import type { ThermalLevel } from '../../ports/host-thermal.js'
@@ -6,13 +7,17 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent } from '../../core/db.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, TASK_FAILED } from '../../core/events.js'
 import { idleLoad, MachineSessions, setMachineLimit } from '../../core/machine-sessions.js'
+import { DERIVE_EVERY_TICKS } from '../../core/node.js'
+import { reduce } from '../../core/reducer.js'
+import { launchCandidates } from '../../nodes/launch/launch-candidates.js'
 import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
-import { HOST_HOT, thermalFree } from '../../ports/host-thermal.js'
-import { nodeSupply } from '../../supervisor/composition.js'
+import { fixedThermal, HOST_HOT, thermalFree } from '../../ports/host-thermal.js'
+import { busProjections, nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -42,7 +47,7 @@ class FakeStarter implements CardStarter {
   stop(): void {}
 }
 
-interface Rig { made: MergeBench, node: LaunchNode, starter: FakeStarter, level: { now: ThermalLevel }, published: { count: number } }
+interface Rig { made: MergeBench, node: LaunchNode, starter: FakeStarter, level: { now: ThermalLevel }, published: { count: number }, laneReads: { count: number } }
 
 function rig(limit: number): Rig {
   const made = mergeBench()
@@ -53,6 +58,7 @@ function rig(limit: number): Rig {
   const starter = new FakeStarter()
   const level: { now: ThermalLevel } = { now: 'nominal' }
   const published = { count: 0 }
+  const laneReads = { count: 0 }
   const processes: ProcessTable = { commandLine: () => null, signalGroup: () => {} }
   const node = new LaunchNode({
     silentMs: SILENT_MS,
@@ -72,9 +78,12 @@ function rig(limit: number): Rig {
     isolation: () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] }),
     machine: new MachineSessions(dir, () => true, 16, made.clock.now, idleLoad(16)),
     thermal: { level: () => level.now },
-    lanes: () => 8,
+    lanes: () => {
+      laneReads.count += 1
+      return 8
+    },
   })
-  return { made, node, starter, level, published }
+  return { made, node, starter, level, published, laneReads }
 }
 
 function admit(made: MergeBench, cardId: number, lane: string): void {
@@ -89,6 +98,16 @@ async function once(node: LaunchNode): Promise<void> {
 describe('thermal pressure as a launch input', () => {
   it('under moderate thermal pressure launch halves its free slots', async () => {
     expect([thermalFree(4, 'moderate'), thermalFree(3, 'moderate'), thermalFree(1, 'moderate'), thermalFree(4, 'nominal')]).toEqual([2, 1, 0, 4])
+    const counted = mergeBench()
+    benches.push(counted)
+    for (const cardId of [2411, 2412, 2413]) {
+      const text = `card: #${cardId} a-card [implement/construct/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${cardId}\ntouches: scripts/c${cardId}.ts\ncontinue: stop\nwho: shift\n\nThe card.\n`
+      appendEvent(counted.db, { ts: counted.clock.now().toISOString(), type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { card: `#${cardId}`, lane: null, decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${cardId}`, text, textSha: textSha(text) }, legacy: false })
+    }
+    reduce(counted.db, 'pending', busProjections())
+    const twoFree: MachineReader = { free: () => 2, held: () => null, waiting: () => [] }
+    const candidatesAt = (thermal: ThermalLevel): number => launchCandidates(counted.db, () => false, () => counted.clock.now().getTime(), () => {}, [], () => 8, twoFree, fixedThermal(thermal)).length
+    expect([candidatesAt('nominal'), candidatesAt('moderate'), candidatesAt('heavy'), candidatesAt('unknown')]).toEqual([2, 1, 0, 2])
     const { made, node, starter, level } = rig(2)
     admit(made, 2401, 'lane-a')
     made.tick()
@@ -110,7 +129,7 @@ describe('thermal pressure as a launch input', () => {
   })
 
   it('under heavy thermal pressure launch starts no session or gate and the bus raises one host hot alarm', async () => {
-    const { made, node, starter, level, published } = rig(8)
+    const { made, node, starter, level, published, laneReads } = rig(8)
     admit(made, 2403, 'lane-a')
     made.tick()
     await once(node)
@@ -121,12 +140,14 @@ describe('thermal pressure as a launch input', () => {
     admit(made, 2404, 'lane-b')
     admit(made, 2405, 'lane-c')
     made.tick()
-    await once(node)
-    expect(node.stopOverdue()).toEqual([])
-    made.tick()
-    await once(node)
-    expect(node.stopOverdue()).toEqual([])
+    laneReads.count = 0
+    for (let tick = 0; tick < DERIVE_EVERY_TICKS; tick += 1) {
+      await once(node)
+      expect(node.stopOverdue()).toEqual([])
+      made.tick()
+    }
 
+    expect(laneReads.count).toBe(0)
     expect(starter.starts).toEqual([2403])
     expect(published.count).toBe(0)
     expect(eventsOf(made.db, CARD_STARTED)).toHaveLength(1)

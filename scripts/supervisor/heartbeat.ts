@@ -15,7 +15,7 @@ import { prOf } from '../core/identifiers.js'
 import { LEASE_FOLDS } from '../core/lease.js'
 import { storedByKey } from '../core/stored.js'
 import { clientAdapter } from '../ports/client/index.js'
-import { HOST_DEGRADED, hostDegradedKey, hostDegradedLine } from '../ports/host-fault.js'
+import { HOST_DEGRADED, hostAlarmKey, hostDegradedLine } from '../ports/host-fault.js'
 import { isFullSha } from '../ports/identifier-shapes.js'
 import { CARD_VARIABLE } from '../ports/session.js'
 import { projectRoot, sessionGauges } from '../window/eddies-measure.js'
@@ -51,18 +51,20 @@ export function ownStart(): HolderStart {
 
 export const SUPERVISOR_BEAT = 'supervisor'
 
-export type VitalsReading = (db: DatabaseSync) => HostVitals
+export type VitalsReading = () => HostVitals
 
-export const HOST_VITALS: VitalsReading = sampleVitals
+export const HOST_VITALS: VitalsReading = () => sampleVitals()
+
+const VITALS_ALARM = 'vitals'
 
 function raiseHostDegraded(db: DatabaseSync, ts: string, vitals: HostVitals): void {
   const cause = hostDegradedCause(vitals)
   if (cause !== null)
-    appendEvent(db, { ts, type: BOARD_ALARM, actor: `worker:${SUPERVISOR_BEAT}:${process.pid}`, cardId: null, pr: null, head: null, dedupeKey: `${BOARD_ALARM}:${hostDegradedKey(ts)}`, payload: { reason: HOST_DEGRADED, cause: crossedVitals(vitals).join(','), detail: hostDegradedLine(cause) }, legacy: false })
+    appendEvent(db, { ts, type: BOARD_ALARM, actor: `worker:${SUPERVISOR_BEAT}:${process.pid}`, cardId: null, pr: null, head: null, dedupeKey: `${BOARD_ALARM}:${hostAlarmKey(HOST_DEGRADED, VITALS_ALARM, ts)}`, payload: { reason: HOST_DEGRADED, cause: crossedVitals(vitals).join(','), detail: hostDegradedLine(cause) }, legacy: false })
 }
 
 export function recordProcessHeartbeat(db: DatabaseSync, ts: string, name: string, capacity?: QueueCapacity, vitalsOf: VitalsReading | null = null): boolean {
-  const vitals = vitalsOf?.(db)
+  const vitals = vitalsOf?.()
   const recorded = recordBeat(db, { process: name, type: PROCESS_HEARTBEAT, ts, payload: { process: name, ...capacity, ...(vitals === undefined ? {} : { vitals }) } })
   if (vitals !== undefined)
     raiseHostDegraded(db, ts, vitals)

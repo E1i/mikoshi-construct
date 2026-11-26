@@ -91,4 +91,18 @@ describe('the ref-lock race in the one git port', () => {
     expect(() => throughGitPort(reading, quick)('/tree', ['rev-parse', 'HEAD'])).toThrow('Command failed: git rev-parse')
     expect(calls).toBe(1)
   })
+  it('a command already bound to the port and wrapped again keeps the one bound of attempts', () => {
+    let calls = 0
+    const alwaysRacing = (): string => {
+      calls += 1
+      throw Object.assign(new Error('Command failed: git push'), { stderr: RACE })
+    }
+    const bound = throughGitPort(alwaysRacing, quick)
+
+    expect(() => throughGitPort(bound, quick)('/tree', ['push', 'origin'])).toThrow(GitRaceLost)
+    expect(calls).toBe(quick.attempts)
+    calls = 0
+    expect(() => syncThroughPort(bound, '/tree', ['fetch', 'origin'], quick)).toThrow(GitRaceLost)
+    expect(calls).toBe(quick.attempts)
+  })
 })
