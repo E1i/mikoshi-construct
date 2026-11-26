@@ -50,7 +50,7 @@ describe('the answer node reads the tables of other owners only through their co
   it('each file belongs to node-answer and none stays on the excepted list', () => {
     for (const file of FILES)
       expect(MODULE_FILES['node-answer']).toContain(file)
-    expect(MODULE_FILES.ports).toContain(PORT_READER)
+    expect(MODULE_FILES['node-answer']).toContain(PORT_READER)
     expect(EXCEPTED.filter(file => READERS.includes(file))).toEqual([])
   })
 

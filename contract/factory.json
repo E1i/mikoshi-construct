@@ -4040,7 +4040,8 @@
           "answer-duties"
         ],
         "contract": [
-          "scripts/nodes/answer/answer-worker.ts"
+          "scripts/nodes/answer/answer-worker.ts",
+          "scripts/ports/card-tree.ts"
         ],
         "may_use": [
           "layout",
@@ -4065,7 +4066,9 @@
           "factory-contract"
         ],
         "owns": [
-          "scripts/nodes/answer/**"
+          "scripts/nodes/answer/**",
+          "scripts/ports/card-tree.ts",
+          "!scripts/nodes/answer/answer-source.ts"
         ],
         "status": "decided"
       },
@@ -4129,7 +4132,8 @@
           "factory-contract"
         ],
         "owns": [
-          "scripts/nodes/launch/**"
+          "scripts/nodes/launch/**",
+          "!scripts/nodes/launch/tree-pr.ts"
         ],
         "status": "decided"
       },
@@ -4366,7 +4370,6 @@
           "process-table"
         ],
         "contract": [
-          "scripts/ports/card-tree.ts",
           "scripts/ports/ci-reading.ts",
           "scripts/ports/client/claude/adapter.ts",
           "scripts/ports/client/index.ts",
@@ -4412,6 +4415,7 @@
           "src/commands/ci/state.ts",
           "src/commands/intake/command-word.ts",
           "!scripts/ports/bus-read.ts",
+          "!scripts/ports/card-tree.ts",
           "!scripts/ports/client/codex/adapter.ts",
           "!scripts/ports/client/contract.ts",
           "!scripts/ports/client/role-policy.ts",
@@ -4470,7 +4474,9 @@
           "scripts/core/pr-folds.ts",
           "scripts/core/pr-readings.ts",
           "scripts/core/cards-nobody-holds.ts",
-          "scripts/core/pr-status.ts"
+          "scripts/core/pr-status.ts",
+          "scripts/nodes/answer/answer-source.ts",
+          "scripts/nodes/launch/tree-pr.ts"
         ],
         "may_use": [
           "layout",
@@ -4502,7 +4508,9 @@
           "scripts/core/pr-folds.ts",
           "scripts/core/pr-readings.ts",
           "scripts/core/cards-nobody-holds.ts",
-          "scripts/core/pr-status.ts"
+          "scripts/core/pr-status.ts",
+          "scripts/nodes/answer/answer-source.ts",
+          "scripts/nodes/launch/tree-pr.ts"
         ],
         "status": "decided"
       },

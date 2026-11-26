@@ -74,7 +74,7 @@ const QUALITY_CONTRACT = [
 ]
 
 const PORTS_CONTRACT = [
-  ...within(factory('ports'), 'card-tree.ts', 'ci-reading.ts', 'client/claude/adapter.ts', 'client/index.ts', 'diff.ts', 'gh.ts', 'github-status.ts', 'github.ts', 'identifier-shapes.ts', 'isolation.ts', 'main-merge.ts', 'meter.ts', 'netwatch.ts', 'prepare-tree.ts', 'process-table.ts', 'result.ts', 'review-planner.ts', 'serve-record.ts', 'session.ts', 'shift-settings.ts', 'snapshot.ts', 'task-start.ts', 'tree-publish.ts', 'witnesses.ts', 'worktree.ts'),
+  ...within(factory('ports'), 'ci-reading.ts', 'client/claude/adapter.ts', 'client/index.ts', 'diff.ts', 'gh.ts', 'github-status.ts', 'github.ts', 'identifier-shapes.ts', 'isolation.ts', 'main-merge.ts', 'meter.ts', 'netwatch.ts', 'prepare-tree.ts', 'process-table.ts', 'result.ts', 'review-planner.ts', 'serve-record.ts', 'session.ts', 'shift-settings.ts', 'snapshot.ts', 'task-start.ts', 'tree-publish.ts', 'witnesses.ts', 'worktree.ts'),
   ...core('bus-contract.ts'),
   factory('ci/required.ts'),
   `${CI_COMMAND}/state.ts`,
@@ -120,8 +120,8 @@ function belowInTheLayers(id: string): string[] {
   return [...LAYERS.slice(0, at).flatMap(layer => layer.modules), ...(ordered ? modules.slice(0, modules.indexOf(id)) : [])]
 }
 
-function node(name: string): DrawnModule {
-  return { contract: [factory(`nodes/${name}/${name}-worker.ts`)], may_use: belowInTheLayers(`node-${name}`), status: 'decided' }
+function node(name: string, ...alsoContract: string[]): DrawnModule {
+  return { contract: [factory(`nodes/${name}/${name}-worker.ts`), ...alsoContract], may_use: belowInTheLayers(`node-${name}`), status: 'decided' }
 }
 
 function decided(id: string): DrawnModule {
@@ -147,7 +147,7 @@ export const DRAWN: Readonly<Record<string, DrawnModule>> = {
   'pr-record': decided('pr-record'),
   'command-registry': decided('command-registry'),
   'ports-adapters': decided('ports-adapters'),
-  'node-answer': node('answer'),
+  'node-answer': node('answer', factory('ports/card-tree.ts')),
   'node-close': node('close'),
   'node-launch': node('launch'),
   'node-merge': node('merge'),

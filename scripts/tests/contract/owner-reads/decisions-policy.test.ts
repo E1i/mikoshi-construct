@@ -20,7 +20,7 @@ const DECISIONS_INDEX = 'scripts/policy/decisions/index.ts'
 const ANSWER_SOURCE = 'scripts/nodes/answer/answer-source.ts'
 const SHARDS = 'scripts/policy/shards.ts'
 const FILES = [DECISIONS_INDEX, ANSWER_SOURCE, SHARDS]
-const OWNER_OF = { [DECISIONS_INDEX]: 'decisions', [ANSWER_SOURCE]: 'node-answer', [SHARDS]: 'rules' }
+const OWNER_OF = { [DECISIONS_INDEX]: 'decisions', [ANSWER_SOURCE]: 'pr-record', [SHARDS]: 'rules' }
 const UNDECIDED_READERS = [DECISIONS_INDEX, SHARDS]
 const OWNERS_ABOVE_THE_UNDECIDED = ['pr-record']
 
