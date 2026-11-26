@@ -14,6 +14,7 @@ export interface ShardTermParts {
   renewal: string
   active: (now: Date) => ShardOnTerm[]
   expired: (now: Date) => string[]
+  noticed: (id: string) => boolean
   ask: (wait: ShardWait, now: Date, expiring: string | null) => string
 }
 
@@ -24,8 +25,17 @@ function hoursLeft(shard: ShardOnTerm, now: Date): string {
   return ((Date.parse(shard.until) - now.getTime()) / HOUR_MS).toFixed(1)
 }
 
-export function endingShardText(shard: ShardOnTerm, now: Date): string {
-  return `window shard ${shard.id} (scope ${shard.scope}) ends at ${shard.until}, ${hoursLeft(shard, now)} h left; without a renewal the window works without a shard from then on, and a night run merges nothing a shard covers`
+function noticeOf(id: string): string {
+  return `window shard ${id} (scope `
+}
+
+export function namesNoticeOf(text: string, id: string): boolean {
+  return text.includes(noticeOf(id))
+}
+
+export function endingShardsText(shards: readonly ShardOnTerm[], now: Date): string {
+  const ends = shards.map(shard => `${noticeOf(shard.id)}${shard.scope}) ends at ${shard.until}, ${hoursLeft(shard, now)} h left`)
+  return `${ends.join('; ')}; without a renewal the window works without a shard from then on, and a night run merges nothing a shard covers`
 }
 
 export function expiredShardText(id: string, now: Date): string {
@@ -34,7 +44,6 @@ export function expiredShardText(id: string, now: Date): string {
 
 export class ShardTerm {
   private readonly reported = new Set<string>()
-  private readonly noticed = new Set<string>()
 
   constructor(private readonly parts: ShardTermParts, private readonly clock: () => Date, private readonly prefix: string = '') {}
 
@@ -48,15 +57,13 @@ export class ShardTerm {
   }
 
   private noticeDue(shard: ShardOnTerm, now: Date): boolean {
-    return Date.parse(shard.until) - now.getTime() <= this.parts.noticeHours * HOUR_MS && !this.noticed.has(shard.id)
+    return Date.parse(shard.until) - now.getTime() <= this.parts.noticeHours * HOUR_MS && !this.parts.noticed(shard.id)
   }
 
   private sweep(now: Date): string[] {
     const expired = this.parts.expired(now).map(id => this.ask(now, expiredShardText(id, now), id))
-    const ending = this.parts.active(now).filter(shard => this.noticeDue(shard, now)).map((shard) => {
-      this.noticed.add(shard.id)
-      return this.ask(now, endingShardText(shard, now), null)
-    })
+    const due = this.parts.active(now).filter(shard => this.noticeDue(shard, now))
+    const ending = due.length === 0 ? [] : [this.ask(now, endingShardsText(due, now), null)]
     return [...expired, ...ending].flatMap(line => line === null ? [] : [line])
   }
 

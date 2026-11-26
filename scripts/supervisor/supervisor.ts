@@ -33,7 +33,7 @@ import { WindowSessionEnds } from '../window/window-session-end.js'
 import { BUILD_DIR, BUILT_MODULE, flagsInArgs, instancesOf, launchName, PREFIX, printBg, provenOnBus, runBusBg, runningInstance, stampedOtherwise, startDetached, thisBus, withBuses } from './bg.js'
 import { BusHealer, CorruptionWatch, RecordedNodes } from './bus-heal.js'
 import { BusSnapshot } from './bus-snapshot.js'
-import { busOrderTick, busProjections, cardTransitions, recordOwnStart, reviewLaunch, shardTermTick } from './composition.js'
+import { busProjections, cardTransitions, orderAndShardTermTicks, recordOwnStart, reviewLaunch } from './composition.js'
 import { freeLeasesOf, judgedLeaseLines, workerKindsOf } from './executor-lease.js'
 import { DRAIN_LIMIT_MS, DRAIN_WHY, GenerationHandover, recordRestarted, RETIRING_WORKERS } from './generation-handover.js'
 import { CARD_PROCESS, lastProcessBeats, ownStart, recordProcessHeartbeat, retiredRowsLines, retirePreviousGeneration } from './heartbeat.js'
@@ -875,7 +875,6 @@ export interface SupervisingParts {
   snapshot?: BusSnapshot
   windowEnds?: WindowSessionEnds
   windowSubagents?: Pick<WindowSubagentTick, 'step'>
-  shardTerm?: { step: () => string[] }
   order?: { step: () => string[] }
   handover?: Pick<GenerationHandover, 'step'>
   relaunch: Readonly<{ busDir: string, start?: NonNullable<AgentHand['start']>, generation?: Pick<BusCode, 'head'> | null }>
@@ -884,7 +883,9 @@ export interface SupervisingParts {
 }
 
 function replacedBy(head: string, started: BgResult): { lines: string[], replaced: boolean } {
-  return { replaced: started.exitCode === 0, lines: [...started.stdout, ...started.stderr, started.exitCode === 0 ? `${PREFIX}the supervisor ran the code it started with; a fresh supervisor runs on ${head} and this one exits` : `${PREFIX}the supervisor could not start a fresh supervisor on ${head}; it keeps running the code it started with and retries on the next tick`] }
+  if (started.exitCode === 0)
+    return { replaced: true, lines: [...started.stdout, ...started.stderr, `${PREFIX}the supervisor ran the code it started with; a fresh supervisor runs on ${head} and this one exits`] }
+  return { replaced: false, lines: [...started.stdout, ...started.stderr, `${PREFIX}the supervisor could not start a fresh supervisor on ${head}; it keeps running the code it started with and retries on the next tick`] }
 }
 
 export async function superviseUntilReplaced(parts: SupervisingParts): Promise<void> {
@@ -892,7 +893,7 @@ export async function superviseUntilReplaced(parts: SupervisingParts): Promise<v
     const lines = await parts.supervisor.step()
     const head = parts.supervisor.ownCodeBehind
     const replacement = head === null ? { lines: [], replaced: false } : replacedBy(head, (parts.relaunch.start ?? startDetached)(SUPERVISOR_LAUNCH, parts.relaunch.busDir, generationEnv(parts.relaunch.generation ?? { head: () => head }), outsideOwnGroup()))
-    const ticked = [...lines, ...replacement.lines, ...replacement.replaced ? [] : [...parts.keeper.step(), ...await parts.judge?.step() ?? [], ...parts.windowEnds?.step() ?? [], ...parts.windowSubagents?.step() ?? [], ...parts.shardTerm?.step() ?? [], ...parts.order?.step() ?? [], ...await parts.handover?.step() ?? []]]
+    const ticked = [...lines, ...replacement.lines, ...replacement.replaced ? [] : [...parts.keeper.step(), ...await parts.judge?.step() ?? [], ...parts.windowEnds?.step() ?? [], ...parts.windowSubagents?.step() ?? [], ...parts.order?.step() ?? [], ...await parts.handover?.step() ?? []]]
     for (const line of [...ticked, ...await parts.heal?.step(ticked) ?? [], ...parts.snapshot?.step() ?? []])
       parts.print(line)
     if (replacement.replaced)
@@ -1021,8 +1022,7 @@ async function supervise(busDir: string, cwd: string, reviewOfTheBus: DetachedLa
       judge: new LivenessJudge(db, () => Date.now(), () => expectedRunning(db, wanted()), restartJudged, psStartOf),
       windowEnds: new WindowSessionEnds(db, cwd, () => Date.now(), PREFIX),
       windowSubagents: new WindowSubagentTick(db, cwd, () => Date.now(), PREFIX),
-      shardTerm: shardTermTick(db),
-      order: busOrderTick(db, cwd),
+      order: orderAndShardTermTicks(db, cwd),
       handover: new GenerationHandover(db, livesIn(), () => Date.now(), running => stopInstance(running, readableRows(), sleep, signalLog(db, DRAIN_WHY))),
       heal: new BusHealer({ busPath, nodes, now: () => new Date(), projections: busProjections(), watch: new CorruptionWatch(busLaunches(reviewOfTheBus).map(launch => path.join(busDir, launch.log))) }),
       snapshot: new BusSnapshot({ db, busPath, file: snapshotPathOf(busPath), now: () => Date.now(), paused: () => nodes.held() }),

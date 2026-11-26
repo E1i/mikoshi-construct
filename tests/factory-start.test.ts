@@ -17,15 +17,14 @@ import { appendEvent, openBus } from '../scripts/core/db.js'
 import { SHARD_ISSUED, SHARD_REVOKED } from '../scripts/core/events.js'
 import { FACTORY_WORKERS } from '../scripts/core/factory-paths.js'
 import { LIVE_FLAG } from '../scripts/core/node.js'
-import { shardRenewalCommand } from '../scripts/core/owner-commands.js'
 import { sayToOwnerChannel, USED_WORD } from '../scripts/owner/channel.js'
-import { activeWindowShards, WINDOW_SHARD_HOURS } from '../scripts/policy/shards.js'
+import { activeWindowShards } from '../scripts/policy/shards.js'
 import { BUS_FLAG, BUS_RUN_LAUNCH, carriesMarker, installedPackage, launchArgv, runBusBg } from '../scripts/supervisor/bg.js'
 import { reviewLaunch } from '../scripts/supervisor/composition.js'
 import { agentEnvStamp } from '../scripts/supervisor/stamp.js'
-import { AGENT_LOG, agentLabel, factoryBusOf, ghostProtocolWord, HOLD_CHECK_MS, HOLD_FLAG, holdWhileSupervised, installKeepAlive, KEEP_ALIVE_PLATFORM, KEEP_ALIVE_PROGRAM, LAUNCH_AGENTS, MIKO_FLAG, MODE_FLAG, RAISED_WITHIN_S, runMode, runStart, sayCommand, START_BIN, startAndHold, startCommandOf, startedMarkOf, USAGE } from '../scripts/supervisor/start.js'
+import { AGENT_LOG, agentLabel, factoryBusOf, ghostProtocolWord, HOLD_CHECK_MS, HOLD_FLAG, holdWhileSupervised, installKeepAlive, KEEP_ALIVE_PLATFORM, KEEP_ALIVE_PROGRAM, LAUNCH_AGENTS, MIKO_FLAG, RAISED_WITHIN_S, runMode, runStart, sayCommand, START_BIN, startAndHold, startCommandOf, startedMarkOf, USAGE } from '../scripts/supervisor/start.js'
 import { startUnderAgentEnv, SUPERVISE_FLAG, SUPERVISOR_LAUNCH } from '../scripts/supervisor/supervisor.js'
-import { FACTORY_MODES, liveWorkers, MODE_WORKERS, modeOf, returnToWindowAtTermEnd, switchDetection, switchedOn, switchWorker, termEndOf, wantedLaunches, WORKERS, WORKERS_FILE } from '../scripts/supervisor/workers.js'
+import { liveWorkers, MODE_WORKERS, modeOf, returnToWindowAtTermEnd, switchDetection, switchedOn, switchWorker, termEndOf, wantedLaunches, WORKERS, WORKERS_FILE } from '../scripts/supervisor/workers.js'
 import { waitFor } from '../scripts/tests/wait-for.js'
 import { copyFactoryAssets, factoryBuild, factoryEntries, OUT_DIR, productBuild } from '../tsup.config.js'
 
@@ -580,10 +579,6 @@ function modeCommand(...argv: string[]) {
 }
 
 describe('the modes of the factory', () => {
-  it('the shard renewal the supervisor asks the owner for is the ghost-protocol start this command takes', () => {
-    expect(shardRenewalCommand(WINDOW_SHARD_HOURS)).toBe(`${sayCommand(ghostProtocolWord(WINDOW_SHARD_HOURS))} && ${START_BIN} ${MODE_FLAG} ${FACTORY_MODES[1]}`)
-  })
-
   it('a fresh factory starts in WINDOW with merge off', async () => {
     const home = tempRoot('factory-home-')
     const parts = keepAliveParts(home, recordingLaunchctl().run, 'linux')

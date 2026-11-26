@@ -93,7 +93,8 @@ import { busSessionPulse, heartbeatEnv, measureCardSession, ownStart, recordProc
 import { SILENT_MS } from './liveness-sites.js'
 import { ownIdentity, tableIdentity } from './recorded-worker.js'
 import { slotsOf, slotsVariable } from './scheduler.js'
-import { SHARD_TERM_ACTOR, ShardTerm } from './shard-term.js'
+import { namesNoticeOf, SHARD_TERM_ACTOR, ShardTerm } from './shard-term.js'
+import { FACTORY_MODES } from './workers.js'
 
 export const REVIEW_PREFIX = '[bus:review:bg] '
 export const REVIEW_SCRIPT = 'bus:review'
@@ -547,13 +548,19 @@ export function busOrderTick(db: DatabaseSync, root: string): PrOrderTick {
 export function shardTermTick(db: DatabaseSync): ShardTerm {
   return new ShardTerm({
     noticeHours: SHARD_NOTICE_HOURS,
-    renewal: shardRenewalCommand(WINDOW_SHARD_HOURS),
+    renewal: shardRenewalCommand(WINDOW_SHARD_HOURS, FACTORY_MODES[1]),
     active: now => activeWindowShards(db, now),
     expired: now => expiredWindowShards(db, now, SHARD_TERM_ACTOR).map(ended => ended.payload.id),
+    noticed: id => events(db, { types: [OWNER_WAIT_OPENED], actorPrefix: SHARD_TERM_ACTOR }).some(opened => namesNoticeOf(String(opened.data?.text ?? ''), id)),
     ask: (wait, now, expiring) => inTransaction(db, () => {
       if (expiring !== null)
         appendEvent(db, windowShardEnded(SHARD_EXPIRED, SHARD_TERM_ACTOR, expiring, now))
       return openBusWait(db, closedWaitIds(db), now.toISOString(), SHARD_TERM_ACTOR, { need: 'command', ...wait })
     }),
   }, () => new Date(), PREFIX)
+}
+
+export function orderAndShardTermTicks(db: DatabaseSync, root: string): { step: () => string[] } {
+  const ticks = [busOrderTick(db, root), shardTermTick(db)]
+  return { step: () => ticks.flatMap(tick => tick.step()) }
 }

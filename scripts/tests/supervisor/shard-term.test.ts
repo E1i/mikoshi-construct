@@ -1,12 +1,12 @@
 import type { ShardOnTerm, ShardTermParts, ShardWait } from '../../supervisor/shard-term.js'
 import { describe, expect, it } from 'vitest'
 import { ownerWaitCommand, shardRenewalCommand } from '../../core/owner-commands.js'
-import { ShardTerm } from '../../supervisor/shard-term.js'
+import { namesNoticeOf, ShardTerm } from '../../supervisor/shard-term.js'
 
 const NOW = new Date('2026-11-17T18:54:00.000Z')
 const HOUR_MS = 3_600_000
 const NOTICE_HOURS = 2
-const RENEWAL = shardRenewalCommand(6)
+const RENEWAL = shardRenewalCommand(6, 'ghost-protocol')
 
 interface OpenedWait extends ShardWait {
   id: string
@@ -29,6 +29,7 @@ class FakeBus {
       renewal: RENEWAL,
       active: now => unended().filter(shard => Date.parse(shard.until) > now.getTime()),
       expired: now => unended().filter(shard => Date.parse(shard.until) <= now.getTime()).map(shard => shard.id),
+      noticed: id => this.waits.some(wait => namesNoticeOf(wait.text, id)),
       ask: (wait, _now, expiring) => {
         if (expiring !== null)
           this.expiries.push(expiring)
@@ -95,6 +96,35 @@ describe('the supervisor tick warns before a window shard ends and turns its exp
     expect(second).toEqual([])
     expect(afterTheOwnerAnswered).toEqual([])
     expect(bus.waits).toHaveLength(1)
+  })
+
+  it('a supervisor started afresh opens no second notice for a shard whose wait the owner already closed', () => {
+    const bus = new FakeBus()
+    bus.issue('shard-a', new Date(NOW.getTime() + HOUR_MS))
+    tickOn(bus).step()
+    bus.closed.add(bus.waits[0]!.id)
+
+    const afterRestart = tickOn(bus, new Date(NOW.getTime() + 60_000)).step()
+
+    expect(afterRestart).toEqual([])
+    expect(bus.waits).toHaveLength(1)
+  })
+
+  it('a notice whose wait failed to open is opened on the next tick', () => {
+    const bus = new FakeBus()
+    bus.issue('shard-a', new Date(NOW.getTime() + HOUR_MS))
+    const parts = bus.parts()
+    let failures = 1
+    const tick = new ShardTerm({ ...parts, ask: (wait, now, expiring) => {
+      if (failures-- > 0)
+        throw new Error('database is locked')
+      return parts.ask(wait, now, expiring)
+    } }, () => NOW)
+
+    expect(tick.step()).toEqual([expect.stringContaining('database is locked')])
+    expect(tick.step()).toHaveLength(1)
+    expect(bus.waits).toHaveLength(1)
+    expect(bus.waits[0]?.text).toContain('shard-a')
   })
 
   it('a window shard with more than the notice left opens no wait', () => {
