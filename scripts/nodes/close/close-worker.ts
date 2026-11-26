@@ -127,10 +127,14 @@ export class CloseNode extends Node<CloseStep> {
     }
   }
 
-  protected override before(): void {
+  private keepTheHome(): void {
     this.freeEndedTrees()
     this.freeEndedArtifacts()
     this.measureHome()
+  }
+
+  protected override before(): void {
+    this.keepTheHome()
   }
 
   protected candidates(scope: Scope = {}): QueuedTask[] {
@@ -142,7 +146,7 @@ export class CloseNode extends Node<CloseStep> {
   }
 
   protected handle(lease: Lease): CloseStep {
-    this.freeEndedTrees()
+    this.keepTheHome()
     const outcome = this.executor.close(lease)
     if (outcome.kind === 'closed' && outcome.cycle.treeLeft !== null)
       recordEndedTrees(this.db, this.actor, this.ts(), [{ cardId: lease.cardId, ...outcome.cycle.treeLeft }])
@@ -171,8 +175,12 @@ export interface CloseRun {
   home?: HomeWatch
 }
 
+export function closeNodeOf(run: CloseRun, db: DatabaseSync, mode: DetectionMode, clock: () => Date = () => new Date()): CloseNode {
+  return new CloseNode({ ...nodeLiveness(), db, reported: run.reported, clock, session: run.session, parking: run.parking, mode, env: process.env, endedTrees: run.endedTrees?.(db), artifacts: run.artifacts?.(db), home: run.home })
+}
+
 export async function runCloseWorker(argv: string[], run: CloseRun): Promise<number> {
-  return runNode(argv, 'close', run.busPath, (db, mode) => new CloseNode({ ...nodeLiveness(), db, reported: run.reported, clock: () => new Date(), session: run.session, parking: run.parking, mode, env: process.env, endedTrees: run.endedTrees?.(db), artifacts: run.artifacts?.(db), home: run.home }), { pause: run.pause, codeSha: loadedCodeSha, supply: nodeSupply() })
+  return runNode(argv, 'close', run.busPath, (db, mode) => closeNodeOf(run, db, mode), { pause: run.pause, codeSha: loadedCodeSha, supply: nodeSupply() })
 }
 
 async function main(): Promise<number> {

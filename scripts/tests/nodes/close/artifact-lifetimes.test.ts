@@ -16,10 +16,11 @@ import { leaseNext } from '../../../core/lease.js'
 import { all as pullRequests } from '../../../core/pr-readings.js'
 import { reduce } from '../../../core/reducer.js'
 import { ARTIFACT_LIFETIMES, ENDED_TREE_PATCH_DAYS, HOME_OVER_BUDGET, recordFreedArtifacts, rootOf, rootSizes, rowOfRoot, sweepArtifacts } from '../../../nodes/close/artifact-lifetimes.js'
-import { CloseNode } from '../../../nodes/close/close-worker.js'
+import { CloseNode, closeNodeOf } from '../../../nodes/close/close-worker.js'
 import { cardTreeSweep, DIRTY, EndedCardTrees, gitWorktrees, recordEndedTrees, TREE_PATCH, UNSAVED } from '../../../nodes/close/ended-card-trees.js'
 import { dryRunReviewsDir, keepDryRun } from '../../../nodes/review/dry-run-record.js'
 import { reviewsDir, TREE_LEFT } from '../../../nodes/review/review-worker.js'
+import { gitWitnessTrees } from '../../../nodes/witness/witness-executor.js'
 import { busWorktreeHome, cardTreeRoots, DEFAULT_WORKTREE_HOME } from '../../../ports/worktree-home.js'
 import { busProjections } from '../../../supervisor/composition.js'
 import { detectClose } from '../../bus/close-detection.js'
@@ -133,7 +134,7 @@ afterEach(() => {
 })
 
 describe('the artifact lifetime table', () => {
-  it('every root the factory writes under the construct home has an owner and an end', () => {
+  it('every root the factory writes under the construct home has an owner and an end', async () => {
     const real = realHomePlaces()
     const busPath = path.join(real.home, 'bus.db')
     const saves: string[] = []
@@ -164,6 +165,12 @@ describe('the artifact lifetime table', () => {
       expect(row.end).not.toBe('')
     }
     expect(new Set(ARTIFACT_LIFETIMES.map(row => rootOf(row, real))).size).toBe(ARTIFACT_LIFETIMES.length)
+
+    const witnessRun = await gitWitnessTrees(repo).withTree(git(repo, ['rev-parse', 'HEAD']).trim(), async tree => tree)
+    expect(witnessRun.startsWith(real.home + path.sep)).toBe(false)
+    expect(witnessRun.startsWith(home + path.sep)).toBe(false)
+    expect(existsSync(witnessRun)).toBe(false)
+    expect(listed(repo)).not.toContain(witnessRun)
   })
 
   it('the sweep frees each artifact kind once its end is recorded', () => {
@@ -222,6 +229,73 @@ describe('the artifact lifetime table', () => {
     const detail = String(alarms[0]!.detail)
     expect(detail.indexOf(path.join(home, 'bus'))).toBeGreaterThan(-1)
     expect(detail.indexOf(path.join(home, 'bus'))).toBeLessThan(detail.indexOf(path.join(home, 'probes')))
+  })
+
+  it('the construct home is walked at most once per measuring interval', () => {
+    const walks: string[] = []
+    const node = closeNode((walked) => {
+      walks.push(walked)
+      return []
+    }, 4000)
+
+    node.measureHome()
+    bench.clock.advance(30_000)
+    node.measureHome()
+    expect(walks).toEqual([home])
+
+    bench.clock.advance(30_000)
+    node.measureHome()
+    expect(walks).toEqual([home, home])
+  })
+
+  it('the close node pass runs the artifact sweep and records what it freed', async () => {
+    const reviewed = dryRunTree('reviewed', true)
+    const node = new CloseNode({ silentMs: 60_000, db: bench.db, reported: () => 'run', clock: bench.clock.now, session: 'node-1', parking: path.join(root, 'parking'), mode: 'live', env: {}, trees: { remove: () => null }, artifacts: () => sweepArtifacts(bench.db, places(), gitWorktrees(repo), bench.clock.now()) })
+
+    await node.run({ pause: async () => {}, signal: AbortSignal.abort() })
+
+    expect(existsSync(reviewed)).toBe(false)
+    expect(eventsOf(bench.db, ARTIFACT_REMOVED).map(payload => payload.path)).toEqual([reviewed])
+  })
+
+  it('a closed probe whose report lies outside its directory is left whole', () => {
+    const outside = probe(PROBE_CARD, 'elsewhere')
+    const report = path.join(home, 'reports', 'probe.md')
+    mkdirSync(path.dirname(report), { recursive: true })
+    writeFileSync(report, '# report\n')
+    probeClosed(PROBE_CARD, report)
+
+    const freed = sweepArtifacts(bench.db, places(), gitWorktrees(repo), bench.clock.now())
+
+    expect(freed).toEqual([])
+    expect(existsSync(outside.copy)).toBe(true)
+    expect(existsSync(path.join(outside.dir, 'out', 'scratch.log'))).toBe(true)
+    expect(readFileSync(report, 'utf8')).toBe('# report\n')
+  })
+
+  it('a dry-run tree git refuses to remove is deleted as a directory and its worktree entry is pruned', () => {
+    const reviewed = dryRunTree('reviewed', true)
+    const refusing = { ...gitWorktrees(repo), remove: () => {
+      throw new Error('fatal: Directory not empty')
+    } }
+
+    const freed = sweepArtifacts(bench.db, places(), refusing, bench.clock.now())
+
+    expect(freed.map(each => ({ path: each.path, left: each.left }))).toEqual([{ path: reviewed, left: null }])
+    expect(existsSync(reviewed)).toBe(false)
+    expect(listed(repo)).not.toContain(reviewed)
+  })
+
+  it('the close worker entry wires the artifact sweep and the size budget into its node', async () => {
+    const reviewed = dryRunTree('reviewed', true)
+    writeFileSync(path.join(home, 'bus.db'), Buffer.alloc(5000))
+    const run = { busPath: bus, reported: () => 'run', session: 'node-1', parking: path.join(root, 'parking'), pause: async () => {}, artifacts: () => () => sweepArtifacts(bench.db, places(), gitWorktrees(repo), bench.clock.now()), home: { path: home, budget: 1000, everyMs: 60_000 } }
+
+    await closeNodeOf(run, bench.db, 'live', bench.clock.now).run({ pause: async () => {}, signal: AbortSignal.abort() })
+
+    expect(existsSync(reviewed)).toBe(false)
+    expect(eventsOf(bench.db, ARTIFACT_REMOVED).map(payload => payload.path)).toEqual([reviewed])
+    expect(eventsOf(bench.db, BOARD_ALARM)).toEqual([expect.objectContaining({ reason: HOME_OVER_BUDGET, path: home })])
   })
 })
 

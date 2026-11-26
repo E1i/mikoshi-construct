@@ -12,7 +12,6 @@ export type ArtifactEnd
   = | 'card ended'
     | 'verdict recorded'
     | 'probe closed, only its report stays'
-    | 'release recorded'
     | 'term passed'
     | 'kept as the closing record'
 
