@@ -2059,7 +2059,7 @@
         "derived": false,
         "directory": false,
         "namedIn": [
-          "scripts/core/places.ts",
+          "scripts/core/factory-paths.ts",
           "scripts/nodes/answer/answer-worker.ts",
           "scripts/nodes/answer/answerer.ts",
           "scripts/nodes/launch/launch-starter.ts",
@@ -6114,7 +6114,8 @@
       },
       "scripts/ports/diff.ts": {
         "constants": [
-          "TECHNOLOGY_WORDS"
+          "TECHNOLOGY_WORDS",
+          "TOUCHED"
         ],
         "functions": {
           "changedFilesFrom": "(nameStatusOutput: string, numstatOutput: string): ChangedFile[]",
@@ -6128,7 +6129,11 @@
           "git",
           "top"
         ],
-        "types": {}
+        "types": {
+          "ChangedFile": "interface ChangedFile { path: string; status: FileStatus | typeof TOUCHED; additions: number | null; deletions: number | null; }",
+          "FileStatus": "type FileStatus = 'A' | 'M' | 'D'",
+          "MorseRefusal": "class MorseRefusal extends Error {  }"
+        }
       },
       "scripts/ports/disk.ts": {
         "constants": [
