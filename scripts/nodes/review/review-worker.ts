@@ -31,7 +31,7 @@ import { events } from '../../core/events-query.js'
 import { CARD_ADMITTED, PR_CLOSED, PR_OBSERVED, PR_OPENED, REDUCED, REVIEW_RECORDED, SESSION_HEARTBEAT, TASK_COMPLETED, TASK_ENQUEUED, TASK_EXPIRED, TASK_FAILED, TASK_RELEASED, TASK_REQUEUED, TASK_SUPERSEDED } from '../../core/events.js'
 import { prOf, reviewInputOf, reviewInputOfKey, taskKey } from '../../core/identifiers.js'
 import { expireLeases, leaseNext, leaseQueued } from '../../core/lease.js'
-import { Node, runNode, SWITCH_FLAG, UNDERSTOOD_NOW } from '../../core/node.js'
+import { DRY_RUN_ACTOR, Node, runNode, SWITCH_FLAG, UNDERSTOOD_NOW } from '../../core/node.js'
 import { pnpmCommand } from '../../core/owner-commands.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
 import { cardBodyShaOfCard, LEASED, reviewCandidates } from '../../core/queue.js'
@@ -62,8 +62,7 @@ import { planned, recordLeftovers, ReviewExecutor } from './review-executor.js'
 import { claudeReviewer, GIT_TREE_TOOLS, PREFIX, REVIEW_BEAT_MS, ReviewFailed, ReviewTrees } from './reviewer.js'
 import { BusTailIntake } from './tail-card.js'
 
-export { SWITCH_FLAG }
-export { earlierVerdict, planned, recordLeftovers, REVIEW_ROUNDS_SPENT, ROUND_LIMIT_REACHED, roundLimitLine, SPAWNS_NO_SESSION, TREE_LEFT } from './review-executor.js'
+export { earlierVerdict, planned, recordLeftovers, REVIEW_ROUNDS_SPENT, ROUND_LIMIT_REACHED, roundLimitLine, SPAWNS_NO_SESSION } from './review-executor.js'
 export type { Step }
 
 const WORKER_SCRIPT = fileURLToPath(import.meta.url)
@@ -98,7 +97,6 @@ export function planInThisProcess(planner: ReviewPlanner, request: string, write
 }
 
 export const DRY_RUN_FLAG = '--dry-run'
-export const DRY_RUN_ACTOR = 'worker:review:dry-run'
 const BUS_DIR = defaultBusDir()
 const MORSE_JOURNAL = path.join(BUS_DIR, 'morse.jsonl')
 
