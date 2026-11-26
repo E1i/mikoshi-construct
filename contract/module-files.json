@@ -153,6 +153,7 @@
     "scripts/core/every.ts",
     "scripts/core/executor-holds.ts",
     "scripts/core/handover.ts",
+    "scripts/core/identifiers.ts",
     "scripts/core/lease.ts",
     "scripts/core/node.ts",
     "scripts/core/observations.ts",
@@ -171,7 +172,6 @@
     "scripts/ports/worktree-home.ts"
   ],
   "card-model": [
-    "scripts/core/identifiers.ts",
     "scripts/policy/derived-files.ts",
     "scripts/policy/placement-growth.ts",
     "scripts/policy/touch-scope.ts",
@@ -1698,6 +1698,7 @@
     "scripts/ports/gh.ts",
     "scripts/ports/github-status.ts",
     "scripts/ports/github.ts",
+    "scripts/ports/identifier-shapes.ts",
     "scripts/ports/isolation.ts",
     "scripts/ports/main-merge.ts",
     "scripts/ports/meter.ts",

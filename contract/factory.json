@@ -3560,6 +3560,7 @@
           "scripts/core/observations.ts",
           "scripts/core/task-must-wait.ts",
           "scripts/core/bus-adapter.ts",
+          "scripts/core/identifiers.ts",
           "scripts/ports/bus-read.ts",
           "scripts/ports/worktree-home.ts"
         ],
@@ -3595,6 +3596,7 @@
           "scripts/core/projection-writes.known.json",
           "scripts/core/rejection.ts",
           "scripts/core/bus-adapter.ts",
+          "scripts/core/identifiers.ts",
           "scripts/ports/bus-read.ts",
           "scripts/ports/worktree-home.ts"
         ],
@@ -3608,7 +3610,6 @@
           "src/card/task-file.ts",
           "src/card/risk.ts",
           "src/card/complexity.ts",
-          "scripts/core/identifiers.ts",
           "scripts/policy/touch-scope.ts",
           "scripts/policy/derived-files.ts",
           "scripts/policy/placement-growth.ts"
@@ -3627,7 +3628,6 @@
           "src/card/task-file.ts",
           "src/card/risk.ts",
           "src/card/complexity.ts",
-          "scripts/core/identifiers.ts",
           "scripts/policy/touch-scope.ts",
           "scripts/policy/derived-files.ts",
           "scripts/policy/placement-growth.ts"
@@ -4261,6 +4261,7 @@
           "scripts/ports/gh.ts",
           "scripts/ports/github-status.ts",
           "scripts/ports/github.ts",
+          "scripts/ports/identifier-shapes.ts",
           "scripts/ports/isolation.ts",
           "scripts/ports/main-merge.ts",
           "scripts/ports/meter.ts",
@@ -6341,6 +6342,22 @@
           "GitHub": "type GitHub = (endpoint: string) => GhResponse",
           "GitHubPut": "type GitHubPut = (endpoint: string, fields: Record<string, string>) => GhResponse"
         }
+      },
+      "scripts/ports/identifier-shapes.ts": {
+        "constants": [
+          "MAIN_BRANCH"
+        ],
+        "functions": {
+          "cardIdOf": "(value: unknown): number | null",
+          "cardIdOfDescription": "(description: string | null | undefined): number | null",
+          "isFullSha": "(value: unknown): value is string",
+          "positiveInteger": "(value: unknown): number | null",
+          "prBodySha": "(body: string | null | undefined): string"
+        },
+        "language": "factory",
+        "reexports": [],
+        "technologyWords": [],
+        "types": {}
       },
       "scripts/ports/isolation.ts": {
         "constants": [
