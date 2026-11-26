@@ -308,6 +308,7 @@ describe('board ui v4', () => {
     expect(JSON.parse(readFileSync(UI_VERSION_FILE, 'utf8'))).toEqual({ version: readUiVersionPin().version, hash: expect.stringMatching(/^[0-9a-f]{64}$/) })
     expect(reading).not.toMatch(/\d+\.\d+\.\d+/)
     expect(Object.keys(versionModule).sort()).toEqual(['VERSION', 'currentVersion'])
+    expect(readFileSync(path.join(REPOSITORY_ROOT, 'tsup.config.ts'), 'utf8')).not.toContain('__CONSTRUCT_BUILD_SHA__')
   })
 
   it('the warnings block renders a button with aria-expanded and the warning count', () => {
@@ -342,6 +343,7 @@ describe('board ui v4', () => {
     expect(leaving.getAttribute('data-svc')).toBe('s1')
     expect(card('s2')!.classes()).not.toContain('leave')
     expect(leaving.parentNode).toBe(wrap.childNodes[0])
+    expect((wrap.childNodes[0] as MiniElement).childNodes[0]).toBe(leaving)
     expect(wrap.heights).toEqual(['', `${2 * CARD_PX}px`, `${3 * CARD_PX}px`])
     wrap.fire('transitionend')
     expect(wrap.heights.at(-1)).toBe('')
@@ -351,6 +353,14 @@ describe('board ui v4', () => {
     expect(wrap.heights.slice(4)).toEqual(['', `${3 * CARD_PX}px`, `${2 * CARD_PX}px`])
     wrap.fire('transitionend')
     expect(wrap.style.height).toBe('')
+    const quick = board({ sessions: ['s1', 's2'], minutes: 0 })
+    const midLeave = quick.card('s1')!
+    quick.deliver({ sessions: ['s2'], minutes: 1 })
+    expect(midLeave.classes()).toContain('leave')
+    quick.deliver({ sessions: ['s2', 's3'], minutes: 2 })
+    expect(midLeave.listeners.get('animationend')).toHaveLength(1)
+    expect(quick.root.querySelectorAll('[data-svc]').map(node => node.getAttribute('data-svc'))).toEqual(['s2', 's3'])
+    expect(quick.card('s3')!.classes()).toContain('enter')
     const still = board({ sessions: ['s1', 's2'], minutes: 0 }, {}, true)
     still.deliver({ sessions: ['s2', 's3'], minutes: 1 })
     expect(still.card('s1')).toBeUndefined()
