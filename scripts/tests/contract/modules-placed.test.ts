@@ -17,7 +17,7 @@ const TARGET_LAYERS: readonly Layer[] = [
   { modules: ['events', 'command-registry', 'bus'], ordered: true },
   { modules: ['card-model', 'card-record', 'project', 'plan', 'order', 'decisions', 'session', 'model', 'quality', 'intake', 'rules', 'pr-record', 'factory-contract'], ordered: true },
   { modules: NODES, ordered: false },
-  { modules: ['ui', 'atlas', 'release', 'cost', 'window', 'board'], ordered: true },
+  { modules: ['ui', 'cli', 'atlas', 'release', 'cost', 'window', 'board'], ordered: true },
 ]
 
 const TOOLS = ['contract-generator', 'node-laws']
