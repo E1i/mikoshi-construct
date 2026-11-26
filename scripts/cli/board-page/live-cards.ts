@@ -1,9 +1,42 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+
 export const MERGED_SHOWN_HOURS = 24
 export const BOARD_HISTORY_FILE = 'board-history.html'
 export const LIVE_FILTER = 'live'
 export const FILTER_ATTRIBUTE = 'data-filter'
+export const UI_VERSION_FILE = path.join(import.meta.dirname, 'ui-version.json')
+export const CAPPED_CLASS = 'capped'
 const HOUR_MS = 3_600_000
 const NO_REASON = 'the hold names no reason'
+const REFERENCE_SEPARATOR = /[\s,]+/
+
+export interface UiVersionPin {
+  version: number
+  hash: string
+}
+
+export function readUiVersionPin(file: string = UI_VERSION_FILE): UiVersionPin {
+  return JSON.parse(readFileSync(file, 'utf8')) as UiVersionPin
+}
+
+export const BOARD_UI_VERSION = `v${readUiVersionPin().version}`
+
+export function uiReading(): string {
+  return `<span>ui <b>${BOARD_UI_VERSION}</b></span>`
+}
+
+export function warningsStrip(items: readonly string[]): string {
+  return items.length === 0 ? '' : `<section class="warning-strip bevel" aria-label="Warnings"><button type="button" class="lbl" data-warnings-toggle aria-expanded="true">warnings<span class="warning-count">${items.length}</span></button>${items.join('')}</section>`
+}
+
+export function cappedCell(inner: string): string {
+  return `<td><span class="${CAPPED_CLASS}">${inner}</span></td>`
+}
+
+export function cappedReferences(escapedText: string): string {
+  return cappedCell(escapedText.split(REFERENCE_SEPARATOR).filter(part => part !== '').map(part => `<span>${part}</span>`).join(''))
+}
 
 interface ShownCard {
   id: number
