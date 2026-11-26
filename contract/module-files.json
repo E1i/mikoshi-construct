@@ -1647,7 +1647,6 @@
   "node-answer": [
     "scripts/nodes/answer/answer-candidates.ts",
     "scripts/nodes/answer/answer-executor.ts",
-    "scripts/nodes/answer/answer-source.ts",
     "scripts/nodes/answer/answer-worker.ts",
     "scripts/nodes/answer/answerer.ts",
     "scripts/nodes/answer/concept-scope.ts",
@@ -1658,7 +1657,8 @@
     "scripts/nodes/answer/duties/publishing.ts",
     "scripts/nodes/answer/duties/source.ts",
     "scripts/nodes/answer/duties/stale-question.ts",
-    "scripts/nodes/answer/duties/tree.ts"
+    "scripts/nodes/answer/duties/tree.ts",
+    "scripts/ports/card-tree.ts"
   ],
   "node-close": [
     "scripts/nodes/close/artifact-lifetimes.ts",
@@ -1684,8 +1684,7 @@
     "scripts/nodes/launch/report-collect.ts",
     "scripts/nodes/launch/session-journal.ts",
     "scripts/nodes/launch/shared-files.ts",
-    "scripts/nodes/launch/tree-pr-cli.ts",
-    "scripts/nodes/launch/tree-pr.ts"
+    "scripts/nodes/launch/tree-pr-cli.ts"
   ],
   "node-laws": [
     "scripts/nodes/laws.ts"
@@ -1745,7 +1744,6 @@
     "scripts/core/gh-callers.ts",
     "scripts/core/process-listing.ts",
     "scripts/ports/card-grants.ts",
-    "scripts/ports/card-tree.ts",
     "scripts/ports/ci-reading.ts",
     "scripts/ports/client/claude/adapter.ts",
     "scripts/ports/client/index.ts",
@@ -1789,6 +1787,8 @@
     "scripts/core/pr-folds.ts",
     "scripts/core/pr-readings.ts",
     "scripts/core/pr-status.ts",
+    "scripts/nodes/answer/answer-source.ts",
+    "scripts/nodes/launch/tree-pr.ts",
     "scripts/nodes/review/dry-run-record.ts",
     "scripts/nodes/review/pr-close.ts",
     "scripts/nodes/review/pr-reopen.ts",

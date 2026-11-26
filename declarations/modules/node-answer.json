@@ -2,7 +2,8 @@
   "module": "node-answer",
   "layer": "nodes",
   "paths": [
-    "scripts/nodes/answer/"
+    "scripts/nodes/answer/",
+    "scripts/ports/card-tree.ts"
   ],
   "exclude": [],
   "shared": []
