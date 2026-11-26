@@ -3454,10 +3454,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
           "events",
-          "command-registry",
           "bus",
           "card-model",
           "card-record",
@@ -3480,7 +3481,6 @@
           "node-review",
           "node-update",
           "node-witness",
-          "ui",
           "cli"
         ],
         "owns": [
@@ -3499,10 +3499,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
           "events",
-          "command-registry",
           "bus",
           "card-model",
           "card-record",
@@ -3525,7 +3526,6 @@
           "node-review",
           "node-update",
           "node-witness",
-          "ui",
           "cli",
           "atlas",
           "release",
@@ -3569,10 +3569,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
-          "events",
-          "command-registry"
+          "events"
         ],
         "owns": [
           "scripts/core/db.ts",
@@ -3619,10 +3620,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
           "events",
-          "command-registry",
           "bus"
         ],
         "owns": [
@@ -3656,10 +3658,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
           "events",
-          "command-registry",
           "bus",
           "card-model"
         ],
@@ -3713,10 +3716,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
           "events",
-          "command-registry",
           "bus",
           "card-model",
           "card-record",
@@ -3738,8 +3742,7 @@
           "node-restart",
           "node-review",
           "node-update",
-          "node-witness",
-          "ui"
+          "node-witness"
         ],
         "owns": [
           "src/commands/attach/carriers.ts",
@@ -3780,10 +3783,7 @@
           "scripts/core/owner-commands.ts"
         ],
         "may_use": [
-          "layout",
-          "ports-adapters",
-          "ports",
-          "events"
+          "layout"
         ],
         "owns": [
           "scripts/core/owner-commands.ts"
@@ -3809,10 +3809,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
           "events",
-          "command-registry",
           "bus",
           "card-model",
           "card-record",
@@ -3835,7 +3836,6 @@
           "node-review",
           "node-update",
           "node-witness",
-          "ui",
           "cli",
           "atlas",
           "release"
@@ -3860,10 +3860,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
           "events",
-          "command-registry",
           "bus",
           "card-model",
           "card-record",
@@ -3888,6 +3889,8 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports"
         ],
@@ -3904,10 +3907,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
           "events",
-          "command-registry",
           "bus",
           "card-model",
           "card-record",
@@ -3949,10 +3953,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
           "events",
-          "command-registry",
           "bus",
           "card-model",
           "card-record",
@@ -4009,10 +4014,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
           "events",
-          "command-registry",
           "bus",
           "card-model",
           "card-record",
@@ -4037,10 +4043,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
           "events",
-          "command-registry",
           "bus",
           "card-model",
           "card-record",
@@ -4068,10 +4075,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
           "events",
-          "command-registry",
           "bus",
           "card-model",
           "card-record",
@@ -4099,10 +4107,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
           "events",
-          "command-registry",
           "bus",
           "card-model",
           "card-record",
@@ -4139,10 +4148,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
           "events",
-          "command-registry",
           "bus",
           "card-model",
           "card-record",
@@ -4170,10 +4180,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
           "events",
-          "command-registry",
           "bus",
           "card-model",
           "card-record",
@@ -4201,10 +4212,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
           "events",
-          "command-registry",
           "bus",
           "card-model",
           "card-record",
@@ -4237,10 +4249,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
           "events",
-          "command-registry",
           "bus",
           "card-model",
           "card-record",
@@ -4268,10 +4281,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
           "events",
-          "command-registry",
           "bus",
           "card-model",
           "card-record",
@@ -4299,10 +4313,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
           "events",
-          "command-registry",
           "bus",
           "card-model",
           "card-record",
@@ -4325,10 +4340,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
           "events",
-          "command-registry",
           "bus",
           "card-model",
           "card-record",
@@ -4381,6 +4397,8 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters"
         ],
         "owns": [
@@ -4416,7 +4434,9 @@
           "scripts/ports/client/codex/adapter.ts"
         ],
         "may_use": [
-          "layout"
+          "layout",
+          "command-registry",
+          "ui"
         ],
         "owns": [
           "scripts/ports/git.ts",
@@ -4444,10 +4464,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
           "events",
-          "command-registry",
           "bus",
           "card-model",
           "card-record",
@@ -4497,10 +4518,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
           "events",
-          "command-registry",
           "bus",
           "card-model",
           "card-record"
@@ -4575,10 +4597,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
           "events",
-          "command-registry",
           "bus",
           "card-model",
           "card-record",
@@ -4620,10 +4643,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
           "events",
-          "command-registry",
           "bus",
           "card-model",
           "card-record",
@@ -4646,7 +4670,6 @@
           "node-review",
           "node-update",
           "node-witness",
-          "ui",
           "cli",
           "atlas"
         ],
@@ -4674,10 +4697,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
           "events",
-          "command-registry",
           "bus",
           "card-model",
           "card-record",
@@ -4737,10 +4761,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
           "events",
-          "command-registry",
           "bus",
           "card-model",
           "card-record",
@@ -4785,32 +4810,7 @@
         ],
         "may_use": [
           "layout",
-          "ports-adapters",
-          "ports",
-          "events",
-          "command-registry",
-          "bus",
-          "card-model",
-          "card-record",
-          "project",
-          "plan",
-          "order",
-          "decisions",
-          "session",
-          "model",
-          "quality",
-          "intake",
-          "rules",
-          "pr-record",
-          "factory-contract",
-          "node-answer",
-          "node-close",
-          "node-launch",
-          "node-merge",
-          "node-restart",
-          "node-review",
-          "node-update",
-          "node-witness"
+          "command-registry"
         ],
         "owns": [
           "src/ui/**",
@@ -4839,10 +4839,11 @@
         ],
         "may_use": [
           "layout",
+          "command-registry",
+          "ui",
           "ports-adapters",
           "ports",
           "events",
-          "command-registry",
           "bus",
           "card-model",
           "card-record",
@@ -4865,7 +4866,6 @@
           "node-review",
           "node-update",
           "node-witness",
-          "ui",
           "cli",
           "atlas",
           "release",
