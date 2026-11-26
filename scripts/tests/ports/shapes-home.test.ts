@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import * as factoryPaths from '../../core/factory-paths.js'
+import { classify, MorseRefusal as RulesMorseRefusal } from '../../policy/morse/rules.js'
+import { MorseRefusal, TOUCHED } from '../../ports/diff.js'
 
 function sourceOf(file: string): string {
   return readFileSync(new URL(file, import.meta.url), 'utf8')
@@ -21,6 +23,12 @@ describe('the diff shapes live in ports and the report paths in layout', () => {
     expect(rules).toContain('export { MorseRefusal, TOUCHED } from \'../../ports/diff.js\'')
     expect(rules).toContain('export type { ChangedFile, FileStatus } from \'../../ports/diff.js\'')
     expect(rules).not.toMatch(/export (?:class MorseRefusal|const TOUCHED|interface ChangedFile|type FileStatus =)/)
+  })
+
+  it('classify refuses an empty diff and an undecided diff with the MorseRefusal of ports/diff.ts', () => {
+    expect(() => classify([])).toThrow(MorseRefusal)
+    expect(() => classify([{ path: 'src/a.ts', status: TOUCHED, additions: null, deletions: null }], [])).toThrow(MorseRefusal)
+    expect(RulesMorseRefusal).toBe(MorseRefusal)
   })
 
   it('core/factory-paths.ts owns reportPath and treeReportPath, and core/places.ts re-exports them from there', () => {
