@@ -1,8 +1,5 @@
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite'
 
-export type { PlanMember, PlanRow } from '../window/plan-readings.js'
-export { holdsPlans, plans, releases } from '../window/plan-readings.js'
-
 export interface PrRow {
   pr: number
   card_id: number | null

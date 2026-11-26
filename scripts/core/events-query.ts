@@ -228,13 +228,6 @@ export function firstOfTypesOrNewHeadSince(db: DatabaseSync, since: number, type
   return row === undefined ? null : Number(row.id)
 }
 
-const EVENT_STAMPS_AMONG = 'SELECT id, ts FROM events WHERE id IN (SELECT value FROM json_each(?))'
-
-export function stampsAmong(db: DatabaseSync, ids: readonly number[]): Map<number, string | null> {
-  const rows = db.prepare(EVENT_STAMPS_AMONG).all(JSON.stringify(ids)) as { id: number, ts: string | null }[]
-  return new Map(rows.map(row => [Number(row.id), row.ts === null ? null : String(row.ts)]))
-}
-
 const LAST_EVENT_ID = 'SELECT coalesce(max(id), 0) AS id FROM events'
 const LAST_EVENT_ID_UNINDEXED = 'SELECT coalesce(max(id), 0) AS id FROM events NOT INDEXED'
 const EVENT_ROWS_UNINDEXED = `SELECT ${ROW_COLUMNS} FROM events NOT INDEXED WHERE id <= ? ORDER BY id`
@@ -503,10 +496,6 @@ function lastFieldPerCard(db: DatabaseSync, types: readonly string[], field: str
 
 export function lastObjectFieldPerCard(db: DatabaseSync, type: string, field: string): Map<number, string> {
   return lastFieldPerCard(db, [type], field, 'object')
-}
-
-export function lastTextFieldPerCard(db: DatabaseSync, types: readonly string[], field: string): Map<number, string> {
-  return lastFieldPerCard(db, types, field, 'text')
 }
 
 const LAST_SLOTS_PER_QUEUE = `

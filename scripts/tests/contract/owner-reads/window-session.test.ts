@@ -18,7 +18,6 @@ const LINT_MS = 120_000
 const OWNER_OF: Record<string, string> = {
   'scripts/window/watch.ts': 'window',
   'scripts/window/window-session-end.ts': 'window',
-  'src/commands/board/goal.ts': 'board',
   'scripts/window/window-prs.ts': 'window',
   'scripts/window/card-measure.ts': 'window',
   'scripts/window/operator-work.ts': 'window',

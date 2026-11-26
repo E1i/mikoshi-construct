@@ -15,5 +15,6 @@
   "scripts/window/requests/tree-cut.ts",
   "scripts/window/window-request-tools.ts",
   "scripts/window/window-requests.ts",
-  "src/card/risk.ts"
+  "src/card/risk.ts",
+  "src/commands/board/goal.ts"
 ]
