@@ -3605,7 +3605,10 @@
           "src/card/task-file.ts",
           "src/card/risk.ts",
           "src/card/complexity.ts",
-          "scripts/core/identifiers.ts"
+          "scripts/core/identifiers.ts",
+          "scripts/policy/touch-scope.ts",
+          "scripts/policy/derived-files.ts",
+          "scripts/policy/placement-growth.ts"
         ],
         "may_use": [
           "layout",
@@ -3621,7 +3624,10 @@
           "src/card/task-file.ts",
           "src/card/risk.ts",
           "src/card/complexity.ts",
-          "scripts/core/identifiers.ts"
+          "scripts/core/identifiers.ts",
+          "scripts/policy/touch-scope.ts",
+          "scripts/policy/derived-files.ts",
+          "scripts/policy/placement-growth.ts"
         ],
         "status": "decided"
       },
@@ -4509,9 +4515,6 @@
           "scripts/policy/shards.ts",
           "scripts/policy/shredder/**",
           "scripts/policy/widening.ts",
-          "scripts/policy/touch-scope.ts",
-          "scripts/policy/derived-files.ts",
-          "scripts/policy/placement-growth.ts",
           "scripts/morse/**",
           "scripts/core/push-policy.ts"
         ],
@@ -4542,9 +4545,6 @@
           "scripts/policy/shards.ts",
           "scripts/policy/shredder/**",
           "scripts/policy/widening.ts",
-          "scripts/policy/touch-scope.ts",
-          "scripts/policy/derived-files.ts",
-          "scripts/policy/placement-growth.ts",
           "scripts/morse/**",
           "scripts/core/push-policy.ts"
         ],
@@ -5683,6 +5683,22 @@
         "reexports": [],
         "types": {
           "CardScope": "interface CardScope { touches: readonly string[]; creates: readonly string[]; }"
+        }
+      },
+      "src/detect/entry-points.ts": {
+        "constants": [],
+        "functions": {
+          "entryPointKindOf": "(relative: string): EntryPointKind | null",
+          "entryPointsIn": "(tree: SourceTree): EntryPoint[]",
+          "importReachIn": "(tree: SourceTree, entries: readonly string[]): string[]",
+          "isProductSource": "(file: string): boolean",
+          "listedTree": "(listed: readonly string[], read: (file: string) => string | null): SourceTree",
+          "packageDirIn": "(tree: SourceTree, relative: string, created: readonly string[] = []): string"
+        },
+        "reexports": [],
+        "types": {
+          "EntryPointKind": "type EntryPointKind = 'bin' | 'main' | 'page' | 'endpoint'",
+          "SourceTree": "interface SourceTree { isFile: (file: string) => boolean; read: (file: string) => string | null; filesUnder: (dir: string) => string[]; childDirs: (dir: string) => string[]; }"
         }
       },
       "src/detect/index.ts": {
