@@ -144,13 +144,11 @@
   ],
   "bus": [
     "scripts/core/bus-adapter.ts",
-    "scripts/core/bus-path.ts",
     "scripts/core/bus-readings.ts",
     "scripts/core/bus-version.ts",
     "scripts/core/db.ts",
     "scripts/core/dependency-wait.ts",
     "scripts/core/entry.ts",
-    "scripts/core/errors.ts",
     "scripts/core/events-query.ts",
     "scripts/core/every.ts",
     "scripts/core/executor-holds.ts",
@@ -168,7 +166,9 @@
     "scripts/core/stored.ts",
     "scripts/core/task-must-wait.ts",
     "scripts/core/tasks-query.ts",
-    "scripts/core/watermark.ts"
+    "scripts/core/watermark.ts",
+    "scripts/ports/bus-read.ts",
+    "scripts/ports/worktree-home.ts"
   ],
   "card-model": [
     "scripts/core/identifiers.ts",
@@ -772,6 +772,7 @@
     "scripts/tests/contract/permanent-suite-holds-on-any-base.test.ts",
     "scripts/tests/contract/plan-folds-contour.test.ts",
     "scripts/tests/contract/port-language.test.ts",
+    "scripts/tests/contract/ports-layer-files-settle.test.ts",
     "scripts/tests/contract/queue-contour.test.ts",
     "scripts/tests/contract/ratchet-threshold-set.test.ts",
     "scripts/tests/contract/reducer-contour.test.ts",
@@ -1539,8 +1540,10 @@
     "declarations/workers/update.json",
     "declarations/workers/witness.json",
     "scripts/core/built-entry.ts",
+    "scripts/core/bus-path.ts",
     "scripts/core/declarations.ts",
     "scripts/core/declared-events.ts",
+    "scripts/core/errors.ts",
     "scripts/core/factory-paths.ts",
     "scripts/core/generated-files.ts"
   ],
@@ -1684,7 +1687,6 @@
     "scripts/core/gh-callers.known.json",
     "scripts/core/gh-callers.ts",
     "scripts/core/process-listing.ts",
-    "scripts/ports/bus-read.ts",
     "scripts/ports/card-grants.ts",
     "scripts/ports/card-tree.ts",
     "scripts/ports/ci-reading.ts",
@@ -1711,7 +1713,6 @@
     "scripts/ports/tree-publish.ts",
     "scripts/ports/wide-vitest-guard.ts",
     "scripts/ports/witnesses.ts",
-    "scripts/ports/worktree-home.ts",
     "scripts/ports/worktree.ts"
   ],
   "ports-adapters": [
