@@ -47,7 +47,7 @@ const WINDOW_DIET = ['--setting-sources', 'project,local', MCP_OFF_FLAG, '--mcp-
 const WINDOW_FLAGS = [...WINDOW_DIET, ...CARD_PERMISSION] as const
 
 export const WINDOW_COMMAND_VARIABLE = 'MIKO_CLAUDE'
-export const CLIENT_SANDBOX_DIRECTORY = path.join('/tmp', `claude-${os.userInfo().uid}`)
+export const CLIENT_SANDBOX_DIRECTORY = path.join('/tmp', `claude-${process.getuid?.() ?? -1}`)
 export const WINDOW_RESUME_REFUSAL = 'a window session is never resumed: the miko loop starts a fresh session from the handoff'
 
 const OFFERED_MODELS = ['fable', 'opus', 'sonnet', 'haiku', 'claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-sonnet-5', 'claude-haiku-5-5'] as const

@@ -2,13 +2,14 @@ import type { ShiftGate } from '../../src/manifest.js'
 import { existsSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { allowRule, cardTreeGitWrites, daemonProgram, SETTINGS_FILE, shippedDaemonCommands } from '../../src/commands/attach/daemon-commands.js'
 import { isJsonObject } from '../../src/materialize/strategies.js'
 import { LISTING_COMMAND } from '../core/process-listing.js'
 import { cardOfTree, grantOf } from './card-grants.js'
 import { WIDE_VITEST_HOOKS } from './wide-vitest-guard.js'
 
-const SANDBOX_UID = os.userInfo().uid
+const SANDBOX_UID = process.getuid?.() ?? -1
 
 export const TSX_PIPE_DIRECTORY = `/tmp/claude-${SANDBOX_UID}/tsx-${SANDBOX_UID}`
 

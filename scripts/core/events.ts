@@ -237,7 +237,7 @@ export const EVENT_PAYLOADS = {
   [PR_STATUS_REFUSED]: ['event_id', 'state', 'status', 'step'],
   [PR_STATUS_SET]: ['event_id', 'state', 'status', 'step'],
   [PROCESS_ENDED]: ['process'],
-  [PROCESS_HEARTBEAT]: ['process', 'queue', 'slots'],
+  [PROCESS_HEARTBEAT]: ['process', 'queue', 'slots', 'vitals'],
   [PROCESS_JUDGED]: ['last_beat', 'limit_ms', 'process', 'silent_ms', 'verdict'],
   [PROCESS_REFUSED]: ['last_beat', 'live', 'process'],
   [RATCHET_THRESHOLD_SET]: ['decision', 'row', 'to'],

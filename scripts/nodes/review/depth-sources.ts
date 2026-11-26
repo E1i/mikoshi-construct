@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { BusCatalog } from '../../ci/card-runs.js'
 import type { Lease } from '../../core/lease.js'
 import type { CardBodyReader } from '../../intake/parking-reads.js'
+import type { Backoff } from '../../ports/git.js'
 import type { CardScope, DepthSources, ReviewPlanner } from './review-depth.js'
 import type { ProvenWitness } from './reviewer.js'
 import type { UnstartedTail, UnstartedTails } from './tail-card.js'
@@ -17,36 +18,16 @@ import { openDatabase } from '../../core/sqlite.js'
 import { predict } from '../../policy/morse/predict.js'
 import { createdPaths } from '../../policy/touch-scope.js'
 import { ANY, BusRead } from '../../ports/bus-read.js'
-import { processGit } from '../../ports/git.js'
+import { portGit as git, GIT_BACKOFF, syncThroughPort } from '../../ports/git.js'
 import { planReview } from './review-depth.js'
 import { TAIL_ACTOR, TAIL_SOURCE } from './tail-card.js'
 
 const MAIN = 'origin/main'
 
-const CONCURRENT_REF_UPDATE = 'cannot lock ref'
-
 export type GitRun = (repo: string, args: string[]) => string
 
-function git(repo: string, args: string[]): string {
-  return processGit.read(repo, args)
-}
-
-function lostRefRace(error: unknown): boolean {
-  const stderr = (error as { stderr?: unknown } | null)?.stderr
-  const text = `${error instanceof Error ? error.message : ''}${typeof stderr === 'string' ? stderr : ''}`
-  return text.includes(CONCURRENT_REF_UPDATE)
-}
-
-function fetchPr(run: GitRun, repo: string, pr: number): void {
-  const args = ['fetch', '--quiet', 'origin', 'main', `pull/${pr}/head`]
-  try {
-    run(repo, args)
-  }
-  catch (error) {
-    if (!lostRefRace(error))
-      throw error
-    run(repo, args)
-  }
+function fetchPr(run: GitRun, repo: string, pr: number, backoff: Backoff): void {
+  syncThroughPort(run, repo, ['fetch', '--quiet', 'origin', 'main', `pull/${pr}/head`], backoff)
 }
 
 export type WidenedReader = (cardId: number) => string[]
@@ -256,11 +237,11 @@ export function gitDepthSources(repo: string, journal: string, bodyOf: CardBodyR
   }
 }
 
-export function gitReviewPlanner(repo: string, journal: string, bodyOf: CardBodyReader, run: GitRun = git, widenedOf: WidenedReader = busWidenedPaths(defaultBusPath())): ReviewPlanner {
+export function gitReviewPlanner(repo: string, journal: string, bodyOf: CardBodyReader, run: GitRun = git, widenedOf: WidenedReader = busWidenedPaths(defaultBusPath()), backoff: Backoff = GIT_BACKOFF): ReviewPlanner {
   const sources = gitDepthSources(repo, journal, bodyOf, run, busCheckCatalog, widenedOf)
   return (lease, earlier) => {
     if (lease.pr !== null)
-      fetchPr(run, repo, lease.pr)
+      fetchPr(run, repo, lease.pr, backoff)
     return planReview(lease, earlier, sources)
   }
 }

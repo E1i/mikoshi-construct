@@ -872,7 +872,8 @@
         "keys": [
           "process",
           "queue",
-          "slots"
+          "slots",
+          "vitals"
         ]
       },
       "process.judged": {
@@ -2348,6 +2349,7 @@
           "scripts/policy/decisions/read.ts",
           "scripts/policy/shard.ts",
           "scripts/ports/card-tree.ts",
+          "scripts/ports/host-fault.ts",
           "scripts/ports/netwatch.ts",
           "scripts/ports/tree-publish.ts",
           "scripts/ports/worktree-home.ts",
@@ -4391,7 +4393,6 @@
           "scripts/ports/snapshot.ts",
           "scripts/ports/task-start.ts",
           "scripts/ports/tree-publish.ts",
-          "scripts/ports/witnesses.ts",
           "scripts/ports/worktree.ts",
           "scripts/core/bus-contract.ts",
           "scripts/ci/required.ts",
@@ -4420,7 +4421,11 @@
           "!scripts/ports/client/role-policy.ts",
           "!scripts/ports/disk.ts",
           "!scripts/ports/git.ts",
+          "!scripts/ports/host-fault.ts",
+          "!scripts/ports/host-thermal.ts",
+          "!scripts/ports/host/macos-thermal.ts",
           "!scripts/ports/prompt-store.ts",
+          "!scripts/ports/witnesses.ts",
           "!scripts/ports/worktree-home.ts"
         ],
         "status": "decided"
@@ -4435,7 +4440,10 @@
           "scripts/ports/prompt-store.ts",
           "scripts/ports/client/contract.ts",
           "scripts/ports/client/role-policy.ts",
-          "scripts/ports/client/codex/adapter.ts"
+          "scripts/ports/client/codex/adapter.ts",
+          "scripts/ports/host-fault.ts",
+          "scripts/ports/host-thermal.ts",
+          "scripts/ports/host/macos-thermal.ts"
         ],
         "may_use": [
           "layout",
@@ -4448,7 +4456,10 @@
           "scripts/ports/prompt-store.ts",
           "scripts/ports/client/contract.ts",
           "scripts/ports/client/role-policy.ts",
-          "scripts/ports/client/codex/adapter.ts"
+          "scripts/ports/client/codex/adapter.ts",
+          "scripts/ports/host-fault.ts",
+          "scripts/ports/host-thermal.ts",
+          "scripts/ports/host/macos-thermal.ts"
         ],
         "status": "decided"
       },
@@ -4575,6 +4586,7 @@
           "src/commands/mutate/record.ts",
           "src/commands/test-runner.ts",
           "src/card/covering-tests.ts",
+          "scripts/ports/witnesses.ts",
           "scripts/ci/browser-tests-ran.mjs",
           "scripts/ci/card-automaton.ts",
           "scripts/ci/card-runs.ts",
@@ -4637,6 +4649,7 @@
           "src/commands/mutate/record.ts",
           "src/commands/test-runner.ts",
           "src/card/covering-tests.ts",
+          "scripts/ports/witnesses.ts",
           "!scripts/ci/required.ts"
         ],
         "status": "decided"
@@ -5312,17 +5325,21 @@
       "src/card/witness-fields.ts": {
         "constants": [],
         "functions": {
+          "admittedTouchesOf": "(cardId: number, cardBody: string | null): string[]",
           "fieldCommand": "(field: Pick<WitnessField, 'run' | 'test'>): string",
+          "isChangeWitness": "(witness: string): boolean",
           "isWitnessFieldLine": "(line: string): boolean",
-          "judgedFieldWitnessesOf": "(body: string): { acceptance: JudgedWitness[]; invariants: JudgedWitness[]; } | null",
+          "judgedFieldWitnessesOf": "(body: string): { acceptance: Witness[]; invariants: Witness[]; } | null",
           "parseWitnessList": "(value: unknown): ParsedWitnessList",
           "runsFieldLine": "(runs: readonly string[]): string",
+          "unjudgedCommand": "(command: string): string",
           "witnessFieldRefusals": "(text: string): string[]",
           "witnessFieldsOf": "(text: string): WitnessField[] | null",
           "witnessesOf": "(body: string): string[]"
         },
         "reexports": [],
         "types": {
+          "Witness": "interface Witness { criterion: string; command: string; onBase?: { command: string; stated: string; }; }",
           "WitnessExpectation": "type WitnessExpectation = 'pass' | 'fail' | `exit:${number}`",
           "WitnessField": "interface WitnessField { id: string; run: string; test: string | null; head: WitnessExpectation; base: WitnessExpectation; proves: string; }"
         }
@@ -5684,15 +5701,15 @@
           "admittedReachOf": "(cardId: number, cardBody: string | null): AdmittedReach",
           "cardRiskOf": "(cardId: number, card: string | null): RiskLevel | null",
           "correctionText": "(correction: Correction): string",
-          "isChangeWitness": "(witness: string): boolean",
           "movingRefRefusal": "(witnesses: readonly NamedCommand[]): string | null",
           "ownerPathsOf": "(ownerMergesText: string): OwnerPaths",
-          "publishedRootsOf": "(packageManifestText: string): string[] | undefined",
-          "unjudgedCommand": "(command: string): string"
+          "publishedRootsOf": "(packageManifestText: string): string[] | undefined"
         },
-        "reexports": [],
+        "reexports": [
+          "AdmittedReach",
+          "isChangeWitness"
+        ],
         "types": {
-          "AdmittedReach": "interface AdmittedReach { touches: string[]; runs: string[]; }",
           "CompanionRow": "interface CompanionRow { kind: string; keptBy: string; touched: (entry: string, published: readonly string[]) => boolean; companions: (entry: string, touches: readonly string[], repository: RepositoryFacts) => string[]; }"
         }
       },
@@ -6391,19 +6408,29 @@
       },
       "scripts/ports/git.ts": {
         "constants": [
+          "GIT_BACKOFF: Backoff",
+          "REF_LOCK_RACE",
+          "SYNC_COMMANDS",
           "TECHNOLOGY_WORDS",
           "execGit: GitReader",
+          "portGit: GitCommand",
           "processGit: GitRunner"
         ],
         "functions": {
+          "gitOutcomeOf": "(error: unknown): GitOutcome",
+          "gitRefusalIn": "(text: string | null): string | null",
           "loadedCodeSha": "(): string | null",
           "parseWorktrees": "(porcelain: string): WorktreeEntry[]",
           "pnpmRerun": "(cwd: string, args: readonly string[]): { status: number | null; stderr: string; }",
           "readThroughPort": "(tree: string, args: readonly string[]): string",
+          "syncThroughPort": "(run: GitCommand, cwd: string, args: string[], backoff: Backoff = GIT_BACKOFF): string",
+          "throughGitPort": "(run: GitCommand, backoff: Backoff = GIT_BACKOFF): GitCommand",
           "treeReading": "(read: (cwd: string, args: string[]) => string, worktree: string, base: string, run: TreeRun): TreeReading"
         },
         "language": "technology",
-        "reexports": [],
+        "reexports": [
+          "Backoff"
+        ],
         "technologyWords": [
           "exec",
           "git",
@@ -6414,7 +6441,10 @@
         "types": {
           "GitAnswer": "type GitAnswer = string | Buffer | Error",
           "GitCall": "interface GitCall { tree: string; args: string[]; }",
+          "GitCommand": "type GitCommand = (cwd: string, args: string[]) => string",
           "GitOptions": "interface GitOptions { maxBuffer?: number; timeoutMs?: number; input?: string; env?: NodeJS.ProcessEnv; errorsShown?: boolean; }",
+          "GitOutcome": "type GitOutcome = { kind: 'race'; detail: string; } | { kind: 'host'; fault: HostFault; } | { kind: 'refused'; refusal: string; }",
+          "GitRaceLost": "class GitRaceLost extends Error { stderr: string; constructor(readonly detail: string, attempts: number, cause: unknown) }",
           "GitReader": "interface GitReader { dirty: (worktree: string) => number | undefined; worktrees: (repoRoot: string) => WorktreeEntry[] | undefined; }",
           "GitRunner": "interface GitRunner { read: (tree: string, args: readonly string[], options?: GitOptions) => string; readOrNull: (tree: string, args: readonly string[], options?: GitOptions) => string | null; readBytes: (tree: string, args: readonly string[], maxBuffer: number, options?: GitOptions) => Buffer; readLater: (tree: string, args: readonly string[], options?: GitOptions) => Promise<string>; succeeds: (tree: string, args: readonly string[], options?: GitOptions) => boolean; }",
           "InMemoryGit": "class InMemoryGit implements GitRunner { calls: GitCall[]; constructor(private readonly answer: (call: GitCall) => GitAnswer); read(tree: string, args: readonly string[]): string; readOrNull(tree: string, args: readonly string[]): string | null; readBytes(tree: string, args: readonly string[]): Buffer; readLater(tree: string, args: readonly string[]): Promise<string>; succeeds(tree: string, args: readonly string[]): boolean }",
@@ -6469,6 +6499,68 @@
           "GitHub": "type GitHub = (endpoint: string) => GhResponse",
           "GitHubPut": "type GitHubPut = (endpoint: string, fields: Record<string, string>) => GhResponse"
         }
+      },
+      "scripts/ports/host-fault.ts": {
+        "constants": [
+          "HOST_BACKOFF: Backoff",
+          "HOST_DEGRADED",
+          "HOST_FAILURES",
+          "HOST_FAULT_CODES"
+        ],
+        "functions": {
+          "backoffDelay": "(backoff: Backoff, attempt: number): number",
+          "hostAlarmKey": "(reason: string, cause: string, ts: string): string",
+          "hostDegradedLine": "(cause: string): string",
+          "hostFaultInText": "(text: string): HostFault | null",
+          "hostFaultOf": "(error: unknown): HostFault | null"
+        },
+        "language": "factory",
+        "reexports": [],
+        "technologyWords": [],
+        "types": {
+          "Backoff": "interface Backoff { attempts: number; firstMs: number; sleep: (ms: number) => void; }",
+          "HostFailureLog": "class HostFailureLog { constructor(private readonly file: () => string | null = busFailuresFile, private readonly now: () => Date = () => new Date()); notice(error: unknown): HostFault | null; record(fault: HostFault): void; last(): LastHostFailures }",
+          "HostFault": "interface HostFault { source: HostFaultSource; detail: string; }",
+          "HostFaultPersists": "class HostFaultPersists extends Error { constructor(readonly fault: HostFault, readonly attempts: number) }",
+          "HostFaultSource": "type HostFaultSource = 'os' | 'network' | 'github'",
+          "LastHostFailures": "interface LastHostFailures { github: string | null; dns: string | null; getpwuid: string | null; }"
+        }
+      },
+      "scripts/ports/host-thermal.ts": {
+        "constants": [
+          "HOST_HOT",
+          "HOST_THERMAL: HostThermal",
+          "THERMAL_ADAPTERS: readonly ThermalAdapter[]",
+          "THERMAL_LEVELS",
+          "THERMAL_READING_MS",
+          "UNREAD_THERMAL: HostThermal"
+        ],
+        "functions": {
+          "fixedThermal": "(level: ThermalLevel): HostThermal",
+          "hostHotLine": "(level: ThermalLevel): string",
+          "hostThermal": "(platform: NodeJS.Platform = process.platform, adapters: readonly ThermalAdapter[] = THERMAL_ADAPTERS, now: () => number = Date.now): HostThermal",
+          "thermalFree": "(free: number, level: ThermalLevel): number"
+        },
+        "language": "factory",
+        "reexports": [],
+        "technologyWords": [],
+        "types": {
+          "HostThermal": "interface HostThermal { level: () => ThermalLevel; }",
+          "ThermalAdapter": "interface ThermalAdapter { platform: NodeJS.Platform; read: () => ThermalLevel; }",
+          "ThermalLevel": "type ThermalLevel = typeof THERMAL_LEVELS[number]"
+        }
+      },
+      "scripts/ports/host/macos-thermal.ts": {
+        "constants": [
+          "MACOS_THERMAL: ThermalAdapter"
+        ],
+        "functions": {
+          "macosThermalLevel": "(output: string): ThermalLevel"
+        },
+        "language": "factory",
+        "reexports": [],
+        "technologyWords": [],
+        "types": {}
       },
       "scripts/ports/identifier-shapes.ts": {
         "constants": [
@@ -6633,7 +6725,8 @@
           "lstartOf": "(row: ProcessRow): string | null",
           "parseListing": "(output: string): ProcessRow[]",
           "rowOf": "(snapshot: ProcessSnapshot, pid: number): ProcessRow | null",
-          "rowsOf": "(snapshot: ProcessSnapshot): readonly ProcessRow[]"
+          "rowsOf": "(snapshot: ProcessSnapshot): readonly ProcessRow[]",
+          "userProcessCount": "(uid: number): number | null"
         },
         "language": "factory",
         "reexports": [],
@@ -6889,7 +6982,9 @@
           "witnessesFindingNoTest": "(witnesses: readonly Witness[], onBase: readonly BaseRun[]): Witness[]"
         },
         "language": "technology",
-        "reexports": [],
+        "reexports": [
+          "Witness"
+        ],
         "technologyWords": [
           "grep",
           "shell"
@@ -6903,8 +6998,7 @@
           "TestTarget": "interface TestTarget { file: string; name: string | null; }",
           "Timer": "type Timer = <T>(name: string, run: () => T) => T",
           "TreeRun": "interface TreeRun extends TreeContext { shell: Shell; time: Timer; }",
-          "TreeTask": "interface TreeTask { acceptance: Witness[]; invariants: Witness[]; harnessCommand: string | null; sketchSha: string | null; changed: string[] | null; witnessesDir: string; creates: string[]; }",
-          "Witness": "interface Witness { criterion: string; command: string; onBase?: { command: string; stated: string; }; }"
+          "TreeTask": "interface TreeTask { acceptance: Witness[]; invariants: Witness[]; harnessCommand: string | null; sketchSha: string | null; changed: string[] | null; witnessesDir: string; creates: string[]; }"
         }
       },
       "scripts/ports/worktree-home.ts": {

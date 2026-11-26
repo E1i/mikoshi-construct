@@ -18,6 +18,7 @@
     "src/commands/mutate/record.ts",
     "src/commands/test-runner.ts",
     "src/card/covering-tests.ts",
+    "scripts/ports/witnesses.ts",
     ".dependency-cruiser-known-violations.json",
     ".dependency-cruiser.mjs",
     "vitest.config.ts",

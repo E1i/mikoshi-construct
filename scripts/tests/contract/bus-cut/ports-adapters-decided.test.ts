@@ -14,7 +14,13 @@ const PURE_ADAPTERS = [
 
 const ROLE_POLICY = 'scripts/ports/client/role-policy.ts'
 
-const ADAPTERS_MODULE = [...PURE_ADAPTERS.slice(0, 4), ROLE_POLICY, ...PURE_ADAPTERS.slice(4)]
+const HOST_PORTS = [
+  'scripts/ports/host-fault.ts',
+  'scripts/ports/host-thermal.ts',
+  'scripts/ports/host/macos-thermal.ts',
+]
+
+const ADAPTERS_MODULE = [...PURE_ADAPTERS.slice(0, 4), ROLE_POLICY, ...PURE_ADAPTERS.slice(4), ...HOST_PORTS]
 
 const DECLARED_IN_BUS = [
   'scripts/ports/bus-read.ts',
@@ -22,6 +28,8 @@ const DECLARED_IN_BUS = [
 ]
 
 const DECLARED_IN_NODE_ANSWER = ['scripts/ports/card-tree.ts']
+
+const DECLARED_IN_QUALITY = ['scripts/ports/witnesses.ts']
 
 const NODE_TO_ADAPTER = [
   ['scripts/nodes/review/reviewer.ts', 'scripts/ports/git.ts'],
@@ -46,16 +54,17 @@ describe('ports-adapters is a decided module (D-503)', () => {
     }
   })
 
-  it('ports-adapters holds exactly the five pure adapters and the role session policy (D-862)', () => {
+  it('ports-adapters holds exactly the five pure adapters, the role session policy (D-862) and the host ports (D-867)', () => {
     const adapters = MODULE_GRAPH.modules['ports-adapters']
     const ports = MODULE_GRAPH.modules.ports
 
     expect(adapters).toEqual({ owns: ADAPTERS_MODULE, contract: ADAPTERS_MODULE, may_use: ['layout', 'command-registry', 'ui'], status: 'decided' })
     expect(ports?.status).toBe('decided')
     expect(ports?.may_use).toEqual(['layout', 'command-registry', 'ui', 'ports-adapters'])
-    expect(ports?.owns.filter(glob => glob.startsWith('!scripts/ports/')).map(glob => glob.slice(1)).sort()).toEqual([...ADAPTERS_MODULE, ...DECLARED_IN_BUS, ...DECLARED_IN_NODE_ANSWER].sort())
+    expect(ports?.owns.filter(glob => glob.startsWith('!scripts/ports/')).map(glob => glob.slice(1)).sort()).toEqual([...ADAPTERS_MODULE, ...DECLARED_IN_BUS, ...DECLARED_IN_NODE_ANSWER, ...DECLARED_IN_QUALITY].sort())
     expect(DECLARED_IN_BUS.filter(file => MODULE_GRAPH.modules.bus?.owns.includes(file))).toEqual(DECLARED_IN_BUS)
     expect(DECLARED_IN_NODE_ANSWER.filter(file => MODULE_GRAPH.modules['node-answer']?.owns.includes(file))).toEqual(DECLARED_IN_NODE_ANSWER)
+    expect(DECLARED_IN_QUALITY.filter(file => MODULE_GRAPH.modules.quality?.owns.includes(file))).toEqual(DECLARED_IN_QUALITY)
   })
 
   it('the decided importers of the adapters are granted ports-adapters, and card-record keeps the ports grant D-778 gives it', () => {

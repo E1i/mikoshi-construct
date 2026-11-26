@@ -4,6 +4,7 @@
   "payload": [
     "process",
     "queue",
-    "slots"
+    "slots",
+    "vitals"
   ]
 }

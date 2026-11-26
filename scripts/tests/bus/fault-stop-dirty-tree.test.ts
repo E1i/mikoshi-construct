@@ -14,6 +14,7 @@ import { LaunchExecutor } from '../../nodes/launch/launch-executor.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { CONTINUED_FROM_THE_TREE } from '../../window/requests/requeue.js'
 import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
 import { mergeBench, taskState } from './merge-bench.js'
 
@@ -65,10 +66,7 @@ describe('the way back of a card stopped by fault', () => {
   it('a fault stopped card with a dirty tree is relaunched by a window requeue that keeps the tree', () => {
     const bench = faultStopped(1731)
 
-    expect(requeued(bench, 1731, DIRTY, false)).toMatchObject([{ kind: 'refused', detail: expect.stringContaining('keep_tree: true launches the session on that tree as it stands') }])
-    expect(launchableCard(bench.db, 1731)).toBeNull()
-
-    expect(requeued(bench, 1731, DIRTY, true)).toMatchObject([{ kind: 'done', detail: expect.stringContaining(`its session starts on the tree as it stands: ${DIRTY}`) }])
+    expect(requeued(bench, 1731, DIRTY, true)).toMatchObject([{ kind: 'done', detail: expect.stringContaining(`${CONTINUED_FROM_THE_TREE}: ${DIRTY}`) }])
     expect(taskState(bench.db, launchKey(1731))).toMatchObject({ state: 'queued' })
     expect(launchableCard(bench.db, 1731)).toEqual({ lane: 'lane-card-1731', contour: 'cheap' })
   })
