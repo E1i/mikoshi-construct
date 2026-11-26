@@ -944,20 +944,6 @@
   },
   {
     "type": "dependency",
-    "from": "scripts/nodes/close/ended-card-trees.ts",
-    "to": "scripts/nodes/review/review-worker.ts",
-    "unresolvedTo": "../review/review-worker.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "nodes-import-no-other-node"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "scripts/nodes/launch/launch-worker.ts",
     "to": "scripts/nodes/restart/chain-process.ts",
     "unresolvedTo": "../restart/chain-process.js",
@@ -1001,54 +987,12 @@
   },
   {
     "type": "dependency",
-    "from": "scripts/nodes/merge/merge-worker.ts",
-    "to": "scripts/nodes/review/review-worker.ts",
-    "unresolvedTo": "../review/review-worker.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "nodes-import-no-other-node"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/nodes/restart/restart-worker.ts",
-    "to": "scripts/nodes/review/review-worker.ts",
-    "unresolvedTo": "../review/review-worker.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "nodes-import-no-other-node"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "scripts/nodes/update/update-executor.ts",
     "to": "scripts/nodes/review/record-verdict.ts",
     "unresolvedTo": "../review/record-verdict.js",
     "dependencyTypes": [
       "local",
       "type-only",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "nodes-import-no-other-node"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/nodes/update/update-worker.ts",
-    "to": "scripts/nodes/merge/merge-worker.ts",
-    "unresolvedTo": "../merge/merge-worker.js",
-    "dependencyTypes": [
-      "local",
       "import"
     ],
     "rule": {
@@ -1741,20 +1685,6 @@
     "from": "scripts/nodes/restart/role.ts",
     "to": "scripts/window/window-heartbeat.ts",
     "unresolvedTo": "../../window/window-heartbeat.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "nodes-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/nodes/restart/role.ts",
-    "to": "scripts/window/window-requests.ts",
-    "unresolvedTo": "../../window/window-requests.js",
     "dependencyTypes": [
       "local",
       "import"
