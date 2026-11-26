@@ -71,7 +71,7 @@ describe('launch under machine overload', () => {
     const processes: ProcessTable = {
       commandLine: () => {
         spawns.processTable += 1
-        return alive ? 'sh -c claude -p --session-id s-2340' : null
+        return alive ? 'sh -c agent s-2340' : null
       },
       signalGroup: () => {},
     }

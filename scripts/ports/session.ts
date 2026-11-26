@@ -147,7 +147,7 @@ export function spawnSession(params: SpawnSessionParams): Promise<number> {
     child.on('error', (error) => {
       closeOnce()
       const fault = hostFaultOf(error)
-      reject(fault === null ? error : Object.assign(new HostFaultPersists(fault, 1), { code: (error as NodeJS.ErrnoException).code, cause: error }))
+      reject(fault === null ? error : Object.assign(new HostFaultPersists(fault, 1), { message: error.message, code: (error as NodeJS.ErrnoException).code, cause: error }))
     })
 
     child.on('close', (code) => {
