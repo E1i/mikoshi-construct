@@ -1,6 +1,6 @@
 {
   "module": "ui",
-  "layer": "src",
+  "layer": "ports",
   "paths": [
     "src/ui/"
   ],
