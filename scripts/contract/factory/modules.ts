@@ -58,11 +58,27 @@ const SESSION_CONTRACT = [
   ...supervisor('bg', 'heartbeat', 'liveness-sites', 'scheduler', 'stamp', 'supervisor', 'workers'),
 ]
 
-const INTAKE_CONTRACT = [...within(factory('intake'), 'lane-json.ts', 'parking-reads.ts'), 'src/commands/intake/**']
+const INTAKE_COMMAND = 'src/commands/intake'
+const CI_COMMAND = 'src/commands/ci'
+
+const INTAKE_CONTRACT = [
+  ...within(factory('intake'), 'lane-json.ts', 'parking-reads.ts'),
+  ...within(INTAKE_COMMAND, 'admit.ts', 'amend.ts', 'bash-syntax.ts', 'check.ts', 'confirm.ts', 'draft.ts', 'export.ts', 'facts.ts', 'index.ts', 'move.ts', 'numbers.ts', 'parking-tree.ts', 'shared-code-masks.ts', 'slice.ts'),
+]
+
+const QUALITY_CI = tree('ci')
+
+const QUALITY_CONTRACT = [
+  ...(MODULE_OWNS.quality ?? []).filter(glob => glob !== QUALITY_CI),
+  ...within(factory('ci'), 'browser-tests-ran.mjs', 'card-automaton.ts', 'card-runs.ts', 'classify.ts', 'fast-path.ts', 'file-weights-reporter.ts', 'gate-mutations.ts', 'gate-runs.ts', 'layers.ts', 'no-match-reporter.ts', 'prepush.ts', 'sandbox-failing.jsonl', 'sandbox-failing.ts', 'sandbox-liveness.ts', 'sandbox-refusals.ts', 'sandbox-trace-child.mjs', 'sandbox-trace.config.ts', 'sandbox-trace.ts', 'select.ts', 'shard.ts', 'test-command.ts', 'test-weights.json', 'test-weights.ts', 'tree-scanners.ts', 'verdict.ts', 'vitest-report.ts', 'weights-law.ts'),
+]
 
 const PORTS_CONTRACT = [
   ...within(factory('ports'), 'card-tree.ts', 'ci-reading.ts', 'client/claude/adapter.ts', 'client/index.ts', 'diff.ts', 'gh.ts', 'github-status.ts', 'github.ts', 'isolation.ts', 'main-merge.ts', 'meter.ts', 'netwatch.ts', 'prepare-tree.ts', 'process-table.ts', 'result.ts', 'review-planner.ts', 'serve-record.ts', 'session.ts', 'shift-settings.ts', 'snapshot.ts', 'task-start.ts', 'tree-publish.ts', 'witnesses.ts', 'worktree.ts'),
   ...core('bus-contract.ts'),
+  factory('ci/required.ts'),
+  `${CI_COMMAND}/state.ts`,
+  `${INTAKE_COMMAND}/command-word.ts`,
 ]
 
 const WINDOW_CONTRACT = within(factory('window'), 'board.ts', 'eddies-measure.ts', 'handoff-check.ts', 'loop.ts', 'tab.ts', 'takeover-push-release.ts', 'watch.ts', 'window-heartbeat.ts', 'window-prs.ts', 'window-request-tools.ts', 'window-requests.ts', 'window-session-end.ts', 'window-subagents.ts')
@@ -143,7 +159,7 @@ export const DRAWN: Readonly<Record<string, DrawnModule>> = {
   'layout': decided('layout'),
   'decisions': decided('decisions'),
   'rules': decided('rules'),
-  'quality': decided('quality'),
+  'quality': decidedWith('quality', QUALITY_CONTRACT),
   'intake': decidedWith('intake', INTAKE_CONTRACT),
   'cost': decided('cost'),
   'ports': decidedWith('ports', PORTS_CONTRACT),
