@@ -7,8 +7,8 @@ const BUS_SCHEMA = `
 CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, type TEXT NOT NULL, actor TEXT, card_id INTEGER, pr INTEGER, head TEXT, dedupe_key TEXT, legacy INTEGER NOT NULL DEFAULT 0, payload TEXT NOT NULL);
 CREATE TABLE cards (card_id INTEGER PRIMARY KEY, state TEXT, pr INTEGER, event_id INTEGER);
 CREATE TABLE card_bodies (card_id INTEGER PRIMARY KEY, lane TEXT, card_line TEXT, text TEXT NOT NULL DEFAULT '');
-CREATE TABLE prs (pr INTEGER PRIMARY KEY, card_id INTEGER, state TEXT, verdict_on_head TEXT);
-CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, queue TEXT NOT NULL, card_id INTEGER NOT NULL, pr INTEGER, head TEXT, state TEXT NOT NULL, event_id INTEGER);
+CREATE TABLE prs (pr INTEGER PRIMARY KEY, card_id INTEGER, base TEXT, head TEXT, state TEXT, mergeable TEXT, ci TEXT, verdict_on_head TEXT, auto_merge INTEGER, draft INTEGER, event_id INTEGER NOT NULL DEFAULT 0, body_sha TEXT);
+CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, task_key TEXT, queue TEXT NOT NULL, card_id INTEGER NOT NULL, pr INTEGER, head TEXT, state TEXT NOT NULL, lease_gen INTEGER NOT NULL DEFAULT 0, lease_until TEXT, failures INTEGER NOT NULL DEFAULT 0, event_id INTEGER);
 CREATE TABLE roles (role TEXT PRIMARY KEY, status TEXT NOT NULL, state TEXT NOT NULL);
 CREATE TABLE decisions (decision_id INTEGER PRIMARY KEY, text TEXT NOT NULL, scope TEXT, event_id INTEGER, until TEXT, supersedes TEXT, state TEXT NOT NULL DEFAULT 'in-force');
 CREATE TABLE heartbeats (process TEXT NOT NULL, type TEXT NOT NULL, ts TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY (process, type));
