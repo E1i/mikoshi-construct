@@ -2,7 +2,7 @@ import type { CarriedTree } from '../../../core/lease.js'
 import type { CardSession } from '../answer-source.js'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
-import { processGit } from '../../../ports/git.js'
+import { processGit, throughGitPort } from '../../../ports/git.js'
 import { MAIN_BRANCH } from '../../../ports/snapshot.js'
 
 export type TreeMerge = { kind: 'none' } | { kind: 'mid-merge', files: string[] } | { kind: 'unreadable', why: string }
@@ -15,8 +15,16 @@ interface PendingPath {
 const UNTRACKED = '??'
 const TREE_GIT_MAX_BUFFER = 64 * 1024 * 1024
 
-export function git(cwd: string, args: string[]): string {
-  return processGit.readBytes(cwd, args, TREE_GIT_MAX_BUFFER).toString('utf8')
+export const git = throughGitPort((cwd, args) => processGit.readBytes(cwd, args, TREE_GIT_MAX_BUFFER).toString('utf8'))
+
+function pushes(card: CardSession): boolean {
+  try {
+    git(card.worktree, ['push', 'origin', `HEAD:refs/heads/${card.branch}`])
+    return true
+  }
+  catch {
+    return false
+  }
 }
 
 export function localHead(card: CardSession): string | null {
@@ -140,7 +148,7 @@ export function ownCarriedTree(card: CardSession, prHead: string, policy: TreePu
     return { kind: 'clean', head: prHead }
   if (policy === 'none')
     return { kind: 'kept', head: state.head }
-  if (onlyMainMergedOver(state, prHead) && processGit.succeeds(card.worktree, ['push', 'origin', `HEAD:refs/heads/${card.branch}`]))
+  if (onlyMainMergedOver(state, prHead) && pushes(card))
     return { kind: 'pushed', head: state.head, commits: state.localCommits }
   if (!processGit.succeeds(card.worktree, ['reset', '--hard', prHead]) || !processGit.succeeds(card.worktree, ['clean', '-fd']))
     throw new Error(`the tree ${card.worktree} of the card could not be reset to the pull request head ${prHead}`)

@@ -10,6 +10,8 @@ import type { TaskRow } from '../../core/tasks-query.js'
 import type { DiskReader } from '../../ports/disk.js'
 import type { IsolationReader } from '../../ports/isolation.js'
 import type { ProcessTable } from '../restart/chain-process.js'
+import type { BodyAmend } from './body-amend.js'
+import type { LaunchHost } from './host-gate.js'
 import type { Contour, LatestSessionStart, WindowQuestion } from './launch-candidates.js'
 import type { CardStarter, LaunchOutcome, StartedCard } from './launch-executor.js'
 import type { SessionContinuer } from './launch-starter.js'
@@ -37,13 +39,16 @@ import { storedByKey } from '../../core/stored.js'
 import { ofCard, ofQueue } from '../../core/tasks-query.js'
 import { cardDecisionCommand } from '../../policy/shards.js'
 import { clientTranscript } from '../../ports/client/claude/adapter.js'
+import { gitRefusalIn } from '../../ports/git.js'
 import { lacksItsPackages } from '../../ports/prepare-tree.js'
 import { storedInput } from '../../ports/prompt-store.js'
 import { launchDirOf } from '../../ports/tree-publish.js'
 import { isAlive } from '../../quality/lock.js'
 import { lastHeartbeat } from '../../supervisor/heartbeat.js'
 import { launchProcess, REAL_PROCESSES } from '../restart/chain-process.js'
+import { onlyThePriorityMoved, shortSha } from './body-amend.js'
 import { MAX_RESTARTS, reportedQuestions, reportedStopReason } from './continuation.js'
+import { HOST_FAULT_RETRY_MS, hostFaultAware, HostGate } from './host-gate.js'
 import { currentLane, laneOverlapRecorder, layLanes, repositoryLanes } from './lane-assign.js'
 import { commandRanSince, heldSessionStop, heldStopLine, holdReason, latestSessionStarts, launchTasks, reportedWindowQuestions, startHold, stopsWithCode, waitHeldAtTheExit } from './launch-candidates.js'
 import { continuedAndRecorded, LaunchExecutor } from './launch-executor.js'
@@ -57,6 +62,7 @@ const LAUNCH_LIMIT_MS = LAUNCH_LIMIT_MINUTES * 60_000
 export const HEARTBEAT_SILENCE_MINUTES = 20
 const HEARTBEAT_SILENCE_MS = HEARTBEAT_SILENCE_MINUTES * 60_000
 export const OWNER_STOP_CAUSE = 'owner-stop'
+export const GIT_DENIED = 'git-denied'
 export const TIME_LIMIT_CAUSE = 'time-limit'
 export const NO_HEARTBEAT_CAUSE = 'no-heartbeat'
 
@@ -110,6 +116,7 @@ export interface LaunchNodeParts extends Pick<NodeParts, 'silentMs'> {
   prompts?: string
   lanes?: () => number
   machine?: MachineSessions
+  thermal?: LaunchHost['thermal']
 }
 
 export interface SessionStart { cardId: number, ts: string }
@@ -202,27 +209,6 @@ function latestAdmission(db: DatabaseSync, cardId: number): Record<string, unkno
 export const AMENDED_AFTER_START = 'amended-after-start'
 export const WITHDRAWN_TO_CHEAP = 'withdrawn-to-cheap'
 
-interface BodyAmendRow { started_text: string, amended_text: string }
-
-interface BodyAmend { started: string, amended: string }
-
-const HEADER_PRIORITY = /^priority:/
-
-function withoutHeaderPriority(text: string): string {
-  const lines = text.split('\n')
-  const blank = lines.findIndex(line => line.trim() === '')
-  const headerEnd = blank === -1 ? lines.length : blank
-  return lines.filter((line, index) => index >= headerEnd || !HEADER_PRIORITY.test(line.trim())).join('\n')
-}
-
-function onlyThePriorityMoved(row: BodyAmendRow): boolean {
-  return withoutHeaderPriority(row.started_text) === withoutHeaderPriority(row.amended_text)
-}
-
-function shortSha(sha: string): string {
-  return sha.slice(0, 12)
-}
-
 function startedCardOf(payload: string): StartedCard | null {
   try {
     const parsed = JSON.parse(payload) as Record<string, unknown>
@@ -246,15 +232,17 @@ export class LaunchNode extends Node<LaunchStep> {
   private readonly lanes: () => number
   private readonly machine: MachineSessions
   private readonly usageLimitedUntil: (card: StartedCard) => string | null
+  private readonly host: HostGate
 
   constructor(private readonly launchParts: LaunchNodeParts) {
     super('launch', { db: launchParts.db, clock: launchParts.clock, session: launchParts.session, mode: launchParts.mode, env: launchParts.env, silentMs: launchParts.silentMs })
-    this.executor = new LaunchExecutor({ ...launchParts, cards: this.suppliedCards })
+    this.executor = new LaunchExecutor({ ...launchParts, starter: hostFaultAware(launchParts.starter), ...(launchParts.ladder === undefined ? {} : { ladder: hostFaultAware(launchParts.ladder) }), cards: this.suppliedCards })
     this.starters = { cheap: launchParts.starter, ladder: launchParts.ladder }
     this.processes = launchParts.processes ?? REAL_PROCESSES
     this.pidAlive = launchParts.pidAlive ?? (launchParts.processes === undefined ? isAlive : () => true)
     this.lanes = launchParts.lanes ?? repositoryLanes(process.cwd())
     this.machine = launchParts.machine ?? machineSessions(isAlive)
+    this.host = new HostGate(this.db, this.machine, this.actor, () => this.ts(), launchParts.thermal)
     this.usageLimitedUntil = launchParts.usageLimitedUntil ?? (card => usageLimitResetOf(clientTranscript(launchParts.env, card.worktree, card.session)))
     this.declare(LAUNCH_NODE)
   }
@@ -266,6 +254,8 @@ export class LaunchNode extends Node<LaunchStep> {
   stopOverdue(): number[] {
     const stopped: number[] = []
     if (this.parts.mode !== 'live')
+      return stopped
+    if (this.host.held() !== null)
       return stopped
     this.expireUnstartedLeases()
     for (const start of runningStarts(this.db)) {
@@ -399,6 +389,9 @@ export class LaunchNode extends Node<LaunchStep> {
       return this.continueSession(start, card, this.launchParts.continuer, `card #${start.card_id} session ${card.session} ended on body ${shortSha(amend.started)}, amended since to ${shortSha(amend.amended)}`)
     if (card.contour === 'cheap' && this.launchParts.continuer !== undefined && handedOff)
       return this.continueSession(start, card, this.launchParts.continuer, `card #${start.card_id} session ${card.session} exited at a boundary with its handoff written`)
+    const refusal = gitRefusalIn(this.launchParts.reportOf?.(session) ?? null)
+    if (refusal !== null)
+      return this.stopGitDenied(start, card, refusal)
     if (!(this.launchParts.resulted?.(card, session) ?? false))
       return this.stopDeadSession(start, card)
     if (card.contour === 'ladder')
@@ -707,6 +700,18 @@ export class LaunchNode extends Node<LaunchStep> {
     })
   }
 
+  private stopGitDenied(start: RunningStart, card: StartedCard, refusal: string): boolean {
+    const detail = `${GIT_DENIED}: card #${start.card_id} session ${card.session} ended with no pull request because git refused it in ${card.worktree}: ${refusal}; the card is not queued again until the refusal is lifted`
+    return inTransaction(this.db, () => {
+      const ts = this.ts()
+      const recorded = appendEvent(this.db, { ts, type: CARD_STOPPED, actor: this.actor, cardId: start.card_id, pr: null, head: null, dedupeKey: `${CARD_STOPPED}:${GIT_DENIED}:${start.dedupe_key}`, payload: { reason: GIT_DENIED, code: GIT_DENIED, blocker: refusal, detail }, legacy: false })
+      const task = launchTaskOfCard(this.db, start.card_id)
+      if (recorded && task?.state === COMPLETED)
+        this.supersedeTheStoppedLaunch(ts, start.card_id, task)
+      return recorded
+    })
+  }
+
   private stopDeadSession(start: RunningStart, card: StartedCard): boolean {
     const deaths = events(this.db, { card: start.card_id, types: [CARD_STOPPED] }).filter(stop => stop.dedupe_key.startsWith(SESSION_DEATH_KEY)).length + 1
     const final = deaths >= SESSION_DEATH_CAP
@@ -726,13 +731,17 @@ export class LaunchNode extends Node<LaunchStep> {
   protected candidates(): QueuedTask[] {
     if (!this.executes())
       return launchTasks(this.db)
+    if (this.host.held() !== null)
+      return []
     const ts = this.ts()
     layLanes(this.db, this.lanes(), ts, this.actor)
-    return launchTasks(this.db, laneOverlapRecorder(this.db, ts, this.actor))
+    return launchTasks(this.db, laneOverlapRecorder(this.db, ts, this.actor), this.host.launchHost(this.lanes))
   }
 
   protected override derivedCandidates(): QueuedTask[] {
-    return launchTasks(this.db)
+    if (!this.executes())
+      return launchTasks(this.db)
+    return this.host.blocks() ? [] : launchTasks(this.db, undefined, this.host.launchHost(this.lanes))
   }
 
   protected handle(lease: Lease): LaunchStep {
@@ -749,6 +758,9 @@ export class LaunchNode extends Node<LaunchStep> {
     const usageReset = ownerSaid ? null : this.usageLimitResetPending()
     if (usageReset !== null)
       return this.waitOn(lease, USAGE_LIMIT, usageReset)
+    const hostWait = this.host.waitLine()
+    if (hostWait !== null)
+      return this.waitOn(lease, hostWait, new Date(this.parts.clock().getTime() + MACHINE_POLL_MS).toISOString())
     const hold = ownerSaid ? null : startHold(this.db, lease.cardId, this.lanes(), this.machine, this.parts.clock().getTime())
     if (hold !== null)
       return this.waitOn(lease, holdReason(hold), new Date(this.parts.clock().getTime() + MACHINE_POLL_MS).toISOString())
@@ -770,7 +782,10 @@ export class LaunchNode extends Node<LaunchStep> {
     }
     catch (error) {
       this.machine.release(claimant)
-      throw error
+      const degraded = this.host.degraded(lease.cardId, error)
+      if (degraded === null)
+        throw error
+      return this.waitOn(lease, degraded, new Date(this.parts.clock().getTime() + HOST_FAULT_RETRY_MS).toISOString())
     }
   }
 

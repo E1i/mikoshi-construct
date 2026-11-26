@@ -13,6 +13,8 @@ const REQUEUES_SINCE = `
 
 const DIRTY_TREE_CAUSE = /has uncommitted changes$/
 
+export const CONTINUED_FROM_THE_TREE = 'the node that takes it next continues from the tree as it stands, writing nothing in it first'
+
 export function requeue(context: RequestContext, request: number, payload: RequestPayload, owner = false): Executed {
   const { db } = context
   const key = text(payload.task_key)
@@ -38,9 +40,9 @@ export function requeue(context: RequestContext, request: number, payload: Reque
   if (requeues >= FAILURES_TO_STOP)
     return { done: false, why: `${key} was requeued ${requeues} times since ${BOARD_ALARM} ${alarm!.id}, the D-104 limit` }
   const holds = owner ? null : context.tools.causeHolds({ taskKey: key, cardId: task.card_id })
-  const keepsTheTree = payload.keep_tree === true && task.queue === 'launch' && holds !== null && DIRTY_TREE_CAUSE.test(holds)
+  const keepsTheTree = holds !== null && DIRTY_TREE_CAUSE.test(holds)
   if (holds !== null && !keepsTheTree)
-    return { done: false, why: `the cause of ${BOARD_ALARM} ${alarm!.id} holds: ${holds}${task.queue === 'launch' && DIRTY_TREE_CAUSE.test(holds) ? `; a requeue with keep_tree: true launches the session on that tree as it stands, writing nothing in it` : ''}` }
+    return { done: false, why: `the cause of ${BOARD_ALARM} ${alarm!.id} holds: ${holds}` }
   try {
     inTransaction(db, () => queueAgain(db, ts, task, request, `request-${request}`))
   }
@@ -50,7 +52,7 @@ export function requeue(context: RequestContext, request: number, payload: Reque
   const after = db.prepare('SELECT state FROM tasks WHERE task_key = ?').get(key) as { state: string }
   if (after.state !== QUEUED)
     return { done: false, why: `${key} stays ${after.state}: the bus rejected its ${TASK_REQUEUED}` }
-  return { done: true, why: alarm === undefined ? `${key} queued again on the owner's word, with no ${BOARD_ALARM} and no automatic condition` : `${key} queued again after ${BOARD_ALARM} ${alarm.id}, requeue ${requeues + 1} of ${FAILURES_TO_STOP}${keepsTheTree ? `; its session starts on the tree as it stands: ${holds}` : ''}` }
+  return { done: true, why: alarm === undefined ? `${key} queued again on the owner's word, with no ${BOARD_ALARM} and no automatic condition` : `${key} queued again after ${BOARD_ALARM} ${alarm.id}, requeue ${requeues + 1} of ${FAILURES_TO_STOP}${keepsTheTree ? `; ${CONTINUED_FROM_THE_TREE}: ${holds}` : ''}` }
 }
 
 export const execute: RequestExecutor = (context, request, payload) => requeue(context, request, payload)

@@ -24,7 +24,7 @@ import { matchGlob } from '../../policy/shredder/glob.js'
 import { COMPOSITION_ROOT, derivedGrowthLine, derivedRefusalLine, derivedVerdictOf, followsTouches, isRegisteredDerived, neverFollows, OWNER_MERGES, pathsOutside, runsCover, TEST_ROOTS, withinTouches } from '../../policy/touch-scope.js'
 import { ownerGlobs } from '../../policy/widening.js'
 import { changedFilesFrom } from '../../ports/diff.js'
-import { pnpmRerun, treeReading } from '../../ports/git.js'
+import { pnpmRerun, throughGitPort, treeReading } from '../../ports/git.js'
 
 export const REFUSAL_REASONS = {
   'stale-base': 'a',
@@ -555,11 +555,12 @@ function mergeFreshBase(git: TreePrPorts['git'], worktree: string, rebuild: Twin
     git(worktree, ['merge', '--abort'])
     return { files: [], failure: `the bus could not rebuild ${FACTORY_TWIN.path} after the merge: ${error.message}` }
   }
-  git(worktree, ['commit', '-q', '--no-edit', ...(replaced.length === 0 ? [] : ['-m', `Merge ${PR_BASE}: owner paths at main's version over the branch's ${replaced.join(', ')}`])])
+  throughGitPort(git)(worktree, ['commit', '-q', '--no-edit', ...(replaced.length === 0 ? [] : ['-m', `Merge ${PR_BASE}: owner paths at main's version over the branch's ${replaced.join(', ')}`])])
   return null
 }
 
-export function commitAndPush(git: TreePrPorts['git'], worktree: string, branch: string, commitMessage: string, rebuild?: TwinRebuild): Pushed {
+export function commitAndPush(run: TreePrPorts['git'], worktree: string, branch: string, commitMessage: string, rebuild?: TwinRebuild): Pushed {
+  const git = throughGitPort(run)
   git(worktree, ['fetch', '-q', 'origin', 'main'])
   if (mergeInProgress(git, worktree))
     takeOwnerPathsFromMain(git, worktree)

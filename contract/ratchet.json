@@ -55,7 +55,7 @@
   "boundary:window->node-restart": 5,
   "boundary:window->node-review": 1,
   "boundary:window->node-update": 1,
-  "gate:bus": 649,
+  "gate:bus": 656,
   "law-gaps:Z1:answer": 1,
   "law-gaps:Z1:launch": 1,
   "law-gaps:Z1:witness": 1,

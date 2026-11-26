@@ -191,6 +191,9 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/ports/client/contract.ts`,
     `${FACTORY_ROOT}/ports/client/role-policy.ts`,
     `${FACTORY_ROOT}/ports/client/codex/adapter.ts`,
+    `${FACTORY_ROOT}/ports/host-fault.ts`,
+    `${FACTORY_ROOT}/ports/host-thermal.ts`,
+    `${FACTORY_ROOT}/ports/host/macos-thermal.ts`,
   ],
   'pr-record': [
     `${FACTORY_ROOT}/nodes/review/pr-close.ts`,
