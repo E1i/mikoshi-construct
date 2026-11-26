@@ -5,6 +5,7 @@ import path from 'node:path'
 import vm from 'node:vm'
 import { describe, expect, it } from 'vitest'
 import { LORE, PLAIN_LORE } from '../../../src/ui/lore.js'
+import * as versionModule from '../../../src/version.js'
 import { daemonOf } from '../../cli/board-page/daemon-catalog.js'
 import { CAPPED_CLASS, cappedCell, cappedReferences, readUiVersionPin, UI_VERSION_FILE, uiReading, warningsStrip } from '../../cli/board-page/live-cards.js'
 
@@ -24,6 +25,7 @@ const MINUTE_MS = 60_000
 const ELEMENT = 1
 const TEXT = 3
 const DEPENDENCIES = 40
+const CARD_PX = 100
 const NAMES = { drill: 'drill', drillContent: 'drill-content', backlogScroll: 'backlog-scroll', viewKey: 'board:view', dialogPrefix: 'dialog-', busLive: 'bus-live', pulse: 'pulse', titlePrefix: 'board · ', slotPrefix: 'slot-', backlog: 'backlog', staleTicks: 3, dataFile: 'board-data.js', refreshIn: 'refresh-in', round: {} }
 const TOKEN = /<\/([\w-]+)\s*>|<([\w-]+)((?:\s+[\w:-]+(?:="[^"]*")?)*)\s*(\/?)>|([^<]+)/g
 const ATTRIBUTE = /([\w:-]+)(?:="([^"]*)")?/g
@@ -70,7 +72,20 @@ class MiniElement extends MiniNode {
   childNodes: MiniNode[] = []
   readonly attrs = new Map<string, string>()
   readonly listeners = new Map<string, ((event: { target: MiniElement }) => void)[]>()
-  readonly style = { setProperty: (): void => {} }
+  readonly heights: string[] = []
+  readonly style = {
+    setProperty: (): void => {},
+    held: '',
+    log: this.heights,
+    get height(): string {
+      return this.held
+    },
+    set height(value: string) {
+      this.held = value
+      this.log.push(value)
+    },
+  }
+
   readonly classList = {
     add: (name: string): void => this.setAttribute('class', [...this.classes().filter(each => each !== name), name].join(' ')),
     remove: (name: string): void => this.setAttribute('class', this.classes().filter(each => each !== name).join(' ')),
@@ -93,6 +108,11 @@ class MiniElement extends MiniNode {
 
   get dataset(): Record<string, string> {
     return Object.fromEntries([...this.attrs].filter(([name]) => name.startsWith('data-')).map(([name, value]) => [name.slice('data-'.length).replace(/-(\w)/g, (_, letter: string) => letter.toUpperCase()), value]))
+  }
+
+  getBoundingClientRect(): { height: number } {
+    const natural = this.descendants().filter(node => node.hasAttribute('data-svc')).length * CARD_PX
+    return { height: this.style.height === '' ? natural : Number.parseFloat(this.style.height) }
   }
 
   get firstChild(): MiniNode | null {
@@ -219,7 +239,7 @@ interface Board {
   card: (session: string) => MiniElement | undefined
 }
 
-function board(first: Reading | null, stored: Record<string, unknown> = {}): Board {
+function board(first: Reading | null, stored: Record<string, unknown> = {}, reduced = false): Board {
   const root = new MiniElement('body')
   root.innerHTML = `<div id="slot-services">${first === null ? '' : servicesHtml(first.sessions)}</div><div id="slot-warnings">${first === null ? '' : warningsStrip(WARNINGS)}</div><dialog id="drill"></dialog><div id="drill-content"></div>`
   const timeouts: (() => void)[] = []
@@ -244,6 +264,7 @@ function board(first: Reading | null, stored: Record<string, unknown> = {}): Boa
     addEventListener: () => {},
     setTimeout: (callback: () => void) => timeouts.push(callback),
     Date: { now: () => Date.parse(WRITTEN), parse: Date.parse },
+    matchMedia: (query: string) => ({ matches: reduced && query === '(prefers-reduced-motion: reduce)' }),
   }
   context.window = context
   vm.createContext(context)
@@ -286,6 +307,7 @@ describe('board ui v4', () => {
     expect(reading).toBe(`<span>ui <b>v${readUiVersionPin().version}</b></span>`)
     expect(JSON.parse(readFileSync(UI_VERSION_FILE, 'utf8'))).toEqual({ version: readUiVersionPin().version, hash: expect.stringMatching(/^[0-9a-f]{64}$/) })
     expect(reading).not.toMatch(/\d+\.\d+\.\d+/)
+    expect(Object.keys(versionModule).sort()).toEqual(['VERSION', 'currentVersion'])
   })
 
   it('the warnings block renders a button with aria-expanded and the warning count', () => {
@@ -311,14 +333,29 @@ describe('board ui v4', () => {
 
   it('service cards carry the enter and leave hooks and style.css defines their animations and the reduced-motion rule', () => {
     const { root, deliver, card } = board({ sessions: ['s1', 's2'], minutes: 0 })
+    const wrap = root.querySelector('[data-svc-wrap]')!
     const leaving = card('s1')!
     deliver({ sessions: ['s2', 's3'], minutes: 1 })
     expect(card('s3')!.classes()).toContain('enter')
     expect(card('s2')!.classes()).not.toContain('enter')
     expect(leaving.classes()).toContain('leave')
-    expect(leaving.parentNode).toBe(root.querySelector('[data-svc-wrap]')!.childNodes[0])
+    expect(leaving.getAttribute('data-svc')).toBe('s1')
+    expect(card('s2')!.classes()).not.toContain('leave')
+    expect(leaving.parentNode).toBe(wrap.childNodes[0])
+    expect(wrap.heights).toEqual(['', `${2 * CARD_PX}px`, `${3 * CARD_PX}px`])
+    wrap.fire('transitionend')
+    expect(wrap.heights.at(-1)).toBe('')
     leaving.fire('animationend')
     expect(card('s1')).toBeUndefined()
+    expect(card('s2')!.parentNode).toBe(wrap.childNodes[0])
+    expect(wrap.heights.slice(4)).toEqual(['', `${3 * CARD_PX}px`, `${2 * CARD_PX}px`])
+    wrap.fire('transitionend')
+    expect(wrap.style.height).toBe('')
+    const still = board({ sessions: ['s1', 's2'], minutes: 0 }, {}, true)
+    still.deliver({ sessions: ['s2', 's3'], minutes: 1 })
+    expect(still.card('s1')).toBeUndefined()
+    expect(still.card('s3')!.classes()).not.toContain('enter')
+    expect(still.root.querySelector('[data-svc-wrap]')!.heights).toEqual([])
     card('s3')!.fire('animationend')
     expect(card('s3')!.classes()).not.toContain('enter')
     const shell = board(null)

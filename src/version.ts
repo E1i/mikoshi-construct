@@ -16,8 +16,4 @@ export function currentVersion(): string {
   return '0.0.0'
 }
 
-declare const __CONSTRUCT_BUILD_SHA__: string | undefined
-
-export const BUILD_SHA: string | null = typeof __CONSTRUCT_BUILD_SHA__ === 'string' && __CONSTRUCT_BUILD_SHA__ !== '' ? __CONSTRUCT_BUILD_SHA__ : null
-
 export const VERSION = currentVersion()
