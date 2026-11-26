@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Witness } from '../scripts/ports/witnesses.js'
 import type { RequestTools } from '../scripts/window/window-requests.js'
+import type { DraftCard } from '../src/commands/intake/draft.js'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -15,6 +16,8 @@ import { requestFromWindow, WindowRequests } from '../scripts/window/window-requ
 import { witnessFieldsOf, witnessText } from '../src/card/witness-fields.js'
 import { deadOnTheBase, runAdmit } from '../src/commands/intake/admit.js'
 import { runAmend } from '../src/commands/intake/amend.js'
+import { checkDraft } from '../src/commands/intake/check.js'
+import { DirectoryFacts } from '../src/commands/intake/facts.js'
 
 const NOW = new Date('2026-11-20T03:08:00.000Z')
 const CARD = 2107
@@ -208,6 +211,32 @@ describe('replacing a witness the bus recorded dead is an amendment, not a downg
         w.db.close()
       }
     }
+  })
+
+  it('the draft check reports a witness whose filter selects nothing as an unclear witnesses field', () => {
+    const w = world()
+    shapesFile(w, LIVE_SHAPES)
+    const checkedWith = (test: string) => {
+      const witness = witnessText(witnessFieldsOf(body([{ ...DEAD, test }]))![0]!)
+      const draft: DraftCard = { name: 'dead-witness-card', kind: 'implement', milestone: 'runner', size: 'S', touches: [TOUCH], depends: [], blocks: [], creates: [], task: 'Do the thing.', witnesses: [witness], unclear: [] }
+      const [checked] = checkDraft([draft], [CARD], { taken: new Set(), parked: new Set(), done: new Set(), merged: new Set(), repository: new DirectoryFacts(w.repo, process.env.PATH ?? '') })
+      return checked!.unclear.filter(field => field.field === 'witnesses' && field.reason.includes('selects no test, so it is dead'))
+    }
+    const dead = checkedWith('shapes home reads the home')
+    expect(dead).toHaveLength(1)
+    expect(dead[0]!.reason).toContain(`matches no test name in ${SHAPES}`)
+    expect(checkedWith('shapes home > reads the home')).toEqual([])
+    w.db.close()
+  })
+
+  it('a test declared after a closed describe is not named under that describe', () => {
+    const w = world()
+    shapesFile(w, `${LIVE_SHAPES}\nit('top level test', () => {})\n`)
+    for (const [test, status] of [['top level test', 'dryRun'], ['shapes home > top level test', 'refused']] as const) {
+      const admitted = runAdmit({ ...intakeOf(w), file: path.join(w.root, `${CARD}.md`), body: body([{ ...DEAD, test }, W2]), dryRun: true }, () => NOW)
+      expect({ test, status: admitted.status }).toEqual({ test, status })
+    }
+    w.db.close()
   })
 
   it('a witness naming a file neither on the base nor in creates selects nothing', () => {
