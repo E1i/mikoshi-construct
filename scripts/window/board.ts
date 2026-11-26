@@ -26,7 +26,7 @@ import { cardContract } from '../intake/card-contract.js'
 import { roleReadings } from '../nodes/restart/role.js'
 import { activeWindowShards } from '../policy/shards.js'
 import { ANY, BusRead } from '../ports/bus-read.js'
-import { stillSilent } from '../supervisor/supervisor.js'
+import { stillSilent } from '../supervisor/heartbeat.js'
 
 export const BOARD_FILE = 'board.html'
 export const FRESH_MS = RENEW_MS

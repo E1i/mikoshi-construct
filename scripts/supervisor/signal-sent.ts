@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ChildStart } from '../core/node.js'
 import type { ProcessList, RunningProcess } from './bg.js'
+import process from 'node:process'
 import { appendEvent } from '../core/db.js'
 import { SIGNAL_SENT } from '../core/events.js'
 import { QUEUE_ACTOR } from '../core/queue.js'
@@ -44,6 +45,18 @@ export function recordedThenSent(recorded: SignalSent, send: SignalSent): Signal
   return (pid, name) => {
     recorded(pid, name)
     send(pid, name)
+  }
+}
+
+export function signal(pid: number, name: NodeJS.Signals): void {
+  try {
+    process.kill(-pid, name)
+  }
+  catch {
+    try {
+      process.kill(pid, name)
+    }
+    catch {}
   }
 }
 

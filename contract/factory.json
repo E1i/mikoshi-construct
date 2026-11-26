@@ -3430,6 +3430,11 @@
       "scripts/window/miko.ts",
       "scripts/intake/intake.ts",
       "scripts/supervisor/start.ts",
+      "scripts/supervisor/run.ts",
+      "scripts/supervisor/review-bg.ts",
+      "scripts/supervisor/supervisor.ts",
+      "scripts/supervisor/reducer-thread.ts",
+      "scripts/supervisor/launchd/install.ts",
       "scripts/supervisor/netwatch-root.ts",
       "scripts/cli/task-start.ts",
       "scripts/supervisor/composition.ts"
@@ -4751,9 +4756,7 @@
       },
       "session": {
         "concepts": [
-          "handoff-status",
-          "live-session",
-          "pid-liveness"
+          "handoff-status"
         ],
         "contract": [
           "scripts/core/machine-sessions.ts",
@@ -4777,7 +4780,6 @@
           "scripts/supervisor/liveness-sites.ts",
           "scripts/supervisor/scheduler.ts",
           "scripts/supervisor/stamp.ts",
-          "scripts/supervisor/supervisor.ts",
           "scripts/supervisor/workers.ts"
         ],
         "may_use": [
@@ -4815,8 +4817,13 @@
           "scripts/supervisor/**",
           "!scripts/supervisor/card-waits.ts",
           "!scripts/supervisor/composition.ts",
+          "!scripts/supervisor/launchd/install.ts",
           "!scripts/supervisor/netwatch-root.ts",
-          "!scripts/supervisor/start.ts"
+          "!scripts/supervisor/reducer-thread.ts",
+          "!scripts/supervisor/review-bg.ts",
+          "!scripts/supervisor/run.ts",
+          "!scripts/supervisor/start.ts",
+          "!scripts/supervisor/supervisor.ts"
         ],
         "status": "decided"
       },

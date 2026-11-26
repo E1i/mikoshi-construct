@@ -41,7 +41,7 @@ import { beatsLive, SILENT_MS } from './liveness-sites.js'
 import { installedGeneration, ownPackage } from './package-generation.js'
 import { generationEnv, identifiedOnBus, identifiedProcesses, readableRows, recordedPidLives, runningAs } from './recorded-worker.js'
 import { busShadowProblems, startReviewWorker } from './review-bg.js'
-import { NOTHING_RECORDED, recordedThenSent, RESTART_WHY, signalLog, stopSending } from './signal-sent.js'
+import { NOTHING_RECORDED, recordedThenSent, RESTART_WHY, signal, signalLog, stopSending } from './signal-sent.js'
 import { stampLogOutput } from './stamp.js'
 import { WindowSubagentTick } from './window-subagent-tick.js'
 import { busLaunches, isBusWorker, switchDetection, switchWorker, wantedLaunches, WORKERS } from './workers.js'
@@ -139,18 +139,6 @@ export function gitCode(cwd: string): BusCode {
     },
     changedSince: sha => processGit.read(cwd, ['diff', '--name-only', sha, 'HEAD']).split('\n').filter(file => file !== ''),
     runs: entry => new Set([...importClosure(entry, readable(cwd)), ...SHARED_BUS_CODE]),
-  }
-}
-
-export function signal(pid: number, name: NodeJS.Signals): void {
-  try {
-    process.kill(-pid, name)
-  }
-  catch {
-    try {
-      process.kill(pid, name)
-    }
-    catch {}
   }
 }
 
@@ -739,26 +727,6 @@ export function currentLifeBeats(db: DatabaseSync, beats: readonly ProcessBeat[]
 
 export function recordJudged(db: DatabaseSync, ts: string, judgement: Judgement, limitMs = SILENT_MS): boolean {
   return appendEvent(db, { ts, type: PROCESS_JUDGED, actor: JUDGE_ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${PROCESS_JUDGED}:${judgement.process}:${judgement.lastBeat}`, payload: { process: judgement.process, verdict: 'silent', last_beat: judgement.lastBeat, silent_ms: judgement.silentMs, limit_ms: limitMs }, legacy: false })
-}
-
-export interface Judged {
-  process: string
-  lastBeat: string
-}
-
-function lastJudged(db: DatabaseSync): Map<string, string> {
-  const judged = new Map<string, string>()
-  for (const { data } of events(db, { types: [PROCESS_JUDGED], valid: true })) {
-    const [name, beat] = [data?.process, data?.last_beat]
-    if (typeof name === 'string' && typeof beat === 'string' && beat > (judged.get(name) ?? ''))
-      judged.set(name, beat)
-  }
-  return new Map([...judged].sort(([a], [b]) => a < b ? -1 : 1))
-}
-
-export function stillSilent(db: DatabaseSync): Judged[] {
-  const beats = new Map(lastProcessBeats(db).map(beat => [beat.process, beat.ts]))
-  return [...lastJudged(db)].filter(([name, lastBeat]) => (beats.get(name) ?? lastBeat) <= lastBeat).map(([name, lastBeat]) => ({ process: name, lastBeat }))
 }
 
 export const RESTART_RETRY_MS = 5 * 60_000

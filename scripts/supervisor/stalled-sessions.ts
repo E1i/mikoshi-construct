@@ -22,7 +22,7 @@ import { OsProcessTable } from '../ports/process-table.js'
 import { firstPushAfter, firstReleaseAfter, RoundOverTime, unendedStarts } from './expected-time.js'
 import { beatsOfLease, heartbeatsOfLease } from './heartbeat.js'
 import { transcriptActionIn } from './session-view.js'
-import { signal } from './supervisor.js'
+import { signal } from './signal-sent.js'
 
 export const STALLED_AFTER_MS = 30 * 60_000
 export const REVIEW_STALLED_AFTER_MS = 8 * 60_000
