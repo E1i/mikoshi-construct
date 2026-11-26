@@ -761,7 +761,7 @@ export class LaunchNode extends Node<LaunchStep> {
     const hostWait = this.host.waitLine()
     if (hostWait !== null)
       return this.waitOn(lease, hostWait, new Date(this.parts.clock().getTime() + MACHINE_POLL_MS).toISOString())
-    const hold = ownerSaid ? null : startHold(this.db, lease.cardId, this.lanes(), this.machine)
+    const hold = ownerSaid ? null : startHold(this.db, lease.cardId, this.lanes(), this.machine, this.parts.clock().getTime())
     if (hold !== null)
       return this.waitOn(lease, holdReason(hold), new Date(this.parts.clock().getTime() + MACHINE_POLL_MS).toISOString())
     const claimant = this.machineClaimant(lease.cardId)

@@ -46,7 +46,7 @@ const core = (...names: string[]): string[] => within(factory('core'), ...names)
 const supervisor = (...names: string[]): string[] => within(factory('supervisor'), ...names.map(name => `${name}.ts`))
 
 const BUS_CONTRACT = [
-  ...core('db.ts', 'sqlite.ts', 'queue.ts', 'dependency-wait.ts', 'lease.ts', 'node.ts', 'stored.ts', 'bus-readings.ts', 'bus-version.ts', 'reducer.ts', 'every.ts', 'watermark.ts', 'events-query.ts', 'tasks-query.ts', 'entry.ts', 'observations.ts', 'task-must-wait.ts', 'bus-adapter.ts'),
+  ...core('db.ts', 'sqlite.ts', 'queue.ts', 'dependency-wait.ts', 'lease.ts', 'node.ts', 'stored.ts', 'bus-readings.ts', 'bus-version.ts', 'reducer.ts', 'every.ts', 'watermark.ts', 'events-query.ts', 'tasks-query.ts', 'entry.ts', 'observations.ts', 'task-must-wait.ts', 'bus-adapter.ts', 'identifiers.ts'),
   ...within(factory('ports'), 'bus-read.ts', 'worktree-home.ts'),
 ]
 
@@ -74,7 +74,7 @@ const QUALITY_CONTRACT = [
 ]
 
 const PORTS_CONTRACT = [
-  ...within(factory('ports'), 'card-tree.ts', 'ci-reading.ts', 'client/claude/adapter.ts', 'client/index.ts', 'diff.ts', 'gh.ts', 'github-status.ts', 'github.ts', 'isolation.ts', 'main-merge.ts', 'meter.ts', 'netwatch.ts', 'prepare-tree.ts', 'process-table.ts', 'result.ts', 'review-planner.ts', 'serve-record.ts', 'session.ts', 'shift-settings.ts', 'snapshot.ts', 'task-start.ts', 'tree-publish.ts', 'witnesses.ts', 'worktree.ts'),
+  ...within(factory('ports'), 'card-tree.ts', 'ci-reading.ts', 'client/claude/adapter.ts', 'client/index.ts', 'diff.ts', 'gh.ts', 'github-status.ts', 'github.ts', 'identifier-shapes.ts', 'isolation.ts', 'main-merge.ts', 'meter.ts', 'netwatch.ts', 'prepare-tree.ts', 'process-table.ts', 'result.ts', 'review-planner.ts', 'serve-record.ts', 'session.ts', 'shift-settings.ts', 'snapshot.ts', 'task-start.ts', 'tree-publish.ts', 'witnesses.ts', 'worktree.ts'),
   ...core('bus-contract.ts'),
   factory('ci/required.ts'),
   `${CI_COMMAND}/state.ts`,
@@ -82,6 +82,8 @@ const PORTS_CONTRACT = [
 ]
 
 const WINDOW_CONTRACT = within(factory('window'), 'board.ts', 'eddies-measure.ts', 'handoff-check.ts', 'loop.ts', 'tab.ts', 'takeover-push-release.ts', 'watch.ts', 'window-heartbeat.ts', 'window-prs.ts', 'window-request-tools.ts', 'window-requests.ts', 'window-session-end.ts', 'window-subagents.ts')
+
+const UI_CONTRACT = within('src/ui', 'console.ts', 'expect-lore.ts', 'lore.ts', 'signal.ts', 'theme.ts')
 
 export const COMPOSITION_MODULE = factory('supervisor/composition.ts')
 
@@ -107,7 +109,7 @@ const LAYERS: readonly Layer[] = [
   { modules: ['events', 'command-registry', 'bus'], ordered: true },
   { modules: ['card-model', 'card-record', 'project', 'plan', 'order', 'decisions', 'session', 'model', 'quality', 'intake', 'rules', 'pr-record', 'factory-contract'], ordered: true },
   { modules: NODES, ordered: false },
-  { modules: ['ui', 'atlas', 'release', 'cost', 'window', 'board'], ordered: true },
+  { modules: ['ui', 'cli', 'atlas', 'release', 'cost', 'window', 'board'], ordered: true },
 ]
 
 function belowInTheLayers(id: string): string[] {
@@ -169,9 +171,10 @@ export const DRAWN: Readonly<Record<string, DrawnModule>> = {
   'factory-contract': decided('factory-contract'),
   'contract-generator': TOOL,
   'project': decided('project'),
+  'cli': decided('cli'),
   'model': decided('model'),
   'atlas': decided('atlas'),
-  'ui': decided('ui'),
+  'ui': decidedWith('ui', UI_CONTRACT),
 }
 
 export function drawnWithOwns(owns: Readonly<Record<string, readonly string[]>>, drawn: Readonly<Record<string, DrawnModule>> = DRAWN): Record<string, ModuleSpec> {

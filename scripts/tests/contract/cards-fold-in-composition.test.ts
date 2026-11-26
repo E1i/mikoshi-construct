@@ -3,10 +3,11 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { cardPrMerged } from '../../core/card-automaton.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_STOPPED, PR_OBSERVED, QUESTION_OWNER } from '../../core/events.js'
-import { isFullSha, prOf } from '../../core/identifiers.js'
+import { prOf } from '../../core/identifiers.js'
 import { prFolds } from '../../core/pr-folds.js'
 import { reduce } from '../../core/reducer.js'
 import { recordDecision } from '../../policy/decisions/index.js'
+import { isFullSha } from '../../ports/identifier-shapes.js'
 import { busCardFolds, busProjections, decisionFoldsOfTheBus } from '../../supervisor/composition.js'
 
 const LINKED_CARD = 7101

@@ -872,8 +872,7 @@
         "keys": [
           "process",
           "queue",
-          "slots",
-          "vitals"
+          "slots"
         ]
       },
       "process.judged": {
@@ -3481,7 +3480,8 @@
           "node-review",
           "node-update",
           "node-witness",
-          "ui"
+          "ui",
+          "cli"
         ],
         "owns": [
           "src/atlas/**",
@@ -3526,6 +3526,7 @@
           "node-update",
           "node-witness",
           "ui",
+          "cli",
           "atlas",
           "release",
           "cost",
@@ -3562,6 +3563,7 @@
           "scripts/core/observations.ts",
           "scripts/core/task-must-wait.ts",
           "scripts/core/bus-adapter.ts",
+          "scripts/core/identifiers.ts",
           "scripts/ports/bus-read.ts",
           "scripts/ports/worktree-home.ts"
         ],
@@ -3597,6 +3599,7 @@
           "scripts/core/projection-writes.known.json",
           "scripts/core/rejection.ts",
           "scripts/core/bus-adapter.ts",
+          "scripts/core/identifiers.ts",
           "scripts/ports/bus-read.ts",
           "scripts/ports/worktree-home.ts"
         ],
@@ -3610,7 +3613,6 @@
           "src/card/task-file.ts",
           "src/card/risk.ts",
           "src/card/complexity.ts",
-          "scripts/core/identifiers.ts",
           "scripts/policy/touch-scope.ts",
           "scripts/policy/derived-files.ts",
           "scripts/policy/placement-growth.ts"
@@ -3629,7 +3631,6 @@
           "src/card/task-file.ts",
           "src/card/risk.ts",
           "src/card/complexity.ts",
-          "scripts/core/identifiers.ts",
           "scripts/policy/touch-scope.ts",
           "scripts/policy/derived-files.ts",
           "scripts/policy/placement-growth.ts"
@@ -3676,6 +3677,98 @@
           "scripts/core/card-hold.ts",
           "scripts/supervisor/card-waits.ts",
           "scripts/core/card-readings.ts"
+        ],
+        "status": "decided"
+      },
+      "cli": {
+        "concepts": [],
+        "contract": [
+          "src/commands/attach/carriers.ts",
+          "src/commands/attach/constructed.ts",
+          "src/commands/attach/earlier.ts",
+          "src/commands/attach/exclude.ts",
+          "src/commands/attach/forge.ts",
+          "src/commands/attach/harness.ts",
+          "src/commands/attach/index.ts",
+          "src/commands/attach/refusals.ts",
+          "src/commands/attach/rollback.ts",
+          "src/commands/attach/shell-word.ts",
+          "src/commands/attach/write.ts",
+          "src/commands/detach/beside.ts",
+          "src/commands/detach/classify.ts",
+          "src/commands/detach/index.ts",
+          "src/commands/detach/preview.ts",
+          "src/commands/detach/remove.ts",
+          "src/commands/detach/restore.ts",
+          "src/commands/detach/runtime.ts",
+          "src/commands/doctor/**",
+          "src/commands/sync/**",
+          "src/commands/graph.ts",
+          "src/commands/init.ts",
+          "src/commands/soulkill.ts",
+          "src/commands/mutate/index.ts",
+          "src/failure.ts",
+          "src/known-flags.ts",
+          "src/ui/prompts.ts"
+        ],
+        "may_use": [
+          "layout",
+          "ports-adapters",
+          "ports",
+          "events",
+          "command-registry",
+          "bus",
+          "card-model",
+          "card-record",
+          "project",
+          "plan",
+          "order",
+          "decisions",
+          "session",
+          "model",
+          "quality",
+          "intake",
+          "rules",
+          "pr-record",
+          "factory-contract",
+          "node-answer",
+          "node-close",
+          "node-launch",
+          "node-merge",
+          "node-restart",
+          "node-review",
+          "node-update",
+          "node-witness",
+          "ui"
+        ],
+        "owns": [
+          "src/commands/attach/carriers.ts",
+          "src/commands/attach/constructed.ts",
+          "src/commands/attach/earlier.ts",
+          "src/commands/attach/exclude.ts",
+          "src/commands/attach/forge.ts",
+          "src/commands/attach/harness.ts",
+          "src/commands/attach/index.ts",
+          "src/commands/attach/refusals.ts",
+          "src/commands/attach/rollback.ts",
+          "src/commands/attach/shell-word.ts",
+          "src/commands/attach/write.ts",
+          "src/commands/detach/beside.ts",
+          "src/commands/detach/classify.ts",
+          "src/commands/detach/index.ts",
+          "src/commands/detach/preview.ts",
+          "src/commands/detach/remove.ts",
+          "src/commands/detach/restore.ts",
+          "src/commands/detach/runtime.ts",
+          "src/commands/doctor/**",
+          "src/commands/sync/**",
+          "src/commands/graph.ts",
+          "src/commands/init.ts",
+          "src/commands/soulkill.ts",
+          "src/commands/mutate/index.ts",
+          "src/failure.ts",
+          "src/known-flags.ts",
+          "src/ui/prompts.ts"
         ],
         "status": "decided"
       },
@@ -3743,6 +3836,7 @@
           "node-update",
           "node-witness",
           "ui",
+          "cli",
           "atlas",
           "release"
         ],
@@ -4263,6 +4357,7 @@
           "scripts/ports/gh.ts",
           "scripts/ports/github-status.ts",
           "scripts/ports/github.ts",
+          "scripts/ports/identifier-shapes.ts",
           "scripts/ports/isolation.ts",
           "scripts/ports/main-merge.ts",
           "scripts/ports/meter.ts",
@@ -4303,9 +4398,6 @@
           "!scripts/ports/client/role-policy.ts",
           "!scripts/ports/disk.ts",
           "!scripts/ports/git.ts",
-          "!scripts/ports/host-fault.ts",
-          "!scripts/ports/host-thermal.ts",
-          "!scripts/ports/host/macos-thermal.ts",
           "!scripts/ports/prompt-store.ts",
           "!scripts/ports/worktree-home.ts"
         ],
@@ -4321,10 +4413,7 @@
           "scripts/ports/prompt-store.ts",
           "scripts/ports/client/contract.ts",
           "scripts/ports/client/role-policy.ts",
-          "scripts/ports/client/codex/adapter.ts",
-          "scripts/ports/host-fault.ts",
-          "scripts/ports/host-thermal.ts",
-          "scripts/ports/host/macos-thermal.ts"
+          "scripts/ports/client/codex/adapter.ts"
         ],
         "may_use": [
           "layout"
@@ -4335,10 +4424,7 @@
           "scripts/ports/prompt-store.ts",
           "scripts/ports/client/contract.ts",
           "scripts/ports/client/role-policy.ts",
-          "scripts/ports/client/codex/adapter.ts",
-          "scripts/ports/host-fault.ts",
-          "scripts/ports/host-thermal.ts",
-          "scripts/ports/host/macos-thermal.ts"
+          "scripts/ports/client/codex/adapter.ts"
         ],
         "status": "decided"
       },
@@ -4392,21 +4478,18 @@
       "project": {
         "concepts": [],
         "contract": [
-          "src/commands/attach/**",
-          "src/commands/detach/**",
-          "src/commands/doctor/**",
-          "src/commands/sync/**",
-          "src/commands/graph.ts",
-          "src/commands/init.ts",
-          "src/commands/soulkill.ts",
+          "src/commands/attach/record.ts",
+          "src/commands/attach/settings.ts",
+          "src/commands/attach/daemon-commands.ts",
+          "src/commands/attach/beside.ts",
+          "src/commands/attach/original.ts",
+          "src/commands/detach/index-reader.ts",
           "src/detect/**",
           "src/manifest.ts",
           "src/materialize/**",
           "src/presets/**",
           "src/record-ahead.ts",
           "src/sync/**",
-          "src/failure.ts",
-          "src/known-flags.ts",
           "src/version.ts",
           "scripts/composition/**",
           "scripts/harness-command/**",
@@ -4423,21 +4506,18 @@
           "card-record"
         ],
         "owns": [
-          "src/commands/attach/**",
-          "src/commands/detach/**",
-          "src/commands/doctor/**",
-          "src/commands/sync/**",
-          "src/commands/graph.ts",
-          "src/commands/init.ts",
-          "src/commands/soulkill.ts",
+          "src/commands/attach/record.ts",
+          "src/commands/attach/settings.ts",
+          "src/commands/attach/daemon-commands.ts",
+          "src/commands/attach/beside.ts",
+          "src/commands/attach/original.ts",
+          "src/commands/detach/index-reader.ts",
           "src/detect/**",
           "src/manifest.ts",
           "src/materialize/**",
           "src/presets/**",
           "src/record-ahead.ts",
           "src/sync/**",
-          "src/failure.ts",
-          "src/known-flags.ts",
           "src/version.ts",
           "scripts/composition/**",
           "scripts/harness-command/**",
@@ -4458,7 +4538,11 @@
           "scripts/cli/mutate.ts",
           "scripts/quality/**",
           "scripts/privacy/**",
-          "src/commands/mutate/**",
+          "src/commands/mutate/apply.ts",
+          "src/commands/mutate/journal.ts",
+          "src/commands/mutate/judge.ts",
+          "src/commands/mutate/lines.ts",
+          "src/commands/mutate/record.ts",
           "src/commands/test-runner.ts",
           "src/card/covering-tests.ts",
           "scripts/ci/browser-tests-ran.mjs",
@@ -4515,7 +4599,11 @@
           "scripts/ci/**",
           "scripts/quality/**",
           "scripts/privacy/**",
-          "src/commands/mutate/**",
+          "src/commands/mutate/apply.ts",
+          "src/commands/mutate/journal.ts",
+          "src/commands/mutate/judge.ts",
+          "src/commands/mutate/lines.ts",
+          "src/commands/mutate/record.ts",
           "src/commands/test-runner.ts",
           "src/card/covering-tests.ts",
           "!scripts/ci/required.ts"
@@ -4559,6 +4647,7 @@
           "node-update",
           "node-witness",
           "ui",
+          "cli",
           "atlas"
         ],
         "owns": [
@@ -4688,7 +4777,11 @@
       "ui": {
         "concepts": [],
         "contract": [
-          "src/ui/**"
+          "src/ui/console.ts",
+          "src/ui/expect-lore.ts",
+          "src/ui/lore.ts",
+          "src/ui/signal.ts",
+          "src/ui/theme.ts"
         ],
         "may_use": [
           "layout",
@@ -4720,7 +4813,8 @@
           "node-witness"
         ],
         "owns": [
-          "src/ui/**"
+          "src/ui/**",
+          "!src/ui/prompts.ts"
         ],
         "status": "decided"
       },
@@ -4772,6 +4866,7 @@
           "node-update",
           "node-witness",
           "ui",
+          "cli",
           "atlas",
           "release",
           "cost"
@@ -5085,9 +5180,7 @@
       "scripts/scratch/run-root.ts": 1,
       "scripts/supervisor/bg.ts": 1
     },
-    "process-table": {
-      "scripts/supervisor/host-vitals.ts": 1
-    },
+    "process-table": {},
     "window-requests": {}
   },
   "ports": {
@@ -6297,29 +6390,19 @@
       },
       "scripts/ports/git.ts": {
         "constants": [
-          "GIT_BACKOFF: Backoff",
-          "REF_LOCK_RACE",
-          "SYNC_COMMANDS",
           "TECHNOLOGY_WORDS",
           "execGit: GitReader",
-          "portGit: GitCommand",
           "processGit: GitRunner"
         ],
         "functions": {
-          "gitOutcomeOf": "(error: unknown): GitOutcome",
-          "gitRefusalIn": "(text: string | null): string | null",
           "loadedCodeSha": "(): string | null",
           "parseWorktrees": "(porcelain: string): WorktreeEntry[]",
           "pnpmRerun": "(cwd: string, args: readonly string[]): { status: number | null; stderr: string; }",
           "readThroughPort": "(tree: string, args: readonly string[]): string",
-          "syncThroughPort": "(run: GitCommand, cwd: string, args: string[], backoff: Backoff = GIT_BACKOFF): string",
-          "throughGitPort": "(run: GitCommand, backoff: Backoff = GIT_BACKOFF): GitCommand",
           "treeReading": "(read: (cwd: string, args: string[]) => string, worktree: string, base: string, run: TreeRun): TreeReading"
         },
         "language": "technology",
-        "reexports": [
-          "Backoff"
-        ],
+        "reexports": [],
         "technologyWords": [
           "exec",
           "git",
@@ -6330,10 +6413,7 @@
         "types": {
           "GitAnswer": "type GitAnswer = string | Buffer | Error",
           "GitCall": "interface GitCall { tree: string; args: string[]; }",
-          "GitCommand": "type GitCommand = (cwd: string, args: string[]) => string",
           "GitOptions": "interface GitOptions { maxBuffer?: number; timeoutMs?: number; input?: string; env?: NodeJS.ProcessEnv; errorsShown?: boolean; }",
-          "GitOutcome": "type GitOutcome = { kind: 'race'; detail: string; } | { kind: 'host'; fault: HostFault; } | { kind: 'refused'; refusal: string; }",
-          "GitRaceLost": "class GitRaceLost extends Error { stderr: string; constructor(readonly detail: string, attempts: number, cause: unknown) }",
           "GitReader": "interface GitReader { dirty: (worktree: string) => number | undefined; worktrees: (repoRoot: string) => WorktreeEntry[] | undefined; }",
           "GitRunner": "interface GitRunner { read: (tree: string, args: readonly string[], options?: GitOptions) => string; readOrNull: (tree: string, args: readonly string[], options?: GitOptions) => string | null; readBytes: (tree: string, args: readonly string[], maxBuffer: number, options?: GitOptions) => Buffer; readLater: (tree: string, args: readonly string[], options?: GitOptions) => Promise<string>; succeeds: (tree: string, args: readonly string[], options?: GitOptions) => boolean; }",
           "InMemoryGit": "class InMemoryGit implements GitRunner { calls: GitCall[]; constructor(private readonly answer: (call: GitCall) => GitAnswer); read(tree: string, args: readonly string[]): string; readOrNull(tree: string, args: readonly string[]): string | null; readBytes(tree: string, args: readonly string[]): Buffer; readLater(tree: string, args: readonly string[]): Promise<string>; succeeds(tree: string, args: readonly string[]): boolean }",
@@ -6389,61 +6469,16 @@
           "GitHubPut": "type GitHubPut = (endpoint: string, fields: Record<string, string>) => GhResponse"
         }
       },
-      "scripts/ports/host-fault.ts": {
+      "scripts/ports/identifier-shapes.ts": {
         "constants": [
-          "HOST_BACKOFF: Backoff",
-          "HOST_DEGRADED",
-          "HOST_FAULT_CODES"
+          "MAIN_BRANCH"
         ],
         "functions": {
-          "backoffDelay": "(backoff: Backoff, attempt: number): number",
-          "githubStatusFault": "(status: number | null, detail: string): HostFault | null",
-          "hostDegradedKey": "(ts: string): string",
-          "hostDegradedLine": "(cause: string): string",
-          "hostFaultInText": "(text: string): HostFault | null",
-          "hostFaultOf": "(error: unknown): HostFault | null",
-          "retryingHostFaults": "<T>(work: () => T, backoff: Backoff = HOST_BACKOFF): T"
-        },
-        "language": "factory",
-        "reexports": [],
-        "technologyWords": [],
-        "types": {
-          "Backoff": "interface Backoff { attempts: number; firstMs: number; sleep: (ms: number) => void; }",
-          "HostFault": "interface HostFault { source: HostFaultSource; detail: string; }",
-          "HostFaultPersists": "class HostFaultPersists extends Error { constructor(readonly fault: HostFault, readonly attempts: number) }",
-          "HostFaultSource": "type HostFaultSource = 'os' | 'network' | 'github'"
-        }
-      },
-      "scripts/ports/host-thermal.ts": {
-        "constants": [
-          "HOST_HOT",
-          "HOST_THERMAL: HostThermal",
-          "THERMAL_ADAPTERS: readonly ThermalAdapter[]",
-          "THERMAL_LEVELS",
-          "THERMAL_READING_MS",
-          "UNREAD_THERMAL: HostThermal"
-        ],
-        "functions": {
-          "fixedThermal": "(level: ThermalLevel): HostThermal",
-          "hostHotLine": "(level: ThermalLevel): string",
-          "hostThermal": "(platform: NodeJS.Platform = process.platform, adapters: readonly ThermalAdapter[] = THERMAL_ADAPTERS, now: () => number = Date.now): HostThermal",
-          "thermalFree": "(free: number, level: ThermalLevel): number"
-        },
-        "language": "factory",
-        "reexports": [],
-        "technologyWords": [],
-        "types": {
-          "HostThermal": "interface HostThermal { level: () => ThermalLevel; }",
-          "ThermalAdapter": "interface ThermalAdapter { platform: NodeJS.Platform; read: () => ThermalLevel; }",
-          "ThermalLevel": "type ThermalLevel = typeof THERMAL_LEVELS[number]"
-        }
-      },
-      "scripts/ports/host/macos-thermal.ts": {
-        "constants": [
-          "MACOS_THERMAL: ThermalAdapter"
-        ],
-        "functions": {
-          "macosThermalLevel": "(output: string): ThermalLevel"
+          "cardIdOf": "(value: unknown): number | null",
+          "cardIdOfDescription": "(description: string | null | undefined): number | null",
+          "isFullSha": "(value: unknown): value is string",
+          "positiveInteger": "(value: unknown): number | null",
+          "prBodySha": "(body: string | null | undefined): string"
         },
         "language": "factory",
         "reexports": [],

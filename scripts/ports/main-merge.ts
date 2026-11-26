@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { messageOf } from '../core/errors.js'
 import { commandLine, isRebuiltOnUpdate, rebuildsOf, SHARED_APPEND_PATHS } from '../core/generated-files.js'
-import { MAIN_BRANCH } from './snapshot.js'
+import { MAIN_BRANCH } from './identifier-shapes.js'
 import { gitIn } from './worktree.js'
 
 const MAIN_REF = `origin/${MAIN_BRANCH}`
