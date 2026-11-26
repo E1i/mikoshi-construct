@@ -5,8 +5,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { busDirOf, machineBusPath } from '../core/bus-path.js'
 import { messageOf } from '../core/errors.js'
-import { FACTORY_RUNTIME } from '../core/factory-paths.js'
-import { reportPath, treeReportPath } from '../core/places.js'
+import { FACTORY_RUNTIME, reportPath, treeReportPath } from '../core/factory-paths.js'
 import { processGit } from './git.js'
 
 export const TECHNOLOGY_WORDS = ['https', 'shell'] as const

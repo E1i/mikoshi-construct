@@ -1,6 +1,17 @@
-import type { ChangedFile, FileStatus } from '../policy/morse/rules.js'
-import { MorseRefusal } from '../policy/morse/rules.js'
 import { processGit } from './git.js'
+
+export type FileStatus = 'A' | 'M' | 'D'
+
+export const TOUCHED = 'touch'
+
+export interface ChangedFile {
+  path: string
+  status: FileStatus | typeof TOUCHED
+  additions: number | null
+  deletions: number | null
+}
+
+export class MorseRefusal extends Error {}
 
 export const TECHNOLOGY_WORDS = ['git'] as const
 

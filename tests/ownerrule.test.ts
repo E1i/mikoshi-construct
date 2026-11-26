@@ -17,9 +17,10 @@ const AT = new Date('2026-10-13T09:00:00.000Z')
 function heldIn(file: string): DecisionsPort {
   return { inForce: () => decisionsOfProjection(existsSync(file) ? readFileSync(file, 'utf8') : '', AT).inForce() }
 }
-const FIRST = '`pnpm exec vitest run tests/a.test.ts -t \'the change\'` exits 0; red on main'
-const SECOND = '`pnpm exec vitest run tests/b.test.ts -t \'the change\'` exits 0; red on main'
-const INVARIANT = '`pnpm exec vitest run tests/c.test.ts -t \'the change\'` exits 0'
+const FIRST = '`pnpm exec vitest run scripts/tests/a.test.ts -t \'the change\'` exits 0; red on main'
+const SECOND = '`pnpm exec vitest run scripts/tests/b.test.ts -t \'the change\'` exits 0; red on main'
+const INVARIANT = '`pnpm exec vitest run scripts/tests/c.test.ts -t \'the change\'` exits 0'
+const WITNESS_FILES = ['a.test.ts', 'b.test.ts', 'c.test.ts']
 const roots: string[] = []
 
 afterEach(() => {
@@ -35,6 +36,9 @@ function world(): World {
   const repo = path.join(root, 'repo')
   mkdirSync(path.join(repo, 'src', 'board'), { recursive: true })
   writeFileSync(path.join(repo, 'src', 'board', 'run.ts'), '')
+  mkdirSync(path.join(repo, 'scripts', 'tests'), { recursive: true })
+  for (const named of WITNESS_FILES)
+    writeFileSync(path.join(repo, 'scripts', 'tests', named), '')
   return { root, parking: path.join(root, 'parking'), repo }
 }
 

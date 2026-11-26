@@ -12,6 +12,11 @@ const PURE_ADAPTERS = [
   'scripts/ports/client/codex/adapter.ts',
 ]
 
+const DECLARED_IN_BUS = [
+  'scripts/ports/bus-read.ts',
+  'scripts/ports/worktree-home.ts',
+]
+
 const NODE_TO_ADAPTER = [
   ['scripts/nodes/review/reviewer.ts', 'scripts/ports/git.ts'],
   ['scripts/nodes/answer/answerer.ts', 'scripts/ports/client/contract.ts'],
@@ -42,7 +47,8 @@ describe('ports-adapters is a decided module (D-503)', () => {
     expect(adapters).toEqual({ owns: PURE_ADAPTERS, contract: PURE_ADAPTERS, may_use: ['layout'], status: 'decided' })
     expect(ports?.status).toBe('decided')
     expect(ports?.may_use).toEqual(['layout', 'ports-adapters'])
-    expect(ports?.owns.filter(glob => glob.startsWith('!scripts/ports/')).map(glob => glob.slice(1)).sort()).toEqual([...PURE_ADAPTERS].sort())
+    expect(ports?.owns.filter(glob => glob.startsWith('!scripts/ports/')).map(glob => glob.slice(1)).sort()).toEqual([...PURE_ADAPTERS, ...DECLARED_IN_BUS].sort())
+    expect(DECLARED_IN_BUS.filter(file => MODULE_GRAPH.modules.bus?.owns.includes(file))).toEqual(DECLARED_IN_BUS)
   })
 
   it('the decided importers of the adapters are granted ports-adapters, and card-record keeps the ports grant D-778 gives it', () => {

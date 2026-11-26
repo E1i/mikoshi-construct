@@ -29,9 +29,11 @@ afterEach(() => {
     rmSync(root, { recursive: true, force: true })
 })
 
+const WITNESS_FILE = 'scripts/tests/cards.test.ts'
+
 function body(id: number, touches: string, depends: readonly number[] = []): string {
   const after = depends.length === 0 ? '—' : depends.map(each => `#${each}`).join(', ')
-  const witness = { id: 'W1', run: `pnpm exec vitest run tests/card-${id}.test.ts`, test: `the card ${id} test`, head: 'pass', base: 'fail', proves: `what card ${id} proves` }
+  const witness = { id: 'W1', run: `pnpm exec vitest run ${WITNESS_FILE}`, test: `the card ${id} test`, head: 'pass', base: 'fail', proves: `what card ${id} proves` }
   return `card: #${id} card-${id} [implement/runner/S/cheap/owner] · depends ${after} · blocks —\nbranch: feat/card-${id}\ntouches: ${touches}\ncontinue: stop\nwho: shift\n\nDo the thing.\n\nwitnesses: ${JSON.stringify([witness])}\n`
 }
 
@@ -42,7 +44,8 @@ function world(): World {
   roots.push(root)
   const repo = path.join(root, 'repo')
   mkdirSync(path.join(repo, 'src'), { recursive: true })
-  for (const file of [SHARED, APART, ELSEWHERE])
+  mkdirSync(path.join(repo, 'scripts', 'tests'), { recursive: true })
+  for (const file of [SHARED, APART, ELSEWHERE, WITNESS_FILE])
     writeFileSync(path.join(repo, file), '')
   mkdirSync(path.join(root, '.construct', 'parking'), { recursive: true })
   const bus = path.join(root, 'bus.db')

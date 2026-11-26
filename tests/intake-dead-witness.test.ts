@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Witness } from '../scripts/ports/witnesses.js'
 import type { RequestTools } from '../scripts/window/window-requests.js'
+import type { DraftCard } from '../src/commands/intake/draft.js'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -15,6 +16,8 @@ import { requestFromWindow, WindowRequests } from '../scripts/window/window-requ
 import { witnessFieldsOf, witnessText } from '../src/card/witness-fields.js'
 import { deadOnTheBase, runAdmit } from '../src/commands/intake/admit.js'
 import { runAmend } from '../src/commands/intake/amend.js'
+import { checkDraft } from '../src/commands/intake/check.js'
+import { DirectoryFacts } from '../src/commands/intake/facts.js'
 
 const NOW = new Date('2026-11-20T03:08:00.000Z')
 const CARD = 2107
@@ -53,6 +56,17 @@ function world(): World {
   vi.stubEnv(BUS_DB_VARIABLE, bus)
   vi.stubEnv('HOME', root)
   return { db: openComposedBus(bus), repo, root }
+}
+
+const SHAPES = 'scripts/tests/ports/shapes-home.test.ts'
+const ABSENT = 'scripts/tests/ports/absent.test.ts'
+const SHAPES_DESCRIBED = `import { describe, it } from 'vitest'\n\ndescribe('shapes home', () => {\n  it('reads the home', () => {\n    expect(read(/\\(/)).toBe(')')\n  })\n})`
+const LIVE_SHAPES = `${SHAPES_DESCRIBED}\n`
+const DEAD = { id: 'W1', run: `pnpm exec vitest run ${SHAPES}`, test: SHAPES, head: 'pass', base: 'fail', proves: 'the shapes read the home' }
+
+function shapesFile(w: World, text: string): void {
+  mkdirSync(path.join(w.repo, path.dirname(SHAPES)), { recursive: true })
+  writeFileSync(path.join(w.repo, SHAPES), text)
 }
 
 function intakeOf(w: World) {
@@ -164,6 +178,92 @@ describe('replacing a witness the bus recorded dead is an amendment, not a downg
     expect(deadOnTheBase(W1_TEXT, [{ verdict: 'red', detail: `P7: install failed on the base ${BASE}` }])).toBe(false)
     expect(deadOnTheBase(W1_TEXT, [{ verdict: 'unfit', detail: `witness "${witnessText(witnessFieldsOf(ADMITTED)![1]!)}" ran no test on the base ${BASE}` }])).toBe(false)
     expect(deadOnTheBase(W1_TEXT, [{ verdict: 'red', detail: `P7: invariant "${W1_TEXT}" exits 1 on the clean base ${BASE}: 1 failed` }])).toBe(false)
+  })
+
+  it('a witness whose test filter matches no test name in its file is refused with the names it could use', () => {
+    const w = world()
+    shapesFile(w, LIVE_SHAPES)
+    const refused = runAdmit({ ...intakeOf(w), file: path.join(w.root, `${CARD}.md`), body: body([DEAD, W2]) }, () => NOW)
+    expect(refused).toMatchObject({ status: 'refused' })
+    const why = (refused as { why: string }).why
+    expect(why).toContain(`matches no test name in ${SHAPES}`)
+    expect(why).toContain('use a describe or test name the file declares: \'shapes home\', \'reads the home\'')
+    expect(w.db.prepare('SELECT count(*) AS n FROM owner_waits').get()).toEqual({ n: 0 })
+    expect(runAdmit({ ...intakeOf(w), file: path.join(w.root, `${CARD}.md`), body: body([{ ...DEAD, test: 'shapes home reads the home' }, W2]), dryRun: true }, () => NOW).status).toBe('refused')
+    for (const test of ['shapes home', 'reads the home', 'shapes home > reads the home']) {
+      const live = runAdmit({ ...intakeOf(w), file: path.join(w.root, `${CARD}.md`), body: body([{ ...DEAD, test }, W2]), dryRun: true }, () => NOW)
+      expect({ test, status: live.status }).toEqual({ test, status: 'dryRun' })
+    }
+    w.db.close()
+  })
+
+  it('replacing a witness whose filter selects nothing is an amendment with no owner wait', () => {
+    for (const [door, through] of Object.entries(DOORS)) {
+      for (const [base, outcome] of [[`${LIVE_SHAPES}it('${SHAPES}', () => {})\n`, 'ownerWait'], [LIVE_SHAPES, 'amended']] as const) {
+        const w = world()
+        shapesFile(w, `it('${SHAPES}', () => {})\n`)
+        expect(runAdmit({ ...intakeOf(w), file: path.join(w.root, `${CARD}.md`), body: body([DEAD, W2]) }, () => NOW).status).toBe('admitted')
+        reduce(w.db, 'pending', busProjections())
+        shapesFile(w, base)
+        expect({ door, outcome: through(w) }).toEqual({ door, outcome })
+        if (outcome === 'amended')
+          expect(w.db.prepare('SELECT count(*) AS n FROM owner_waits').get()).toEqual({ n: 0 })
+        w.db.close()
+      }
+    }
+  })
+
+  it('the draft check reports a witness whose filter selects nothing as an unclear witnesses field', () => {
+    const w = world()
+    shapesFile(w, LIVE_SHAPES)
+    const checkedWith = (test: string) => {
+      const witness = witnessText(witnessFieldsOf(body([{ ...DEAD, test }]))![0]!)
+      const draft: DraftCard = { name: 'dead-witness-card', kind: 'implement', milestone: 'runner', size: 'S', touches: [TOUCH], depends: [], blocks: [], creates: [], task: 'Do the thing.', witnesses: [witness], unclear: [] }
+      const [checked] = checkDraft([draft], [CARD], { taken: new Set(), parked: new Set(), done: new Set(), merged: new Set(), repository: new DirectoryFacts(w.repo, process.env.PATH ?? '') })
+      return checked!.unclear.filter(field => field.field === 'witnesses' && field.reason.includes('selects no test, so it is dead'))
+    }
+    const dead = checkedWith('shapes home reads the home')
+    expect(dead).toHaveLength(1)
+    expect(dead[0]!.reason).toContain(`matches no test name in ${SHAPES}`)
+    expect(checkedWith('shapes home > reads the home')).toEqual([])
+    w.db.close()
+  })
+
+  it('a test declared after a closed describe is not named under that describe', () => {
+    const w = world()
+    shapesFile(w, `${LIVE_SHAPES}\nit('top level test', () => {})\n`)
+    for (const [test, status] of [['top level test', 'dryRun'], ['shapes home > top level test', 'refused']] as const) {
+      const admitted = runAdmit({ ...intakeOf(w), file: path.join(w.root, `${CARD}.md`), body: body([{ ...DEAD, test }, W2]), dryRun: true }, () => NOW)
+      expect({ test, status: admitted.status }).toEqual({ test, status })
+    }
+    w.db.close()
+  })
+
+  it('a test declared before a describe is not named under that later describe', () => {
+    const w = world()
+    shapesFile(w, `import { it } from 'vitest'\n\nit('top level test', () => {})\n\n${SHAPES_DESCRIBED.replace('import { describe, it } from \'vitest\'\n\n', '')}\n`)
+    for (const [test, status] of [['top level test', 'dryRun'], ['shapes home > top level test', 'refused']] as const) {
+      const admitted = runAdmit({ ...intakeOf(w), file: path.join(w.root, `${CARD}.md`), body: body([{ ...DEAD, test }, W2]), dryRun: true }, () => NOW)
+      expect({ test, status: admitted.status }).toEqual({ test, status })
+    }
+    w.db.close()
+  })
+
+  it('a witness naming a file neither on the base nor in creates selects nothing', () => {
+    const w = world()
+    const missing = { ...DEAD, run: `pnpm exec vitest run ${ABSENT}`, test: 'shapes home' }
+    const refused = runAdmit({ ...intakeOf(w), file: path.join(w.root, `${CARD}.md`), body: body([missing, W2]) }, () => NOW)
+    expect(refused).toMatchObject({ status: 'refused' })
+    expect((refused as { why: string }).why).toContain(`${ABSENT} is neither on the base nor in the card's creates`)
+    const created = body([missing, W2]).replace(`touches: ${TOUCH}\n`, `touches: ${TOUCH}, ${ABSENT}\ncreates: ${ABSENT}\n`)
+    expect(runAdmit({ ...intakeOf(w), file: path.join(w.root, `${CARD}.md`), body: created, dryRun: true }, () => NOW).status).toBe('dryRun')
+    shapesFile(w, LIVE_SHAPES)
+    expect(runAdmit({ ...intakeOf(w), file: path.join(w.root, `${CARD}.md`), body: body([{ ...DEAD, test: 'shapes home' }, W2]) }, () => NOW).status).toBe('admitted')
+    reduce(w.db, 'pending', busProjections())
+    rmSync(path.join(w.repo, SHAPES))
+    expect(DOORS['intake --admit']!(w)).toBe('amended')
+    expect(w.db.prepare('SELECT count(*) AS n FROM owner_waits').get()).toEqual({ n: 0 })
+    w.db.close()
   })
 
   it('reads death from the refusals the witness run itself words, against the declared base', () => {

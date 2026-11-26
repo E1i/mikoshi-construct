@@ -2174,20 +2174,6 @@
   },
   {
     "type": "dependency",
-    "from": "scripts/ports/diff.ts",
-    "to": "scripts/policy/morse/rules.ts",
-    "unresolvedTo": "../policy/morse/rules.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "ports-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "scripts/ports/isolation.ts",
     "to": "src/commands/intake/command-word.ts",
     "unresolvedTo": "../../src/commands/intake/command-word.js",
