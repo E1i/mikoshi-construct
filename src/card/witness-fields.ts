@@ -1,7 +1,9 @@
+import type { ShiftTask } from './task-file.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
-import { FACTORY_RUNTIME } from '../../scripts/core/factory-paths.js'
+import { FACTORY_RUNTIME, GENERATED_FILES } from '../../scripts/core/factory-paths.js'
 import { isLayerEntry, LAYER_ENTRY_PREFIX, layerNamedBy } from '../../scripts/policy/touch-scope.js'
+import { parseParkingFile } from './parking.js'
 import { touchError } from './task-file.js'
 
 export const WITNESS_KINDS = ['acceptance', 'invariant'] as const
@@ -49,6 +51,11 @@ const EXIT_PREFIX = 'exit:'
 const KIND_SEPARATOR = ' · '
 const RENDERED = /^(W[1-9]\d*): `([^`]+)` · head (\S+) · base (\S+) · (?:acceptance|invariant)$/
 const JUDGED_WRAP = /^(?:\( ([\s\S]*)\n\); test \$\? -eq \d+|! \( ([\s\S]*)\n\))$/
+const WITNESS_KIND_SUFFIX = new RegExp(`${KIND_SEPARATOR}(${WITNESS_KINDS.join('|')})$`)
+const CHANGE_WITNESS_WORDING = /\b(?:red on (?:main|the base|base)|fails on (?:main|the base|base))\b/i
+const CHANGE_WITNESS_KIND: WitnessKind = 'acceptance'
+
+export const FACTORY_TWIN = GENERATED_FILES.factory.path
 
 export function withWitnessKind(witness: string, kind: WitnessKind): string {
   return `${witness.trim()}${KIND_SEPARATOR}${kind}`
@@ -231,18 +238,18 @@ export function statesAnExit(field: Pick<WitnessField, 'head' | 'base'>): boolea
   return [field.head, field.base].some(expectation => expectation.startsWith(EXIT_PREFIX))
 }
 
-export interface JudgedWitness {
+export interface Witness {
   criterion: string
   command: string
   onBase?: { command: string, stated: string }
 }
 
-export function judgedFieldWitnessesOf(body: string): { acceptance: JudgedWitness[], invariants: JudgedWitness[] } | null {
+export function judgedFieldWitnessesOf(body: string): { acceptance: Witness[], invariants: Witness[] } | null {
   const fields = witnessFieldsOf(body)
   if (fields === null)
     return null
-  const judged = (field: WitnessField): JudgedWitness => ({ criterion: witnessText(field), command: judgedCommand(field) })
-  const acceptance = (field: WitnessField): JudgedWitness => statesAnExit(field) ? { ...judged(field), onBase: { command: fieldCommand(field), stated: field.base } } : judged(field)
+  const judged = (field: WitnessField): Witness => ({ criterion: witnessText(field), command: judgedCommand(field) })
+  const acceptance = (field: WitnessField): Witness => statesAnExit(field) ? { ...judged(field), onBase: { command: fieldCommand(field), stated: field.base } } : judged(field)
   return {
     acceptance: fields.filter(isAcceptanceField).map(acceptance),
     invariants: fields.filter(field => !isAcceptanceField(field)).map(judged),
@@ -265,4 +272,37 @@ export function witnessesOf(body: string): string[] {
 export function commandInsideJudgedWrap(command: string): string | null {
   const wrapped = JUDGED_WRAP.exec(command.trim())
   return wrapped === null ? null : wrapped[1] ?? wrapped[2]!
+}
+
+export function unjudgedCommand(command: string): string {
+  return commandInsideJudgedWrap(command) ?? command
+}
+
+function statedWitnessKind(witness: string): WitnessKind | undefined {
+  return WITNESS_KIND_SUFFIX.exec(witness.trim())?.[1] as WitnessKind | undefined
+}
+
+export function isChangeWitness(witness: string): boolean {
+  return (statedWitnessKind(witness) ?? (CHANGE_WITNESS_WORDING.test(witness) ? CHANGE_WITNESS_KIND : undefined)) === CHANGE_WITNESS_KIND
+}
+
+export interface AdmittedReach {
+  touches: string[]
+  runs: string[]
+}
+
+export type RunsReader = (body: string) => string[]
+
+function admittedTaskOf(cardId: number, cardBody: string | null): ShiftTask | null {
+  const parsed = cardBody === null ? null : parseParkingFile(`${cardId}.md`, cardBody)
+  return parsed?.kind === 'parked' ? parsed.parked.task : null
+}
+
+export function admittedTouchesOf(cardId: number, cardBody: string | null): string[] {
+  return admittedTaskOf(cardId, cardBody)?.touches ?? []
+}
+
+export function admittedReachOf(cardId: number, cardBody: string | null, runsOf: RunsReader): AdmittedReach {
+  const task = admittedTaskOf(cardId, cardBody)
+  return task === null ? { touches: [], runs: [] } : { touches: task.touches, runs: runsOf(task.body) }
 }

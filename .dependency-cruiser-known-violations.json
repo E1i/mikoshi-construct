@@ -2387,8 +2387,8 @@
   {
     "type": "dependency",
     "from": "scripts/ports/witnesses.ts",
-    "to": "src/commands/intake/check.ts",
-    "unresolvedTo": "../../src/commands/intake/check.js",
+    "to": "src/card/witness-fields.ts",
+    "unresolvedTo": "../../src/card/witness-fields.js",
     "dependencyTypes": [
       "local",
       "import"

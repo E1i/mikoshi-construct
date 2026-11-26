@@ -4391,7 +4391,6 @@
           "scripts/ports/snapshot.ts",
           "scripts/ports/task-start.ts",
           "scripts/ports/tree-publish.ts",
-          "scripts/ports/witnesses.ts",
           "scripts/ports/worktree.ts",
           "scripts/core/bus-contract.ts",
           "scripts/ci/required.ts",
@@ -4421,6 +4420,7 @@
           "!scripts/ports/disk.ts",
           "!scripts/ports/git.ts",
           "!scripts/ports/prompt-store.ts",
+          "!scripts/ports/witnesses.ts",
           "!scripts/ports/worktree-home.ts"
         ],
         "status": "decided"
@@ -4575,6 +4575,7 @@
           "src/commands/mutate/record.ts",
           "src/commands/test-runner.ts",
           "src/card/covering-tests.ts",
+          "scripts/ports/witnesses.ts",
           "scripts/ci/browser-tests-ran.mjs",
           "scripts/ci/card-automaton.ts",
           "scripts/ci/card-runs.ts",
@@ -4637,6 +4638,7 @@
           "src/commands/mutate/record.ts",
           "src/commands/test-runner.ts",
           "src/card/covering-tests.ts",
+          "scripts/ports/witnesses.ts",
           "!scripts/ci/required.ts"
         ],
         "status": "decided"
@@ -5319,17 +5321,21 @@
       "src/card/witness-fields.ts": {
         "constants": [],
         "functions": {
+          "admittedTouchesOf": "(cardId: number, cardBody: string | null): string[]",
           "fieldCommand": "(field: Pick<WitnessField, 'run' | 'test'>): string",
+          "isChangeWitness": "(witness: string): boolean",
           "isWitnessFieldLine": "(line: string): boolean",
-          "judgedFieldWitnessesOf": "(body: string): { acceptance: JudgedWitness[]; invariants: JudgedWitness[]; } | null",
+          "judgedFieldWitnessesOf": "(body: string): { acceptance: Witness[]; invariants: Witness[]; } | null",
           "parseWitnessList": "(value: unknown): ParsedWitnessList",
           "runsFieldLine": "(runs: readonly string[]): string",
+          "unjudgedCommand": "(command: string): string",
           "witnessFieldRefusals": "(text: string): string[]",
           "witnessFieldsOf": "(text: string): WitnessField[] | null",
           "witnessesOf": "(body: string): string[]"
         },
         "reexports": [],
         "types": {
+          "Witness": "interface Witness { criterion: string; command: string; onBase?: { command: string; stated: string; }; }",
           "WitnessExpectation": "type WitnessExpectation = 'pass' | 'fail' | `exit:${number}`",
           "WitnessField": "interface WitnessField { id: string; run: string; test: string | null; head: WitnessExpectation; base: WitnessExpectation; proves: string; }"
         }
@@ -5690,15 +5696,15 @@
           "admittedReachOf": "(cardId: number, cardBody: string | null): AdmittedReach",
           "cardRiskOf": "(cardId: number, card: string | null): RiskLevel | null",
           "correctionText": "(correction: Correction): string",
-          "isChangeWitness": "(witness: string): boolean",
           "movingRefRefusal": "(witnesses: readonly NamedCommand[]): string | null",
           "ownerPathsOf": "(ownerMergesText: string): OwnerPaths",
-          "publishedRootsOf": "(packageManifestText: string): string[] | undefined",
-          "unjudgedCommand": "(command: string): string"
+          "publishedRootsOf": "(packageManifestText: string): string[] | undefined"
         },
-        "reexports": [],
+        "reexports": [
+          "AdmittedReach",
+          "isChangeWitness"
+        ],
         "types": {
-          "AdmittedReach": "interface AdmittedReach { touches: string[]; runs: string[]; }",
           "CompanionRow": "interface CompanionRow { kind: string; keptBy: string; touched: (entry: string, published: readonly string[]) => boolean; companions: (entry: string, touches: readonly string[], repository: RepositoryFacts) => string[]; }"
         }
       },
@@ -6898,7 +6904,9 @@
           "witnessesFindingNoTest": "(witnesses: readonly Witness[], onBase: readonly BaseRun[]): Witness[]"
         },
         "language": "technology",
-        "reexports": [],
+        "reexports": [
+          "Witness"
+        ],
         "technologyWords": [
           "grep",
           "shell"
@@ -6912,8 +6920,7 @@
           "TestTarget": "interface TestTarget { file: string; name: string | null; }",
           "Timer": "type Timer = <T>(name: string, run: () => T) => T",
           "TreeRun": "interface TreeRun extends TreeContext { shell: Shell; time: Timer; }",
-          "TreeTask": "interface TreeTask { acceptance: Witness[]; invariants: Witness[]; harnessCommand: string | null; sketchSha: string | null; changed: string[] | null; witnessesDir: string; creates: string[]; }",
-          "Witness": "interface Witness { criterion: string; command: string; onBase?: { command: string; stated: string; }; }"
+          "TreeTask": "interface TreeTask { acceptance: Witness[]; invariants: Witness[]; harnessCommand: string | null; sketchSha: string | null; changed: string[] | null; witnessesDir: string; creates: string[]; }"
         }
       },
       "scripts/ports/worktree-home.ts": {

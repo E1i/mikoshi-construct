@@ -6,9 +6,10 @@ import { LAYER_MAP, readLayerMap } from '../../scripts/core/layer-map.js'
 import { cardWitnessesOf } from '../../scripts/policy/policy.js'
 import { layerMasksOf, runsOf } from '../../src/card/covering-tests.js'
 import { parseParkingFile } from '../../src/card/parking.js'
-import { fieldCommand, judgedCommand, layerEntryRefusals, renderedWitness, witnessesOf, witnessFieldsLine, witnessFieldsOf, witnessText } from '../../src/card/witness-fields.js'
+import { admittedReachOf, admittedTouchesOf, FACTORY_TWIN, fieldCommand, isChangeWitness, judgedCommand, layerEntryRefusals, renderedWitness, unjudgedCommand, witnessesOf, witnessFieldsLine, witnessFieldsOf, witnessText } from '../../src/card/witness-fields.js'
 import { amendedText } from '../../src/commands/intake/amend.js'
-import { checkDraft, isChangeWitness, unjudgedCommand } from '../../src/commands/intake/check.js'
+import * as intakeCheck from '../../src/commands/intake/check.js'
+import { checkDraft } from '../../src/commands/intake/check.js'
 import { parseDraft } from '../../src/commands/intake/draft.js'
 import { sliceCards } from '../../src/commands/intake/slice.js'
 import { factoryAssets } from '../../tsup.config.js'
@@ -205,6 +206,39 @@ describe('the policy reads head and base from the fields', () => {
   it('the same head and base is an invariant', () => {
     expect(judged({ base: 'pass' })).toMatchObject({ acceptance: [], invariants: [{ command: RUN }] })
     expect(judged({ head: 'exit:3', base: 'exit:3' }).invariants.map(witness => witness.command)).toEqual([`( ${RUN}\n); test $? -eq 3`])
+  })
+})
+
+describe('the admitted reach of a card', () => {
+  const parked = cardText(`Do it.\n\n${witnessFieldsLine([FIELD])}\nruns: ["tests/card/**"]`)
+
+  it('a parked card gives its touches, and its runs through the reader it is handed', () => {
+    expect(admittedTouchesOf(80, parked)).toEqual(['src/board/run.ts'])
+    expect(admittedReachOf(80, parked, runsOf)).toEqual({ touches: ['src/board/run.ts'], runs: ['tests/card/**'] })
+    expect(admittedReachOf(80, parked, () => ['tests/x.test.ts']).runs).toEqual(['tests/x.test.ts'])
+  })
+
+  it('no body or a card the grammar refuses reaches nothing', () => {
+    expect(admittedTouchesOf(80, null)).toEqual([])
+    expect(admittedTouchesOf(81, parked)).toEqual([])
+    expect(admittedReachOf(80, null, runsOf)).toEqual({ touches: [], runs: [] })
+  })
+
+  it('intake check reads the runs the covering tests read, through the same card reading', () => {
+    expect(intakeCheck.admittedReachOf(80, parked)).toEqual(admittedReachOf(80, parked, runsOf))
+  })
+
+  it('intake check hands on the witness symbols card holds, not copies of them', () => {
+    expect(intakeCheck.isChangeWitness).toBe(isChangeWitness)
+    expect(intakeCheck.unjudgedCommand).toBe(unjudgedCommand)
+    expect(intakeCheck.FACTORY_TWIN).toBe(FACTORY_TWIN)
+  })
+
+  it('a stated kind decides the change witness before the wording does', () => {
+    expect(isChangeWitness('W1: `x` · head pass · base fail · acceptance')).toBe(true)
+    expect(isChangeWitness('W1: `x` red on main · invariant')).toBe(false)
+    expect(isChangeWitness('the file is red on the base')).toBe(true)
+    expect(isChangeWitness('the file stays green')).toBe(false)
   })
 })
 

@@ -241,6 +241,7 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     'src/commands/mutate/record.ts',
     'src/commands/test-runner.ts',
     'src/card/covering-tests.ts',
+    `${FACTORY_ROOT}/ports/witnesses.ts`,
   ],
   'release': [
     `${FACTORY_ROOT}/release/**`,

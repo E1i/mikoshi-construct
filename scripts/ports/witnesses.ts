@@ -1,8 +1,9 @@
+import type { Witness } from '../../src/card/witness-fields.js'
 import type { CardScope } from '../../src/commands/test-runner.js'
 import type { Shell, ShellResult } from './worktree.js'
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { admittedReachOf, isChangeWitness, unjudgedCommand } from '../../src/commands/intake/check.js'
+import { admittedTouchesOf, isChangeWitness, unjudgedCommand } from '../../src/card/witness-fields.js'
 import { pathsNamedBy } from '../../src/commands/intake/command-word.js'
 import { namedAbsentOutside, testRunnerOf } from '../../src/commands/test-runner.js'
 import { commandLine, GENERATED_FILES } from '../core/generated-files.js'
@@ -10,7 +11,7 @@ import { gitIn, lastLine, stageSketch, tailLines } from './worktree.js'
 
 export const TECHNOLOGY_WORDS = ['grep', 'shell'] as const
 
-export interface Witness { criterion: string, command: string, onBase?: { command: string, stated: string } }
+export type { Witness }
 
 export type Refuse = (step: string, problem: string | null) => void
 export type Timer = <T>(name: string, run: () => T) => T
@@ -377,7 +378,7 @@ export async function runOnTreeAsync(run: AsyncTreeRun, task: TreeTask): Promise
 export interface ReplacementField { id: string, run: string, test: null, head: 'pass', base: 'fail', proves: string }
 
 export function cardScopeOfAdmitted(cardId: number, text: string, creates: readonly string[]): CardScope | null {
-  const { touches } = admittedReachOf(cardId, text)
+  const touches = admittedTouchesOf(cardId, text)
   return touches.length === 0 ? null : { touches, creates: [...creates] }
 }
 
