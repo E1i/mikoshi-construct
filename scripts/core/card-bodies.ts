@@ -9,7 +9,7 @@ import { parseParkingFile } from '../../src/card/parking.js'
 import { textSha } from '../../src/card/text-sha.js'
 import { parentsFromCardLines, pathsNamedOutside } from '../../src/commands/intake/admit.js'
 import { isBackfill } from './backfill-source.js'
-import { CARD_ADMITTED, CARD_ANSWERED, CARD_CONTINUED, CARD_STARTED, FACTORY_MODE, SLICE_PARENTS_BACKFILLED } from './events.js'
+import { CARD_ADMITTED, CARD_ANSWERED, CARD_CONTINUED, CARD_STARTED, FACTORY_MODE, SESSION_HEARTBEAT, SLICE_PARENTS_BACKFILLED } from './events.js'
 import { reject } from './stored-event.js'
 
 export const CARD_BODIES = 'card_bodies'
@@ -166,9 +166,16 @@ export function appendCardEvent(bus: BusContract, db: DatabaseSync, actor: strin
 }
 
 const CARRIES_A_SESSION = [CARD_STARTED, CARD_CONTINUED, CARD_ANSWERED]
+const ANSWER_ROUND_STEP = 'answer'
+
+function answerRoundSessionsIn(bus: BusContract, db: DatabaseSync, cardId: number): string[] {
+  return bus.ofCard(db, cardId, { types: [SESSION_HEARTBEAT] }).flatMap(event => event.data?.step === ANSWER_ROUND_STEP && typeof event.data.session === 'string' ? [event.data.session] : [])
+}
 
 export function cardSessionsIn(bus: BusContract, db: DatabaseSync, cardId: number): string[] {
-  return bus.ofCard(db, cardId, { types: CARRIES_A_SESSION }).flatMap(event => typeof event.data?.session === 'string' ? [event.data.session] : [])
+  const carried = bus.ofCard(db, cardId, { types: CARRIES_A_SESSION }).flatMap(event => typeof event.data?.session === 'string' ? [event.data.session] : [])
+  const stoppedRounds = [...new Set(answerRoundSessionsIn(bus, db, cardId))].filter(session => !carried.includes(session))
+  return [...stoppedRounds, ...carried]
 }
 
 export function cardBodyText(db: DatabaseSync, cardId: number): string | null {

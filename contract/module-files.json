@@ -476,6 +476,7 @@
     "scripts/tests/bus/head-poll.test.ts",
     "scripts/tests/bus/heartbeat.test.ts",
     "scripts/tests/bus/held-stop-generated-twin.test.ts",
+    "scripts/tests/bus/held-tree-owns-answer-round-edits.test.ts",
     "scripts/tests/bus/hold-keeps-launch-and-merge.test.ts",
     "scripts/tests/bus/import.test.ts",
     "scripts/tests/bus/inbox.test.ts",
