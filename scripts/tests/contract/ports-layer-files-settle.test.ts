@@ -15,19 +15,16 @@ const MODULE_FILES = readJson<Record<string, string[]>>('contract/module-files.j
 const PORTS_TO_BUS_CEILING = 6
 const PORTS_TO_EVENTS_CEILING = 2
 const PORTS_ROWS_AT_BASE: Record<string, number> = {
-  'boundary:ports->bus': PORTS_TO_BUS_CEILING,
-  'boundary:ports->card-model': 4,
+  'boundary:ports->bus': 5,
+  'boundary:ports->card-model': 3,
   'boundary:ports->card-record': 2,
-  'boundary:ports->command-registry': 1,
   'boundary:ports->cost': 1,
-  'boundary:ports->events': PORTS_TO_EVENTS_CEILING,
-  'boundary:ports->intake': 5,
-  'boundary:ports->node-answer': 1,
+  'boundary:ports->events': 2,
+  'boundary:ports->intake': 3,
   'boundary:ports->pr-record': 1,
   'boundary:ports->project': 9,
-  'boundary:ports->quality': 5,
+  'boundary:ports->quality': 1,
   'boundary:ports->session': 4,
-  'boundary:ports->ui': 1,
   'boundary:ports->window': 1,
 }
 const MOVED_TO_LAYOUT = ['scripts/core/bus-path.ts', 'scripts/core/errors.ts']
