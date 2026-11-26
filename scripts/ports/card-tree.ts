@@ -9,8 +9,8 @@ import { cardSessionOf, NO_RECORDED_SESSION, openPrHeadOf, openPrOfCard } from '
 import { pnpmRerun, processGit, treeReading } from './git.js'
 import { ghApi } from './github.js'
 import { Meter } from './meter.js'
-import { cardTree, taskWorktree, worktreeHome } from './worktree-home.js'
-import { pnpmInstall, takeFreeTree } from './worktree.js'
+import { cardTree, worktreeHome } from './worktree-home.js'
+import { pnpmInstall, takeFreeTree, taskWorktree } from './worktree.js'
 
 export const TECHNOLOGY_WORDS = ['database'] as const
 

@@ -7,9 +7,12 @@ import path from 'node:path'
 import { processGit } from './git.js'
 import { OsProcessTable } from './process-table.js'
 import { witnessEnv } from './session.js'
-import { taskWorktree } from './worktree-home.js'
 
 export const TECHNOLOGY_WORDS = ['git', 'pnpm', 'shell'] as const
+
+export function taskWorktree(home: string, id: string): string {
+  return path.join(home, `mc-${id}`)
+}
 
 export interface ShellResult { status: number | null, output: string }
 export type Shell = (command: string, cwd: string) => ShellResult

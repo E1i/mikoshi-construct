@@ -21,8 +21,6 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/core/executor-holds.ts`,
     `${FACTORY_ROOT}/core/node.ts`,
     `${FACTORY_ROOT}/core/stored.ts`,
-    `${FACTORY_ROOT}/core/errors.ts`,
-    `${FACTORY_ROOT}/core/bus-path.ts`,
     `${FACTORY_ROOT}/core/bus-readings.ts`,
     `${FACTORY_ROOT}/core/projection-types.ts`,
     `${FACTORY_ROOT}/core/bus-version.ts`,
@@ -38,6 +36,8 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/core/projection-writes.known.json`,
     `${FACTORY_ROOT}/core/rejection.ts`,
     `${FACTORY_ROOT}/core/bus-adapter.ts`,
+    `${FACTORY_ROOT}/ports/bus-read.ts`,
+    `${FACTORY_ROOT}/ports/worktree-home.ts`,
   ],
   'card-model': [
     'src/card/grammar.ts',
@@ -100,6 +100,8 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/core/generated-files.ts`,
     `${FACTORY_ROOT}/core/declarations.ts`,
     `${FACTORY_ROOT}/core/declared-events.ts`,
+    `${FACTORY_ROOT}/core/bus-path.ts`,
+    `${FACTORY_ROOT}/core/errors.ts`,
   ],
   'model': [
     'src/model/**',
