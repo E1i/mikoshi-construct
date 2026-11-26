@@ -17,7 +17,7 @@
   ],
   "may_use_factory_within": {
     "attach": ["core/process-listing.js"],
-    "board": ["core/pr-readings.js", "nodes/restart/role.js"],
+    "board": ["core/pr-readings.js", "nodes/restart/role-readings.js"],
     "doctor": ["policy/decisions/decisions.js", "policy/live-decision.js", "policy/touch-scope.js"],
     "intake": ["policy/decisions/decisions.js", "policy/touch-scope.js"]
   }

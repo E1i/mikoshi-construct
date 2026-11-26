@@ -130,7 +130,7 @@
       "core/owner-commands.js",
       "core/verification.js",
       "core/pr-readings.js",
-      "nodes/restart/role.js"
+      "nodes/restart/role-readings.js"
     ],
     "src/commands/doctor": [
       "core/bus-path.js",

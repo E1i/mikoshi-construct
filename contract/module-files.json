@@ -1700,6 +1700,7 @@
     "scripts/nodes/restart/chain-process.ts",
     "scripts/nodes/restart/restart-executor.ts",
     "scripts/nodes/restart/restart-worker.ts",
+    "scripts/nodes/restart/role-readings.ts",
     "scripts/nodes/restart/role.ts"
   ],
   "node-review": [

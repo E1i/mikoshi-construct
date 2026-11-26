@@ -127,16 +127,6 @@ export function roleReadings(db: DatabaseSync): RoleReading[] {
   })
 }
 
-export interface WindowRoleRow {
-  role: string
-  status: string
-  state: string
-}
-
-export function windowRoleRows(db: DatabaseSync): WindowRoleRow[] {
-  return db.prepare('SELECT role, status, state FROM roles ORDER BY role').all() as unknown as WindowRoleRow[]
-}
-
 export function raisedByTheBus(env: NodeJS.ProcessEnv): boolean {
   return env[RAISED_VARIABLE] === '1'
 }
