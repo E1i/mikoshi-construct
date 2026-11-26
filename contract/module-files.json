@@ -153,6 +153,7 @@
     "scripts/core/every.ts",
     "scripts/core/executor-holds.ts",
     "scripts/core/handover.ts",
+    "scripts/core/identifiers.ts",
     "scripts/core/lease.ts",
     "scripts/core/node.ts",
     "scripts/core/observations.ts",
@@ -171,7 +172,6 @@
     "scripts/ports/worktree-home.ts"
   ],
   "card-model": [
-    "scripts/core/identifiers.ts",
     "scripts/policy/derived-files.ts",
     "scripts/policy/placement-growth.ts",
     "scripts/policy/touch-scope.ts",
@@ -737,6 +737,7 @@
     "scripts/tests/contract/layer-cuts/bus-card-sql-function.test.ts",
     "scripts/tests/contract/layer-cuts/claude-adapter-shift-settings.test.ts",
     "scripts/tests/contract/layer-cuts/decisions-window-runner.test.ts",
+    "scripts/tests/contract/layer-cuts/identifiers-under-bus.test.ts",
     "scripts/tests/contract/layer-cuts/ports-card-and-attach.test.ts",
     "scripts/tests/contract/layer-cuts/prepush-heavy-step.test.ts",
     "scripts/tests/contract/layer-cuts/workers-review-launch.test.ts",
@@ -1705,6 +1706,7 @@
     "scripts/ports/gh.ts",
     "scripts/ports/github-status.ts",
     "scripts/ports/github.ts",
+    "scripts/ports/identifier-shapes.ts",
     "scripts/ports/isolation.ts",
     "scripts/ports/main-merge.ts",
     "scripts/ports/meter.ts",

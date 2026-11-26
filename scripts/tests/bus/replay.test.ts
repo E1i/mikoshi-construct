@@ -6,11 +6,12 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent } from '../../core/db.js'
-import { prBodySha, taskKey } from '../../core/identifiers.js'
+import { taskKey } from '../../core/identifiers.js'
 import { completeTask, leaseNext } from '../../core/lease.js'
 import { all as pullRequests } from '../../core/pr-readings.js'
 import { queueTask, reviewCandidates, reviewKeysOfAnOldInput, reviewKeysOfTheCurrentInputAgain } from '../../core/queue.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
+import { prBodySha } from '../../ports/identifier-shapes.js'
 import { busProjections, candidateRules, cardTransitions, deriveQueuesOfTheBus, openComposedBus } from '../../supervisor/composition.js'
 
 const HEADS = ['0123456789abcdef0123456789abcdef01234567', '89abcdef0123456789abcdef0123456789abcdef']

@@ -5,10 +5,10 @@ import type { TaskRow } from '../../core/tasks-query.js'
 import { aCardInStates, cardBodiesWhere } from '../../core/card-readings.js'
 import { anEventWhere, events, eventsWhere, latestEventIdWhere } from '../../core/events-query.js'
 import { CARD_CLOSED, CARD_STARTED, POLICY_DENIED, WITNESS_RECORDED } from '../../core/events.js'
-import { MAIN_BRANCH } from '../../core/identifiers.js'
 import { A_MAIN_RECORDED, anOpenPrOnTheHead, aPrOfCard, LATEST_MAIN_SHA, openPrsWhere } from '../../core/pr-readings.js'
 import { candidateRows, cardBodyShaOf, everyRow, openCandidates, WITHDRAWN } from '../../core/queue.js'
 import { all as allTasks } from '../../core/tasks-query.js'
+import { MAIN_BRANCH } from '../../ports/identifier-shapes.js'
 
 export interface WitnessParts {
   rules: CandidateRules

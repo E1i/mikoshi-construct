@@ -7,7 +7,6 @@
     "src/card/task-file.ts",
     "src/card/risk.ts",
     "src/card/complexity.ts",
-    "scripts/core/identifiers.ts",
     "scripts/policy/touch-scope.ts",
     "scripts/policy/derived-files.ts",
     "scripts/policy/placement-growth.ts"

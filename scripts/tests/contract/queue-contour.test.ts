@@ -12,7 +12,7 @@ import { mayRequeue, queueSources } from '../../supervisor/composition.js'
 const ROOT = path.resolve(import.meta.dirname, '../../..')
 const QUEUE = 'scripts/core/queue.ts'
 const MAY_IMPORT = new Set(['bus', 'events'])
-const IDENTIFIERS = 'scripts/core/identifiers.ts'
+const IDENTIFIERS = new Set(['scripts/core/identifiers.ts', 'scripts/ports/identifier-shapes.ts'])
 const JUDGED_ROWS = /^(?:boundary|lines):/
 const GENERATION_TIMEOUT = 300_000
 
@@ -29,7 +29,7 @@ function raisedByTheOwnerTo(recordedAtHead: RatchetNumbers, key: string, measure
 
 describe('the queue side of the queue contour', () => {
   it('core/queue.ts imports only bus, events and identifiers files', () => {
-    const foreign = relativeImportsOf(QUEUE).filter(file => file !== IDENTIFIERS && !ownerOf(MODULE_GRAPH, file).some(owner => MAY_IMPORT.has(owner)))
+    const foreign = relativeImportsOf(QUEUE).filter(file => !IDENTIFIERS.has(file) && !ownerOf(MODULE_GRAPH, file).some(owner => MAY_IMPORT.has(owner)))
     expect(foreign).toEqual([])
     expect(deriveQueues.length).toBe(4)
     expect(typeof mayRequeue()).toBe('function')

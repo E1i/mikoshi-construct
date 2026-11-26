@@ -26,6 +26,7 @@
     "scripts/core/projection-writes.known.json",
     "scripts/core/rejection.ts",
     "scripts/core/bus-adapter.ts",
+    "scripts/core/identifiers.ts",
     "scripts/ports/bus-read.ts",
     "scripts/ports/worktree-home.ts"
   ],

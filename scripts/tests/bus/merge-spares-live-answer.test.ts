@@ -1,8 +1,8 @@
 import type { MergeBench } from './merge-bench.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CARD_STOPPED, POLICY_DENIED } from '../../core/events.js'
-import { prBodySha } from '../../core/identifiers.js'
 import { keyOf } from '../../core/queue.js'
+import { prBodySha } from '../../ports/identifier-shapes.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, liveBench, taskState } from './merge-bench.js'
 
