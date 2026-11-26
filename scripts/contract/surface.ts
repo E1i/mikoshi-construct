@@ -3,7 +3,7 @@ import type { AuthorityRule } from '../policy/policy.js'
 import type { JsonForms, JsonKeys, ObservedCli } from './json-samples.js'
 import type { SurfaceReading, Unbaselined } from './semantic-diff.js'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -58,6 +58,9 @@ const FLAG_NAME = /^[a-z][\w-]*$/
 const FLAG_PREFIX_AT_END = /(?:^|[^\w-])--$/
 const JSON_FLAG = 'json'
 const PARSE_ARGS = 'parseArgs'
+const RELATIVE_SPECIFIER = /^\.\.?\//
+const JS_SUFFIX = /\.js$/
+const TS_SUFFIX = '.ts'
 const CONSTANT_DEPTH = 8
 const SYNC_APPLY_FORM = 'sync --apply'
 const REPORT_VERSION = 1
@@ -206,7 +209,7 @@ function unwrapped(expression: ts.Expression): ts.Expression {
   return current
 }
 
-function constantsOf(source: ts.SourceFile): Constants {
+function declaredConstantsOf(source: ts.SourceFile): Constants {
   const constants: Constants = new Map()
   const visit = (node: ts.Node): void => {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer != null)
@@ -215,6 +218,40 @@ function constantsOf(source: ts.SourceFile): Constants {
   }
   visit(source)
   return constants
+}
+
+function sourceOf(file: string): ts.SourceFile {
+  return ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true)
+}
+
+function relativeModuleFile(importer: string, specifier: string): string | undefined {
+  if (!RELATIVE_SPECIFIER.test(specifier))
+    return undefined
+  const file = path.resolve(path.dirname(importer), specifier.replace(JS_SUFFIX, TS_SUFFIX))
+  return existsSync(file) ? file : undefined
+}
+
+function importedConstantsOf(source: ts.SourceFile): Constants {
+  const constants: Constants = new Map()
+  for (const statement of source.statements.filter(ts.isImportDeclaration)) {
+    const bindings = statement.importClause?.namedBindings
+    if (bindings == null || !ts.isNamedImports(bindings) || !ts.isStringLiteral(statement.moduleSpecifier))
+      continue
+    const file = relativeModuleFile(source.fileName, statement.moduleSpecifier.text)
+    if (file === undefined)
+      continue
+    const declared = declaredConstantsOf(sourceOf(file))
+    for (const element of bindings.elements) {
+      const initializer = declared.get((element.propertyName ?? element.name).text)
+      if (initializer != null)
+        constants.set(element.name.text, resolved(initializer, declared))
+    }
+  }
+  return constants
+}
+
+function constantsOf(source: ts.SourceFile): Constants {
+  return new Map([...importedConstantsOf(source), ...declaredConstantsOf(source)])
 }
 
 function resolved(expression: ts.Expression, constants: Constants, depth = CONSTANT_DEPTH): ts.Expression {
@@ -284,10 +321,12 @@ function exitCodeOf(node: ts.Node, constants: Constants): number | undefined {
 }
 
 function readEntry(file: string, into: EntryReading): void {
-  const source = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true)
+  const source = sourceOf(file)
   const constants = constantsOf(source)
+  const imported = importedConstantsOf(source)
   const visit = (node: ts.Node): void => {
-    const leading = ts.isStringLiteralLike(node) ? FLAG_AT_START.exec(node.text)?.[1] : undefined
+    const literal = ts.isIdentifier(node) ? imported.get(node.text) : node
+    const leading = literal != null && ts.isStringLiteralLike(literal) ? FLAG_AT_START.exec(literal.text)?.[1] : undefined
     if (leading != null)
       into.flags.add(leading)
     if (ts.isTemplateExpression(node))

@@ -545,13 +545,15 @@ export function busOrderTick(db: DatabaseSync, root: string): PrOrderTick {
   return prOrderTickAt(BUS_CONTRACT, db, root, PREFIX, orderEventsFrom((type, fields, after) => new BusRead(db, { from: after + 1 }).slice(type as EventType, fields as never)), () => openOwnerWaits(db), card => cardContract(db, card)?.touches ?? null)
 }
 
+const SHARD_TERM_WAITS = [OWNER_WAIT_OPENED]
+
 export function shardTermTick(db: DatabaseSync): ShardTerm {
   return new ShardTerm({
     noticeHours: SHARD_NOTICE_HOURS,
     renewal: shardRenewalCommand(WINDOW_SHARD_HOURS, FACTORY_MODES[1]),
     active: now => activeWindowShards(db, now),
     expired: now => expiredWindowShards(db, now, SHARD_TERM_ACTOR).map(ended => ended.payload.id),
-    noticed: id => events(db, { types: [OWNER_WAIT_OPENED], actorPrefix: SHARD_TERM_ACTOR }).some(opened => namesNoticeOf(String(opened.data?.text ?? ''), id)),
+    noticed: id => events(db, { types: SHARD_TERM_WAITS, actorPrefix: SHARD_TERM_ACTOR }).some(opened => namesNoticeOf(String(opened.data?.text ?? ''), id)),
     ask: (wait, now, expiring) => inTransaction(db, () => {
       if (expiring !== null)
         appendEvent(db, windowShardEnded(SHARD_EXPIRED, SHARD_TERM_ACTOR, expiring, now))
