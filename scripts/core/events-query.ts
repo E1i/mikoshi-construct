@@ -388,6 +388,88 @@ export function cardIdsInEvents(db: DatabaseSync): number[] {
   return (db.prepare(CARD_IDS_IN_EVENTS).all() as { card_id: number }[]).map(row => Number(row.card_id))
 }
 
+const NEWEST_EVENTS_OF_EACH_CARD = `
+  SELECT id, ts, type, card_id AS card, pr FROM (
+    SELECT id, ts, type, card_id, pr, row_number() OVER (PARTITION BY card_id ORDER BY id DESC) AS rank FROM events WHERE card_id IS NOT NULL
+  ) WHERE rank <= ? ORDER BY card_id, id
+`
+
+export interface CardEventStamp {
+  id: number
+  ts: string | null
+  type: string
+  card: number
+  pr: number | null
+}
+
+export function newestEventsOfEachCard(db: DatabaseSync, perCard: number): CardEventStamp[] {
+  return db.prepare(NEWEST_EVENTS_OF_EACH_CARD).all(perCard) as unknown as CardEventStamp[]
+}
+
+const LAST_OBJECT_FIELD_PER_CARD = `
+  SELECT card_id, json_extract(payload, ?) AS value FROM events WHERE id IN (
+    SELECT max(id) FROM events
+    WHERE legacy = 0 AND type = ? AND card_id IS NOT NULL AND json_valid(payload) AND json_type(payload, ?) = 'object'
+    GROUP BY card_id
+  )
+`
+
+export function lastObjectFieldPerCard(db: DatabaseSync, type: string, field: string): Map<number, string> {
+  const at = `$.${field}`
+  const rows = db.prepare(LAST_OBJECT_FIELD_PER_CARD).all(at, type, at) as { card_id: number, value: string }[]
+  return new Map(rows.map(row => [Number(row.card_id), String(row.value)]))
+}
+
+const LAST_SLOTS_PER_QUEUE = `
+  SELECT queue, slots FROM (
+    SELECT json_extract(payload, '$.queue') AS queue, json_extract(payload, '$.slots') AS slots, row_number() OVER (PARTITION BY json_extract(payload, '$.queue') ORDER BY ts DESC) AS rank
+    FROM heartbeats WHERE type = ? AND json_valid(payload) AND json_type(payload, '$.queue') = 'text'
+  ) WHERE rank = 1
+`
+
+export interface QueueSlotsBeat {
+  queue: string
+  slots: unknown
+}
+
+export function lastSlotsPerQueue(db: DatabaseSync, heartbeat: string): QueueSlotsBeat[] {
+  return db.prepare(LAST_SLOTS_PER_QUEUE).all(heartbeat) as unknown as QueueSlotsBeat[]
+}
+
+const BUS_PANEL = `SELECT
+  (SELECT json_object('id', id, 'ts', ts) FROM events ORDER BY id DESC LIMIT 1) AS last,
+  (SELECT json_group_array(json_object('ts', ts, 'type', type)) FROM events WHERE ts >= :since) AS half_hour,
+  (SELECT through_event_id FROM projection_watermarks WHERE projection = :mark) AS through,
+  (SELECT json_group_array(json_object('id', id, 'ts', ts, 'payload', payload)) FROM (SELECT id, ts, payload FROM events WHERE type = :pulse ORDER BY id DESC LIMIT 2)) AS ticks,
+  (SELECT json_group_array(json_object('id', id, 'ts', ts, 'type', type, 'card', card_id, 'payload', payload)) FROM (SELECT id, ts, type, card_id, payload FROM events WHERE type NOT IN (SELECT value FROM json_each(:quiet)) ORDER BY id DESC LIMIT :recent)) AS recent,
+  (SELECT json_group_array(json_object('process', process, 'ts', ts)) FROM heartbeats WHERE type = :heartbeat AND json_extract(payload, '$.retired') IS NULL) AS workers,
+  (SELECT json_object('ts', a.ts, 'card', a.card_id, 'payload', a.payload) FROM events a WHERE a.type = :alarm AND NOT EXISTS (SELECT 1 FROM events c WHERE c.type = :cleared AND json_valid(c.payload) AND json_extract(c.payload, '$.alarm') = a.dedupe_key) ORDER BY a.id DESC LIMIT 1) AS alarm`
+
+export interface BusPanelQuery {
+  since: string
+  mark: string
+  pulse: string
+  quiet: readonly string[]
+  recent: number
+  heartbeat: string
+  alarm: string
+  cleared: string
+}
+
+export interface BusPanelRow {
+  last: string | null
+  half_hour: string
+  through: number | null
+  ticks: string
+  recent: string
+  workers: string
+  alarm: string | null
+}
+
+export function busPanelRow(db: DatabaseSync, query: BusPanelQuery): BusPanelRow {
+  return db.prepare(BUS_PANEL).get({ ...query, quiet: JSON.stringify(query.quiet) }) as unknown as BusPanelRow
+}
+
 export function perCard(db: DatabaseSync, query: Omit<EventsQuery, 'card'> = {}): Map<number, EventRow[]> {
   const grouped = new Map<number, EventRow[]>()
   for (const row of events(db, query)) {

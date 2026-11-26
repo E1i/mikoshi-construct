@@ -800,6 +800,7 @@
     "scripts/tests/contract/modules-placed.test.ts",
     "scripts/tests/contract/one-writer-per-table.test.ts",
     "scripts/tests/contract/owner-commands-detector.test.ts",
+    "scripts/tests/contract/owner-reads/board.test.ts",
     "scripts/tests/contract/owner-reads/bus-domain.test.ts",
     "scripts/tests/contract/owner-reads/card-domain.test.ts",
     "scripts/tests/contract/owner-reads/card-reads-events-through-bus.test.ts",
@@ -1701,6 +1702,7 @@
     "scripts/nodes/restart/chain-process.ts",
     "scripts/nodes/restart/restart-executor.ts",
     "scripts/nodes/restart/restart-worker.ts",
+    "scripts/nodes/restart/role-readings.ts",
     "scripts/nodes/restart/role.ts"
   ],
   "node-review": [

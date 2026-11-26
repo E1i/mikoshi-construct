@@ -2,6 +2,9 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { RecordedVerdict } from '../nodes/update/update-executor.js'
 import type { GitHub } from '../ports/github.js'
 import type { SlotKind } from '../supervisor/scheduler.js'
+import { stateEventsOfCardsIn } from '../core/card-readings.js'
+import { BY_CARD, EITHER_JOURNAL, lastPer } from '../core/events-query.js'
+import { all as everyPr } from '../core/pr-readings.js'
 import { holdReason, plannedStalls, questionReleasedLine, questionReleasedOverlaps, unexplainedStall } from '../nodes/launch/launch-candidates.js'
 import { REVIEW_RULES_VERSION } from '../nodes/review/review-executor.js'
 import { recordedVerdictOn } from '../nodes/update/update-executor.js'
@@ -80,10 +83,15 @@ function underOlderRules(verdict: RecordedVerdict | null): boolean {
   return verdict === null || verdict.rulesVersion === null || verdict.rulesVersion < REVIEW_RULES_VERSION
 }
 
-const OPEN_PASS_HEADS = `SELECT pr, head FROM prs WHERE state = 'open' AND verdict_on_head = 'pass' AND head IS NOT NULL ORDER BY pr`
+const OPEN = 'open'
+const PASS = 'pass'
+
+function openPassHeads(db: DatabaseSync): { pr: number, head: string }[] {
+  return everyPr(db).flatMap(row => row.state === OPEN && row.verdict_on_head === PASS && row.head !== null ? [{ pr: row.pr, head: row.head }] : [])
+}
 
 export function stalePassCountOf(db: DatabaseSync): number {
-  return readOr(() => (db.prepare(OPEN_PASS_HEADS).all() as { pr: number, head: string }[]).filter(row => underOlderRules(recordedVerdictOn(db, Number(row.pr), row.head))).length, 0)
+  return readOr(() => openPassHeads(db).filter(row => underOlderRules(recordedVerdictOn(db, row.pr, row.head))).length, 0)
 }
 
 export function boardWarnings(readings: WarningReadings): BoardWarning[] {
@@ -123,14 +131,13 @@ interface LastEventRow {
 }
 
 function lastEventsOfCardsInFlight(db: DatabaseSync): LastEventRow[] {
-  const states = IN_FLIGHT_CARDS.map(() => '?').join(', ')
-  return db.prepare(`
-    SELECT card_id, id, type, ts FROM events WHERE id IN (
-      SELECT MAX(event.id) FROM events AS event JOIN cards AS card ON card.card_id = event.card_id
-      WHERE card.state IN (${states}) AND event.id >= (SELECT COALESCE(MIN(event_id), 0) FROM cards WHERE state IN (${states}))
-      GROUP BY event.card_id
-    ) ORDER BY id
-  `).all(...IN_FLIGHT_CARDS, ...IN_FLIGHT_CARDS) as unknown as LastEventRow[]
+  const inFlight = stateEventsOfCardsIn(db, IN_FLIGHT_CARDS)
+  if (inFlight.size === 0)
+    return []
+  const from = Math.min(...inFlight.values())
+  return lastPer(db, BY_CARD, { since: from - 1, withCard: true, legacy: EITHER_JOURNAL })
+    .flatMap(row => row.card_id !== null && inFlight.has(row.card_id) ? [{ card_id: row.card_id, id: row.id, type: row.type, ts: row.ts }] : [])
+    .sort((a, b) => a.id - b.id)
 }
 
 export function stallLines(db: DatabaseSync, pulse: string | null, now: Date): string[] {

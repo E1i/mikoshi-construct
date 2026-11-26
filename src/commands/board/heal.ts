@@ -1,5 +1,6 @@
 import type { Lore } from '../../ui/lore.js'
 import type { BusDb } from '../cost/bus.js'
+import { EITHER_JOURNAL, latest } from '../../../scripts/core/card-readings.js'
 import { BUS_HEAL_HELD, BUS_HEALED } from '../../../scripts/core/events.js'
 import { withReadOnlyBus } from '../cost/bus.js'
 
@@ -14,12 +15,6 @@ export interface BoardHeal {
   done: string
 }
 
-const LAST_HEAL = `
-  SELECT type, ts, payload FROM events
-  WHERE type IN ('${BUS_HEALED}', '${BUS_HEAL_HELD}') AND json_valid(payload)
-  ORDER BY id DESC LIMIT 1
-`
-
 function healOf(row: { type: string, ts: string, payload: string }): BoardHeal {
   const payload = JSON.parse(row.payload) as Record<string, unknown>
   const backup = typeof payload.backup === 'string' ? payload.backup : null
@@ -31,8 +26,8 @@ function healOf(row: { type: string, ts: string, payload: string }): BoardHeal {
 }
 
 export function lastHeal(db: BusDb, now: Date): BoardHeal | null {
-  const row = db.prepare(LAST_HEAL).get() as { type: string, ts: string, payload: string } | undefined
-  if (row === undefined)
+  const row = latest(db, { types: [BUS_HEALED, BUS_HEAL_HELD], valid: true, legacy: EITHER_JOURNAL })
+  if (row === null)
     return null
   const heal = healOf(row)
   return heal.kind === 'held' || now.getTime() - Date.parse(heal.at) <= HEALED_SHOWN_HOURS * HOUR_MS ? heal : null

@@ -1,11 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { PanelRow } from '../../../src/commands/board/bus-panel.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { busPanelFacts, PANEL_READING } from '../../../src/commands/board/bus-panel.js'
+import { busPanelFacts } from '../../../src/commands/board/bus-panel.js'
 import { HEARTBEATS, openBus, RETIRED_FIELD } from '../../core/db.js'
+import { busPanelRow } from '../../core/events-query.js'
 import { PROCESS_HEARTBEAT } from '../../core/events.js'
 import { pidOfProcess, recordProcessHeartbeat, retiredRowsLines, retirePreviousGeneration } from '../../supervisor/heartbeat.js'
 
@@ -37,7 +37,7 @@ function bus(): DatabaseSync {
 }
 
 function counted(db: DatabaseSync): string[] {
-  const row = db.prepare(PANEL_READING).get({ since: OLD_BEAT, mark: 'none', pulse: 'none', quiet: '[]', recent: 0, heartbeat: PROCESS_HEARTBEAT, alarm: 'none', cleared: 'none' }) as unknown as PanelRow
+  const row = busPanelRow(db, { since: OLD_BEAT, mark: 'none', pulse: 'none', quiet: [], recent: 0, heartbeat: PROCESS_HEARTBEAT, alarm: 'none', cleared: 'none' })
   return busPanelFacts(row, NOW).workers.map(worker => worker.process)
 }
 

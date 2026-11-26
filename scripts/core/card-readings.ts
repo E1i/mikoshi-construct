@@ -5,6 +5,11 @@ import { CLOSED_WAIT, OPEN_WAIT, OWNER_WAITS, readLastReduced } from './bus-read
 import { cardIdsInEvents, EITHER_JOURNAL, events, eventsWhere, latest } from './events-query.js'
 import { CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, LADDER_RUN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_CLOSED, QUESTION_AGENT, WITNESS_DOWNGRADE } from './events.js'
 
+export type { BusPanelRow, EventRow } from './events-query.js'
+export { busPanelRow, EITHER_JOURNAL, events, lastObjectFieldPerCard, lastPer, lastSlotsPerQueue, latest, newestEventsOfEachCard } from './events-query.js'
+export type { TaskRow } from './tasks-query.js'
+export { inStates as tasksInStates } from './tasks-query.js'
+
 const OPEN_OWNER_WAITS = `
   SELECT id, need, text, command, card_id AS card, pr, opened_at AS since
   FROM ${OWNER_WAITS}
@@ -210,6 +215,33 @@ const DEPENDENTS_IN_STATE = `
 
 export function dependentsInStateOf(db: DatabaseSync, cardId: number, state: string): CardDependent[] {
   return db.prepare(DEPENDENTS_IN_STATE).all(state, cardId) as unknown as CardDependent[]
+}
+
+export interface CardWithItsLine {
+  id: number
+  state: string | null
+  pr: number | null
+  line: string | null
+  body: boolean
+  event_id: number
+}
+
+const CARDS_WITH_THEIR_LINES = `
+  SELECT cards.card_id AS id, cards.state, cards.pr, body.card_line AS line, body.card_id IS NOT NULL AS body, cards.event_id
+  FROM cards LEFT JOIN ${CARD_BODIES} AS body ON body.card_id = cards.card_id
+  ORDER BY cards.card_id
+`
+
+export function cardsWithTheirLines(db: DatabaseSync): CardWithItsLine[] {
+  const rows = db.prepare(CARDS_WITH_THEIR_LINES).all() as { id: number, state: string | null, pr: number | null, line: string | null, body: number, event_id: number }[]
+  return rows.map(row => ({ id: Number(row.id), state: row.state === null ? null : String(row.state), pr: row.pr === null ? null : Number(row.pr), line: row.line === null ? null : String(row.line), body: Boolean(row.body), event_id: Number(row.event_id) }))
+}
+
+export function stateEventsOfCardsIn(db: DatabaseSync, states: readonly string[]): Map<number, number> {
+  if (states.length === 0)
+    return new Map()
+  const rows = db.prepare(`SELECT card_id, event_id FROM cards WHERE state IN (${states.map(() => '?').join(', ')})`).all(...states) as { card_id: number, event_id: number }[]
+  return new Map(rows.map(row => [Number(row.card_id), Number(row.event_id)]))
 }
 
 const CARDS_WITH_A_STATE = `SELECT card_id, state FROM cards WHERE state IS NOT NULL`

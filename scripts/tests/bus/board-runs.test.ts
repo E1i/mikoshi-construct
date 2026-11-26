@@ -43,7 +43,7 @@ function dialogOf(text: string): string {
     events: [{ ts: NOW.toISOString(), type: 'netwatch.tick', card: null, payload: '{}' }],
   })
   const db = new DatabaseSync(file)
-  db.exec('ALTER TABLE card_bodies ADD COLUMN admission_event_id INTEGER; ALTER TABLE card_bodies ADD COLUMN text_sha TEXT NOT NULL DEFAULT \'\'; ALTER TABLE prs ADD COLUMN head TEXT')
+  db.exec('ALTER TABLE card_bodies ADD COLUMN admission_event_id INTEGER; ALTER TABLE card_bodies ADD COLUMN text_sha TEXT NOT NULL DEFAULT \'\'')
   db.exec('UPDATE card_bodies SET admission_event_id = (SELECT event_id FROM cards WHERE cards.card_id = card_bodies.card_id)')
   db.close()
   let html = ''
