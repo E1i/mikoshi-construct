@@ -5,8 +5,8 @@ import { CLOSED_CARD, DEFERRED_CARD, DROPPED_CARD, MERGED_CARD, QUEUED_CARD, STO
 import { holderOf, holdLayersOf } from '../core/card-hold.js'
 import { closedWaitIds, lastReducedOwnerWaits } from '../core/card-readings.js'
 import { appendEvent, currentHeadOf, inTransaction, liftHeldAtOpen, openOwnerWait } from '../core/db.js'
-import { byId, events, ofCard } from '../core/events-query.js'
-import { BOARD_ALARM, CARD_HELD, CARD_RELEASED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, REJECTED, TASK_REQUEUED } from '../core/events.js'
+import { events, ofCard } from '../core/events-query.js'
+import { BOARD_ALARM, CARD_HELD, CARD_RELEASED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, REJECTED, REQUEST_DONE, REQUEST_REFUSED, TASK_REQUEUED, WINDOW_REQUEST } from '../core/events.js'
 import { expectedMinutes, RoundMeasures } from './expected-time.js'
 
 export const DEAD_END = 'dead_end'
@@ -16,6 +16,8 @@ const MINUTE_MS = 60_000
 const RAISED_TYPES = [BOARD_ALARM, OWNER_WAIT_OPENED] as const
 export const DEAD_END_LIFTS: readonly WaitLiftKind[] = ['passed-on-head', 'new-head', 'amend', 'decision', 'pr-merged']
 const WINDOW_ACTIONS: readonly string[] = [CARD_RELEASED, CARD_HELD, TASK_REQUEUED]
+const REQUEST_TRAIL: readonly string[] = [WINDOW_REQUEST, REQUEST_DONE, REQUEST_REFUSED]
+const NOT_A_MOVE_OF_THE_CARD: readonly string[] = [...RAISED_TYPES, OWNER_WAIT_CLOSED, REJECTED, ...WINDOW_ACTIONS, ...REQUEST_TRAIL]
 
 export const HELD_ELSEWHERE_STATES: readonly string[] = [MERGED_CARD, CLOSED_CARD, DROPPED_CARD, QUEUED_CARD, DEFERRED_CARD]
 
@@ -132,13 +134,16 @@ export class DeadEnds {
   }
 
   private windowCarriesAnOwnerAnswer(card: UnheldCard): boolean {
-    if (!WINDOW_ACTIONS.includes(card.lastEvent.type))
-      return false
-    const request = byId(this.db, card.lastEvent.id)?.data?.request
-    if (request === undefined || request === null)
+    const action = ofCard(this.db, card.card, { types: WINDOW_ACTIONS, before: card.lastEvent.id + 1, newestFirst: true, limit: 1 })[0]
+    if (action === undefined || !this.onlyTrailBetween(card.card, action.id, card.lastEvent.id + 1, REQUEST_TRAIL))
       return false
     const asked = new Set(ofCard(this.db, card.card, { types: [OWNER_WAIT_OPENED] }).map(opened => opened.data?.id))
-    return events(this.db, { types: [OWNER_WAIT_CLOSED], before: card.lastEvent.id }).some(closed => asked.has(closed.data?.id) && closed.data?.request === request)
+    const answer = events(this.db, { types: [OWNER_WAIT_CLOSED], before: action.id, newestFirst: true }).find(closed => asked.has(closed.data?.id))
+    return answer !== undefined && this.onlyTrailBetween(card.card, answer.id, action.id, NOT_A_MOVE_OF_THE_CARD)
+  }
+
+  private onlyTrailBetween(card: number, since: number, before: number, trail: readonly string[]): boolean {
+    return ofCard(this.db, card, { since, before }).every(between => trail.includes(between.type))
   }
 
   private waitsOnItsLift(card: UnheldCard): boolean {

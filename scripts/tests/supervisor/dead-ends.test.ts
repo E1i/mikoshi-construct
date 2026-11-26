@@ -1,14 +1,21 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { GitHub } from '../../window/requests/reach.js'
 import type { RequestTools } from '../../window/requests/request.js'
+import type { RequestOutcome } from '../../window/window-requests.js'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openOwnerWait } from '../../core/db.js'
-import { BOARD_ALARM, CARD_HELD, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_OBSERVED, QUESTION_AGENT, QUESTION_OWNER, TASK_ENQUEUED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../../core/events.js'
+import { BOARD_ALARM, CARD_HELD, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_OBSERVED, QUESTION_AGENT, QUESTION_OWNER, REJECTED, TASK_ENQUEUED, TASK_REQUEUED, WINDOW_REQUEST, WITNESS_RECORDED } from '../../core/events.js'
+import { ANSWER_SOURCE } from '../../core/inbox.js'
 import { reduce } from '../../core/reducer.js'
+import { sayToOwnerChannel } from '../../owner/channel.js'
 import { busProjections, deadEndEvents, deadEndParts, openComposedBus } from '../../supervisor/composition.js'
 import { DEAD_END_ACTOR, DeadEnds, UNMEASURED_ROUND_MINUTES } from '../../supervisor/dead-ends.js'
 import { RequestContext } from '../../window/requests/context.js'
 import { requeue } from '../../window/requests/requeue.js'
+import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
 
 const LAST_EVENT_AT = '2026-11-18T08:00:00.000Z'
 const PAST_THE_ROUND = new Date(Date.parse(LAST_EVENT_AT) + (UNMEASURED_ROUND_MINUTES + 5) * 60_000)
@@ -39,10 +46,13 @@ const DEAD_END_SHAPES: Record<string, DeadEndShape> = {
 }
 
 const buses: DatabaseSync[] = []
+const channels: string[] = []
 
 afterEach(() => {
   for (const bus of buses.splice(0))
     bus.close()
+  for (const channel of channels.splice(0))
+    rmSync(channel, { recursive: true, force: true })
 })
 
 function bus(): DatabaseSync {
@@ -170,6 +180,38 @@ function holdEvent(db: DatabaseSync, card: number, type: typeof CARD_HELD | type
   db.prepare('UPDATE cards SET event_id = (SELECT max(id) FROM events) WHERE card_id = ?').run(card)
 }
 
+interface WindowBench {
+  ownerAnswers: (card: number, words: string) => string
+  release: (card: number) => RequestOutcome
+}
+
+function rejectionsOf(db: DatabaseSync, card: number): unknown[] {
+  return (db.prepare(`SELECT payload FROM events WHERE type = '${REJECTED}' AND card_id = ?`).all(card) as { payload: string }[]).map(row => JSON.parse(row.payload) as unknown)
+}
+
+function windowOf(db: DatabaseSync): WindowBench {
+  const channel = mkdtempSync(path.join(tmpdir(), 'dead-ends-owner-'))
+  channels.push(channel)
+  const clock = (): Date => new Date(LAST_EVENT_AT)
+  const requests = new WindowRequests(db, clock, { causeHolds: () => null, closeDropped: () => [] } as unknown as RequestTools, channel, () => null, 'repository', {} as GitHub)
+  const run = (request: Record<string, unknown>): RequestOutcome => {
+    const id = requestFromWindow(db, LAST_EVENT_AT, 'dead-ends', request)
+    const outcome = requests.run().find(each => each.request === id)!
+    reduced(db)
+    return outcome
+  }
+  return {
+    ownerAnswers: (card, words) => {
+      const opened = run({ kind: 'owner.wait', need: 'decision', text: `release #${card}?`, card })
+      const wait = /Q\d+/.exec(opened.detail)![0]
+      sayToOwnerChannel(channel, `${wait}: ${words}`, clock())
+      expect(run({ kind: 'owner.wait.close', id: wait, from: ANSWER_SOURCE })).toMatchObject({ kind: 'done' })
+      return wait
+    },
+    release: card => run({ kind: 'release', card }),
+  }
+}
+
 describe('a stopped card the window holds, or one already raised, gets no new owner wait', () => {
   const FAULT_STOP: DeadEndShape = { card: 2172, state: 'stopped', events: [{ type: CARD_STOPPED, payload: { reason: QUESTION_AGENT } }], named: `stopped (${QUESTION_AGENT})` }
 
@@ -204,21 +246,25 @@ describe('a stopped card the window holds, or one already raised, gets no new ow
   it('an owner answer whose action is a release by the window raises no dead end', () => {
     const db = bus()
     placed(db, FAULT_STOP)
-    const wait = openOwnerWait(db, LAST_EVENT_AT, 'policy', { need: 'decision', text: 'release #2172?', card: FAULT_STOP.card, request: 1, lift: { on: ['owner-answer'] } })
-    appendEvent(db, { ts: LAST_EVENT_AT, type: OWNER_WAIT_CLOSED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `fixture:closed:${wait}`, payload: { id: wait, answer: 'release it', request: 2 }, legacy: false })
-    holdEvent(db, FAULT_STOP.card, CARD_RELEASED, 'release', { request: 2 })
+    const window = windowOf(db)
+    window.ownerAnswers(FAULT_STOP.card, 'release it')
+    expect(window.release(FAULT_STOP.card)).toMatchObject({ kind: 'done' })
     reduced(db)
 
     expect(ticksPastTheRound(db, 3)).toEqual([])
     expect(alarmsOf(db, FAULT_STOP.card)).toEqual([])
+    expect(waitsOf(db, FAULT_STOP.card)).toEqual([])
   })
 
-  it('a window release that names another request than the owner answer is a dead end again', () => {
+  it('a window release after the card moved on from an earlier owner answer is a dead end again', () => {
     const db = bus()
     placed(db, FAULT_STOP)
-    const wait = openOwnerWait(db, LAST_EVENT_AT, 'policy', { need: 'decision', text: 'release #2172?', card: FAULT_STOP.card, request: 1, lift: { on: ['owner-answer'] } })
-    appendEvent(db, { ts: LAST_EVENT_AT, type: OWNER_WAIT_CLOSED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `fixture:closed:${wait}`, payload: { id: wait, answer: 'release it', request: 2 }, legacy: false })
-    holdEvent(db, FAULT_STOP.card, CARD_RELEASED, 'release', { request: 9 })
+    const window = windowOf(db)
+    window.ownerAnswers(FAULT_STOP.card, 'release it')
+    appendEvent(db, { ts: LAST_EVENT_AT, type: CARD_STOPPED, actor: 'netwatch', cardId: FAULT_STOP.card, pr: null, head: null, dedupeKey: 'fixture:moved-on', payload: { reason: QUESTION_AGENT }, legacy: false })
+    reduced(db)
+    expect(rejectionsOf(db, FAULT_STOP.card)).toEqual([])
+    expect(window.release(FAULT_STOP.card)).toMatchObject({ kind: 'done' })
     reduced(db)
 
     expect(ticksPastTheRound(db, 1)).toHaveLength(1)
