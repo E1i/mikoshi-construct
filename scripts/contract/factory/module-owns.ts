@@ -138,6 +138,7 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
   ],
   'node-answer': [
     `${FACTORY_ROOT}/nodes/answer/**`,
+    `${FACTORY_ROOT}/ports/card-tree.ts`,
   ],
   'node-close': [
     `${FACTORY_ROOT}/nodes/close/**`,
@@ -202,6 +203,8 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/core/pr-readings.ts`,
     `${FACTORY_ROOT}/core/cards-nobody-holds.ts`,
     `${FACTORY_ROOT}/core/pr-status.ts`,
+    `${FACTORY_ROOT}/nodes/answer/answer-source.ts`,
+    `${FACTORY_ROOT}/nodes/launch/tree-pr.ts`,
   ],
   'project': [
     'src/commands/attach/record.ts',

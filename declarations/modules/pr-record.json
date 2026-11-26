@@ -11,7 +11,9 @@
     "scripts/core/pr-folds.ts",
     "scripts/core/pr-readings.ts",
     "scripts/core/cards-nobody-holds.ts",
-    "scripts/core/pr-status.ts"
+    "scripts/core/pr-status.ts",
+    "scripts/nodes/answer/answer-source.ts",
+    "scripts/nodes/launch/tree-pr.ts"
   ],
   "exclude": [],
   "shared": []
