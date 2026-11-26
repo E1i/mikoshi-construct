@@ -11,6 +11,7 @@ import { appendEvent, openBus } from '../../../core/db.js'
 import { signStampsSince } from '../../../core/events-query.js'
 import { CARD_CLOSED, CARD_VERIFIED, PR_OPENED, REVIEW_RECORDED, ROLE_RETURNED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../../../core/events.js'
 import { LEASE_MS, leaseQueued } from '../../../core/lease.js'
+import { WINDOW_ACTOR } from '../../../core/node.js'
 import { keyOf, queueTask } from '../../../core/queue.js'
 import { reduce } from '../../../core/reducer.js'
 import { cardClosed, probeClosingCardIds } from '../../../nodes/close/close-executor.js'
@@ -21,7 +22,7 @@ import { earlierChangesRounds } from '../../../nodes/review/review-executor.js'
 import { sessionsUnderLiveLeases } from '../../../nodes/review/review-worker.js'
 import { busProjections } from '../../../supervisor/composition.js'
 import { recordWindowHeartbeat } from '../../../window/window-heartbeat.js'
-import { requestFromWindow, WINDOW_ACTOR } from '../../../window/window-requests.js'
+import { requestFromWindow } from '../../../window/window-requests.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../../..')
 const CONFIG_URL = pathToFileURL(path.join(REPO_ROOT, 'eslint.config.mjs')).href
