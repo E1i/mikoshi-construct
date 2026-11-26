@@ -10,8 +10,9 @@ import { selectRun } from '../ci/layers.js'
 import { cruise } from '../ci/select.js'
 import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from '../core/db.js'
 import { CHECKS_MATRIX_EVENT } from '../core/events.js'
-import { isFullSha, prOf } from '../core/identifiers.js'
+import { prOf } from '../core/identifiers.js'
 import { openDatabase } from '../core/sqlite.js'
+import { isFullSha } from '../ports/identifier-shapes.js'
 import { missingMutationColumns } from './check-catalog.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..')

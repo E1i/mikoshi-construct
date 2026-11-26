@@ -6,9 +6,10 @@ import { foldCardBody } from '../core/card-bodies.js'
 import { appendEvent, CLOSED_WAIT, isOwnerWaitNeed, OPEN_WAIT, OWNER_WAIT_NEEDS, WAIT_ID } from '../core/db.js'
 import { EITHER_JOURNAL, events } from '../core/events-query.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_MOVED, CARD_WAITING, DECISION_RECORDED, DECISIONS_CUT_OVER, DECISIONS_IMPORTED, MERGE_DONE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, WITNESS_DOWNGRADE } from '../core/events.js'
-import { cardIdOf, prOf } from '../core/identifiers.js'
+import { prOf } from '../core/identifiers.js'
 import { ADMIT_COMMAND } from '../core/owner-commands.js'
 import { payloadOf, reject } from '../core/stored.js'
+import { cardIdOf } from '../ports/identifier-shapes.js'
 
 export interface CardWaitParts {
   archiveSpentDecisions: (db: DatabaseSync) => void

@@ -1,7 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { PushPolicy } from '../../../src/commands/attach/record.js'
 import type { BusAfterFailure, BusCardTransitions, BusContract, BusEventDraft, BusLease, BusNeedsUpdate, BusQuestionOpen, BusTaskContract } from '../../core/bus-contract.js'
-import type { Queue } from '../../core/identifiers.js'
 import type { AllowedRule, AuthorityRule, MergeFacts, PatchedFile } from '../../policy/policy.js'
 import type { CompositionRecord } from '../../policy/touch-scope.js'
 import type { StatusPublisher } from '../../ports/github-status.js'
@@ -14,7 +13,6 @@ import { NOT_MINE, notMine } from '../../core/card-automaton.js'
 import { cardHoldOf, HOLD_RECHECK_MS } from '../../core/card-hold.js'
 import { closedWaitIds } from '../../core/card-readings.js'
 import { BOARD_ALARM, COMMAND_EXECUTED, MERGE_DONE, POLICY_ALLOWED, POLICY_DENIED, SHARD_USED } from '../../core/events.js'
-import { isFullSha } from '../../core/identifiers.js'
 import { ofPr } from '../../core/pr-readings.js'
 import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
 import { cardContract } from '../../intake/card-contract.js'
@@ -24,12 +22,14 @@ import { activeWindowShards, decisionsInForceAt, expiredWindowShards, shardActiv
 import { followsTouches, pathsOutside, removesEntriesOnly, textBeforePatch } from '../../policy/touch-scope.js'
 import { ciOf, GitHubCommitCi } from '../../ports/ci-reading.js'
 import { REVIEW_STATUS_CONTEXT } from '../../ports/github-status.js'
+import { isFullSha } from '../../ports/identifier-shapes.js'
 import { Meter, RateLimited, retryAfterSeconds } from '../../ports/meter.js'
 import { MAIN_BRANCH, MERGEABLE_OF_STATE, OPEN_PULLS_PAGE, verdictOf } from '../../ports/snapshot.js'
 import { mergeCandidates } from './merge-candidates.js'
 
 export const MERGE_METHOD = 'squash'
 export const MERGE_QUEUE = 'merge'
+type Queue = ReturnType<typeof mergeCandidates>[number]['queue']
 export const STALE_HEAD_STATUS = 409
 export const NOT_ALLOWED_STATUS = 405
 const RATE_LIMITED_STATUS = 429

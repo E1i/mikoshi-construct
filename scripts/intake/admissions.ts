@@ -7,7 +7,7 @@ import { ADMIT_SOURCE, isLaneName } from '../../src/commands/intake/admit.js'
 import { appendEvent } from '../core/db.js'
 import { EITHER_JOURNAL, events } from '../core/events-query.js'
 import { CARD_ADMITTED, INTAKE_EVENT, INTAKE_MOVE_EVENT } from '../core/events.js'
-import { cardIdOf } from '../core/identifiers.js'
+import { cardIdOf } from '../ports/identifier-shapes.js'
 
 export const ADMISSION_ACTOR = 'reducer'
 export const INTAKE_ACTOR_PREFIX = 'worker:intake:'

@@ -1,7 +1,5 @@
 import { isFullSha, positiveInteger } from '../ports/identifier-shapes.js'
 
-export { cardIdOf, cardIdOfDescription, isFullSha, MAIN_BRANCH, prBodySha } from '../ports/identifier-shapes.js'
-
 export const HEAVY_RUNS = ['quality', 'vitest'] as const
 export type HeavyRun = typeof HEAVY_RUNS[number]
 
