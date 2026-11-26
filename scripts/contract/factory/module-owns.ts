@@ -156,6 +156,7 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/ports/disk.ts`,
     `${FACTORY_ROOT}/ports/prompt-store.ts`,
     `${FACTORY_ROOT}/ports/client/contract.ts`,
+    `${FACTORY_ROOT}/ports/client/role-policy.ts`,
     `${FACTORY_ROOT}/ports/client/codex/adapter.ts`,
   ],
   'pr-record': [

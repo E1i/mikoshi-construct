@@ -10,11 +10,10 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { readShiftGate } from '../../src/manifest.js'
-import { answerPolicy } from '../nodes/answer/answerer.js'
-import { launchPolicy } from '../nodes/launch/launch-starter.js'
 import { clientHome, transcriptFile } from '../ports/client/claude/adapter.js'
 import { codexAdapter } from '../ports/client/codex/adapter.js'
 import { clientAdapter } from '../ports/client/index.js'
+import { answerPolicy, launchPolicy } from '../ports/client/role-policy.js'
 import { PROCESS_GH_PORT } from '../ports/gh.js'
 import { shellWord } from '../ports/tree-publish.js'
 import { SMOKE_STATUS_CONTEXT } from './version-pr-guard.js'
@@ -259,9 +258,9 @@ export function answerOwnerQuestionOf(tree: string): string {
 export function productPolicyOf(role: SmokeRole, tree: string): SessionPolicy {
   switch (role) {
     case 'launch':
-      return launchPolicy(readShiftGate(tree))
+      return launchPolicy(readShiftGate(tree).prepush)
     case 'answer':
-      return answerPolicy(readShiftGate(tree), [answerOwnerQuestionOf(tree)])
+      return answerPolicy(readShiftGate(tree).prepush, [answerOwnerQuestionOf(tree)])
     case 'review':
     case 'window':
       return CLIENT_DEFAULT_POLICY

@@ -4,7 +4,7 @@ import type { BusEvent } from '../../core/db.js'
 import type { Lease } from '../../core/lease.js'
 import type { MachineGate } from '../../core/machine-sessions.js'
 import type { FailedJobLog } from '../../ports/ci-reading.js'
-import type { Denial, Invocation, ProcessCwds, SessionPolicy, SessionTool, Usage } from '../../ports/client/contract.js'
+import type { Denial, Invocation, ProcessCwds, SessionTool, Usage } from '../../ports/client/contract.js'
 import type { AnswerInput } from '../../ports/prompt-store.js'
 import type { FreshBaseGap } from '../launch/tree-pr.js'
 import type { AnswerSource, CardSession } from './answer-source.js'
@@ -29,6 +29,7 @@ import { pushPolicyOf } from '../../core/push-policy.js'
 import { busCardBodies } from '../../intake/parking-reads.js'
 import { GhCiRuns } from '../../ports/ci-reading.js'
 import { hasClientTranscript } from '../../ports/client/claude/adapter.js'
+import { answerPolicy } from '../../ports/client/role-policy.js'
 import { processGit } from '../../ports/git.js'
 import { identityOf, OsProcessTable } from '../../ports/process-table.js'
 import { CARD_SIZE_VARIABLE, CARD_VARIABLE, cardSessionOverlay, cardSizeIn, clientInvocation, sessionEnv, streamReading, WIDE_VITEST_RULE } from '../../ports/session.js'
@@ -596,10 +597,6 @@ function askedUnlessRetried(request: AnswerRequest, asked: string | null): strin
   return null
 }
 
-export function answerPolicy(gate: Pick<ShiftGate, 'prepush'>, writePaths: string[], tools?: readonly SessionTool[]): SessionPolicy {
-  return { profile: 'sandboxed', gateCommands: gate.prepush, writePaths, mcpOff: true, tools }
-}
-
 function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
   return async (request) => {
     const { card } = request
@@ -620,7 +617,7 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
     if (!keepsHandoff)
       rmSync(handoff, { force: true })
     const prompt = [answerPrompt(request, cardBody, windowGateRule(card, gate, ownerQuestion), resumed ? undefined : tools.diff?.(card), ciLog), WIDE_VITEST_RULE, ...proofsRule(prove, proofs), ...handoffLines(handoff, keepsHandoff)].join('\n')
-    const invocationOf = (kind: 'start' | 'resume', text: string): Invocation => clientInvocation({ kind, role: 'answer', session, cwd: card.worktree, prompt: text, addDirs: [dir], pick: { model: null }, policy: answerPolicy(gate, prove.length === 0 ? [ownerQuestion] : [ownerQuestion, proofs], tools.cardTools?.(request.lease.cardId, cardBody)) })
+    const invocationOf = (kind: 'start' | 'resume', text: string): Invocation => clientInvocation({ kind, role: 'answer', session, cwd: card.worktree, prompt: text, addDirs: [dir], pick: { model: null }, policy: answerPolicy(gate.prepush, prove.length === 0 ? [ownerQuestion] : [ownerQuestion, proofs], tools.cardTools?.(request.lease.cardId, cardBody)) })
     mkdirSync(dir, { recursive: true })
     rmSync(ownerQuestion, { force: true })
     rmSync(proofs, { force: true })

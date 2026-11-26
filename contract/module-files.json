@@ -1061,6 +1061,7 @@
     "scripts/tests/ports/bus-read.test.ts",
     "scripts/tests/ports/ci-reading-seal.test.ts",
     "scripts/tests/ports/ci-reading.test.ts",
+    "scripts/tests/ports/client/role-policy.test.ts",
     "scripts/tests/ports/git-seal-ladder.test.ts",
     "scripts/tests/ports/git-seal-nodes.test.ts",
     "scripts/tests/ports/git-seal-release-contract.test.ts",
@@ -1721,6 +1722,7 @@
   "ports-adapters": [
     "scripts/ports/client/codex/adapter.ts",
     "scripts/ports/client/contract.ts",
+    "scripts/ports/client/role-policy.ts",
     "scripts/ports/disk.ts",
     "scripts/ports/git.ts",
     "scripts/ports/prompt-store.ts"

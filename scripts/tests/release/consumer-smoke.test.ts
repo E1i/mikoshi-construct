@@ -4,8 +4,7 @@ import type { RoleSession, SmokeRole, SmokeRun, SmokeSetting, SmokeStep, StepRec
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { readShiftGate } from '../../../src/manifest.js'
-import { answerPolicy } from '../../nodes/answer/answerer.js'
-import { launchPolicy } from '../../nodes/launch/launch-starter.js'
+import { answerPolicy, launchPolicy } from '../../ports/client/role-policy.js'
 import { InMemoryGh } from '../../ports/gh.js'
 import {
   AdapterRoleSession,
@@ -168,20 +167,13 @@ describe('the smoke starts each card role with the policy the product builds', (
     const specs = specsOfRoles(() => tree)
 
     expect(gate.prepush.length).toBeGreaterThan(0)
-    expect(specs.get('launch')!.policy).toEqual(launchPolicy(gate))
-    expect(specs.get('answer')!.policy).toEqual(answerPolicy(gate, [answerOwnerQuestionOf(tree)]))
+    expect(specs.get('launch')!.policy).toEqual(launchPolicy(gate.prepush))
+    expect(specs.get('answer')!.policy).toEqual(answerPolicy(gate.prepush, [answerOwnerQuestionOf(tree)]))
     for (const role of ['launch', 'answer'] as const) {
       expect(specs.get(role)!.policy.profile, role).toBe('sandboxed')
       expect(specs.get(role)!.policy.gateCommands, role).toEqual(gate.prepush)
       expect(specs.get(role)!.policy.mcpOff, role).toBe(true)
     }
-  })
-
-  it('the product launch and answer policies are sandboxed with the tree gate', () => {
-    const gate = { prepush: ['pnpm run quality'] }
-
-    expect(launchPolicy({ ...gate, handoffWrite: null, codeMatrix: null }, [])).toEqual({ profile: 'sandboxed', gateCommands: ['pnpm run quality'], writePaths: [], mcpOff: true, tools: [] })
-    expect(answerPolicy(gate, ['/factory/answer/q.md'])).toEqual({ profile: 'sandboxed', gateCommands: ['pnpm run quality'], writePaths: ['/factory/answer/q.md'], mcpOff: true, tools: undefined })
   })
 })
 
