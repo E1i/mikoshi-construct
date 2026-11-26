@@ -463,7 +463,6 @@
     "scripts/tests/bus/earlyclose.test.ts",
     "scripts/tests/bus/eddiesline.test.ts",
     "scripts/tests/bus/eddiesline150.test.ts",
-    "scripts/tests/bus/ended-card-trees.test.ts",
     "scripts/tests/bus/executor.test.ts",
     "scripts/tests/bus/fault-stop-dirty-tree.test.ts",
     "scripts/tests/bus/first-tick-bound.test.ts",

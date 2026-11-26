@@ -1,24 +1,29 @@
+import type { WorktreeGit } from '../../../nodes/close/ended-card-trees.js'
 import type { ProcessCwds } from '../../../ports/client/contract.js'
 import type { MergeBench } from '../../bus/merge-bench.js'
 import { Buffer } from 'node:buffer'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import os, { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { busDirOf } from '../../../core/bus-path.js'
+import { RUNNING_CARD } from '../../../core/card-automaton.js'
 import { appendEvent } from '../../../core/db.js'
 import { ARTIFACT_REMOVED, BOARD_ALARM, CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_STARTED } from '../../../core/events.js'
+import { leaseNext } from '../../../core/lease.js'
+import { all as pullRequests } from '../../../core/pr-readings.js'
 import { reduce } from '../../../core/reducer.js'
 import { ARTIFACT_LIFETIMES, ENDED_TREE_PATCH_DAYS, HOME_OVER_BUDGET, recordFreedArtifacts, rootOf, rootSizes, rowOfRoot, sweepArtifacts } from '../../../nodes/close/artifact-lifetimes.js'
 import { CloseNode } from '../../../nodes/close/close-worker.js'
-import { cardTreeSweep, gitWorktrees, recordEndedTrees } from '../../../nodes/close/ended-card-trees.js'
+import { cardTreeSweep, DIRTY, EndedCardTrees, gitWorktrees, recordEndedTrees, TREE_PATCH, UNSAVED } from '../../../nodes/close/ended-card-trees.js'
 import { dryRunReviewsDir, keepDryRun } from '../../../nodes/review/dry-run-record.js'
-import { reviewsDir } from '../../../nodes/review/review-worker.js'
+import { reviewsDir, TREE_LEFT } from '../../../nodes/review/review-worker.js'
 import { busWorktreeHome, cardTreeRoots, DEFAULT_WORKTREE_HOME } from '../../../ports/worktree-home.js'
 import { busProjections } from '../../../supervisor/composition.js'
-import { eventsOf, mergeBench } from '../../bus/merge-bench.js'
+import { detectClose } from '../../bus/close-detection.js'
+import { cardVerified, eventsOf, mergeBench } from '../../bus/merge-bench.js'
 
 const CARD = 2144
 const PROBE_CARD = 2150
@@ -217,5 +222,247 @@ describe('the artifact lifetime table', () => {
     const detail = String(alarms[0]!.detail)
     expect(detail.indexOf(path.join(home, 'bus'))).toBeGreaterThan(-1)
     expect(detail.indexOf(path.join(home, 'bus'))).toBeLessThan(detail.indexOf(path.join(home, 'probes')))
+  })
+})
+
+const CLOSED = 836
+const CLOSED_BESIDE_REPO = 837
+const RUNNING = 872
+const UNRECORDED = 913
+const CLOSER = 'worker:close:pass'
+
+function listed(repo: string): string[] {
+  return git(repo, ['worktree', 'list', '--porcelain']).split('\n').filter(line => line.startsWith('worktree ')).map(line => line.slice('worktree '.length))
+}
+
+function linkedCardTree(cardId: number, home = root, name = `mc-${cardId}`): string {
+  const tree = path.join(home, name)
+  git(repo, ['worktree', 'add', '-q', '-b', `feat/card-${cardId}`, tree])
+  return realpathSync(tree)
+}
+
+function startedIn(cardId: number, worktree: string): void {
+  const ts = bench.clock.now().toISOString()
+  appendEvent(bench.db, { ts, type: CARD_ADMITTED, actor: 'worker:intake:window', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { card: `#${cardId} part [implement/netwatch/S/cheap/auto] · depends — · blocks —`, lane: null, decision: 'auto', contour: 'cheap', depends: [] }, legacy: false })
+  appendEvent(bench.db, { ts, type: CARD_STARTED, actor: 'worker:launch:earlier', cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:earlier-${cardId}`, payload: { session: `s-${cardId}`, worktree, branch: `feat/card-${cardId}`, base: 'f'.repeat(40), pid: 1, pgid: 1 }, legacy: false })
+  reduce(bench.db, 'pending', busProjections())
+}
+
+function closeLeased(cardId: number): void {
+  const pr = cardId - 100
+  bench.gitHub.open({ number: pr })
+  bench.tick()
+  cardVerified(bench.db, bench.clock.now().toISOString(), cardId, pr)
+  bench.gitHub.close(pr, true)
+  bench.tick()
+  detectClose(bench.db, bench.clock.now)
+  expect(leaseNext(bench.db, pullRequests(bench.db), bench.clock.now().toISOString(), 'close', 'worker:close:other')).toMatchObject({ cardId })
+}
+
+function closedCard(cardId: number): void {
+  appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: CARD_CLOSED, actor: 'worker:close:earlier', cardId, pr: null, head: null, dedupeKey: `${CARD_CLOSED}:${cardId}`, payload: { verification: 'run' }, legacy: false })
+}
+
+function treesBusDir(): string {
+  return path.join(root, 'bus')
+}
+
+function savedTreePatch(cardId: number): string {
+  return path.join(treesBusDir(), 'probes', 'ended-trees', String(cardId), TREE_PATCH)
+}
+
+function sweepPass(trees: WorktreeGit = gitWorktrees(repo)): void {
+  const ended = new EndedCardTrees(bench.db, [root], trees, bench.clock.now, [], undefined, treesBusDir()).free()
+  recordEndedTrees(bench.db, CLOSER, bench.clock.now().toISOString(), ended)
+}
+
+describe('the close worker frees the trees of ended cards', () => {
+  beforeEach(() => {
+    writeFileSync(path.join(repo, 'package.json'), '{}\n')
+    git(repo, ['add', '.'])
+    git(repo, ['commit', '-q', '-m', 'package'])
+  })
+
+  it('a closed card\'s half-deleted tree is removed by the pass without a new close, and artifact.removed carries path and by', () => {
+    const tree = linkedCardTree(CLOSED)
+    unlinkSync(path.join(tree, 'README.md'))
+    startedIn(CLOSED, tree)
+    closedCard(CLOSED)
+
+    sweepPass()
+
+    expect(existsSync(tree)).toBe(false)
+    expect(listed(repo)).toHaveLength(1)
+    expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([{ path: tree, by: CLOSER }])
+    expect(eventsOf(bench.db, BOARD_ALARM)).toEqual([])
+  })
+
+  it('a half-deleted tree git refuses to remove is deleted as a directory and pruned', () => {
+    const tree = linkedCardTree(CLOSED)
+    unlinkSync(path.join(tree, 'README.md'))
+    startedIn(CLOSED, tree)
+    closedCard(CLOSED)
+    const real = gitWorktrees(repo)
+
+    sweepPass({ ...real, remove: () => {
+      throw Object.assign(new Error('git failed'), { stderr: 'fatal: Directory not empty' })
+    } })
+
+    expect(existsSync(tree)).toBe(false)
+    expect(listed(repo)).toHaveLength(1)
+    expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([{ path: tree, by: CLOSER }])
+  })
+
+  it('the tree of a card in work is left untouched', () => {
+    const tree = linkedCardTree(RUNNING)
+    startedIn(RUNNING, tree)
+    expect(bench.db.prepare('SELECT state FROM cards WHERE card_id = ?').get(RUNNING)).toEqual({ state: RUNNING_CARD })
+
+    sweepPass()
+
+    expect(existsSync(path.join(tree, 'README.md'))).toBe(true)
+    expect(listed(repo)).toHaveLength(2)
+    expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([])
+    expect(eventsOf(bench.db, BOARD_ALARM)).toEqual([])
+  })
+
+  it('a tree whose card the bus has no record of is left untouched', () => {
+    const tree = linkedCardTree(UNRECORDED)
+
+    sweepPass()
+
+    expect(existsSync(path.join(tree, 'README.md'))).toBe(true)
+    expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([])
+  })
+
+  it('a closed card\'s tree with a modified file has its work saved as a patch, is removed, and artifact.removed names the patch', () => {
+    const tree = linkedCardTree(CLOSED)
+    writeFileSync(path.join(tree, 'package.json'), '{"edited":true}\n')
+    unlinkSync(path.join(tree, 'README.md'))
+    startedIn(CLOSED, tree)
+    closedCard(CLOSED)
+
+    sweepPass()
+
+    expect(existsSync(tree)).toBe(false)
+    expect(readFileSync(savedTreePatch(CLOSED), 'utf8')).toContain('+{"edited":true}')
+    expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([{ path: tree, by: CLOSER, patch: savedTreePatch(CLOSED) }])
+    expect(eventsOf(bench.db, BOARD_ALARM)).toEqual([])
+    expect(git(repo, ['branch', '--list', `feat/card-${CLOSED}`])).not.toBe('')
+  })
+
+  it('a closed card\'s half-deleted tree that also holds an untracked file has its work saved as a patch and is removed', () => {
+    const tree = linkedCardTree(CLOSED)
+    unlinkSync(path.join(tree, 'README.md'))
+    writeFileSync(path.join(tree, 'notes.txt'), 'never committed\n')
+    startedIn(CLOSED, tree)
+    closedCard(CLOSED)
+
+    sweepPass()
+
+    expect(existsSync(tree)).toBe(false)
+    expect(readFileSync(savedTreePatch(CLOSED), 'utf8')).toContain('+never committed')
+    expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([{ path: tree, by: CLOSER, patch: savedTreePatch(CLOSED) }])
+    expect(eventsOf(bench.db, BOARD_ALARM)).toEqual([])
+  })
+
+  it('a closed card\'s dirty tree with no bus directory to save into stays and gives board.alarm tree_left naming the unsaved work', () => {
+    const tree = linkedCardTree(CLOSED)
+    writeFileSync(path.join(tree, 'package.json'), '{"edited":true}\n')
+    startedIn(CLOSED, tree)
+    closedCard(CLOSED)
+
+    recordEndedTrees(bench.db, CLOSER, bench.clock.now().toISOString(), new EndedCardTrees(bench.db, [root], gitWorktrees(repo), bench.clock.now).free())
+
+    expect(readFileSync(path.join(tree, 'package.json'), 'utf8')).toBe('{"edited":true}\n')
+    expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([])
+    expect(eventsOf(bench.db, BOARD_ALARM)).toEqual([{ reason: TREE_LEFT, path: tree, detail: `${UNSAVED}: no bus directory to save the tree into; ${DIRTY}:  M package.json` }])
+  })
+
+  it('the tree of a closed card that holds a live close lease is left untouched', () => {
+    const tree = linkedCardTree(CLOSED)
+    unlinkSync(path.join(tree, 'README.md'))
+    startedIn(CLOSED, tree)
+    closeLeased(CLOSED)
+    closedCard(CLOSED)
+
+    sweepPass()
+
+    expect(existsSync(path.join(tree, 'package.json'))).toBe(true)
+    expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([])
+  })
+
+  it('an ended card\'s tree at the per-bus path and one at the old mc-<id> path are both swept', () => {
+    const perBus = path.join(root, 'bus', 'worktrees')
+    const current = linkedCardTree(CLOSED, perBus, String(CLOSED))
+    const old = linkedCardTree(RUNNING, root)
+    unlinkSync(path.join(current, 'README.md'))
+    unlinkSync(path.join(old, 'README.md'))
+    startedIn(CLOSED, current)
+    startedIn(RUNNING, old)
+    closedCard(CLOSED)
+    closedCard(RUNNING)
+
+    const ended = new EndedCardTrees(bench.db, [root, perBus], gitWorktrees(repo), bench.clock.now, [perBus]).free()
+    recordEndedTrees(bench.db, CLOSER, bench.clock.now().toISOString(), ended)
+
+    expect(existsSync(current)).toBe(false)
+    expect(existsSync(old)).toBe(false)
+    expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toHaveLength(2)
+  })
+
+  it('a bare-id tree under a root that is not the per-bus one is left untouched though its card is closed', () => {
+    const perBus = path.join(root, 'bus', 'worktrees')
+    const tree = linkedCardTree(CLOSED, root, String(CLOSED))
+    unlinkSync(path.join(tree, 'README.md'))
+    startedIn(CLOSED, tree)
+    closedCard(CLOSED)
+
+    new EndedCardTrees(bench.db, [root, perBus], gitWorktrees(repo), bench.clock.now, [perBus]).free()
+
+    expect(existsSync(path.join(tree, 'package.json'))).toBe(true)
+    expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([])
+  })
+
+  it('the close worker sweep removes a closed card\'s bare-id tree under the bus it serves and leaves a numeric directory beside the repo', () => {
+    const bus = path.join(root, '.construct', 'a--one', 'bus.db')
+    const perBusTree = linkedCardTree(CLOSED, path.join(busDirOf(bus), 'worktrees'), String(CLOSED))
+    const besideRepo = linkedCardTree(CLOSED_BESIDE_REPO, path.dirname(repo), String(CLOSED_BESIDE_REPO))
+    unlinkSync(path.join(perBusTree, 'README.md'))
+    unlinkSync(path.join(besideRepo, 'README.md'))
+    startedIn(CLOSED, perBusTree)
+    startedIn(CLOSED_BESIDE_REPO, besideRepo)
+    closedCard(CLOSED)
+    closedCard(CLOSED_BESIDE_REPO)
+
+    const ended = cardTreeSweep(bench.db, {}, bus, repo, gitWorktrees(repo), bench.clock.now).free()
+
+    expect(ended).toEqual([{ cardId: CLOSED, path: perBusTree, left: null }])
+    expect(existsSync(perBusTree)).toBe(false)
+    expect(existsSync(path.join(besideRepo, 'package.json'))).toBe(true)
+  })
+
+  it('an mc-<id> tree outside the homes is left untouched though its card is closed', () => {
+    const tree = linkedCardTree(CLOSED, path.join(root, 'elsewhere'))
+    unlinkSync(path.join(tree, 'README.md'))
+    startedIn(CLOSED, tree)
+    closedCard(CLOSED)
+
+    sweepPass()
+
+    expect(existsSync(path.join(tree, 'package.json'))).toBe(true)
+    expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([])
+  })
+
+  it('an mc-<id> tree that is not the worktree card.started recorded is left untouched', () => {
+    const tree = linkedCardTree(CLOSED)
+    unlinkSync(path.join(tree, 'README.md'))
+    startedIn(CLOSED, path.join(root, 'elsewhere', `mc-${CLOSED}`))
+    closedCard(CLOSED)
+
+    sweepPass()
+
+    expect(existsSync(path.join(tree, 'package.json'))).toBe(true)
+    expect(eventsOf(bench.db, ARTIFACT_REMOVED)).toEqual([])
   })
 })
