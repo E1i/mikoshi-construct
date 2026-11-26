@@ -767,6 +767,7 @@
     "scripts/tests/contract/bus-cut/pr-status-to-pr-record.test.ts",
     "scripts/tests/contract/bus-cut/reducer-takes-projections.test.ts",
     "scripts/tests/contract/bus-cut/ui-in-the-ports-layer.test.ts",
+    "scripts/tests/contract/bus-cut/witnesses-run-in-quality.test.ts",
     "scripts/tests/contract/bus-cut/witnesses-to-card.test.ts",
     "scripts/tests/contract/bus-gate.test.ts",
     "scripts/tests/contract/bus-port-board-reader.test.ts",
