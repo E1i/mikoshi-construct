@@ -2,7 +2,10 @@ import type { OwnerWaitRow } from '../../core/card-readings.js'
 import type { RequestContext, RequestExecutor } from './context.js'
 import type { Executed } from './request.js'
 import { openWaitsOfCard, ownerWaitOf } from '../../core/card-readings.js'
-import { ANSWER_SOURCE, cardIdOf, changesRoundsOf, closeOwnerWait, consumeOwnerWordClosing, decisionOnAWait, inTransaction, OPEN_WAIT, openPrOfCard, OWNER_SOURCE, OWNER_WORD_NOT_FOUND, QUEUE_ACTOR, REVIEW_ROUNDS } from './reach.js'
+import { events } from '../../core/events-query.js'
+import { askedOwnerMoveOf, ownerMoveReasonOf } from '../../core/owner-commands.js'
+import { payloadOf } from '../../core/stored.js'
+import { ANSWER_SOURCE, cardIdOf, changesRoundsOf, closeOwnerWait, consumeOwnerWordClosing, decisionOnAWait, inTransaction, OPEN_WAIT, openPrOfCard, OWNER_SOURCE, OWNER_WAIT_OPENED, OWNER_WORD_NOT_FOUND, QUEUE_ACTOR, REQUEST_DONE, REQUEST_REFUSED, REVIEW_ROUNDS, storedByKey, WINDOW_REQUEST } from './reach.js'
 import { flagsOf, text, unreleasedWord } from './request.js'
 
 type Wait = Omit<OwnerWaitRow, 'state'>
@@ -38,6 +41,28 @@ function bound(context: RequestContext, words: string, card: number | null): { d
   return { done: written.code === 0, why: written.lines.join('; ') }
 }
 
+function sameMoveTarget(asked: Record<string, unknown>, written: Record<string, unknown> | null | undefined): boolean {
+  return written !== null && written !== undefined && written.kind === asked.kind && written.card === asked.card && written.task_key === asked.task_key && written.from === ANSWER_SOURCE
+}
+
+function moveNotDone(context: RequestContext, request: number, waitId: string, words: string): string | null {
+  const [opened] = events(context.db, { types: [OWNER_WAIT_OPENED], keys: [`${OWNER_WAIT_OPENED}:${waitId}`], limit: 1 })
+  const command = opened?.data?.command
+  const asked = askedOwnerMoveOf(typeof command === 'string' ? command : null)
+  if (opened === undefined || asked === null || ownerMoveReasonOf(asked.move, words) === null)
+    return null
+  const kind = String(asked.request.kind)
+  const [moved] = events(context.db, { types: [WINDOW_REQUEST], since: opened.id, before: request, newestFirst: true }).filter(written => sameMoveTarget(asked.request, written.data))
+  if (moved === undefined)
+    return `the owner's answer confirms ${kind} ${asked.target}, and no ${kind} request of the owner's answer follows ${waitId}; ${waitId} stays open`
+  const answered = storedByKey(context.db, `${WINDOW_REQUEST}:${moved.id}:answered`) as ReturnType<typeof storedByKey> | undefined
+  if (answered?.type === REQUEST_DONE)
+    return null
+  if (answered?.type === REQUEST_REFUSED)
+    return `the move ${waitId} waits for, window.request ${moved.id} (${kind} ${asked.target}), was refused (${String(payloadOf(answered).detail)}); ${waitId} stays open`
+  return `the move ${waitId} waits for, window.request ${moved.id} (${kind} ${asked.target}), has no outcome yet; ${waitId} stays open until it is done`
+}
+
 type Binding = 'by-need' | 'always' | 'never'
 
 function binds(binding: Binding, wait: Wait): boolean {
@@ -66,6 +91,9 @@ export const execute: RequestExecutor = (context, request, payload) => {
     return { done: false, why: `${id} is no open owner wait; nothing moves` }
   if (waits.length > 1)
     return { done: false, why: `card #${card} has ${waits.length} open waits (${waits.map(wait => wait.id).join(', ')}); answer one by its id; nothing moves` }
+  const unmoved = waits[0] === undefined ? null : moveNotDone(context, request, waits[0].id, words)
+  if (unmoved !== null)
+    return { done: false, why: unmoved }
   const word = consumeOwnerWordClosing(context.ownerChannel, `${ANSWER_WORD} ${target}`, context.clock())
   if (word === null || word.words !== words) {
     const released = word === null || word.release() ? '' : `; ${unreleasedWord(word.file)}`

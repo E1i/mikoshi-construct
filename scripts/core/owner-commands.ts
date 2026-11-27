@@ -122,9 +122,37 @@ export function askedOwnerMoveOf(command: string | null): AskedOwnerMove | null 
   return typeof target === 'string' || typeof target === 'number' ? { move: ownerMoveOf(kind), target, request } : null
 }
 
+const MOVE_CONFIRMED = ':'
+const OWNER_WORDS_PLACEHOLDER = '…'
+
+function moveConfirmation(move: OwnerMove): string {
+  return `${move}${MOVE_CONFIRMED}`
+}
+
+export function ownerMoveReasonOf(move: OwnerMove, words: string): string | null {
+  const confirmation = moveConfirmation(move)
+  if (!words.toLowerCase().startsWith(confirmation))
+    return null
+  const reason = words.slice(confirmation.length).trim()
+  return reason === '' ? words : reason
+}
+
+function answeredTargetOf(wait: OwnerWaitFacts): string {
+  return ANSWERED_BY_ID.test(wait.id) || wait.card === null ? wait.id : `#${wait.card}`
+}
+
+export function ownerMergeLine(pr: number): string {
+  return `merge PR #${pr} (owner)`
+}
+
 export function ownerAnswerCommand(wait: OwnerWaitFacts): string {
-  const target = ANSWERED_BY_ID.test(wait.id) || wait.card === null ? wait.id : `#${wait.card}`
-  return `${OWNER_ANSWER_COMMAND} ${target} ${OWNER_WORDS}`
+  if (wait.need === 'merge' && wait.pr !== null)
+    return ownerMergeLine(wait.pr)
+  return `${OWNER_ANSWER_COMMAND} ${answeredTargetOf(wait)} ${OWNER_WORDS}`
+}
+
+function ownerMoveAnswerCommand(wait: OwnerWaitFacts, move: OwnerMove): string {
+  return `${OWNER_ANSWER_COMMAND} ${answeredTargetOf(wait)} "${moveConfirmation(move)} ${OWNER_WORDS_PLACEHOLDER}"`
 }
 
 export const START_BIN = 'construct-factory'
@@ -148,11 +176,12 @@ export function shardRenewalCommand(hours: number, mode: string): string {
 }
 
 function standingCommandOf(asked: string | null): string | null {
-  if (askedOwnerMoveOf(asked) !== null)
-    return null
   return asked === MIKO_COMMAND || asked?.startsWith(OWNER_SAYS) === true ? asked : windowCommandOf(asked)
 }
 
 export function ownerWaitCommand(wait: OwnerWaitFacts, asked: string | null): string {
+  const move = askedOwnerMoveOf(asked)
+  if (move !== null)
+    return ownerMoveAnswerCommand(wait, move.move)
   return standingCommandOf(asked) ?? ownerAnswerCommand(wait)
 }

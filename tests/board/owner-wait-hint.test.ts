@@ -29,6 +29,10 @@ function answers(id: string): string {
   return `pnpm owner:answer ${id} "…"`
 }
 
+function merges(pr: number): string {
+  return `merge PR #${pr} (owner)`
+}
+
 function expectOnly(command: string, expected: string): void {
   expect(command).toBe(expected)
   for (const old of OLD_FORMS)
@@ -36,7 +40,7 @@ function expectOnly(command: string, expected: string): void {
 }
 
 describe('the owner wait hint is owner:answer', () => {
-  it('an open owner wait of every need, a merge wait included, shows owner:answer', () => {
+  it('an open owner wait shows owner:answer, and a merge wait the neutral owner merge line', () => {
     const answered = [
       ownerWait('Q1', 'decision', 1937, null),
       ownerWait('Q2', 'decision', null, null),
@@ -44,17 +48,24 @@ describe('the owner wait hint is owner:answer', () => {
       ownerWait('Q6', 'decision', null, 670),
       ownerWait('Q7', 'command', null, null, allowLiveCommand('merge')),
       ownerWait('Q8', 'command', 1937, null, allowLiveCommand('review')),
-      ownerWait('Q3', 'merge', 1937, 669),
-      ownerWait('Q4', 'merge', null, 671),
     ]
+    const merged = [ownerWait('Q3', 'merge', 1937, 669), ownerWait('Q4', 'merge', null, 671)]
     for (const wait of answered) {
       expect(waitHint(wait).who).toBe('owner')
       expectOnly(waitHint(wait).command, answers(wait.id))
     }
+    for (const wait of merged) {
+      expect(waitHint(wait).who).toBe('owner')
+      expectOnly(waitHint(wait).command, merges(wait.pr!))
+      expect(waitHint(wait).command).not.toContain('owner:answer')
+    }
     expectOnly(waitHint(ownerWait('W12', 'decision', 1807, null)).command, answers('#1807'))
-    const [line] = waitsLines({ waits: answered } as Parameters<typeof waitsLines>[0], PLAIN_LORE)
+    const waits = [...answered, ...merged]
+    const [line] = waitsLines({ waits } as Parameters<typeof waitsLines>[0], PLAIN_LORE)
     for (const wait of answered)
       expect(line).toContain(`${wait.text} · owner runs: ${answers(wait.id)}`)
+    for (const wait of merged)
+      expect(line).toContain(`${wait.text} · owner runs: ${merges(wait.pr!)}`)
     expect(line).not.toContain('decisions:add')
   })
 
@@ -69,7 +80,7 @@ describe('the owner wait hint is owner:answer', () => {
       const live = openBusWait(db, closedWaitIds(db), SINCE, 'policy', { need: 'command', text: 'the merge queue merges unswitched', command: allowLiveCommand('merge') })
       reduce(db, 'pending', busProjections())
       const recorded = openOwnerWaits(db).map(wait => [wait.id, wait.command])
-      expect(recorded).toEqual([[decision, answers(decision)], [merge, answers(merge)], [roundLimit, answers(roundLimit)], [live, answers(live)]])
+      expect(recorded).toEqual([[decision, answers(decision)], [merge, merges(669)], [roundLimit, answers(roundLimit)], [live, answers(live)]])
       for (const [, command] of recorded) {
         for (const old of OLD_FORMS)
           expect(command).not.toContain(old)

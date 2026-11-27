@@ -8,7 +8,7 @@ import { OPEN_WAIT } from '../core/db.js'
 import { events } from '../core/events-query.js'
 import { OWNER_WAIT_OPENED } from '../core/events.js'
 import { ANSWER_SOURCE } from '../core/inbox.js'
-import { askedOwnerMoveOf, ownerMoveCommand } from '../core/owner-commands.js'
+import { askedOwnerMoveOf, ownerMoveCommand, ownerMoveReasonOf } from '../core/owner-commands.js'
 import { withOwnerShellBus } from '../policy/decisions/add.js'
 import { requestFromWindow } from '../policy/decisions/window-door.js'
 import { sayToOwnerChannel } from './channel.js'
@@ -66,14 +66,14 @@ function askedMoveOfWait(db: DatabaseSync, target: Target): AskedOwnerMove | nul
   return askedOwnerMoveOf(typeof asked === 'string' ? asked : null)
 }
 
-function ownerMoveAnswered(db: DatabaseSync, channel: string, now: Date, out: (line: string) => void, answered: { target: Target, label: string, words: string }, asked: AskedOwnerMove, toWindow: WindowRequest): number {
-  const { target, label, words } = answered
+function ownerMoveAnswered(db: DatabaseSync, channel: string, now: Date, out: (line: string) => void, answered: { target: Target, label: string, words: string, reason: string }, asked: AskedOwnerMove, toWindow: WindowRequest): number {
+  const { target, label, words, reason } = answered
   const kind = String(asked.request.kind)
   sayToOwnerChannel(channel, ownerMoveCommand(asked.move, asked.target), now)
-  const moved = toWindow(db, now.toISOString(), ANSWER_SESSION, { ...asked.request, reason: words, from: ANSWER_SOURCE })
+  const moved = toWindow(db, now.toISOString(), ANSWER_SESSION, { ...asked.request, reason, from: ANSWER_SOURCE })
   sayToOwnerChannel(channel, answerWord(label, words), now)
   const closing = toWindow(db, now.toISOString(), ANSWER_SESSION, { kind: 'owner.answer', ...target, text: words, from: ANSWER_SOURCE })
-  out(`${PREFIX}window.request ${moved} (${kind} ${asked.target}) written with the owner's word, the move ${label} waits for; window.request ${closing} (owner.answer ${label}) closes the wait; bus:run executes both on its next tick, or refuses with why`)
+  out(`${PREFIX}window.request ${moved} (${kind} ${asked.target}) written with the owner's word, the move ${label} waits for; window.request ${closing} (owner.answer ${label}) closes the wait only once ${moved} is done, and leaves it open with why when the move is refused`)
   return 0
 }
 
@@ -90,12 +90,13 @@ export function runOwnerAnswer(args: readonly string[], db: DatabaseSync, channe
     return 2
   }
   const label = 'id' in target ? target.id : `#${target.card}`
+  const asked = askedMoveOfWait(db, target)
+  const reason = asked === null ? null : ownerMoveReasonOf(asked.move, words)
+  if (asked !== null && reason !== null)
+    return ownerMoveAnswered(db, channel, now, out, { target, label, words, reason }, asked, toWindow)
   const stop = 'card' in target ? stopReasonOf(words) : null
   if (stop !== null && 'card' in target)
     return ownerStop(db, channel, now, out, target.card, stop, toWindow)
-  const asked = askedMoveOfWait(db, target)
-  if (asked !== null)
-    return ownerMoveAnswered(db, channel, now, out, { target, label, words }, asked, toWindow)
   sayToOwnerChannel(channel, answerWord(label, words), now)
   const request = toWindow(db, now.toISOString(), ANSWER_SESSION, { kind: 'owner.answer', ...target, text: words, from: ANSWER_SOURCE })
   out(`${PREFIX}window.request ${request} (owner.answer ${label}) written with the owner's word; bus:run answers it on its next tick with window.request.done (the wait closed, or continue-fixes written) or window.request.refused with the reason`)

@@ -565,7 +565,7 @@ describe('the reducer of the owner_waits projection', () => {
     const id = openBusWait(db, closedWaitIds(db), '2026-10-09T12:00:00.000Z', 'policy', { need: 'merge', text: 'changes architecture/security-invariants.md', card: 793, pr: 800 })
     appendEvent(db, closed(800, true))
     reduce(db, 'pending', busProjections())
-    expect(waits(db)).toEqual([{ id, need: 'merge', command: `pnpm owner:answer ${id} "…"`, card_id: 793, pr: 800, state: 'closed', answer: 'PR #800 merged' }])
+    expect(waits(db)).toEqual([{ id, need: 'merge', command: 'merge PR #800 (owner)', card_id: 793, pr: 800, state: 'closed', answer: 'PR #800 merged' }])
     db.close()
   })
 

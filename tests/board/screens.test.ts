@@ -50,7 +50,7 @@ describe('the board screens', () => {
       { id: 'Q3', need: 'command' as const, text: 'the merge queue runs unswitched', command: 'pnpm decisions:add "[owner] allow-live merge"', card: null, pr: null, since, ...OWNER_LIFTED },
     ]
     const goalLine = '[███░░░░░░░] Plan 0.45: merged 2 of 7 · in work 0 · review 0 · queue 5 · remainder 5 · gate VEDETIRUN: open · +1 in 24 h · backlog: 3'
-    expect(screenLines(noFacts({ goal, waits }), PLAIN_LORE).slice(0, 3)).toEqual(['Flow', goalLine, 'waits for you · 3 · — · Q1 decision #10 (which path? · owner runs: pnpm owner:answer Q1 "…") · Q2 merge PR #669 (changes architecture/security-invariants.md · owner runs: pnpm owner:answer Q2 "…") · Q3 command (the merge queue runs unswitched · owner runs: pnpm owner:answer Q3 "…")'])
+    expect(screenLines(noFacts({ goal, waits }), PLAIN_LORE).slice(0, 3)).toEqual(['Flow', goalLine, 'waits for you · 3 · — · Q1 decision #10 (which path? · owner runs: pnpm owner:answer Q1 "…") · Q2 merge PR #669 (changes architecture/security-invariants.md · owner runs: merge PR #669 (owner)) · Q3 command (the merge queue runs unswitched · owner runs: pnpm owner:answer Q3 "…")'])
     expect(screenLines(noFacts({ goal }), PLAIN_LORE).slice(0, 3)).toEqual(['Flow', goalLine, 'planned (0): —'])
     const backlog = [card(8, 'in_review', null, '#8 eight', 'review'), card(9, 'in_review', null, '#9 nine', 'answer/changes'), card(4, 'running', null, '#4 four', 'ready')]
     expect(backlogLines(backlog, PLAIN_LORE)).toEqual(['  #8 eight · review', '  #9 nine · answer/changes', '  #4 four · ready'])
