@@ -4406,7 +4406,6 @@
           "scripts/ports/client/index.ts",
           "scripts/ports/diff.ts",
           "scripts/ports/gh.ts",
-          "scripts/ports/git.ts",
           "scripts/ports/github-status.ts",
           "scripts/ports/github.ts",
           "scripts/ports/identifier-shapes.ts",
