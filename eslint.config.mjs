@@ -187,12 +187,10 @@ export const HAND_EVENT_READERS_EXCEPTED = [
   'scripts/nodes/launch/launch-candidates.ts',
   'scripts/nodes/launch/launch-worker.ts',
   'scripts/nodes/update/update-executor.ts',
-  'scripts/window/card-measure.ts',
   'scripts/window/requests/amend.ts',
   'scripts/window/requests/owner-wait-close.ts',
   'scripts/window/watch.ts',
   'scripts/window/window-requests.ts',
-  'scripts/window/window.ts',
 ]
 
 const anEventIsReadThroughTheContract = {
