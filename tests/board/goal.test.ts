@@ -6,7 +6,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../scripts/core/db.js'
 import { byId } from '../../scripts/core/events-query.js'
-import { CARD_PLANNED, CARD_UNPLANNED, PLAN_CLOSED, PLAN_OPENED } from '../../scripts/core/events.js'
+import { CARD_ADMITTED, CARD_MOVED, CARD_PLANNED, CARD_UNPLANNED, PLAN_CLOSED, PLAN_OPENED } from '../../scripts/core/events.js'
 import { OWNER } from '../../scripts/core/inbox.js'
 import { payloadOf, STORED_COLUMNS, storedByKey } from '../../scripts/core/stored.js'
 import { RECUT_ACTOR } from '../../scripts/policy/round-limit-decision.js'
@@ -22,7 +22,7 @@ const PLAN = 'p-045'
 interface SeedCard {
   state: string | null
   at?: string
-  pr?: { pr: number, state: string }
+  pr?: { pr: number, state: string, at?: string }
   queue?: string
   lane?: string | null
 }
@@ -74,7 +74,7 @@ class Bench {
     this.db.prepare('INSERT INTO cards (card_id, state, pr, event_id) VALUES (?, ?, ?, ?)').run(id, seed.state, seed.pr?.pr ?? null, eventId)
     this.db.prepare('INSERT INTO card_bodies (card_id, admission_event_id, text, text_sha, lane) VALUES (?, ?, ?, ?, ?)').run(id, eventId, `card ${id}`, `sha-${id}`, seed.lane ?? null)
     if (seed.pr !== undefined)
-      this.db.prepare('INSERT INTO prs (pr, card_id, state, event_id) VALUES (?, ?, ?, ?)').run(seed.pr.pr, id, seed.pr.state, this.event('pr.closed', seed.at ?? ago(48 * HOUR)))
+      this.db.prepare('INSERT INTO prs (pr, card_id, state, event_id) VALUES (?, ?, ?, ?)').run(seed.pr.pr, id, seed.pr.state, this.event('pr.closed', seed.pr.at ?? seed.at ?? ago(48 * HOUR)))
     if (seed.queue !== undefined)
       this.db.prepare('INSERT INTO tasks (task_key, queue, card_id, state, event_id) VALUES (?, ?, ?, ?, ?)').run(`${seed.queue}:${id}`, seed.queue, id, 'leased', eventId)
     return this
@@ -143,5 +143,41 @@ describe('the release on the board', () => {
     const bench = new Bench()
     bench.db.exec('DROP TABLE card_releases;')
     expect(goalOf(bench.db, NOW)).toBeNull()
+  })
+
+  it('a bus with an open plan but only one of the two release tables has no goal', () => {
+    const bench = new Bench().card(1, { state: 'queued' }).open()
+    bench.db.exec('DROP TABLE card_releases;')
+    expect(goalOf(bench.db, NOW)).toBeNull()
+  })
+
+  it('a card whose pull request merged in the last 24 h counts by the merge, not by its own older state event', () => {
+    const bench = new Bench().card(1, { state: 'closed', pr: { pr: 10, state: 'merged', at: ago(HOUR) }, at: ago(48 * HOUR) })
+    expect(bench.open().planned(1).goal().plans[0]).toMatchObject({ delivered: 1, deliveredRecently: 1 })
+  })
+
+  it('the lane of the last card.admitted or card.moved wins over the lane of the card body', () => {
+    const bench = new Bench()
+      .card(1, { state: 'queued' })
+      .card(2, { state: 'queued', lane: 'archive' })
+    bench.event(CARD_ADMITTED, ago(3 * HOUR), { lane: 'lane-1' }, 'policy', 1)
+    bench.event(CARD_MOVED, ago(2 * HOUR), { lane: 'archive', from: null, to: null, bodySha: 'moved' }, 'policy', 1)
+    bench.event(CARD_MOVED, ago(2 * HOUR), { lane: 'lane-1', from: null, to: null, bodySha: 'moved' }, 'policy', 2)
+    const goal = bench.open().planned(1, 2).goal()
+    expect(goal.plans[0]).toMatchObject({ total: 1, cards: [{ card: 1, mark: 'dropped' }, { card: 2, mark: 'queued' }] })
+  })
+
+  it('a card of a closed plan stays in the backlog', () => {
+    const bench = new Bench().card(1, { state: 'queued' }).card(2, { state: 'queued' })
+    bench.plan(PLAN_OPENED, { id: 'p-044', title: 'Plan 0.44', goal: 'earlier', plan_file: '/plans/0.44.md' })
+    bench.plan(CARD_PLANNED, { release: 'p-044' }, 2)
+    bench.plan(PLAN_CLOSED, { plan: 'p-044' })
+    expect(bench.open().planned(1).goal()).toMatchObject({ plans: [{ total: 1 }], backlog: 1 })
+  })
+
+  it('a card with two open tasks is staged by the newest one', () => {
+    const bench = new Bench().card(1, { state: 'queued', queue: 'answer' })
+    bench.db.prepare('INSERT INTO tasks (task_key, queue, card_id, state, event_id) VALUES (?, ?, ?, ?, ?)').run('review:1', 'review', 1, 'queued', bench.event('task.enqueued', ago(HOUR)))
+    expect(bench.open().planned(1).goal().plans[0]).toMatchObject({ stages: { review: 1, in_progress: 0 } })
   })
 })
