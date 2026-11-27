@@ -1277,6 +1277,7 @@
     "CLAUDE.md"
   ],
   "intake": [
+    "scripts/intake/bus-intake.ts",
     "scripts/intake/import.ts",
     "scripts/intake/intake.ts",
     "scripts/intake/lane-json.ts",

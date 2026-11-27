@@ -8,7 +8,7 @@ import { BUS_CONTRACT } from '../scripts/core/bus-adapter.js'
 import { openBus } from '../scripts/core/db.js'
 import { CARD_ADMITTED } from '../scripts/core/events.js'
 import { cardStartedLines } from '../scripts/core/tasks.js'
-import { busCardEvents } from '../scripts/intake/intake.js'
+import { busCardEvents } from '../scripts/intake/bus-intake.js'
 import { runTaskStart } from '../scripts/ports/task-start.js'
 import { journalInBus } from '../scripts/tests/ghosts/card-started-bus.js'
 

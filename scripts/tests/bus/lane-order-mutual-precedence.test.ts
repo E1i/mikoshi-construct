@@ -7,7 +7,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { openBus } from '../../core/db.js'
 import { CARD_ADMITTED, LANE_ASSIGNED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
-import { busCardEvents } from '../../intake/intake.js'
+import { busCardEvents } from '../../intake/bus-intake.js'
 import { currentLane, layLanes } from '../../nodes/launch/lane-assign.js'
 import { busProjections } from '../../supervisor/composition.js'
 

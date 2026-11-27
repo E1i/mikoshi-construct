@@ -1,4 +1,4 @@
-import type { IntakeAdmission } from '../../intake/intake.js'
+import type { IntakeAdmission } from '../../intake/bus-intake.js'
 import type { JournalEvent } from '../../ladder/approval.js'
 import type { VerifiedClosing } from '../../nodes/close/task-close.js'
 import type { BusMerge } from '../../nodes/close/task-merged.js'
