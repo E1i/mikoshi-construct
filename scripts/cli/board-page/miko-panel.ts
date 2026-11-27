@@ -31,7 +31,6 @@ export interface DaemonWords {
   boardMikoWhere: (hijacked: boolean, path: string) => string
   boardDaemonsHead: { title: string, installed: (count: number) => string }
   boardDaemonState: (loaded: boolean) => string
-  boardDaemonSlot: (slot: number) => string
   boardDaemonPane: { mutations: (count: number) => string, noDescription: string }
   boardDaemonsUnread: (reader: string, loadedIn: string) => string
 }
@@ -113,13 +112,17 @@ export function longestName(daemons: readonly Daemon[]): number {
   return Math.max(0, ...daemons.map(daemon => daemon.daemon.length))
 }
 
-function daemonSlot(daemon: Daemon, index: number, lore: DaemonWords): string {
-  return `<li class="daemon-slot" data-daemon-slot="${escaped(daemon.daemon)}" data-state="${daemonState(daemon)}"${installedMark(daemon)} tabindex="0"><span class="slot-bay">${sdCard(daemon)}</span><span class="slot-foot"><i class="slot-led"></i>${escaped(lore.boardDaemonSlot(index + 1))}</span></li>`
+function paneId(daemon: Daemon): string {
+  return `daemon-pane-${escaped(daemon.daemon)}`
 }
 
-function daemonPane(daemon: Daemon, shown: boolean, lore: DaemonWords): string {
+function daemonPane(daemon: Daemon, lore: DaemonWords): string {
   const mutations = daemon.mutations.map(mutation => `<li>${escaped(mutation)}</li>`).join('')
-  return `<div class="daemon-pane" data-daemon-pane="${escaped(daemon.daemon)}" data-state="${daemonState(daemon)}"${installedMark(daemon)}${shown ? ' data-default data-shown' : ''}><span class="pane-name">${escaped(daemon.daemon)}</span><span class="pane-tag">${escaped(lore.boardDaemonState(runs(daemon)))}</span><span class="pane-description"${daemon.description === null ? ' data-none' : ''}>${escaped(daemon.description ?? lore.boardDaemonPane.noDescription)}</span><span class="pane-head">${escaped(lore.boardDaemonPane.mutations(daemon.mutations.length))}</span><ul class="pane-mutations">${mutations}</ul></div>`
+  return `<div class="daemon-pane" id="${paneId(daemon)}" role="tooltip" data-daemon-pane="${escaped(daemon.daemon)}" data-state="${daemonState(daemon)}"${installedMark(daemon)}><span class="pane-name">${escaped(daemon.daemon)}</span><span class="pane-tag">${escaped(lore.boardDaemonState(runs(daemon)))}</span><span class="pane-description"${daemon.description === null ? ' data-none' : ''}>${escaped(daemon.description ?? lore.boardDaemonPane.noDescription)}</span><span class="pane-head">${escaped(lore.boardDaemonPane.mutations(daemon.mutations.length))}</span><ul class="pane-mutations">${mutations}</ul></div>`
+}
+
+function daemonSlot(daemon: Daemon, lore: DaemonWords): string {
+  return `<li class="daemon-slot" data-daemon-slot="${escaped(daemon.daemon)}" data-state="${daemonState(daemon)}"${installedMark(daemon)} tabindex="0" aria-describedby="${paneId(daemon)}"><span class="slot-bay">${sdCard(daemon)}</span><span class="slot-foot"><i class="slot-led"></i></span>${daemonPane(daemon, lore)}</li>`
 }
 
 export function daemonsCell(reading: DaemonsReading, lore: DaemonWords): string {
@@ -127,8 +130,7 @@ export function daemonsCell(reading: DaemonsReading, lore: DaemonWords): string 
   const head = `<div class="daemons-head"><span class="daemons-title">${escaped(lore.boardDaemonsHead.title)}</span><span class="daemons-chip">${escaped(lore.boardDaemonsHead.installed(daemons.filter(daemon => daemon.installed).length))}</span></div>`
   if (daemons.length === 0)
     return `<div class="miko-daemons bevel">${head}<div class="svc-line daemons-unread">${escaped(lore.boardDaemonsUnread(reading.reader, reading.loadedIn))}</div></div>`
-  const shown = daemons.find(runs) ?? daemons[0]!
-  return `<div class="miko-daemons bevel">${head}<div class="daemons-bay"><ol class="daemon-slots" style="--_chars: ${longestName(daemons)}">${daemons.map((daemon, index) => daemonSlot(daemon, index, lore)).join('')}</ol><div class="daemon-status">${daemons.map(daemon => daemonPane(daemon, daemon === shown, lore)).join('')}</div></div></div>`
+  return `<div class="miko-daemons bevel">${head}<ol class="daemon-slots" style="--_chars: ${longestName(daemons)}">${daemons.map(daemon => daemonSlot(daemon, lore)).join('')}</ol></div>`
 }
 
 const CRAWLERS_HEAD = 'CRAWLERS'

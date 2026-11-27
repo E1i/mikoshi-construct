@@ -5412,7 +5412,7 @@
         ],
         "types": {
           "BusCard": "interface BusCard { id: number; state: string | null; stage: CardStage; lane: string | null; line: string | null; since: string | null; body: boolean; closed: boolean; closedAt: string | null; parent?: SliceParent; }",
-          "BusFacts": "interface BusFacts { at: string; goal: Goal | null; waits: OwnerWait[]; waitsStale?: string; cardsStale?: string; pulse: string | null; slots: BusSlot[]; cards: BusCard[]; services: BusService[]; matrices: BusMatrix[]; failure: string | null; reviewQueue: number; groups?: BusGroup[]; shadow?: BusShadow; tails?: BusTail[]; queued?: QueuedStanding[]; laneHeads?: LaneHead[]; window?: BusWindow; panel?: BusPanelFacts; }",
+          "BusFacts": "interface BusFacts { at: string; goal: Goal | null; waits: OwnerWait[]; waitsStale?: string; cardsStale?: string; pulse: string | null; slots: BusSlot[]; cards: BusCard[]; services: BusService[]; matrices: BusMatrix[]; failure: string | null; reviewQueue: number; groups?: BusGroup[]; shadow?: BusShadow; tails?: BusTail[]; queued?: QueuedStanding[]; laneHeads?: LaneHead[]; window?: BusWindow; panel?: BusPanelFacts; restart?: BusRestart; }",
           "BusMatrix": "interface BusMatrix { pr: number; head: string | null; full: string | null; killed: number; survived: number; notRun: number; }",
           "BusService": "interface BusService { role: string; task: string; tree: string | null; step: string; session?: string; gauges?: ServiceGauges; subagents?: SubagentReading[]; }",
           "BusSlot": "interface BusSlot { queue: string; used: number; total: number | null; }",
@@ -5452,6 +5452,7 @@
       },
       "src/commands/board/screens.ts": {
         "constants": [
+          "QUEUE_STAGE: CardStage",
           "WINDOW_WAITS_ROLE"
         ],
         "functions": {
@@ -5460,6 +5461,7 @@
           "counted": "(count: number, noun: string): string",
           "inLiveView": "(card: BusCard, standing: CardStanding): boolean",
           "isLive": "(card: BusCard): boolean",
+          "isQueued": "(card: BusCard): boolean",
           "liftedByTheWindow": "(wait: OwnerWait): boolean",
           "markedName": "(name: string, card: BusCard): string",
           "matrixLines": "(facts: BusFacts, lore: Lore): string[]",

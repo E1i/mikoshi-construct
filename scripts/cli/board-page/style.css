@@ -261,8 +261,7 @@ header.panel::before { --_sweep: oklch(from var(--wire) l c h / 0.5); animation:
 .daemons-title { color: var(--daemon-on); font: 700 0.75rem var(--font-display); letter-spacing: 0.2em; }
 .daemons-chip { padding: 2px 8px; border: 1px solid #1f3a46; color: var(--daemon-on); font-size: 0.6875rem; letter-spacing: 0.14em; white-space: nowrap; }
 .daemons-unread { color: var(--dim); font-size: 0.65rem; overflow-wrap: anywhere; }
-.daemons-bay { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; align-items: start; }
-.daemon-slots { display: flex; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.daemon-slots { display: flex; flex-wrap: wrap; gap: 12px; margin: 0; padding: 0; list-style: none; }
 .daemon-slot {
   --_ink: var(--daemon-ink);
   --_sketch: var(--daemon-on);
@@ -271,6 +270,7 @@ header.panel::before { --_sweep: oklch(from var(--wire) l c h / 0.5); animation:
   --_ride: 0px;
   --_lit: 1;
   --_glow: 0 0 6px var(--_led);
+  position: relative;
   display: grid;
   justify-items: center;
   gap: 0.25rem;
@@ -294,14 +294,24 @@ header.panel::before { --_sweep: oklch(from var(--wire) l c h / 0.5); animation:
 .sd-name { max-inline-size: 100%; margin-block-start: auto; white-space: nowrap; font: 700 min(10px, calc(84px / (var(--_chars, 11) * 0.72))) var(--font-mono); letter-spacing: 0.1em; }
 .slot-foot { display: flex; gap: 0.3rem; align-items: center; padding-block-start: 0.2rem; border-block-start: 2px solid var(--line); color: var(--dim); font: 600 0.55rem var(--font-mono); letter-spacing: 0.1em; }
 .slot-led { inline-size: 0.45rem; block-size: 0.45rem; border-radius: 50%; background: var(--_led); box-shadow: var(--_glow); }
-.daemon-status { display: grid; min-inline-size: 8rem; padding-inline-start: 14px; border-inline-start: 1px solid var(--line); }
 .daemon-pane {
   --_tag: var(--led-on);
+  position: absolute;
+  inset-block-start: calc(100% + 6px);
+  inset-inline-start: 0;
+  z-index: 30;
   display: none;
   gap: 0.25rem;
   align-content: start;
+  box-sizing: border-box;
+  inline-size: max-content;
+  max-inline-size: 16rem;
+  padding: 8px 10px;
+  background: var(--_surface);
+  border: 1px solid var(--daemon-on);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 60%);
   font-size: 0.65rem;
-  &[data-shown] { display: grid; }
+  text-align: start;
   &[data-state="sleep"] { --_tag: var(--daemon-off); }
 }
 .pane-name { color: var(--daemon-ink); font: 700 0.75rem var(--font-display); letter-spacing: 0.1em; }
@@ -310,6 +320,8 @@ header.panel::before { --_sweep: oklch(from var(--wire) l c h / 0.5); animation:
 .pane-head { color: var(--dim); letter-spacing: 0.12em; }
 .pane-mutations { margin: 0; padding: 0; list-style: none; color: var(--daemon-on); font-family: var(--font-mono); }
 .pane-mutations li::before { content: '↳ '; }
+.daemon-slot[data-pop] > .daemon-pane { display: grid; }
+.svc:has(.daemon-slot[data-pop]) { z-index: 5; }
 .why { display: block; color: var(--dim); font-size: 0.6rem; }
 .bus-panel {
   --_state: var(--ok);
@@ -398,6 +410,7 @@ header.panel::before { --_sweep: oklch(from var(--wire) l c h / 0.5); animation:
 .slot-segs i[data-on] { background: var(--_seg); }
 .slot-segs i.seg-in { animation: --animation-seg-in 1.8s ease-in 1; }
 .slot-segs i.seg-out { animation: --animation-seg-out 0.2s steps(1) 4; }
+.bus-flatline[data-restarting] .flatline-stamp { --signal: var(--wire); transform: none; }
 .bus-flatline { display: grid; justify-items: center; gap: var(--space-xs); padding: var(--space-m) var(--space-s); }
 .svc-top { display: flex; gap: var(--space-s); align-items: baseline; }
 .svc-kind { font: 700 0.8125rem var(--font-display); letter-spacing: 0.16em; text-transform: uppercase; }
@@ -494,6 +507,7 @@ header.panel::before { --_sweep: oklch(from var(--wire) l c h / 0.5); animation:
   &[data-stage="review"] { --_c: var(--wire); }
   &[data-stage="in work"] { --_c: var(--amber); }
   &[data-stage="planned"] { --_c: oklch(from var(--wire) calc(l - 0.3) calc(c * 0.5) h); }
+  &[data-stage="queue"] { --_c: var(--dim); }
   &[data-stage="stopped"] { --_c: var(--signal); --_paint: repeating-linear-gradient(135deg, var(--_c) 0 3px, transparent 3px 6px); }
   &[data-stage="dropped"] { --_paint: repeating-linear-gradient(135deg, var(--_c) 0 2px, transparent 2px 5px); }
   &[data-stage="delivered"] { --_c: var(--ok); }
@@ -655,6 +669,7 @@ td.slug { color: var(--text); white-space: normal; min-inline-size: 16rem; }
   &[data-stage="in work"], &[data-stage="answer/changes"] { --_fg: var(--amber); }
   &[data-stage="stopped"] { --_fg: var(--signal); }
   &[data-stage="dropped"] { --_fg: var(--off); }
+  &[data-stage="queue"] { --_fg: var(--dim); }
 }
 .statusline {
   display: flex;
