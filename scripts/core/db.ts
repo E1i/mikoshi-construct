@@ -230,6 +230,20 @@ export function retirePreviousGenerationBeats(db: DatabaseSync, generationStart:
   return rows.filter(row => processGone(row.process) && Number(retire.run(ts, row.process, row.ts).changes) === 1).map(row => row.process)
 }
 
+const PID_OF_PROCESS = /:([1-9]\d*)$/
+
+export function pidOfProcess(name: string): number | null {
+  const found = PID_OF_PROCESS.exec(name)
+  return found === null ? null : Number(found[1])
+}
+
+export function retirePreviousGeneration(db: DatabaseSync, generationStart: string, ts: string, pidGone: (pid: number) => boolean): string[] {
+  return retirePreviousGenerationBeats(db, generationStart, ts, (name) => {
+    const pid = pidOfProcess(name)
+    return pid !== null && pidGone(pid)
+  })
+}
+
 const ADDED_COLUMNS: readonly (readonly [string, string, string])[] = [['prs', 'body_sha', 'TEXT'], ['plans', 'gate', 'TEXT'], ['decisions', 'until', 'TEXT'], ['decisions', 'supersedes', 'TEXT'], ['decisions', 'state', `TEXT NOT NULL DEFAULT '${DECISION_IN_FORCE}'`]]
 
 function addMissingColumns(db: DatabaseSync): void {

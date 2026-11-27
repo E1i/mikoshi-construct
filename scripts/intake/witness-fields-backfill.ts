@@ -10,7 +10,7 @@ import { textSha } from '../../src/card/text-sha.js'
 import { parseWitnessList, runsFieldLine, witnessesOf, witnessFieldRefusals, witnessFieldsOf } from '../../src/card/witness-fields.js'
 import { withoutWitnessKind } from '../../src/commands/intake/draft.js'
 import { WITNESSES_HEADING } from '../../src/commands/intake/slice.js'
-import { CARD_BODIES } from '../core/card-bodies.js'
+import { cardBodyTexts } from '../core/card-bodies.js'
 import { appendEvent, defaultBusPath, openBus } from '../core/db.js'
 import { events, latest } from '../core/events-query.js'
 import { WITNESS_FIELDS_BACKFILLED, WITNESS_RECORDED } from '../core/events.js'
@@ -19,7 +19,6 @@ import { cardWitnessesOf } from '../policy/policy.js'
 export const PREFIX = '[bus:witness-backfill] '
 
 const BACKFILL_ACTOR = 'worker:witness-backfill:by-hand'
-const CARD_TEXTS = `SELECT card_id, text FROM ${CARD_BODIES} ORDER BY card_id`
 const NAMED_TEST = /^(.*\bvitest\b.*) -t '([^']+)'$/
 const BACKTICKED = /`[^`]*`/g
 const WHITESPACE_RUN = /\s+/g
@@ -128,8 +127,7 @@ export function backfillWitnessFields(db: DatabaseSync, ts: string): { recorded:
   const recorded = recordedWitnessFieldsBackfill(db)
   if (recorded !== null)
     return { recorded: false, backfill: recorded }
-  const rows = db.prepare(CARD_TEXTS).all() as { card_id: number, text: string }[]
-  const backfill = witnessFieldsBackfillOf(rows.map(row => ({ card: Number(row.card_id), text: row.text })))
+  const backfill = witnessFieldsBackfillOf(cardBodyTexts(db).map(row => ({ card: Number(row.card_id), text: row.text })))
   appendEvent(db, { ts, type: WITNESS_FIELDS_BACKFILLED, actor: BACKFILL_ACTOR, cardId: null, pr: null, head: null, dedupeKey: WITNESS_FIELDS_BACKFILLED, payload: { ...backfill }, legacy: false })
   return { recorded: true, backfill }
 }

@@ -1,4 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { ParkedTask } from './parking.js'
+import { GENERATED_FILES } from '../../scripts/core/factory-paths.js'
+import { pathsIn, pathsOutside } from '../../scripts/policy/touch-scope.js'
 
 export const KINDS = ['implement', 'probe'] as const
 export const SIZES = ['XS', 'S', 'M', 'L'] as const
@@ -6,6 +9,18 @@ export const CONTOURS = ['cheap', 'ladder'] as const
 export const DECISIONS = ['owner', 'auto', 'none'] as const
 export const CARD_PATH_REASON = /^Path \(D-76\):\s*(\S.*)$/m
 export const CARD_GRAMMAR = '#<id> <name> [<kind>/<milestone>/<size>/<contour>/<decision>] · depends <#id …|—> · blocks <#id …|—>'
+export const ADMIT_SOURCE = 'admit'
+export const LANE_FILE = 'lane.json'
+
+const LANE_NAME = /^(?:(?:lane|night)(?:-[\w.-]+)?|\d{4}-\d{2}-\d{2}-[a-z]+)$/
+
+export function isLaneName(name: string): boolean {
+  return LANE_NAME.test(name)
+}
+
+export function pathsNamedOutside(parked: ParkedTask, text: string): string[] {
+  return pathsOutside(parked.task.touches, parked.creates, pathsIn(text)).filter(named => named !== GENERATED_FILES.factory.path)
+}
 
 const DECISIONS_OF_KIND: Record<Kind, readonly Decision[]> = { implement: ['owner', 'auto'], probe: ['none'] }
 const HEAD = /^#(\S+) (\S+) \[([^\]]*)\](.*)$/

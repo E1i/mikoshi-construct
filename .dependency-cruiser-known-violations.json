@@ -217,21 +217,6 @@
   {
     "type": "dependency",
     "from": "scripts/core/tasks.ts",
-    "to": "src/card/closed.ts",
-    "unresolvedTo": "../../src/card/closed.js",
-    "dependencyTypes": [
-      "local",
-      "type-only",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "core-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/core/tasks.ts",
     "to": "src/card/grammar.ts",
     "unresolvedTo": "../../src/card/grammar.js",
     "dependencyTypes": [
@@ -2165,21 +2150,6 @@
     "unresolvedTo": "../supervisor/heartbeat.js",
     "dependencyTypes": [
       "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "ports-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/ports/task-start.ts",
-    "to": "scripts/intake/parking-reads.ts",
-    "unresolvedTo": "../intake/parking-reads.js",
-    "dependencyTypes": [
-      "local",
-      "type-only",
       "import"
     ],
     "rule": {

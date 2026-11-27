@@ -3,7 +3,7 @@ import type { LastReduced, OwnerWait } from './bus-readings.js'
 import type { EventRow } from './events-query.js'
 import { CLOSED_WAIT, OPEN_WAIT, OWNER_WAITS, readLastReduced } from './bus-readings.js'
 import { cardIdsInEvents, EITHER_JOURNAL, events, eventsWhere, lastTextFieldPerCard, latest } from './events-query.js'
-import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, LADDER_RUN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_CLOSED, QUESTION_AGENT, WITNESS_DOWNGRADE } from './events.js'
+import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, LADDER_RUN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_CLOSED, QUESTION_AGENT, SESSION_HEARTBEAT, WITNESS_DOWNGRADE } from './events.js'
 
 export type { BusPanelRow, EventRow } from './events-query.js'
 export { busPanelRow, EITHER_JOURNAL, events, lastObjectFieldPerCard, lastPer, lastSlotsPerQueue, latest, newestEventsOfEachCard, stampsAmong } from './events-query.js'
@@ -376,6 +376,31 @@ const CARDS_WITH_A_STATE = `SELECT card_id, state FROM cards WHERE state IS NOT 
 export function cardsWithAState(db: DatabaseSync): Map<number, string> {
   const rows = db.prepare(CARDS_WITH_A_STATE).all() as { card_id: number, state: string }[]
   return new Map(rows.map(row => [Number(row.card_id), String(row.state)]))
+}
+
+export function busCardStates(db: DatabaseSync): ReadonlyMap<string, string> {
+  return new Map([...cardsWithAState(db)].map(([card, state]) => [String(card), state]))
+}
+
+export interface LastHeartbeat {
+  ts: string
+  pr: number | null
+  head: string | null
+  step: string | null
+  session: string | null
+}
+
+function textField(payload: Record<string, unknown>, key: string): string | null {
+  const value = payload[key]
+  return typeof value === 'string' ? value : null
+}
+
+export function lastHeartbeat(db: DatabaseSync, card: number): LastHeartbeat | null {
+  const row = latest(db, { types: [SESSION_HEARTBEAT], card, legacy: EITHER_JOURNAL })
+  if (row === null)
+    return null
+  const payload = row.data ?? {}
+  return { ts: row.ts, pr: row.pr, head: row.head, step: textField(payload, 'step'), session: textField(payload, 'session') }
 }
 
 export function heldCardStates(db: DatabaseSync): Map<number, string | null> {

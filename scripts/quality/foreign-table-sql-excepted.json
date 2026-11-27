@@ -2,6 +2,5 @@
   "scripts/cli/card-chain.ts",
   "scripts/core/legacy-history.ts",
   "scripts/core/report.ts",
-  "scripts/intake/parking-reads.ts",
   "src/card/risk.ts"
 ]

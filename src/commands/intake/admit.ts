@@ -17,15 +17,15 @@ import path from 'node:path'
 import process from 'node:process'
 import { CARD_ADMITTED } from '../../../scripts/core/events.js'
 import { decisionCommand, InMemoryDecisions } from '../../../scripts/policy/decisions/decisions.js'
-import { createdPaths, OWNER_MERGES, pathsIn, pathsOutside } from '../../../scripts/policy/touch-scope.js'
+import { createdPaths, OWNER_MERGES } from '../../../scripts/policy/touch-scope.js'
 import { endedCards } from '../../card/closed.js'
-import { cardLine, parseCard } from '../../card/grammar.js'
+import { ADMIT_SOURCE, cardLine, isLaneName, parseCard } from '../../card/grammar.js'
 import { parseParkingFile } from '../../card/parking.js'
 import { priorityLineOf, withKeptPriority } from '../../card/text-sha.js'
 import { isWitnessFieldLine, renderedWitness, runsFieldLine, runsFieldOf, witnessesOf, witnessFieldsOf, witnessText } from '../../card/witness-fields.js'
 import { readMilestones } from '../../manifest.js'
 import { findsNoTest, namedAbsentOutside, namedPaths, withinScope } from '../test-runner.js'
-import { CARD_REFERENCE, checkDraft, correctionText, deadAtIntake, deadFilterRefusals, FACTORY_TWIN, invalidTestPatterns, isChangeWitness, nonPathTouchRefusals, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf, unreachableCreatesRefusal } from './check.js'
+import { CARD_REFERENCE, checkDraft, correctionText, deadAtIntake, deadFilterRefusals, invalidTestPatterns, isChangeWitness, nonPathTouchRefusals, ownerPathsOf, PACKAGE_MANIFEST, publishedRootsOf, unreachableCreatesRefusal } from './check.js'
 import { TEST_NAME_ARGUMENT } from './command-word.js'
 import { admitCorrectionsNeedPerson, bodySha, bodyShaWithoutTouches, confirmationOf, confirmationToken, isConfirmation, sameHeader, tokenConfirmation, TOUCHES_HEADER, windowShard } from './confirm.js'
 import { withoutWitnessKind } from './draft.js'
@@ -36,29 +36,18 @@ import { isWithin, parkingTree } from './parking-tree.js'
 import { defaultContourMap, readContourMap, sharedCodeMaskRefusals } from './shared-code-masks.js'
 import { CORRECTED_PREFIX, UNCLEAR_PREFIX, WITNESSES_HEADING } from './slice.js'
 
+export { ADMIT_SOURCE, pathsNamedOutside } from '../../card/grammar.js'
 export { parentsFromCardLines } from './slice.js'
 
 const BLOCKS_SEPARATOR = ' · blocks '
 const LEADING_BLOCKS = /^(?:—|#\d+(?:,? #\d+)*)/
 export const CARD_HEADER = 'card: '
 const RUNS_HEADER = 'runs: ['
-export const ADMIT_SOURCE = 'admit'
-const LANE_NAME = /^(?:(?:lane|night)(?:-[\w.-]+)?|\d{4}-\d{2}-\d{2}-[a-z]+)$/
-
-export function isLaneName(name: string): boolean {
-  return LANE_NAME.test(name)
-}
-
-export function pathsNamedOutside(parked: ParkedTask, text: string): string[] {
-  return pathsOutside(parked.task.touches, parked.creates, pathsIn(text)).filter(named => named !== FACTORY_TWIN)
-}
-
 export function laneOf(root: string, dir: string): string | null {
   const name = path.basename(dir)
   return path.dirname(path.resolve(dir)) === path.resolve(root) && isLaneName(name) ? name : null
 }
 
-export const LANE_FILE = 'lane.json'
 export const AMEND_SOURCE = 'amend'
 
 type AdmitSource = typeof ADMIT_SOURCE | typeof AMEND_SOURCE

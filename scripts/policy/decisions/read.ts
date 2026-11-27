@@ -7,12 +7,13 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { closedFromBus, mergedFromBus } from '../../../src/card/closed.js'
-import { defaultBusPath } from '../../core/db.js'
+import { busCardStates } from '../../core/card-readings.js'
+import { BUSY_TIMEOUT_MS, defaultBusPath } from '../../core/db.js'
 import { ofPr } from '../../core/events-query.js'
 import { PR_OBSERVED, PR_OPENED } from '../../core/events.js'
 import { busHistory } from '../../core/journal.js'
 import { pnpmCommand } from '../../core/owner-commands.js'
-import { busCardStates } from '../../core/tasks.js'
+import { openDatabase } from '../../core/sqlite.js'
 import { isFullSha } from '../../ports/identifier-shapes.js'
 import { CARD_VARIABLE } from '../../ports/session.js'
 import { calendarTerm, decisionsFileOf, decisionsFindings, decisionsRefusals, inForce, OWNER_SOURCE, parseDecisions, PREFIX, settleSupersedes, spentByCards, visibleToCard } from './decisions.js'
@@ -148,11 +149,23 @@ export function runDecisionsRead(args: string[], deps: DecisionsReadDeps): numbe
   return 0
 }
 
+function cardStatesOnTheBus(busPath: string): BusCardStates {
+  if (!existsSync(busPath))
+    return new Map()
+  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
+  try {
+    return busCardStates(db)
+  }
+  finally {
+    db.close()
+  }
+}
+
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   process.exitCode = runDecisionsRead(process.argv.slice(2), {
     decisions: defaultDecisionsFile(),
     history: busHistory(defaultBusPath()),
-    bus: busCardStates(defaultBusPath()),
+    bus: cardStatesOnTheBus(defaultBusPath()),
     exists: existsSync,
     read: file => readFileSync(file, 'utf8'),
     out: line => console.log(line),

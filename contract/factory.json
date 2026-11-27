@@ -2792,7 +2792,7 @@
         "namedIn": [
           "scripts/intake/card-archive.ts",
           "scripts/intake/lane-json.ts",
-          "src/commands/intake/admit.ts"
+          "src/card/grammar.ts"
         ],
         "owner": "scripts/nodes/launch/lane-assign.ts",
         "source": "event:lane.assigned",
@@ -3640,6 +3640,7 @@
           "src/card/task-file.ts",
           "src/card/risk.ts",
           "src/card/complexity.ts",
+          "src/card/closed.ts",
           "scripts/policy/touch-scope.ts",
           "scripts/policy/derived-files.ts",
           "scripts/policy/placement-growth.ts"
@@ -3659,6 +3660,7 @@
           "src/card/task-file.ts",
           "src/card/risk.ts",
           "src/card/complexity.ts",
+          "src/card/closed.ts",
           "scripts/policy/touch-scope.ts",
           "scripts/policy/derived-files.ts",
           "scripts/policy/placement-growth.ts"
@@ -3675,7 +3677,8 @@
           "scripts/intake/admissions.ts",
           "scripts/intake/card-archive.ts",
           "scripts/intake/card-contract.ts",
-          "scripts/intake/witness-fields-backfill.ts",
+          "scripts/intake/lane-json.ts",
+          "scripts/intake/parking-reads.ts",
           "scripts/cli/card.ts",
           "scripts/core/card-automaton.ts",
           "scripts/core/card-hold.ts",
@@ -3700,7 +3703,8 @@
           "scripts/intake/admissions.ts",
           "scripts/intake/card-archive.ts",
           "scripts/intake/card-contract.ts",
-          "scripts/intake/witness-fields-backfill.ts",
+          "scripts/intake/lane-json.ts",
+          "scripts/intake/parking-reads.ts",
           "scripts/cli/card.ts",
           "scripts/core/card-automaton.ts",
           "scripts/core/card-hold.ts",
@@ -3961,8 +3965,6 @@
         "concepts": [],
         "contract": [
           "scripts/intake/bus-intake.ts",
-          "scripts/intake/lane-json.ts",
-          "scripts/intake/parking-reads.ts",
           "src/commands/intake/admit.ts",
           "src/commands/intake/amend.ts",
           "src/commands/intake/bash-syntax.ts",
@@ -4003,6 +4005,8 @@
           "!scripts/intake/card-archive.ts",
           "!scripts/intake/card-contract.ts",
           "!scripts/intake/intake.ts",
+          "!scripts/intake/lane-json.ts",
+          "!scripts/intake/parking-reads.ts",
           "!scripts/intake/witness-fields-backfill.ts",
           "!src/commands/intake/command-word.ts"
         ],
@@ -4794,7 +4798,7 @@
           "scripts/core/legacy-history.ts",
           "scripts/core/import-closure.ts",
           "scripts/core/cadence.ts",
-          "src/card/closed.ts",
+          "scripts/intake/witness-fields-backfill.ts",
           "scripts/cli/slot.ts",
           "src/commands/liveness.ts",
           "scripts/supervisor/bg.ts",
@@ -4833,7 +4837,7 @@
           "scripts/core/legacy-history.ts",
           "scripts/core/import-closure.ts",
           "scripts/core/cadence.ts",
-          "src/card/closed.ts",
+          "scripts/intake/witness-fields-backfill.ts",
           "scripts/cli/slot.ts",
           "src/commands/liveness.ts",
           "scripts/supervisor/**",
@@ -5264,12 +5268,15 @@
       },
       "src/card/grammar.ts": {
         "constants": [
+          "ADMIT_SOURCE",
           "CARD_PATH_REASON",
+          "LANE_FILE",
           "SIZES"
         ],
         "functions": {
           "cardLine": "(card: Omit<Card, 'line'>): string",
           "cardTerms": "(card: Card): string",
+          "isLaneName": "(name: string): boolean",
           "parseCard": "(text: string, milestones?: readonly string[]): ParsedCard",
           "readBodyCard": "(body: string): ParsedCard",
           "registerCardFunctions": "(db: DatabaseSync, blocks: string): DatabaseSync"
@@ -5673,16 +5680,12 @@
       },
       "src/commands/intake/admit.ts": {
         "constants": [
-          "ADMIT_SOURCE",
-          "AMEND_SOURCE",
-          "LANE_FILE"
+          "AMEND_SOURCE"
         ],
-        "functions": {
-          "isLaneName": "(name: string): boolean",
-          "pathsNamedOutside": "(parked: ParkedTask, text: string): string[]"
-        },
+        "functions": {},
         "reexports": [
-          "parentsFromCardLines"
+          "parentsFromCardLines",
+          "pathsNamedOutside"
         ],
         "types": {
           "AdmitResult": "type AdmitResult = { status: 'refused'; why: string; } | { status: 'invalidTestPattern'; reasons: string[]; } | { status: 'sharedCodeMask'; reasons: string[]; } | { status: 'admitted' | 'alreadyAdmitted' | 'dryRun'; file: string; card: SlicedCard; autoConfirm: boolean; source: AdmitSource; inBus: boolean; event: number | null; windowShard: string | null; } | { status: 'awaiting'; file: string; card: SlicedCard; token: string; stale: boolean; } | { status: 'waiting'; file: string; card: SlicedCard; waitingOn: number[]; inBus: boolean; dryRun: boolean; } | { status: 'ownerWait'; file: string; card: SlicedCard; downgrades: string[]; actions: string[]; command: string; inBus: boolean; dryRun: boolean; }"
@@ -6929,7 +6932,7 @@
         "types": {
           "HandedContract": "interface HandedContract extends Contract { forecast?: CheapForecast; }",
           "TaskStartContract": "type TaskStartContract = Parameters<typeof unsatisfiedDependencies>[0]",
-          "TaskStartDeps": "interface TaskStartDeps { contract: TaskStartContract; flags: TaskStartFlags; cwd: string; git: (cwd: string, args: string[]) => string; install: (cwd: string, args: string[]) => void; exists: (target: string) => boolean; bus: string; now: () => Date; session: string | undefined; shift?: string; worktreeHome?: string; treeOf?: (id: string) => string; style?: SignalStyle; cardBody?: CardBodyReader; windowLimit?: () => number; }",
+          "TaskStartDeps": "interface TaskStartDeps { contract: TaskStartContract; flags: TaskStartFlags; cwd: string; git: (cwd: string, args: string[]) => string; install: (cwd: string, args: string[]) => void; exists: (target: string) => boolean; bus: string; now: () => Date; session: string | undefined; shift?: string; worktreeHome?: string; treeOf?: (id: string) => string; style?: SignalStyle; cardBody?: (cardId: number) => string | null; windowLimit?: () => number; }",
           "TaskStartFlags": "interface TaskStartFlags { card: string; adopt: string; withoutIntake: string; }",
           "TaskStartResult": "interface TaskStartResult { stdout: string[]; stderr: string[]; exitCode: number; worktree?: string; }"
         }

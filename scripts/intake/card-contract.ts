@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { ParkedTask } from '../../src/card/parking.js'
 import type { WitnessField } from '../../src/card/witness-fields.js'
-import type { LastHeartbeat } from '../supervisor/heartbeat.js'
+import type { LastHeartbeat } from '../core/card-readings.js'
 import { layerMasksOf, runsOf } from '../../src/card/covering-tests.js'
 import { CARD_PATH_REASON } from '../../src/card/grammar.js'
 import { parseParkingFile } from '../../src/card/parking.js'
@@ -9,7 +9,7 @@ import { RISK_PREFIX, SEAM_PREFIX, SLICE_PREFIX } from '../../src/card/risk.js'
 import { isWitnessFieldLine, witnessesOf, witnessFieldsOf } from '../../src/card/witness-fields.js'
 import { UNCLEAR_PREFIX, WITNESSES_HEADING } from '../../src/commands/intake/slice.js'
 import { CARD_BODIES } from '../core/card-bodies.js'
-import { lastHeartbeat } from '../supervisor/heartbeat.js'
+import { lastHeartbeat } from '../core/card-readings.js'
 
 export const CONTRACTS = ['intake', 'start', 'review', 'close', 'board'] as const
 

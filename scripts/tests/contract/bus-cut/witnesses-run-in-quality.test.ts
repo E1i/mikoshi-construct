@@ -34,6 +34,8 @@ const BASE_ROWS: Readonly<Record<string, number>> = {
   'boundary:project->ports': 1,
   'boundary:quality->composition-root': 2,
   'boundary:quality->intake': 1,
+  'boundary:session->intake': 2,
+  'boundary:session->quality': 1,
 }
 
 interface Declaration {

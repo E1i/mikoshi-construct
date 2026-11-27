@@ -178,6 +178,15 @@ export function cardSessionsIn(bus: BusContract, db: DatabaseSync, cardId: numbe
   return [...stoppedRounds, ...carried]
 }
 
+export interface CardBodyText {
+  card_id: number
+  text: string
+}
+
+export function cardBodyTexts(db: DatabaseSync): CardBodyText[] {
+  return db.prepare(`SELECT card_id, text FROM ${CARD_BODIES} ORDER BY card_id`).all() as unknown as CardBodyText[]
+}
+
 export function cardBodyText(db: DatabaseSync, cardId: number): string | null {
   return (db.prepare(`SELECT text FROM ${CARD_BODIES} WHERE card_id = ?`).get(cardId) as { text: string } | undefined)?.text ?? null
 }

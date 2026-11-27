@@ -18,7 +18,7 @@ const LINT_MS = 120_000
 const OWNER_OF: Record<string, string> = {
   'scripts/ports/bus-read.ts': 'bus',
   'scripts/supervisor/stalled-sessions.ts': 'session',
-  'scripts/intake/witness-fields-backfill.ts': 'card-record',
+  'scripts/intake/witness-fields-backfill.ts': 'session',
   'scripts/supervisor/bus-heal.ts': 'session',
   'scripts/supervisor/heartbeat.ts': 'session',
   'scripts/window/window-heartbeat.ts': 'window',
