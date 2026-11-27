@@ -1,7 +1,7 @@
 import type { CarriedTree } from '../../../core/lease.js'
 import type { UnselectedWitness } from '../../../ports/witnesses.js'
 import type { CardSession } from '../answer-source.js'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { processGit, throughGitPort } from '../../../ports/git.js'
 import { MAIN_BRANCH } from '../../../ports/snapshot.js'
@@ -42,14 +42,27 @@ export function unselectedAtHead(worktree: string, cardBody: string | null): Uns
   return cardBody === null ? [] : unselectedWitnessesOf(cardBody, file => headFileOf(worktree, file))
 }
 
+function treeFileOf(worktree: string, file: string): string | null {
+  try {
+    return readFileSync(path.join(worktree, file), 'utf8')
+  }
+  catch {
+    return null
+  }
+}
+
+export function unselectedInTree(worktree: string, cardBody: string | null): UnselectedWitness[] {
+  return cardBody === null ? [] : unselectedWitnessesOf(cardBody, file => treeFileOf(worktree, file))
+}
+
 export class WitnessUnselected extends Error {
   constructor(readonly unselected: readonly UnselectedWitness[]) {
     super(`the bus pushed nothing: ${unselectedWitnessesLine(unselected)}; write each witness test under the card's witness file and its title verbatim`)
   }
 }
 
-export function refuseUnselectedAtHead(worktree: string, cardBody: string | null): void {
-  const unselected = unselectedAtHead(worktree, cardBody)
+export function refuseUnselectedInTree(worktree: string, cardBody: string | null): void {
+  const unselected = unselectedInTree(worktree, cardBody)
   if (unselected.length > 0)
     throw new WitnessUnselected(unselected)
 }

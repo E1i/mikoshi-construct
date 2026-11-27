@@ -8,6 +8,8 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { gitTwins } from '../../nodes/answer/answer-executor.js'
+import { claudeAnswerer } from '../../nodes/answer/answerer.js'
+import { ownCarriedTree, unselectedInTree, WitnessUnselected } from '../../nodes/answer/duties/tree.js'
 import { refusalOf, treePr } from '../../nodes/launch/tree-pr.js'
 import { declaredTestNames, unselectedWitnessesOf } from '../../ports/witnesses.js'
 
@@ -98,6 +100,59 @@ function branchOnOrigin(origin: string): string {
   return git(origin, ['branch', '--list', BRANCH]).trim()
 }
 
+interface SessionAnswer {
+  published: string[]
+  prompts: string[]
+  answered: () => Promise<unknown>
+}
+
+function sessionAnswer(tree: string, onResume: () => void = () => {}): SessionAnswer {
+  const published: string[] = []
+  const prompts: string[] = []
+  const answerer = claudeAnswerer(path.join(path.dirname(tree), 'answers'), {
+    cardText: () => cardBody(CARD_TITLE),
+    available: () => true,
+    remoteHead: () => null,
+    spawn: async (run) => {
+      prompts.push(run.argv.join(' '))
+      if (prompts.length > 1)
+        onResume()
+      return 0
+    },
+    newSession: () => 's1',
+    publish: card => published.push(card.branch),
+    unselected: (card, body) => unselectedInTree(card.worktree, body),
+    pushPolicy: () => 'bus',
+  })
+  const lease = { taskKey: `answer:${CARD_ID}:2`, queue: 'answer', cardId: CARD_ID, pr: 2, head: 'a'.repeat(40), leaseGen: 1, actor: 'worker:answer:w' } as const
+  return { published, prompts, answered: async () => answerer({ lease, source: { kind: 'changes', findings: [], events: [], decisions: [] }, widened: null, card: { session: 's0', worktree: tree, branch: BRANCH } }) }
+}
+
+interface CarriedTree {
+  card: { session: string, worktree: string, branch: string }
+  prHead: string
+  origin: string
+}
+
+function carriedTree(witness: string | null = null): CarriedTree {
+  const { tree, origin } = answerTree()
+  git(tree, ['push', '-q', 'origin', 'main'])
+  git(tree, ['checkout', '-q', '-b', BRANCH])
+  write(tree, witness === null ? 'scripts/tests/nodes/other.test.ts' : WITNESS_FILE, witness ?? testFile(CARD_TITLE))
+  git(tree, ['add', '-A'])
+  git(tree, ['commit', '-q', '-m', 'card'])
+  const prHead = git(tree, ['rev-parse', 'HEAD']).trim()
+  git(tree, ['checkout', '-q', 'main'])
+  write(tree, 'MAIN.md', 'main moves\n')
+  git(tree, ['add', '-A'])
+  git(tree, ['commit', '-q', '-m', 'main moves'])
+  git(tree, ['push', '-q', 'origin', 'main'])
+  git(tree, ['fetch', '-q', 'origin'])
+  git(tree, ['checkout', '-q', BRANCH])
+  git(tree, ['merge', '-q', '--no-ff', '--no-edit', 'origin/main'])
+  return { card: { session: 's0', worktree: tree, branch: BRANCH }, prHead, origin }
+}
+
 describe('a card witness selects a test in the head tree before the push', () => {
   it('a launch push whose witness -t matches no test in the head file is refused naming the declared test names', () => {
     const tree = rootOf('witness-title-launch-')
@@ -114,23 +169,58 @@ describe('a card witness selects a test in the head tree before the push', () =>
     expect(outcome.gaps[0]!.task).toContain(`-t '${CARD_TITLE}'`)
   })
 
-  it('an answer push whose witness file is missing from the head tree is refused', () => {
-    const { tree, origin } = answerTree()
+  it('an answer push whose witness file is missing from the head tree is refused', async () => {
+    const tree = rootOf('witness-title-session-')
     write(tree, 'scripts/tests/nodes/other.test.ts', testFile(CARD_TITLE))
-    expect(twinPush(tree, cardBody(CARD_TITLE))).toBeNull()
-    expect(branchOnOrigin(origin)).toBe('')
+    const session = sessionAnswer(tree)
+    await expect(session.answered()).rejects.toThrow(`witness W1 -t '${CARD_TITLE}' selects no test in ${WITNESS_FILE}: the file is not in the head tree`)
+    expect(session.published).toEqual([])
+    expect(session.prompts.at(-1)).toContain(`Red gate: a witness of card #${CARD_ID} selects no test`)
+    expect(session.prompts.at(-1)).toContain(`-t '${CARD_TITLE}'`)
   })
 
-  it('a push whose every witness selects a test goes through', () => {
-    const { tree, origin } = answerTree()
-    write(tree, WITNESS_FILE, testFile(`it ${CARD_TITLE} verbatim`))
-    expect(twinPush(tree, cardBody(CARD_TITLE))).toBe(git(tree, ['rev-parse', 'HEAD']).trim())
-    expect(branchOnOrigin(origin)).toBe(BRANCH)
+  it('a push whose every witness selects a test goes through', async () => {
+    const tree = rootOf('witness-title-session-')
+    write(tree, WITNESS_FILE, testFile(CARD_TITLE))
+    const session = sessionAnswer(tree)
+    await session.answered()
+    expect(session.published).toEqual([BRANCH])
+    expect(session.prompts.some(prompt => prompt.includes('Red gate'))).toBe(false)
+    const twin = answerTree()
+    write(twin.tree, WITNESS_FILE, testFile(`it ${CARD_TITLE} verbatim`))
+    expect(twinPush(twin.tree, cardBody(CARD_TITLE))).toBe(git(twin.tree, ['rev-parse', 'HEAD']).trim())
+    expect(branchOnOrigin(twin.origin)).toBe(BRANCH)
     const launchTree = rootOf('witness-title-launch-')
     write(launchTree, WITNESS_FILE, testFile(CARD_TITLE))
     pushed.length = 0
     expect(treePr(launchPorts, launchCard('node the card'), launchTree, null)).toMatchObject({ kind: 'problem', gaps: [{ reason: 'commit-push-failed' }] })
     expect(pushed[0]).toBe('fetch -q origin main')
+  })
+
+  it('the session resumed on the red gate that writes the witness under its title gets its push', async () => {
+    const tree = rootOf('witness-title-session-')
+    const session = sessionAnswer(tree, () => write(tree, WITNESS_FILE, testFile(CARD_TITLE)))
+    await session.answered()
+    expect(session.published).toEqual([BRANCH])
+  })
+
+  it('a regenerated twin whose witness file is missing is not committed or pushed, and the refusal names the witness', () => {
+    const { tree, origin } = answerTree()
+    write(tree, 'scripts/tests/nodes/other.test.ts', testFile(CARD_TITLE))
+    expect(() => twinPush(tree, cardBody(CARD_TITLE))).toThrow(WitnessUnselected)
+    expect(() => twinPush(tree, cardBody(CARD_TITLE))).toThrow(`witness W1 -t '${CARD_TITLE}'`)
+    expect(git(tree, ['rev-list', '--count', 'HEAD']).trim()).toBe('1')
+    expect(branchOnOrigin(origin)).toBe('')
+  })
+
+  it('a carried tree of main merges is not pushed while a witness selects nothing, and is once it does', () => {
+    const missing = carriedTree()
+    const refused = ownCarriedTree(missing.card, missing.prHead, 'bus', cardBody(CARD_TITLE))
+    expect(refused).toMatchObject({ kind: 'unselected', unselected: [{ id: 'W1', test: CARD_TITLE, file: WITNESS_FILE, declared: null }] })
+    expect(branchOnOrigin(missing.origin)).toBe('')
+    const present = carriedTree(testFile(CARD_TITLE))
+    expect(ownCarriedTree(present.card, present.prHead, 'bus', cardBody(CARD_TITLE))).toMatchObject({ kind: 'pushed' })
+    expect(branchOnOrigin(present.origin)).toBe(BRANCH)
   })
 })
 
@@ -142,8 +232,20 @@ describe('declared test names', () => {
 
   it('judges nothing when a title is computed', () => {
     expect(declaredTestNames(`it.each([1])('case %s', () => {})\n`)).toBeNull()
+    expect(declaredTestNames(`it.each('ab')('case %s', () => {})\n`)).toBeNull()
     expect(declaredTestNames(`it(\`case ${'$'}{name}\`, () => {})\n`)).toBeNull()
+    expect(declaredTestNames(`it.each\`a\n${'$'}{1}\`('case $a', () => {})\n`)).toBeNull()
+    expect(unselectedWitnessesOf(cardBody('case 1'), () => `it.each\`a\n${'$'}{1}\`('case $a', () => {})\n`)).toEqual([])
     expect(unselectedWitnessesOf(cardBody(CARD_TITLE), () => 'it(name, () => {})\n')).toEqual([])
+  })
+
+  it('judges nothing when the parentheses do not balance', () => {
+    expect(declaredTestNames(`it('a', () => {})\n)\n`)).toBeNull()
+    expect(declaredTestNames(`it('a', () => {\n`)).toBeNull()
+  })
+
+  it('skips comments, and a quote inside one', () => {
+    expect(declaredTestNames(`// it('commented', () => {})\n// don't\nit('real', () => {})\n/* it('block') ' */\n`)).toEqual(['real'])
   })
 
   it('checks only a vitest run on one file with a test name', () => {

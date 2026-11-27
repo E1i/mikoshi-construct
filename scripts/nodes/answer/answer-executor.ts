@@ -40,7 +40,7 @@ import { admittedScopeOf, carriedTreeOf, decisionAnsweringRepeat, ownerHoldOf } 
 import { answerCommitMessage, AnswerOutsideTouches, CardTreeGone, followedEvent, liveSessionIn, PREFIX, secondsOf, unprovedFindings } from './answerer.js'
 import { CONCEPT_WIDENING_REASON } from './concept-scope.js'
 import { AnswerOutcomes, AnswerPublishing, AnswerSources, leftNoNewHead, localHead, OwnerQuestions, pendingPathsOf, strandedAnswerOf, treeDirtyOf, treeMergeOf } from './duties/index.js'
-import { carriedTreeState, ownCarriedTree, refuseUnselectedAtHead, git as treeGit } from './duties/tree.js'
+import { carriedTreeState, ownCarriedTree, refuseUnselectedInTree, git as treeGit, WitnessUnselected } from './duties/tree.js'
 
 export interface AnswerParts {
   db: DatabaseSync
@@ -197,10 +197,10 @@ export function gitTwins(db: DatabaseSync, trees: CardTreeTools): AnswerTwins {
       write: (file, text) => text === null ? rmSync(path.join(card.worktree, file), { force: true }) : writeFileSync(path.join(card.worktree, file), text),
     }),
     commit: (card, lease) => {
+      refuseUnselectedInTree(card.worktree, cardBodyText(db, lease.cardId))
       try {
         treeGit(card.worktree, ['add', '-A'])
         treeGit(card.worktree, ['commit', '-q', '-m', answerCommitMessage(lease)])
-        refuseUnselectedAtHead(card.worktree, cardBodyText(db, lease.cardId))
         treeGit(card.worktree, ['push', '-q', '-u', 'origin', `HEAD:refs/heads/${card.branch}`])
         return localHead(card)
       }
@@ -578,7 +578,15 @@ export class AnswerExecutor {
     const derived = answer.files
     if (answer.rest.length > 0)
       return this.outcomes.ownersStop(lease, restStopLine(denial.detail, derived, answer.rest), scopeEvents, undefined, this.refusedPathsToWiden(denial.detail))
-    const head = twins.commit(card, lease)
+    let head: string | null
+    try {
+      head = twins.commit(card, lease)
+    }
+    catch (error) {
+      if (!(error instanceof WitnessUnselected))
+        throw error
+      return this.outcomes.denied(lease, { kind: 'technical', reason: 'answer_failed', detail: `card #${lease.cardId}: the bus regenerated ${derived.join(', ')} in ${card.worktree} and committed nothing: ${error.message}; the answer goes again over that tree` })
+    }
     if (head === null)
       return this.outcomes.denied(lease, { kind: 'technical', reason: 'answer_failed', detail: `card #${lease.cardId}: the bus regenerated ${derived.join(', ')} in ${card.worktree} and could not commit and push it; the answer goes again over that tree` })
     const payload = { session: card.session, worktree: card.worktree, source: REGENERATED_TWIN, from: lease.head, to: head, regenerated: derived }

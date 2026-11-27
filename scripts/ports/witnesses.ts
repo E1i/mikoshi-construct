@@ -190,9 +190,12 @@ function callAt(source: string, scan: Scan, at: number): number {
   CALL_CHAIN.lastIndex = at
   const chain = CALL_CHAIN.exec(source)![0]
   const paren = skipWhitespace(source, at + chain.length)
+  const words = chain.split(CHAIN_DOT)
+  if (source[paren] === '`' && (SUITE_WORDS.has(words[0]!) || TEST_WORDS.has(words[0]!)))
+    scan.dynamic = true
   if (source[paren] !== '(')
     return at + chain.length
-  openCall(source, scan, chain.split(CHAIN_DOT), paren)
+  openCall(source, scan, words, paren)
   return paren + 1
 }
 
