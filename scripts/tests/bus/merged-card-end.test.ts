@@ -9,8 +9,10 @@ import { readBusTasks } from '../../../src/commands/cost/bus.js'
 import { cardChain } from '../../cli/card-chain.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_STARTED, CARD_VERIFIED, PR_CLOSED, WITNESS_RECORDED } from '../../core/events.js'
+import { ofCard as prsOfCard } from '../../core/pr-readings.js'
 import { reduce } from '../../core/reducer.js'
 import { busIntakeAdmissions } from '../../intake/bus-intake.js'
+import { cardContract } from '../../intake/card-contract.js'
 import { cardVerifiedClosings } from '../../nodes/close/task-close.js'
 import { busMerges } from '../../nodes/close/task-merged.js'
 import { GREEN } from '../../policy/policy.js'
@@ -115,7 +117,7 @@ describe('the end of a card with a pull request is its merge', () => {
     const bench = mergedCard()
 
     expect(readBusTasks(bench.busPath)).toEqual([{ task: String(CARD), taskClass: 'implement/S', sessions: [expect.objectContaining({ id: 's1' })], minutes: MINUTES_TO_MERGE }])
-    expect(cardChain(bench.db, CARD)?.proof).toBe(eventId(bench, PR_CLOSED))
+    expect(cardChain(bench.db, CARD, cardContract(bench.db, CARD)!, prsOfCard(bench.db, CARD).map(row => row.pr)).proof).toBe(eventId(bench, PR_CLOSED))
   })
 
   it('a merged card is not in work on the board', () => {
@@ -127,7 +129,7 @@ describe('the end of a card with a pull request is its merge', () => {
     const verified = closeCard(bench)
 
     expect(readBusTasks(bench.busPath).map(task => task.minutes)).toEqual([MINUTES_TO_CLOSE])
-    expect(cardChain(bench.db, CARD)?.proof).toBe(verified)
+    expect(cardChain(bench.db, CARD, cardContract(bench.db, CARD)!, prsOfCard(bench.db, CARD).map(row => row.pr)).proof).toBe(verified)
     expect(stalled(bench)).toBe(false)
   })
 
@@ -142,7 +144,7 @@ describe('the end of a card with a pull request is its merge', () => {
     const bench = startedCard()
 
     expect(readBusTasks(bench.busPath)).toEqual([])
-    expect(cardChain(bench.db, CARD)?.proof).toBeNull()
+    expect(cardChain(bench.db, CARD, cardContract(bench.db, CARD)!, prsOfCard(bench.db, CARD).map(row => row.pr)).proof).toBeNull()
     expect(stalled(bench)).toBe(true)
   })
 
@@ -153,7 +155,7 @@ describe('the end of a card with a pull request is its merge', () => {
     reduce(bench.db, 'pending', busProjections())
 
     expect(readBusTasks(bench.busPath)).toEqual([])
-    expect(cardChain(bench.db, CARD)?.proof).toBeNull()
+    expect(cardChain(bench.db, CARD, cardContract(bench.db, CARD)!, prsOfCard(bench.db, CARD).map(row => row.pr)).proof).toBeNull()
   })
 })
 

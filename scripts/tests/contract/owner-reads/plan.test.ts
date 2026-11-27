@@ -9,13 +9,13 @@ const REPO_ROOT = path.resolve(import.meta.dirname, '../../../..')
 const CONFIG_URL = pathToFileURL(path.join(REPO_ROOT, 'eslint.config.mjs')).href
 const { FOREIGN_TABLE_SQL_POLICY } = await import(CONFIG_URL) as { FOREIGN_TABLE_SQL_POLICY: Linter.Config[] }
 const MODULE_FILES = JSON.parse(readFileSync(path.join(REPO_ROOT, 'contract/module-files.json'), 'utf8')) as Record<string, string[]>
-const EXCEPTED = JSON.parse(readFileSync(path.join(REPO_ROOT, 'scripts/quality/foreign-table-sql-excepted.json'), 'utf8')) as string[]
+const EXCEPTED = Object.keys((await import(CONFIG_URL) as { JOURNAL_HISTORY_REPLAYS: Record<string, string> }).JOURNAL_HISTORY_REPLAYS)
 
 const RULE = 'tables/no-foreign-table-sql'
 const NAMED_TABLE = /^SQL names (\w+),/
 const LINT_MS = 120_000
 
-const PLAN_DOMAIN_FILES = ['scripts/window/plan-folds.ts']
+const PLAN_DOMAIN_FILES = ['scripts/window/plan-folds.ts', 'scripts/cli/card-chain.ts']
 
 describe('the plan domain reads the tables of other owners only through their contracts', () => {
   async function ruleWithoutExceptions(): Promise<ESLint> {
@@ -40,12 +40,12 @@ describe('the plan domain reads the tables of other owners only through their co
   }
 
   describe('the plan domain names no table of another owner', () => {
-    it('plan-folds is a file of plan and has left the excepted list', () => {
+    it('plan-folds and card-chain are files of plan and have left the excepted list', () => {
       expect(MODULE_FILES.plan).toEqual(expect.arrayContaining(PLAN_DOMAIN_FILES))
       expect(EXCEPTED.filter(file => PLAN_DOMAIN_FILES.includes(file))).toEqual([])
     })
 
-    it('the rule without exceptions finds no foreign table in plan-folds', async () => {
+    it('the rule without exceptions finds no foreign table in plan-folds or card-chain', async () => {
       expect(await foreignTablesOf(PLAN_DOMAIN_FILES)).toEqual(Object.fromEntries(PLAN_DOMAIN_FILES.map(file => [file, []])))
     }, LINT_MS)
   })

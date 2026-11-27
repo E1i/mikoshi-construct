@@ -39,7 +39,7 @@ import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { statusLineOf } from '../core/handoff-status.js'
 import { readLayerMap } from '../core/layer-map.js'
 import { constructCommand, pnpmCommand } from '../core/owner-commands.js'
-import { headOf } from '../core/pr-readings.js'
+import { headOf, ofCard as prsOfCard } from '../core/pr-readings.js'
 import { openDatabase } from '../core/sqlite.js'
 import { cardContract } from '../intake/card-contract.js'
 import { recordedWitnessFieldsBackfill, witnessTableOf } from '../intake/witness-fields-backfill.js'
@@ -257,7 +257,7 @@ function cardDetails(db: DatabaseSync, facts: BusFacts): Map<number, CardDetail>
       : SETTLED_STAGES.includes(card.stage)
         ? { full: null, groups: [], paths: writtenEntries(named, contract.masks) }
         : runsReadingOf(contract.touches, named, contract.masks, catalog, map)
-    return [card.id, { contract, chain: cardChain(db, card.id), pr, witnessTable, runs }]
+    return [card.id, { contract, chain: contract === null ? null : cardChain(db, card.id, contract, prsOfCard(db, card.id).map(row => row.pr)), pr, witnessTable, runs }]
   }))
 }
 

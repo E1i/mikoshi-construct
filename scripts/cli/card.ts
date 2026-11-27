@@ -7,6 +7,7 @@ import { parseParkingFile } from '../../src/card/parking.js'
 import { CARD_BODIES } from '../core/card-bodies.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
 import { ADMIT_COMMAND, pnpmCommand } from '../core/owner-commands.js'
+import { ofCard as prsOfCard } from '../core/pr-readings.js'
 import { openDatabase } from '../core/sqlite.js'
 import { cardFields, contractOf, CONTRACTS, isContract } from '../intake/card-contract.js'
 import { lastHeartbeat } from '../supervisor/heartbeat.js'
@@ -75,12 +76,12 @@ export function runCard(args: string[], deps: CardDeps): number {
     deps.err(`${PREFIX}${request}`)
     return 2
   }
-  const chain = request.kind === 'chain' ? readBodies(deps.bus, db => cardChain(db, request.card)) : null
-  if (chain !== null) {
+  const body = bodyOf(deps.bus, request.card)
+  if (request.kind === 'chain' && body !== null) {
+    const chain = readBodies(deps.bus, db => cardChain(db, request.card, body, prsOfCard(db, request.card).map(row => row.pr)))
     deps.out(`${JSON.stringify(chain, null, 2)}\n`)
     return 0
   }
-  const body = bodyOf(deps.bus, request.card)
   if (body === null) {
     deps.err(`${PREFIX}card #${request.card} has no admitted text in ${CARD_BODIES} of ${deps.bus}; admit it through ${ADMIT_COMMAND}, then run ${pnpmCommand('bus:reduce')}`)
     return 1

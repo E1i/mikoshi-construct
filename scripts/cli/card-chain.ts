@@ -1,12 +1,14 @@
 import type { DatabaseSync } from 'node:sqlite'
-import { CARD_BODIES } from '../core/card-bodies.js'
+import { byId, events, latest } from '../core/events-query.js'
 import { CARD_VERIFIED, PR_CLOSED, REVIEW_RECORDED } from '../core/events.js'
 
 const DECISION = /\bD-[1-9]\d*\b/g
+const MERGED_FLAGS: readonly unknown[] = [true, 1]
 
-const ADMISSION = `SELECT json_extract(payload, '$.prevAdmissionId') AS previous FROM events WHERE id = ?`
-const LATEST_OF_TYPE = `SELECT id, payload FROM events WHERE legacy = 0 AND type = ? AND card_id = ? ORDER BY id DESC LIMIT 1`
-const LATEST_MERGE = `SELECT id FROM events WHERE legacy = 0 AND type = '${PR_CLOSED}' AND (card_id = ?1 OR pr IN (SELECT pr FROM prs WHERE card_id = ?1)) AND json_extract(payload, '$.merged') = 1 ORDER BY id DESC LIMIT 1`
+export interface ChainBody {
+  admissionEventId: number
+  text: string
+}
 
 export interface CardChain {
   card: number
@@ -16,31 +18,33 @@ export interface CardChain {
   proof: number | null
 }
 
-function versionsFrom(db: DatabaseSync, latest: number): number[] {
+function versionsFrom(db: DatabaseSync, latestAdmission: number): number[] {
   const versions: number[] = []
-  let current: number | null = latest
+  let current: number | null = latestAdmission
   while (current !== null && !versions.includes(current)) {
     versions.push(current)
-    const row = db.prepare(ADMISSION).get(current) as { previous: unknown } | undefined
-    current = typeof row?.previous === 'number' ? row.previous : null
+    const previous: unknown = byId(db, current)?.data?.prevAdmissionId
+    current = typeof previous === 'number' ? previous : null
   }
   return versions
 }
 
-function latestOf(db: DatabaseSync, type: string, card: number): { id: number, payload: string } | undefined {
-  return db.prepare(LATEST_OF_TYPE).get(type, card) as { id: number, payload: string } | undefined
+function latestMerge(db: DatabaseSync, card: number, prs: readonly number[]): number | null {
+  const closes = [
+    ...events(db, { types: [PR_CLOSED], card }),
+    ...prs.flatMap(pr => events(db, { types: [PR_CLOSED], pr })),
+  ]
+  const merged = closes.filter(row => MERGED_FLAGS.includes(row.data?.merged)).map(row => row.id)
+  return merged.length === 0 ? null : Math.max(...merged)
 }
 
-export function cardChain(db: DatabaseSync, card: number): CardChain | null {
-  const body = db.prepare(`SELECT admission_event_id, text FROM ${CARD_BODIES} WHERE card_id = ?`).get(card) as { admission_event_id: number, text: string } | undefined
-  if (body === undefined)
-    return null
-  const review = latestOf(db, REVIEW_RECORDED, card)
+export function cardChain(db: DatabaseSync, card: number, body: ChainBody, prs: readonly number[]): CardChain {
+  const review = latest(db, { types: [REVIEW_RECORDED], card })
   return {
     card,
-    versions: versionsFrom(db, body.admission_event_id),
+    versions: versionsFrom(db, body.admissionEventId),
     decisions: [...new Set(body.text.match(DECISION) ?? [])],
-    verdict: review === undefined ? null : { event: review.id, verdict: (JSON.parse(review.payload) as Record<string, unknown>).verdict },
-    proof: (db.prepare(LATEST_MERGE).get(card) as { id: number } | undefined)?.id ?? latestOf(db, CARD_VERIFIED, card)?.id ?? null,
+    verdict: review === null ? null : { event: review.id, verdict: review.data?.verdict },
+    proof: latestMerge(db, card, prs) ?? latest(db, { types: [CARD_VERIFIED], card })?.id ?? null,
   }
 }

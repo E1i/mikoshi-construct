@@ -5,7 +5,6 @@ import ESLINT_EDGES from './contract/eslint-edges.json' with { type: 'json' }
 import MODULE_FILES from './contract/module-files.json' with { type: 'json' }
 import SURFACE from './contract/surface.json' with { type: 'json' }
 import INTERNAL_MODULES from './internal-modules.json' with { type: 'json' }
-import FOREIGN_TABLE_SQL_EXCEPTED from './scripts/quality/foreign-table-sql-excepted.json' with { type: 'json' }
 import REAL_TIME_WAITS_EXCEPTED from './scripts/quality/real-time-waits-excepted.json' with { type: 'json' }
 import TABLE_OWNERS from './scripts/quality/table-owners.json' with { type: 'json' }
 
@@ -170,13 +169,11 @@ const NO_HAND_EVENT_READERS = [
 ]
 
 export const HAND_EVENT_READERS_EXCEPTED = [
-  'scripts/cli/card-chain.ts',
   'scripts/core/bus-version.ts',
   'scripts/core/card-bodies.ts',
   'scripts/core/inbox.ts',
   'scripts/core/journal.ts',
   'scripts/core/lease.ts',
-  'scripts/core/legacy-history.ts',
   'scripts/core/report.ts',
   'scripts/core/stored.ts',
   'scripts/intake/admissions.ts',
@@ -501,7 +498,7 @@ const AN_UNRESOLVED_SPAN = '$…'
 const NO_MODULE = 'no module'
 const MODULE_OF_FILE = new Map(Object.entries(MODULE_FILES).flatMap(([module, files]) => files.map(file => [file, module])))
 
-const A_TABLE_IS_READ_THROUGH_ITS_OWNER = 'SQL names {{table}}, a table {{owner}} owns, from a file of {{module}}: reach it through an operation of {{owner}}. Files that did so before this rule are listed in scripts/quality/foreign-table-sql-excepted.json, and that list only shrinks'
+const A_TABLE_IS_READ_THROUGH_ITS_OWNER = 'SQL names {{table}}, a table {{owner}} owns, from a file of {{module}}: reach it through an operation of {{owner}}. A file that replays journal history into a store of its own is named in JOURNAL_HISTORY_REPLAYS with its reason, and no other file is excepted'
 
 function sqlTextOf(node) {
   if (node.type === 'Literal')
@@ -539,10 +536,14 @@ const noForeignTableSql = {
   },
 }
 
+export const JOURNAL_HISTORY_REPLAYS = {
+  'scripts/core/report.ts': 'inserts into events of openBus(\':memory:\'), a throwaway replay copy of the journal, never the bus file (write-scan separate store report-replay)',
+}
+
 export const FOREIGN_TABLE_SQL_POLICY = [
   {
     files: ['scripts/**/*.{ts,mts,cts,js,mjs,cjs}', 'src/**/*.{ts,mts,cts,js,mjs,cjs}'],
-    ignores: ['scripts/tests/**', 'tests/**', ...FOREIGN_TABLE_SQL_EXCEPTED],
+    ignores: ['scripts/tests/**', 'tests/**', ...Object.keys(JOURNAL_HISTORY_REPLAYS)],
     plugins: { tables: { rules: { 'no-foreign-table-sql': noForeignTableSql } } },
     rules: { 'tables/no-foreign-table-sql': 'error' },
   },

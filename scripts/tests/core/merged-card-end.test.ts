@@ -8,7 +8,9 @@ import { readBusTasks } from '../../../src/commands/cost/bus.js'
 import { cardChain } from '../../cli/card-chain.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, PR_CLOSED } from '../../core/events.js'
+import { ofCard as prsOfCard } from '../../core/pr-readings.js'
 import { reduce } from '../../core/reducer.js'
+import { cardContract } from '../../intake/card-contract.js'
 import { prClosed, prObserved } from '../../ports/netwatch.js'
 import { mergesLinkedOnlyThroughThePr } from '../../release/evidence.js'
 import { busProjections, pullRequests } from '../../supervisor/composition.js'
@@ -111,7 +113,7 @@ describe('a card with a merged pull request has ended, for all four readers', ()
   it('the chain proves a card from a merge whose pr.closed names no card', () => {
     const bench = mergedThroughThePr()
 
-    expect(cardChain(bench.db, CARD)?.proof).toBe(closedEvent(bench))
+    expect(cardChain(bench.db, CARD, cardContract(bench.db, CARD)!, prsOfCard(bench.db, CARD).map(row => row.pr)).proof).toBe(closedEvent(bench))
   })
 
   it('release:evidence finds the card of a merge whose pr.closed names no card', () => {
@@ -126,7 +128,7 @@ describe('a card with a merged pull request has ended, for all four readers', ()
     merge(bench, null)
 
     expect(readBusTasks(bench.busPath)).toEqual([])
-    expect(cardChain(bench.db, CARD)?.proof).toBeNull()
+    expect(cardChain(bench.db, CARD, cardContract(bench.db, CARD)!, prsOfCard(bench.db, CARD).map(row => row.pr)).proof).toBeNull()
     expect(mergesLinkedOnlyThroughThePr(bench.busPath)).toEqual([])
     expect(board(bench).progress.stalled).toBe(true)
   })

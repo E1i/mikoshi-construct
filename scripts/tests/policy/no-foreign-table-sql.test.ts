@@ -13,7 +13,7 @@ const { FOREIGN_TABLE_SQL_POLICY, TABLE_NAME_CONSTANTS } = await import(CONFIG_U
 }
 
 const RULE = 'tables/no-foreign-table-sql'
-const EXCEPTED = JSON.parse(readFileSync(path.join(REPO_ROOT, 'scripts/quality/foreign-table-sql-excepted.json'), 'utf8')) as string[]
+const EXCEPTED = Object.keys((await import(CONFIG_URL) as { JOURNAL_HISTORY_REPLAYS: Record<string, string> }).JOURNAL_HISTORY_REPLAYS)
 const TABLE_OWNERS = JSON.parse(readFileSync(path.join(REPO_ROOT, 'scripts/quality/table-owners.json'), 'utf8')) as Record<string, string>
 const DECLARED_MODULES = readdirSync(path.join(REPO_ROOT, 'declarations/modules')).map(file => path.basename(file, '.json'))
 const MODULE_FILES = JSON.parse(readFileSync(path.join(REPO_ROOT, 'contract/module-files.json'), 'utf8')) as Record<string, string[]>

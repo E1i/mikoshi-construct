@@ -5143,7 +5143,6 @@
       "scripts/nodes/answer/answerer.ts": 1
     },
     "bus-read": {
-      "scripts/cli/card-chain.ts": 3,
       "scripts/cli/card.ts": 1,
       "scripts/core/bus-readings.ts": 3,
       "scripts/core/card-automaton.ts": 3,
