@@ -17,9 +17,9 @@ import { busDirOf } from '../../core/bus-path.js'
 import { defaultBusPath } from '../../core/db.js'
 import { CARD_VERIFIED, PR_CLOSED, PR_OPENED, REDUCED, WITNESS_RECORDED } from '../../core/events.js'
 import { Node, prefixOf, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
-import { answerCardBodyOf, cardBodyShaOfCard, closeCandidates } from '../../core/queue.js'
+import { answerCardBodyOf, cardBodyShaOfCard } from '../../core/queue.js'
 import { loadedCodeSha } from '../../ports/git.js'
-import { candidateRules, nodeLiveness, nodeSupply } from '../../supervisor/composition.js'
+import { closeCandidatesOfTheBus, nodeLiveness, nodeSupply } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { alarmOverBudget, HOME_BUDGET_BYTES, recordFreedArtifacts, sweepArtifacts } from './artifact-lifetimes.js'
 import { cardClosed, CloseExecutor, failureOf, probeClosingCardIds } from './close-executor.js'
@@ -138,11 +138,11 @@ export class CloseNode extends Node<CloseStep> {
   }
 
   protected candidates(scope: Scope = {}): QueuedTask[] {
-    return [...closeCandidates(this.db, this.ts(), candidateRules()), ...probeCandidates(this.db)].filter(task => inScope(task, scope))
+    return [...closeCandidatesOfTheBus(this.db, this.ts()), ...probeCandidates(this.db)].filter(task => inScope(task, scope))
   }
 
   protected override derivedCandidates(ts: string): QueuedTask[] {
-    return [...closeCandidates(this.db, ts, candidateRules()), ...probeCandidates(this.db)]
+    return [...closeCandidatesOfTheBus(this.db, ts), ...probeCandidates(this.db)]
   }
 
   protected handle(lease: Lease): CloseStep {

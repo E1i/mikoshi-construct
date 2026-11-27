@@ -1,11 +1,13 @@
 import type { TranscriptCounters as Counters, MeasuredSubagent } from '../ports/client/claude/adapter.js'
-import type { StopReason } from './exit.js'
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { eventsSince } from '../core/events-query.js'
 import { openDatabase } from '../core/sqlite.js'
 import { cardLineOfConfig, EDDIES_CONFIG_FILE, eddiesConfigIn, findTranscript, measuredSession, measuredSpent, measuredSubagents, spendBasis, transcriptContext, transcriptCounters, transcriptModel } from '../ports/client/claude/adapter.js'
 import { CARD_SIZE_VARIABLE, CARD_VARIABLE, clientAdapter } from '../ports/session.js'
+
+export const THRESHOLDS = ['context', 'spend'] as const
+export type StopReason = typeof THRESHOLDS[number] | 'done' | 'core'
 
 export const UNKNOWN = 'unknown'
 export const SESSION_EXIT_EVENT = 'session-exit'

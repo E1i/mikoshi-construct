@@ -13,10 +13,12 @@ import { WINDOW_ACTOR } from '../../core/node.js'
 import { pnpmCommand } from '../../core/owner-commands.js'
 import { payloadOf, reject } from '../../core/stored.js'
 import { reduceProjection } from '../../core/watermark.js'
+import { THRESHOLDS } from '../../window/eddies-measure.js'
 import { windowLive } from '../../window/window-heartbeat.js'
 
+export { THRESHOLDS }
+
 export const ROLES = ['operator', 'miko'] as const
-export const THRESHOLDS = ['context', 'spend'] as const
 export const RAISED_STATUS = 'CONTINUE'
 export const RAISED_VARIABLE = 'CONSTRUCT_BUS_RAISED'
 export const WINDOW_ENDS = ['eddies', 'miko:exit', 'close'] as const

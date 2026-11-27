@@ -35,7 +35,7 @@
   "boundary:session->intake": 2,
   "boundary:session->quality": 1,
   "boundary:session->rules": 1,
-  "boundary:session->window": 2,
+  "boundary:session->window": 1,
   "boundary:window->board": 1,
   "boundary:window->node-answer": 1,
   "boundary:window->node-launch": 1,

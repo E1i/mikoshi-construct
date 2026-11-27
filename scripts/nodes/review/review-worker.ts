@@ -34,7 +34,7 @@ import { expireLeases, leaseNext, leaseQueued } from '../../core/lease.js'
 import { DRY_RUN_ACTOR, Node, runNode, SWITCH_FLAG, UNDERSTOOD_NOW } from '../../core/node.js'
 import { pnpmCommand } from '../../core/owner-commands.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
-import { cardBodyShaOfCard, LEASED, reviewCandidates } from '../../core/queue.js'
+import { cardBodyShaOfCard, LEASED } from '../../core/queue.js'
 import { shadowReading } from '../../core/report.js'
 import { openDatabase } from '../../core/sqlite.js'
 import { ofQueue as tasksOfQueue } from '../../core/tasks-query.js'
@@ -50,7 +50,7 @@ import { realIsolationReader } from '../../ports/isolation.js'
 import { promptsDirOf } from '../../ports/prompt-store.js'
 import { plannerProcess, REVIEW_PLAN_FLAG } from '../../ports/review-planner.js'
 import { clientAdapter, spawnReviewSession } from '../../ports/session.js'
-import { busProjections, candidateRules, cardSessionPulse, cardStatesOfTheBus, cardTransitions, nodeLiveness, nodeSupply, planOfCard, pullRequests, requiredCheckAt, withSlots } from '../../supervisor/composition.js'
+import { busProjections, cardSessionPulse, cardStatesOfTheBus, cardTransitions, nodeLiveness, nodeSupply, planOfCard, pullRequests, requiredCheckAt, reviewCandidatesOfTheBus, withSlots } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { busUnstartedTails, gitReviewPlanner } from './depth-sources.js'
 import { recordForeignDivergences } from './divergence-alarm.js'
@@ -189,11 +189,11 @@ export class ReviewNode extends Node<Step> {
   }
 
   protected candidates(scope: Scope = {}): QueuedTask[] {
-    return reviewCandidates(this.db, this.ts(), candidateRules()).filter(task => inScope(task, scope))
+    return reviewCandidatesOfTheBus(this.db, this.ts()).filter(task => inScope(task, scope))
   }
 
   protected override derivedCandidates(ts: string): QueuedTask[] {
-    return reviewCandidates(this.db, ts, candidateRules())
+    return reviewCandidatesOfTheBus(this.db, ts)
   }
 
   protected handle(lease: Lease): Promise<Step> {

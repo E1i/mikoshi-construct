@@ -12,7 +12,7 @@ import type { CardTransitions, HolderStart, Lease, PullHead } from '../core/leas
 import type { NodeKind, NodeSupply, ProcessIdentity, WorkerIdentity } from '../core/node.js'
 import type { PrOrderTick } from '../core/order/turn.js'
 import type { PlanOfCard } from '../core/plan-readings.js'
-import type { CandidateRules, Derived, MayRequeue, QueueSource, RequeueRow } from '../core/queue.js'
+import type { CandidateRules, Derived, MayRequeue, QueuedTask, QueueSource, RequeueRow } from '../core/queue.js'
 import type { Projections } from '../core/reducer.js'
 import type { Fold, StoredEvent } from '../core/stored.js'
 import type { AnswerParts } from '../nodes/answer/answer-candidates.js'
@@ -64,7 +64,7 @@ import { ownerWaitCommand, shardRenewalCommand } from '../core/owner-commands.js
 import { plans } from '../core/plan-readings.js'
 import { linkRefusal, openedPrOf, prFolds, prRow } from '../core/pr-folds.js'
 import * as prs from '../core/pr-readings.js'
-import { closeCandidates, keyOf, reviewCandidates, taskRow, TASKS_PROJECTION, unmergedDependenciesOf } from '../core/queue.js'
+import { keyOf, taskRow, TASKS_PROJECTION, unmergedDependenciesOf } from '../core/queue.js'
 import { payloadOf, storedByKey } from '../core/stored.js'
 import * as tasks from '../core/tasks-query.js'
 import { busHeldCards } from '../intake/bus-intake.js'
@@ -97,7 +97,7 @@ import { releasingTakeoverOnPush } from '../window/takeover-push-release.js'
 import { PREFIX } from './bg.js'
 import { cardWaitFolds, closeWaitsOfAnEndedCard, closingTheWaitsOfAClosedPr, ownerWaitFolds } from './card-waits.js'
 import { DEAD_END_ACTOR, DEAD_END_LIFTS } from './dead-ends.js'
-import { causeGoneSource, derivedQueues, downgradeParkedSource, dueAgainSource, noCardTreeSource, restartSource, settleSource, stopNoLongerHoldsSource } from './derive-queues.js'
+import { causeGoneSource, closeCandidates, derivedQueues, downgradeParkedSource, dueAgainSource, noCardTreeSource, restartSource, reviewCandidates, settleSource, stopNoLongerHoldsSource } from './derive-queues.js'
 import { unendedStarts } from './expected-time.js'
 import { busSessionPulse, heartbeatEnv, measureCardSession, ownStart, recordProcessHeartbeat } from './heartbeat.js'
 import { SILENT_MS } from './liveness-sites.js'
@@ -399,6 +399,14 @@ export function candidateRules(): CandidateRules {
     reviewedUnderTheCardDecision: (db, ts) => reviewedUnderTheCardDecision(cardDecisionReads(db, decisionsAt(db, ts), REVIEWS_OF_A_PR, storedByKey)),
     mergedCards: prs.mergedCards,
   }
+}
+
+export function reviewCandidatesOfTheBus(db: DatabaseSync, ts: string): QueuedTask[] {
+  return reviewCandidates(db, ts, candidateRules())
+}
+
+export function closeCandidatesOfTheBus(db: DatabaseSync, ts: string): QueuedTask[] {
+  return closeCandidates(db, ts, candidateRules())
 }
 
 export function mayRequeue(): MayRequeue {
