@@ -35,6 +35,8 @@ const DECLARED_IN_PROJECT = ['scripts/ports/serve-record.ts', 'scripts/ports/shi
 
 const DECLARED_IN_SESSION = ['scripts/ports/result.ts']
 
+const COMPOSITION_ROOTS_IN_PORTS = ['scripts/ports/netwatch.ts']
+
 const NODE_TO_ADAPTER = [
   ['scripts/nodes/review/reviewer.ts', 'scripts/ports/git.ts'],
   ['scripts/nodes/answer/answerer.ts', 'scripts/ports/client/contract.ts'],
@@ -65,7 +67,8 @@ describe('ports-adapters is a decided module (D-503)', () => {
     expect(adapters).toEqual({ owns: ADAPTERS_MODULE, contract: ADAPTERS_MODULE, may_use: ['layout', 'command-registry', 'ui'], status: 'decided' })
     expect(ports?.status).toBe('decided')
     expect(ports?.may_use).toEqual(['layout', 'command-registry', 'ui', 'ports-adapters'])
-    expect(ports?.owns.filter(glob => glob.startsWith('!scripts/ports/')).map(glob => glob.slice(1)).sort()).toEqual([...ADAPTERS_MODULE, ...DECLARED_IN_BUS, ...DECLARED_IN_NODE_ANSWER, ...DECLARED_IN_QUALITY, ...DECLARED_IN_PROJECT, ...DECLARED_IN_SESSION].sort())
+    expect(ports?.owns.filter(glob => glob.startsWith('!scripts/ports/')).map(glob => glob.slice(1)).sort()).toEqual([...ADAPTERS_MODULE, ...DECLARED_IN_BUS, ...DECLARED_IN_NODE_ANSWER, ...DECLARED_IN_QUALITY, ...DECLARED_IN_PROJECT, ...DECLARED_IN_SESSION, ...COMPOSITION_ROOTS_IN_PORTS].sort())
+    expect(COMPOSITION_ROOTS_IN_PORTS.filter(file => MODULE_GRAPH.composition_roots.includes(file))).toEqual(COMPOSITION_ROOTS_IN_PORTS)
     expect(DECLARED_IN_BUS.filter(file => MODULE_GRAPH.modules.bus?.owns.includes(file))).toEqual(DECLARED_IN_BUS)
     expect(DECLARED_IN_NODE_ANSWER.filter(file => MODULE_GRAPH.modules['node-answer']?.owns.includes(file))).toEqual(DECLARED_IN_NODE_ANSWER)
     expect(DECLARED_IN_QUALITY.filter(file => MODULE_GRAPH.modules.quality?.owns.includes(file))).toEqual(DECLARED_IN_QUALITY)
