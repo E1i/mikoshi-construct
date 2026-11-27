@@ -1,4 +1,5 @@
 import type { MergeBench } from '../bus/merge-bench.js'
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -7,7 +8,7 @@ import { appendEvent } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_OPENED, QUESTION_AGENT, QUESTION_OWNER, SHARD_ISSUED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { all as pullRequests } from '../../core/pr-readings.js'
-import { AnswerExecutor, ratchetGrowthLine, ratchetRowsAskedToGrow } from '../../nodes/answer/answer-executor.js'
+import { AnswerExecutor, ratchetGrowthLine, ratchetRowsAskedToGrow, witnessGrowthAsked } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer, ownerQuestionPath } from '../../nodes/answer/answerer.js'
 import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
@@ -42,7 +43,24 @@ interface Card {
 const NEW_WITNESS = 'scripts/tests/bus/a-new-witness.test.ts'
 const WITNESSED_BODY = `#${CARD} a-card [implement/bus/S/cheap/auto] · depends — · blocks —\n\nwitnesses: ${JSON.stringify([{ id: 'W1', run: `pnpm exec vitest run ${NEW_WITNESS}`, test: null, head: 'pass', base: 'fail', proves: 'the new witness' }])}`
 
-function startedCard(witnessed = false): Card {
+function witnessOnTheBase(worktree: string): void {
+  const git = (...args: string[]): void => {
+    execFileSync('git', ['-C', worktree, '-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { stdio: 'ignore' })
+  }
+  git('init', '-q')
+  git('add', NEW_WITNESS)
+  git('commit', '-q', '-m', 'base')
+  git('update-ref', 'refs/remotes/origin/main', 'HEAD')
+}
+
+async function ownerWaitsOn(question: string, onBase = false): Promise<string[]> {
+  const card = startedCard(true, onBase)
+  card.stopOnTheAgent(PLAIN_QUESTION)
+  await card.asks(question)
+  return eventsOf(card.made.db, OWNER_WAIT_OPENED).map(wait => String(wait.text))
+}
+
+function startedCard(witnessed = false, onBase = false): Card {
   const made = mergeBench()
   benches.push(made)
   const trees = mkdtempSync(path.join(tmpdir(), 'owner-only-question-'))
@@ -56,6 +74,8 @@ function startedCard(witnessed = false): Card {
   if (witnessed) {
     mkdirSync(path.join(worktree, path.dirname(NEW_WITNESS)), { recursive: true })
     writeFileSync(path.join(worktree, NEW_WITNESS), '')
+    if (onBase)
+      witnessOnTheBase(worktree)
     const until = new Date(made.clock.now().getTime() + 3_600_000).toISOString()
     appendEvent(made.db, { ts: ts(), type: SHARD_ISSUED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:shard-1`, payload: { id: 'shard-1', by: 'window', scope: 'merge', until, window: true }, legacy: false })
   }
@@ -140,6 +160,21 @@ describe('a question only the owner can answer', () => {
     const unwitnessed = startedCard()
     unwitnessed.stopOnTheAgent(PLAIN_QUESTION)
     expect(await unwitnessed.asks(within)).toMatchObject({ kind: 'stopped', reason: QUESTION_OWNER })
+  })
+
+  it('a gate:bus ask with no bound growth, or with a growth of another row, stays the owner\'s under a shard', async () => {
+    for (const question of ['may the card grow gate:bus for the new witness file?', 'gate:bus grows by 5 for the new witness file; may it?', 'the card grows gate:bus 659→660 and the known violations 3→4; may it?'])
+      expect(await ownerWaitsOn(question), question).toEqual([ratchetGrowthLine(CARD, ['gate:bus'], question)])
+    expect(witnessGrowthAsked('gate:bus 659→660 and gate:bus from 660 to 661')).toEqual(['gate:bus (659 → 660)', 'gate:bus (660 → 661)'])
+    expect(witnessGrowthAsked('gate:bus 659→660, boundary:a->b 3→4')).toBeNull()
+    expect(witnessGrowthAsked('may the card grow gate:bus?')).toBeNull()
+    expect(witnessGrowthAsked('xgate:bus 659→660')).toBeNull()
+  })
+
+  it('a witness file already on the base is not new, so gate:bus +1 for it still waits for the owner', async () => {
+    const within = 'the witness file grows gate:bus 659→660 in contract/ratchet.json; may the card grow it?'
+    expect(await ownerWaitsOn(within, true)).toEqual([ratchetGrowthLine(CARD, ['gate:bus'], within)])
+    expect(await ownerWaitsOn(within)).toEqual([])
   })
 
   it('another question after a plain stop stays with the agent', async () => {

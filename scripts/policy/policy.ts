@@ -724,6 +724,11 @@ export function witnessSubjectOf(db: DatabaseSync, cardId: number): WitnessSubje
   return witnesses.acceptance.length + witnesses.invariants.length === 0 ? null : { cardId, cardBody: admission.bodySha, creates: cardCreatesOf(admission.text), ...witnesses }
 }
 
+export function cardWitnessRunsOf(db: DatabaseSync, cardId: number): string[] {
+  const subject = witnessSubjectOf(db, cardId)
+  return subject === null ? [] : [...subject.acceptance, ...subject.invariants].map(witness => witness.command)
+}
+
 export interface WitnessDenial {
   detail: string
   base: string | null

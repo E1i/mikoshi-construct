@@ -26,7 +26,7 @@ import { timeoutUnderLoadOutside } from '../../core/observations.js'
 import { answerOnAnOldCardBody, DOWNGRADE_WAIT_OPEN, latestAnswerOf, latestReleaseOf, latestWidenStopOf, LEASED, QUEUED } from '../../core/queue.js'
 import { OWNER_EVEN_UNDER_THE_DECISION } from '../../policy/decisions/read.js'
 import { allowedEntry, GATE_BUS_ROW, witnessGrowthAllowances } from '../../policy/derived-files.js'
-import { witnessSubjectOf } from '../../policy/policy.js'
+import { cardWitnessRunsOf } from '../../policy/policy.js'
 import { activeWindowShards, decisionsInForceAt, unspentShard } from '../../policy/shards.js'
 import { matchGlob } from '../../policy/shredder/glob.js'
 import { isRegisteredDerived, pathsIn, pathsOutside, refusedTwinAnswer } from '../../policy/touch-scope.js'
@@ -145,8 +145,17 @@ export function ratchetRowsAskedToGrow(question: string): string[] {
   return rows.length === 0 || !asksForGrowth(question) ? [] : rows
 }
 
-export function witnessGrowthAsked(question: string): string[] {
-  return [...question.matchAll(NUMERIC_GROWTH)].filter(([, from, to]) => Number(to) > Number(from)).map(([, from, to]) => `${GATE_BUS_ROW} (${from} → ${to})`)
+const GATE_BUS_GROWTH = new RegExp(`(?<![\\w:/.\\->])${GATE_BUS_ROW}\\s+(?:from\\s+)?(\\d+)\\s*(?:→|->|=>|⟶|\\bto\\b)\\s*(\\d+)`, 'g')
+
+function growths(question: string, pattern: RegExp): [string, string][] {
+  return [...question.matchAll(pattern)].filter(([, from, to]) => Number(to) > Number(from)).map(([, from, to]) => [from!, to!])
+}
+
+export function witnessGrowthAsked(question: string): string[] | null {
+  const bound = growths(question, GATE_BUS_GROWTH)
+  if (bound.length === 0 || growths(question, NUMERIC_GROWTH).length > bound.length)
+    return null
+  return bound.map(([from, to]) => `${GATE_BUS_ROW} (${from} → ${to})`)
 }
 
 export function ratchetGrowthLine(cardId: number, rows: readonly string[], question: string): string {
@@ -619,11 +628,10 @@ export class AnswerExecutor {
   private witnessGrowth(lease: Lease, worktree: () => string | null): string[] {
     const now = this.parts.clock()
     const underAShard = activeWindowShards(this.parts.db, now).length > 0 || unspentShard(this.parts.db, lease.cardId, lease.pr, decisionsInForceAt(this.parts.db, now)) !== null
-    const subject = underAShard ? witnessSubjectOf(this.parts.db, lease.cardId) : null
-    const tree = subject === null ? null : worktree()
-    if (subject === null || tree === null)
+    const witnessRuns = underAShard ? cardWitnessRunsOf(this.parts.db, lease.cardId) : []
+    const tree = witnessRuns.length === 0 ? null : worktree()
+    if (tree === null)
       return []
-    const witnessRuns = [...subject.acceptance, ...subject.invariants].map(witness => witness.command)
     return witnessGrowthAllowances({ underAShard, witnessRuns, added: file => existsSync(path.join(tree, file)) && !inRef(tree, DERIVED_BASE, file) })
   }
 
@@ -635,7 +643,8 @@ export class AnswerExecutor {
       const card = this.tree(lease)
       return card === null || 'kind' in card ? null : card.worktree
     })
-    return allowances.length > 0 && witnessGrowthAsked(question).every(entry => allowedEntry(entry, allowances)) ? rows.filter(row => row !== GATE_BUS_ROW) : rows
+    const asked = witnessGrowthAsked(question)
+    return asked !== null && allowances.length > 0 && asked.every(entry => allowedEntry(entry, allowances)) ? rows.filter(row => row !== GATE_BUS_ROW) : rows
   }
 
   private ratchetGrowthAsked(lease: Lease, question: string, scope: BusEvent[]): AnswerOutcome | null {
