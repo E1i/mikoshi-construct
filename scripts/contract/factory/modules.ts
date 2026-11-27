@@ -88,13 +88,13 @@ const PORTS_CONTRACT = [
   `${INTAKE_COMMAND}/command-word.ts`,
 ]
 
-const WINDOW_CONTRACT = within(factory('window'), 'board.ts', 'loop.ts', 'tab.ts', 'takeover-push-release.ts', 'watch.ts', 'window-heartbeat.ts', 'window-prs.ts', 'window-request-tools.ts', 'window-requests.ts', 'window-session-end.ts', 'window-subagents.ts')
+const WINDOW_CONTRACT = [...within(factory('window'), 'board.ts', 'loop.ts', 'tab.ts', 'takeover-push-release.ts', 'watch.ts', 'window-heartbeat.ts', 'window-prs.ts', 'window-request-tools.ts', 'window-requests.ts', 'window-session-end.ts', 'window-subagents.ts'), factory('policy/decisions/window-door.ts'), factory('supervisor/window-subagent-tick.ts'), 'src/commands/board/goal.ts']
 
 const UI_CONTRACT = within('src/ui', 'console.ts', 'expect-lore.ts', 'lore.ts', 'signal.ts', 'theme.ts')
 
 export const COMPOSITION_MODULE = factory('supervisor/composition.ts')
 
-export const COMPOSITION_ROOTS: readonly string[] = ['src/cli.ts', 'src/program.ts', factory('window/miko.ts'), factory('intake/intake.ts'), factory('supervisor/start.ts'), factory('supervisor/run.ts'), factory('supervisor/review-bg.ts'), factory('supervisor/supervisor.ts'), factory('supervisor/reducer-thread.ts'), factory('supervisor/launchd/install.ts'), factory('supervisor/netwatch-root.ts'), factory('cli/task-start.ts'), COMPOSITION_MODULE]
+export const COMPOSITION_ROOTS: readonly string[] = ['src/cli.ts', 'src/program.ts', factory('window/miko.ts'), factory('intake/intake.ts'), factory('supervisor/start.ts'), factory('supervisor/run.ts'), factory('supervisor/review-bg.ts'), factory('supervisor/supervisor.ts'), factory('supervisor/reducer-thread.ts'), factory('supervisor/launchd/install.ts'), factory('supervisor/netwatch-root.ts'), factory('cli/task-start.ts'), factory('policy/decisions/add.ts'), factory('owner/answer.ts'), COMPOSITION_MODULE]
 
 export const OWNS_ARE_THE_CONTRACT = 'owns'
 
@@ -221,7 +221,10 @@ export function carvedOut(modules: Readonly<Record<string, ModuleSpec>>): Record
   const named = [...namedFiles(modules)]
   return Object.fromEntries(Object.entries(modules).map(([id, spec]) => {
     const taken = spec.owns.filter(isFolderGlob).flatMap(folder => named.filter(([file, holder]) => holder !== id && insideFolder(folder, file)).map(([file]) => `${CARVED_OUT}${file}`))
-    return [id, taken.length === 0 ? spec : { ...spec, owns: [...spec.owns, ...taken.sort()] }]
+    if (taken.length === 0)
+      return [id, spec]
+    const owns = [...spec.owns, ...taken.sort()]
+    return [id, { ...spec, owns, contract: spec.contract === spec.owns ? owns : spec.contract }]
   }))
 }
 

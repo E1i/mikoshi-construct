@@ -3,7 +3,10 @@
   "layer": "window",
   "paths": [
     "scripts/window/",
-    "scripts/conveyor/"
+    "scripts/conveyor/",
+    "scripts/policy/decisions/window-door.ts",
+    "scripts/supervisor/window-subagent-tick.ts",
+    "src/commands/board/goal.ts"
   ],
   "exclude": [],
   "shared": []
