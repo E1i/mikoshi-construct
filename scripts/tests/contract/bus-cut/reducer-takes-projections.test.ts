@@ -16,7 +16,7 @@ const REDUCER = 'scripts/core/reducer.ts'
 const COMPOSITION = 'scripts/supervisor/composition.ts'
 const PR = 41
 const HEAD = 'a'.repeat(40)
-const INTO_COMPOSITION_ROOTS_ON_BASE = 5
+const INTO_COMPOSITION_ROOTS_ON_BASE = 3
 
 let db: DatabaseSync | null = null
 

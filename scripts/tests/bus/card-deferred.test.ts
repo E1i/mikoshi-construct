@@ -15,7 +15,7 @@ import { CARD_ADMITTED, CARD_DEFERRED, CARD_DROPPED, CARD_MOVED, CARD_STARTED, D
 import { prefixOf } from '../../core/node.js'
 import { queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
-import { busCardEvents } from '../../intake/intake.js'
+import { busCardEvents } from '../../intake/bus-intake.js'
 import { assignMovedLane, laneOverlapRecorder, LAUNCH_LOG_PREFIX, layLanes, liveLanes, SkipLog } from '../../nodes/launch/lane-assign.js'
 import { dependencyReadings, launchCandidates } from '../../nodes/launch/launch-candidates.js'
 import { busProjections } from '../../supervisor/composition.js'

@@ -3955,6 +3955,7 @@
       "intake": {
         "concepts": [],
         "contract": [
+          "scripts/intake/bus-intake.ts",
           "scripts/intake/lane-json.ts",
           "scripts/intake/parking-reads.ts",
           "src/commands/intake/admit.ts",

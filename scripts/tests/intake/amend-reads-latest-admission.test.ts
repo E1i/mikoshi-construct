@@ -11,7 +11,8 @@ import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { admittedBodyText, cardBodyText } from '../../core/card-bodies.js'
 import { openBus } from '../../core/db.js'
 import { reduce } from '../../core/reducer.js'
-import { busCardAdmissions, busIntakePorts } from '../../intake/intake.js'
+import { busCardAdmissions } from '../../intake/bus-intake.js'
+import { busIntakePorts } from '../../intake/intake.js'
 import { busProjections } from '../../supervisor/composition.js'
 
 const CARD = 1784
