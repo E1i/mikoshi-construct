@@ -20,6 +20,9 @@
     "scripts/attach/",
     "architecture/composition/",
     "templates/attach/earlier-carriers.json",
+    "scripts/ports/serve-record.ts",
+    "scripts/ports/shift-settings.ts",
+    "scripts/ports/prepare-tree.ts",
     "src/cli.ts",
     "src/program.ts"
   ],

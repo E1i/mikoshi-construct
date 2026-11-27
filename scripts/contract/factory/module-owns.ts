@@ -228,6 +228,9 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/composition/**`,
     `${FACTORY_ROOT}/harness-command/**`,
     `${FACTORY_ROOT}/attach/**`,
+    `${FACTORY_ROOT}/ports/serve-record.ts`,
+    `${FACTORY_ROOT}/ports/shift-settings.ts`,
+    `${FACTORY_ROOT}/ports/prepare-tree.ts`,
   ],
   'quality': [
     `${FACTORY_ROOT}/core/layer-map.ts`,

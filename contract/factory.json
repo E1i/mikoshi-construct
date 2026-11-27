@@ -4400,6 +4400,7 @@
           "process-table"
         ],
         "contract": [
+          "scripts/ports/card-grants.ts",
           "scripts/ports/ci-reading.ts",
           "scripts/ports/client/claude/adapter.ts",
           "scripts/ports/client/index.ts",
@@ -4412,18 +4413,17 @@
           "scripts/ports/main-merge.ts",
           "scripts/ports/meter.ts",
           "scripts/ports/netwatch.ts",
-          "scripts/ports/prepare-tree.ts",
           "scripts/ports/process-table.ts",
           "scripts/ports/result.ts",
           "scripts/ports/review-planner.ts",
-          "scripts/ports/serve-record.ts",
           "scripts/ports/session.ts",
-          "scripts/ports/shift-settings.ts",
           "scripts/ports/snapshot.ts",
           "scripts/ports/task-start.ts",
           "scripts/ports/tree-publish.ts",
+          "scripts/ports/wide-vitest-guard.ts",
           "scripts/ports/worktree.ts",
           "scripts/core/bus-contract.ts",
+          "scripts/core/process-listing.ts",
           "scripts/ci/required.ts",
           "src/commands/ci/state.ts",
           "src/commands/intake/command-word.ts"
@@ -4453,7 +4453,10 @@
           "!scripts/ports/host-fault.ts",
           "!scripts/ports/host-thermal.ts",
           "!scripts/ports/host/macos-thermal.ts",
+          "!scripts/ports/prepare-tree.ts",
           "!scripts/ports/prompt-store.ts",
+          "!scripts/ports/serve-record.ts",
+          "!scripts/ports/shift-settings.ts",
           "!scripts/ports/witnesses.ts",
           "!scripts/ports/worktree-home.ts"
         ],
@@ -4562,7 +4565,10 @@
           "src/version.ts",
           "scripts/composition/**",
           "scripts/harness-command/**",
-          "scripts/attach/**"
+          "scripts/attach/**",
+          "scripts/ports/serve-record.ts",
+          "scripts/ports/shift-settings.ts",
+          "scripts/ports/prepare-tree.ts"
         ],
         "may_use": [
           "layout",
@@ -4591,7 +4597,10 @@
           "src/version.ts",
           "scripts/composition/**",
           "scripts/harness-command/**",
-          "scripts/attach/**"
+          "scripts/attach/**",
+          "scripts/ports/serve-record.ts",
+          "scripts/ports/shift-settings.ts",
+          "scripts/ports/prepare-tree.ts"
         ],
         "status": "decided"
       },
@@ -6706,10 +6715,8 @@
       },
       "scripts/ports/prepare-tree.ts": {
         "constants": [
-          "PREPARE_ENV_KEYS",
           "PREPARE_MS",
-          "PREPARE_TREE",
-          "PROXY_ENV_KEYS"
+          "PREPARE_TREE"
         ],
         "functions": {
           "browserNotPreinstalledLine": "(tree: string, why: string): string",
@@ -6814,6 +6821,7 @@
           "CARD_VARIABLE",
           "EXIT_REQUEST_VARIABLE",
           "LOOP_PID_VARIABLE",
+          "PREPARE_ENV_KEYS",
           "REVIEW_MODEL_VARIABLE",
           "TECHNOLOGY_WORDS",
           "WINDOW_MARK",
