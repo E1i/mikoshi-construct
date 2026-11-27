@@ -81,7 +81,7 @@ const QUALITY_CONTRACT = [
 ]
 
 const PORTS_CONTRACT = [
-  ...within(factory('ports'), 'card-grants.ts', 'ci-reading.ts', 'client/claude/adapter.ts', 'client/index.ts', 'diff.ts', 'gh.ts', 'github-status.ts', 'github.ts', 'identifier-shapes.ts', 'isolation.ts', 'main-merge.ts', 'meter.ts', 'netwatch.ts', 'process-table.ts', 'review-planner.ts', 'session.ts', 'snapshot.ts', 'task-start.ts', 'tree-publish.ts', 'wide-vitest-guard.ts', 'worktree.ts'),
+  ...within(factory('ports'), 'card-grants.ts', 'ci-reading.ts', 'client/claude/adapter.ts', 'client/index.ts', 'diff.ts', 'gh.ts', 'github-status.ts', 'github.ts', 'identifier-shapes.ts', 'isolation.ts', 'main-merge.ts', 'meter.ts', 'process-table.ts', 'review-planner.ts', 'session.ts', 'snapshot.ts', 'task-start.ts', 'tree-publish.ts', 'wide-vitest-guard.ts', 'worktree.ts'),
   ...core('bus-contract.ts', 'process-listing.ts'),
   factory('ci/required.ts'),
   `${CI_COMMAND}/state.ts`,
@@ -94,7 +94,7 @@ const UI_CONTRACT = within('src/ui', 'console.ts', 'expect-lore.ts', 'lore.ts', 
 
 export const COMPOSITION_MODULE = factory('supervisor/composition.ts')
 
-export const COMPOSITION_ROOTS: readonly string[] = ['src/cli.ts', 'src/program.ts', factory('window/miko.ts'), factory('intake/intake.ts'), factory('supervisor/start.ts'), factory('supervisor/run.ts'), factory('supervisor/review-bg.ts'), factory('supervisor/supervisor.ts'), factory('supervisor/reducer-thread.ts'), factory('supervisor/launchd/install.ts'), factory('supervisor/netwatch-root.ts'), factory('cli/task-start.ts'), factory('policy/decisions/add.ts'), factory('owner/answer.ts'), COMPOSITION_MODULE]
+export const COMPOSITION_ROOTS: readonly string[] = ['src/cli.ts', 'src/program.ts', factory('window/miko.ts'), factory('intake/intake.ts'), factory('supervisor/start.ts'), factory('supervisor/run.ts'), factory('supervisor/review-bg.ts'), factory('supervisor/supervisor.ts'), factory('supervisor/reducer-thread.ts'), factory('supervisor/launchd/install.ts'), factory('supervisor/netwatch-root.ts'), factory('ports/netwatch.ts'), factory('cli/task-start.ts'), factory('policy/decisions/add.ts'), factory('owner/answer.ts'), COMPOSITION_MODULE]
 
 export const OWNS_ARE_THE_CONTRACT = 'owns'
 
