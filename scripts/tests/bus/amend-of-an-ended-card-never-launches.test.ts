@@ -8,7 +8,7 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_CLOSED, CARD_DROPPED, CARD_STARTED, CARD_STOPPED } from '../../core/events.js'
 import { MachineSessions } from '../../core/machine-sessions.js'
 import { reduce } from '../../core/reducer.js'
-import { busCardEvents } from '../../intake/intake.js'
+import { busCardEvents } from '../../intake/bus-intake.js'
 import { launchableCard, launchCandidates } from '../../nodes/launch/launch-candidates.js'
 import { busProjections } from '../../supervisor/composition.js'
 

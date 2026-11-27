@@ -8,7 +8,7 @@ import { latestAssignment } from '../../core/bus-readings.js'
 import { appendEvent, openBus, openOwnerWait } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, PR_OBSERVED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
-import { busCardEvents } from '../../intake/intake.js'
+import { busCardEvents } from '../../intake/bus-intake.js'
 import { chooseLane, currentLane, layLanes, ownerMergeHolders } from '../../nodes/launch/lane-assign.js'
 import { busProjections } from '../../supervisor/composition.js'
 

@@ -7,7 +7,7 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { openBus } from '../../core/db.js'
 import { createsOwnerRefusals, declarationFileOf, MODULE_FILES, nearestModulesOf } from '../../core/declarations.js'
 import { CARD_ADMITTED } from '../../core/events.js'
-import { busCardEvents, createsOwnerRefusalOf } from '../../intake/intake.js'
+import { busCardEvents, createsOwnerRefusalOf } from '../../intake/bus-intake.js'
 
 const CARD = 1929
 const LINE = `#${CARD} creates-owner [implement/construct/M/cheap/auto] · depends — · blocks —`

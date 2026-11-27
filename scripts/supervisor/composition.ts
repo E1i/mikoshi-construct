@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { CardsOfTheBus } from '../../src/commands/intake/numbers.js'
 import type { CardAutomaton, CardCondition, CardsSelected, NodeCandidates } from '../ci/card-automaton.js'
 import type { Understood } from '../core/bus-version.js'
 import type { CardPrReadings } from '../core/card-automaton.js'
@@ -66,6 +67,7 @@ import * as prs from '../core/pr-readings.js'
 import { closeCandidates, keyOf, reviewCandidates, taskRow, TASKS_PROJECTION, unmergedDependenciesOf } from '../core/queue.js'
 import { payloadOf, storedByKey } from '../core/stored.js'
 import * as tasks from '../core/tasks-query.js'
+import { busHeldCards } from '../intake/bus-intake.js'
 import { cardContract } from '../intake/card-contract.js'
 import { BusWeightsRecompute } from '../intake/intake.js'
 import { answerSource } from '../nodes/answer/answer-candidates.js'
@@ -170,6 +172,10 @@ export function windowRequestBus(): typeof BUS_CONTRACT {
 
 export function planOfCard(db: DatabaseSync, cardId: number): PlanOfCard | null {
   return plans.ofCard(db, cardId)
+}
+
+export function cardStatesOfTheBus(db: DatabaseSync): CardsOfTheBus {
+  return busHeldCards(db)
 }
 
 const COMPOSED_BUS_CONTRACT = { ...BUS_CONTRACT, openDecisionWaitsOfCard }
