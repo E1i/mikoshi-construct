@@ -270,6 +270,18 @@ describe('a window takeover of a card the bus has no route for', () => {
     expect(eventsOf(made.db, CARD_TAKEOVER)).toEqual([expect.objectContaining({ ground: `no answer or launch task ran for ${TAKEOVER_AFTER_MINUTES} minutes` })])
   })
 
+  it('a stop that needs a task measures its minutes from the newest move, past an older task of the card', () => {
+    const { made } = startedCard()
+    const started = Number((made.db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }).id)
+    made.db.prepare(`INSERT INTO tasks (task_key, queue, card_id, state, event_id) VALUES (?, 'launch', ?, 'done', ?)`).run(`launch:${CARD}:old`, CARD, started)
+    made.clock.advance(TAKEOVER_AFTER_MINUTES * MINUTE)
+    stopped(made, 'fault')
+    made.clock.advance((TAKEOVER_AFTER_MINUTES - 1) * MINUTE)
+
+    expect(takeover(made)).toMatchObject({ kind: 'refused', detail: expect.stringContaining(`under the ${TAKEOVER_AFTER_MINUTES}`) as unknown })
+    expect(heldOrTakenOver(made)).toEqual([])
+  })
+
   it('green witnesses with no open pull request are a ground at once', () => {
     const { made } = startedCard()
     sessionEnded(made)

@@ -472,10 +472,6 @@ export function unanswered(db: DatabaseSync, type: string, answer: AnswerKey): E
   return (db.prepare(UNANSWERED).all(type, answer.prefix, answer.suffix) as unknown as RawRow[]).map(rowOf)
 }
 
-export function latestTaskOfCardIn(states: readonly string[]): string {
-  return `SELECT task_key, queue, state FROM tasks WHERE card_id = ? AND state IN (${states.map(state => `'${state}'`).join(', ')}) ORDER BY id DESC LIMIT 1`
-}
-
 const LATEST_PR = 'SELECT max(pr) AS pr FROM events'
 
 export function latestPrInTheBus(db: DatabaseSync): number {

@@ -5141,7 +5141,7 @@
       "scripts/core/chain.ts": 2,
       "scripts/core/db.ts": 3,
       "scripts/core/dependency-wait.ts": 3,
-      "scripts/core/events-query.ts": 31,
+      "scripts/core/events-query.ts": 30,
       "scripts/core/inbox.ts": 1,
       "scripts/core/lease.ts": 17,
       "scripts/core/legacy-history.ts": 1,
