@@ -97,7 +97,7 @@
   "lines-scope:non-test-code-in-scripts-and-src": 1,
   "lines:scripts/cli/board-page.ts": 1213,
   "lines:scripts/construct/browser-lab.mjs": 809,
-  "lines:scripts/supervisor/supervisor.ts": 1103,
+  "lines:scripts/supervisor/supervisor.ts": 1013,
   "lines:src/ui/lore.ts": 1328,
   "overlaps:answer-duties": 1,
   "overlaps:bus-read": 210,

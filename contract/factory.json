@@ -1821,7 +1821,7 @@
     "live-session": {
       "axis": "architecture",
       "lore": null,
-      "owner": "scripts/supervisor/supervisor.ts",
+      "owner": "scripts/supervisor/liveness-judge.ts",
       "ownerExists": true,
       "ownerExport": "LivenessJudge",
       "status": "proposed",
@@ -1848,7 +1848,7 @@
     "pid-liveness": {
       "axis": "architecture",
       "lore": null,
-      "owner": "scripts/supervisor/supervisor.ts",
+      "owner": "scripts/supervisor/liveness-judge.ts",
       "ownerExists": true,
       "ownerExport": "LivenessJudge",
       "status": "proposed",
@@ -4756,7 +4756,9 @@
       },
       "session": {
         "concepts": [
-          "handoff-status"
+          "handoff-status",
+          "live-session",
+          "pid-liveness"
         ],
         "contract": [
           "scripts/core/machine-sessions.ts",

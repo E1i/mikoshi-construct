@@ -9,7 +9,7 @@ export function beatsLive(ts: string, nowMs: number): boolean {
 }
 
 export const KNOWN_LIVENESS_SITES = FACTORY_RUNTIME.knownLivenessSites
-export const LIVENESS_JUDGE = FACTORY_RUNTIME.busSupervisor
+export const LIVENESS_JUDGE = FACTORY_RUNTIME.livenessJudge
 export const LIVENESS_RULE = FACTORY_NAMED.livenessSites
 
 const SCANNED_ROOTS = [FACTORY_ROOT, 'src']

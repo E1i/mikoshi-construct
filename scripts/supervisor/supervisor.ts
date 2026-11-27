@@ -4,7 +4,6 @@ import type { InForceDecision } from '../policy/decisions/index.js'
 import type { ProcessTable } from '../ports/process-table.js'
 import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from './bg.js'
 import type { LivesNow } from './generation-handover.js'
-import type { ProcessBeat, VitalsReading } from './heartbeat.js'
 import type { SignalSent } from './signal-sent.js'
 import { spawnSync } from 'node:child_process'
 import { appendFileSync, readFileSync, realpathSync, statSync } from 'node:fs'
@@ -15,11 +14,9 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { busDirOf, pinBus, snapshotPathOf } from '../core/bus-path.js'
 import { CHECK_MS } from '../core/cadence.js'
-import { RUNNING_CARD } from '../core/card-automaton.js'
-import { cardsWithAState } from '../core/card-readings.js'
 import { appendEvent, defaultBusPath, openBus } from '../core/db.js'
-import { BY_CARD, EITHER_JOURNAL, events, lastPer, latest } from '../core/events-query.js'
-import { CARD_CONTINUED, CARD_STARTED, MAIN_ADVANCED, PROCESS_JUDGED, RESTARTED, TASK_EXPIRED, WORKER_DOWN } from '../core/events.js'
+import { EITHER_JOURNAL, events, latest } from '../core/events-query.js'
+import { MAIN_ADVANCED, PROCESS_JUDGED, RESTARTED, TASK_EXPIRED, WORKER_DOWN } from '../core/events.js'
 import { FACTORY_LISTS, FACTORY_RUNTIME, FACTORY_WORKERS } from '../core/factory-paths.js'
 import { importClosure } from '../core/import-closure.js'
 import { RESTART_MISSED } from '../core/inbox.js'
@@ -34,10 +31,11 @@ import { BUILD_DIR, BUILT_MODULE, flagsInArgs, instancesOf, launchName, PREFIX, 
 import { BusHealer, CorruptionWatch, RecordedNodes } from './bus-heal.js'
 import { BusSnapshot } from './bus-snapshot.js'
 import { busProjections, cardTransitions, orderAndShardTermTicks, recordOwnStart, reviewLaunch } from './composition.js'
-import { freeLeasesOf, judgedLeaseLines, workerKindsOf } from './executor-lease.js'
+import { freeLeasesOf, workerKindsOf } from './executor-lease.js'
 import { DRAIN_LIMIT_MS, DRAIN_WHY, GenerationHandover, recordRestarted, RETIRING_WORKERS } from './generation-handover.js'
-import { CARD_PROCESS, HOST_VITALS, lastProcessBeats, ownStart, recordProcessHeartbeat, retiredRowsLines, retirePreviousGeneration } from './heartbeat.js'
-import { beatsLive, SILENT_MS } from './liveness-sites.js'
+import { HOST_VITALS, lastProcessBeats, ownStart, retiredRowsLines, retirePreviousGeneration } from './heartbeat.js'
+import { expectedRunning, LivenessJudge, processName, recordSupervisorSilent, SUPERVISOR_PROCESS, SUPERVISOR_SILENT_MS } from './liveness-judge.js'
+import { SILENT_MS } from './liveness-sites.js'
 import { installedGeneration, ownPackage } from './package-generation.js'
 import { generationEnv, identifiedOnBus, identifiedProcesses, readableRows, recordedPidLives, runningAs } from './recorded-worker.js'
 import { busShadowProblems, startReviewWorker } from './review-bg.js'
@@ -691,94 +689,6 @@ export class WorkerKeeper {
   }
 }
 
-export const SUPERVISOR_PROCESS = 'supervisor'
-export const JUDGE_ACTOR = 'worker:supervisor:judge'
-export const SUPERVISOR_BEAT_MS = 30_000
-export const SUPERVISOR_SILENT_MS = 2 * 60_000
-export const JUDGED_HORIZON_MS = 24 * 60 * 60_000
-
-export interface Judgement {
-  process: string
-  lastBeat: string
-  silentMs: number
-}
-
-export type ExpectedRunning = (name: string) => boolean
-
-export const processName = (launch: DetachedLaunch): string => launch.script
-
-export function expectedRunning(db: DatabaseSync, wanted: readonly DetachedLaunch[]): ExpectedRunning {
-  const running = [...cardsWithAState(db)].filter(([, state]) => state === RUNNING_CARD).map(([card]) => `${CARD_PROCESS}${card}`)
-  const names = new Set([SUPERVISOR_PROCESS, ...wanted.map(processName), ...running])
-  return name => names.has(name)
-}
-
-export function judgeSilent(beats: readonly ProcessBeat[], nowMs: number, expected: ExpectedRunning): Judgement[] {
-  return beats.filter(beat => expected(beat.process) && !beatsLive(beat.ts, nowMs) && nowMs - Date.parse(beat.ts) <= JUDGED_HORIZON_MS).map(beat => ({ process: beat.process, lastBeat: beat.ts, silentMs: nowMs - Date.parse(beat.ts) }))
-}
-
-export function currentLifeBeats(db: DatabaseSync, beats: readonly ProcessBeat[]): ProcessBeat[] {
-  const lifeStarts = new Map(lastPer(db, BY_CARD, { types: [CARD_STARTED, CARD_CONTINUED], withCard: true }).map(row => [`${CARD_PROCESS}${row.card_id}`, row.ts]))
-  return beats.map((beat) => {
-    const lifeStart = lifeStarts.get(beat.process)
-    return lifeStart !== undefined && lifeStart > beat.ts ? { process: beat.process, ts: lifeStart } : beat
-  })
-}
-
-export function recordJudged(db: DatabaseSync, ts: string, judgement: Judgement, limitMs = SILENT_MS): boolean {
-  return appendEvent(db, { ts, type: PROCESS_JUDGED, actor: JUDGE_ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${PROCESS_JUDGED}:${judgement.process}:${judgement.lastBeat}`, payload: { process: judgement.process, verdict: 'silent', last_beat: judgement.lastBeat, silent_ms: judgement.silentMs, limit_ms: limitMs }, legacy: false })
-}
-
-export const RESTART_RETRY_MS = 5 * 60_000
-
-export class LivenessJudge {
-  private lastBeat = Number.NEGATIVE_INFINITY
-  private readonly restartedAt = new Map<string, number>()
-
-  constructor(private readonly db: DatabaseSync, private readonly now: () => number, private readonly expected: () => ExpectedRunning, private readonly restart: (process: string) => Promise<string[]> = async () => [], private readonly startOf?: ProcessStartOf, private readonly vitals: VitalsReading | null = null) {}
-
-  async step(): Promise<string[]> {
-    try {
-      const nowMs = this.now()
-      const ts = new Date(nowMs).toISOString()
-      if (nowMs - this.lastBeat >= SUPERVISOR_BEAT_MS) {
-        recordProcessHeartbeat(this.db, ts, SUPERVISOR_PROCESS, undefined, this.vitals)
-        this.lastBeat = nowMs
-      }
-      const lines: string[] = []
-      const silent = judgeSilent(currentLifeBeats(this.db, lastProcessBeats(this.db)), nowMs, this.expected())
-      for (const name of this.restartedAt.keys()) {
-        if (!silent.some(judgement => judgement.process === name))
-          this.restartedAt.delete(name)
-      }
-      for (const judgement of silent) {
-        if (recordJudged(this.db, ts, judgement))
-          lines.push(`${PREFIX}${judgement.process} has not beaten for ${Math.round(judgement.silentMs / 60_000)} min (limit ${SILENT_MS / 60_000} min); judged silent as ${PROCESS_JUDGED}`)
-        lines.push(...await this.restartDue(judgement.process, nowMs))
-      }
-      if (this.startOf !== undefined)
-        lines.push(...judgedLeaseLines(judgeHolders(this.db, cardTransitions(), ts, this.startOf, SILENT_MS)))
-      return lines
-    }
-    catch (error) {
-      return [`${PREFIX}judging the heartbeats failed: ${error instanceof Error ? error.message : String(error)}; retried on the next tick`]
-    }
-  }
-
-  private async restartDue(name: string, nowMs: number): Promise<string[]> {
-    const last = this.restartedAt.get(name)
-    if (last !== undefined && nowMs - last < RESTART_RETRY_MS)
-      return []
-    this.restartedAt.set(name, nowMs)
-    try {
-      return await this.restart(name)
-    }
-    catch (error) {
-      return [`${PREFIX}restarting ${name} failed: ${error instanceof Error ? error.message : String(error)}; retried in ${RESTART_RETRY_MS / 60_000} min while it stays silent`]
-    }
-  }
-}
-
 export async function restartSilent(name: string, wanted: readonly DetachedLaunch[], control: SwitchControl): Promise<string[]> {
   const launch = wanted.find(each => processName(each) === name)
   if (launch === undefined)
@@ -808,7 +718,7 @@ export async function restartSilentSupervisor(watch: SupervisorWatch): Promise<s
   if (!Number.isFinite(since) || nowMs - since <= SUPERVISOR_SILENT_MS)
     return []
   const lastBeat = beat ?? new Date(since).toISOString()
-  recordJudged(watch.db, new Date(nowMs).toISOString(), { process: SUPERVISOR_PROCESS, lastBeat, silentMs: nowMs - since }, SUPERVISOR_SILENT_MS)
+  recordSupervisorSilent(watch.db, nowMs, lastBeat, nowMs - since)
   await watch.stop(running)
   return [`${PREFIX}the supervisor (pid ${running.pid}) has not beaten for ${Math.round((nowMs - since) / 1000)}s (limit ${SUPERVISOR_SILENT_MS / 1000}s); judged silent as ${PROCESS_JUDGED}, stopped it, and a fresh one starts`]
 }
@@ -987,7 +897,7 @@ async function supervise(busDir: string, cwd: string, reviewOfTheBus: DetachedLa
     await superviseUntilReplaced({
       supervisor,
       keeper,
-      judge: new LivenessJudge(db, () => Date.now(), () => expectedRunning(db, wanted()), restartJudged, psStartOf, HOST_VITALS),
+      judge: new LivenessJudge(db, () => Date.now(), () => expectedRunning(db, wanted()), restartJudged, { startOf: psStartOf, cards: cardTransitions() }, HOST_VITALS),
       windowEnds: new WindowSessionEnds(db, cwd, () => Date.now(), PREFIX),
       windowSubagents: new WindowSubagentTick(db, cwd, () => Date.now(), PREFIX),
       order: orderAndShardTermTicks(db, cwd),

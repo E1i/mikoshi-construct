@@ -124,7 +124,7 @@ export function assertNoLoreConflict(concepts: readonly Pick<Concept, 'id' | 'lo
 }
 
 const PROCESS_TABLE_OWNER = 'scripts/ports/process-table.ts'
-const LIVENESS_JUDGE = FACTORY_RUNTIME.busSupervisor
+const LIVENESS_JUDGE = FACTORY_RUNTIME.livenessJudge
 const PROCESS_TABLE_PROGRAMS = 'ps lsof top'.split(' ')
 const ANSWER_EXECUTOR = 'scripts/nodes/answer/answer-executor.ts'
 const ANSWERER = 'scripts/nodes/answer/answerer.ts'

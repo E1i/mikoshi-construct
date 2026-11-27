@@ -1,0 +1,7 @@
+{
+  "entry": "livenessJudge",
+  "group": "runtime",
+  "path": "scripts/supervisor/liveness-judge.ts",
+  "layer": null,
+  "lists": []
+}
