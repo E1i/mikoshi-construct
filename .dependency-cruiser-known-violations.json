@@ -2035,20 +2035,6 @@
   {
     "type": "dependency",
     "from": "scripts/policy/round-limit-decision.ts",
-    "to": "scripts/nodes/update/update-done.ts",
-    "unresolvedTo": "../nodes/update/update-done.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "policy-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/policy/round-limit-decision.ts",
     "to": "src/card/grammar.ts",
     "unresolvedTo": "../../src/card/grammar.js",
     "dependencyTypes": [
