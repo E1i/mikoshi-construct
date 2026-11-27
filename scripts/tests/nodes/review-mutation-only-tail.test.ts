@@ -16,6 +16,7 @@ import { busUnstartedTails } from '../../nodes/review/depth-sources.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { ReviewWorker } from '../../nodes/review/review-worker.js'
 import { BusTailIntake, nextTailNumber, SUPERSEDED_TARGET, TAIL_ACTOR, TAIL_PRIORITY, TAIL_SOURCE, tailBodySha, tailCardText, tailParentOf, tailTextSha, tailTouches } from '../../nodes/review/tail-card.js'
+import { cardStatesOfTheBus } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from '../bus/github-fake.js'
 import { eventsOf, liveBench } from '../bus/merge-bench.js'
@@ -47,7 +48,7 @@ function withIssues(client: GitHub): GitHub {
 }
 
 function busTail(bench: MergeBench): BusTailIntake {
-  return new BusTailIntake({ db: bench.db, gitHub: withIssues(bench.gitHub.client), clock: bench.clock.now, cardStates: () => busHeldCards(bench.db), unstartedTails: busUnstartedTails(bench.db) })
+  return new BusTailIntake({ db: bench.db, gitHub: withIssues(bench.gitHub.client), clock: bench.clock.now, cardStates: () => cardStatesOfTheBus(bench.db), unstartedTails: busUnstartedTails(bench.db) })
 }
 
 interface Reviewed {
@@ -270,6 +271,18 @@ describe('the tail card', () => {
     expect(payload.card).toContain(`· depends #${CARD} ·`)
     expect(payload.depends).toEqual([CARD])
     expect(parseParkingFile(`${id}.md`, payload.text)).toMatchObject({ kind: 'parked', parked: { task: { card: { depends: [CARD] } } } })
+  })
+
+  it('the composed card states are the cards the bus holds, so a tail skips a number the bus already holds', () => {
+    const bench = liveBench()
+    benches.push(bench)
+    admitParent(bench)
+    const HELD = LATEST_ON_GITHUB + 1
+    appendCardEvent(BUS_CONTRACT, bench.db, 'worker:intake:test', { type: CARD_ADMITTED, cardId: HELD, ts: bench.clock.now().toISOString(), dedupeKey: `${CARD_ADMITTED}:held`, payload: { depends: [] } })
+    bench.tick()
+    expect(cardStatesOfTheBus(bench.db)).toEqual(busHeldCards(bench.db))
+    expect(cardStatesOfTheBus(bench.db).has(String(HELD))).toBe(true)
+    expect(busTail(bench).file(tail)).toBe(HELD + 1)
   })
 
   it('is not filed for a card the bus holds no body for', () => {
