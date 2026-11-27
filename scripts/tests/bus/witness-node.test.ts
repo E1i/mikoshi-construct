@@ -407,6 +407,13 @@ describe('the steps the witness node records', () => {
     expect(phasesOf(w)).toEqual(['W3 base', 'W3 head'])
   })
 
+  it('records the base step of a witness whose base runs another command than its head under its witness id', async () => {
+    const w = world([], 'done.txt', [], `Write done.txt.\n\n${witnessFieldsLine([{ id: 'W4', run: 'test ! -f done.txt || exit 3', test: null, head: 'exit:3', base: 'pass', proves: 'the head exits 3 where the base passes' }])}`)
+    await witnessRun(w)
+
+    expect(phasesOf(w)).toEqual(['W4 base', 'W4 head'])
+  })
+
   it('records one head step per witness when the card is witnessed on main without a pull request', async () => {
     const w = world([], 'done.txt')
     const task: QueuedTask = { queue: 'witness', cardId: CARD, head: w.head }
