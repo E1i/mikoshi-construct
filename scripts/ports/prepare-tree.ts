@@ -6,16 +6,13 @@ import path from 'node:path'
 import process from 'node:process'
 import { browserLabInstalledScript } from '../../src/commands/attach/settings.js'
 import { processGit } from './git.js'
+import { PREPARE_ENV_KEYS } from './session.js'
 
 export type TreePreparer = (tree: string) => void
 
 export const PREPARE_TREE = ['pnpm', 'install', '--frozen-lockfile', '--prefer-offline', '--ignore-scripts']
 
 export const PREPARE_MS = 10 * 60_000
-
-export const PROXY_ENV_KEYS = ['HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'https_proxy', 'http_proxy', 'no_proxy']
-
-export const PREPARE_ENV_KEYS = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'PNPM_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME', ...PROXY_ENV_KEYS]
 
 const LOCKFILE = 'pnpm-lock.yaml'
 const BROWSER_LAB = 'scripts/construct/browser-lab.mjs'

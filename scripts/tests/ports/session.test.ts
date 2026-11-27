@@ -3,8 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
-import { PREPARE_ENV_KEYS } from '../../ports/prepare-tree.js'
-import { headlessInvocation, reviewModelOf, sessionEnv, spawnSession, WINDOW_MARK, WINDOW_VARIABLE, withoutCard } from '../../ports/session.js'
+import { headlessInvocation, PREPARE_ENV_KEYS, reviewModelOf, sessionEnv, spawnSession, WINDOW_MARK, WINDOW_VARIABLE, withoutCard } from '../../ports/session.js'
 
 const HEADLESS_FLAGS = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto', '--permission-prompts', 'none', '--strict-mcp-config', '--session-id']
 
