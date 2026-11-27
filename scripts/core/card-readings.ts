@@ -1,5 +1,4 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { BusCardStates } from '../../src/card/closed.js'
 import type { LastReduced, OwnerWait } from './bus-readings.js'
 import type { EventRow } from './events-query.js'
 import { CLOSED_WAIT, OPEN_WAIT, OWNER_WAITS, readLastReduced } from './bus-readings.js'
@@ -379,7 +378,7 @@ export function cardsWithAState(db: DatabaseSync): Map<number, string> {
   return new Map(rows.map(row => [Number(row.card_id), String(row.state)]))
 }
 
-export function busCardStates(db: DatabaseSync): BusCardStates {
+export function busCardStates(db: DatabaseSync): ReadonlyMap<string, string> {
   return new Map([...cardsWithAState(db)].map(([card, state]) => [String(card), state]))
 }
 

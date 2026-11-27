@@ -36,7 +36,7 @@ import { isWithin, parkingTree } from './parking-tree.js'
 import { defaultContourMap, readContourMap, sharedCodeMaskRefusals } from './shared-code-masks.js'
 import { CORRECTED_PREFIX, UNCLEAR_PREFIX, WITNESSES_HEADING } from './slice.js'
 
-export { ADMIT_SOURCE } from '../../card/grammar.js'
+export { ADMIT_SOURCE, pathsNamedOutside } from '../../card/grammar.js'
 export { parentsFromCardLines } from './slice.js'
 
 const BLOCKS_SEPARATOR = ' · blocks '

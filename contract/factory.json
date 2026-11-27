@@ -5338,9 +5338,7 @@
         "types": {}
       },
       "src/card/witness-fields.ts": {
-        "constants": [
-          "FACTORY_TWIN"
-        ],
+        "constants": [],
         "functions": {
           "admittedTouchesOf": "(cardId: number, cardBody: string | null): string[]",
           "fieldCommand": "(field: Pick<WitnessField, 'run' | 'test'>): string",
@@ -5686,7 +5684,8 @@
         ],
         "functions": {},
         "reexports": [
-          "parentsFromCardLines"
+          "parentsFromCardLines",
+          "pathsNamedOutside"
         ],
         "types": {
           "AdmitResult": "type AdmitResult = { status: 'refused'; why: string; } | { status: 'invalidTestPattern'; reasons: string[]; } | { status: 'sharedCodeMask'; reasons: string[]; } | { status: 'admitted' | 'alreadyAdmitted' | 'dryRun'; file: string; card: SlicedCard; autoConfirm: boolean; source: AdmitSource; inBus: boolean; event: number | null; windowShard: string | null; } | { status: 'awaiting'; file: string; card: SlicedCard; token: string; stale: boolean; } | { status: 'waiting'; file: string; card: SlicedCard; waitingOn: number[]; inBus: boolean; dryRun: boolean; } | { status: 'ownerWait'; file: string; card: SlicedCard; downgrades: string[]; actions: string[]; command: string; inBus: boolean; dryRun: boolean; }"

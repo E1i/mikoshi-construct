@@ -7,9 +7,7 @@ import { existsSync } from 'node:fs'
 import process from 'node:process'
 import { parseParkingFile } from '../../src/card/parking.js'
 import { textSha } from '../../src/card/text-sha.js'
-import { FACTORY_TWIN } from '../../src/card/witness-fields.js'
-import { parentsFromCardLines } from '../../src/commands/intake/admit.js'
-import { pathsIn, pathsOutside } from '../policy/touch-scope.js'
+import { parentsFromCardLines, pathsNamedOutside } from '../../src/commands/intake/admit.js'
 import { isBackfill } from './backfill-source.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_CONTINUED, CARD_STARTED, FACTORY_MODE, SESSION_HEARTBEAT, SLICE_PARENTS_BACKFILLED } from './events.js'
 import { reject } from './stored-event.js'
@@ -232,10 +230,6 @@ export function admittedCardVersion(bus: BusContract, db: DatabaseSync, cardId: 
     return null
   const admission = row.admission_event_id === null ? null : bus.byId(db, Number(row.admission_event_id))
   return bus.cardVersion.of(admission?.payload ?? null)
-}
-
-function pathsNamedOutside(parked: ParkedTask, text: string): string[] {
-  return pathsOutside(parked.task.touches, parked.creates, pathsIn(text)).filter(named => named !== FACTORY_TWIN)
 }
 
 export function pathsOutsideTheBody(db: DatabaseSync, cardId: number, text: string): string[] {

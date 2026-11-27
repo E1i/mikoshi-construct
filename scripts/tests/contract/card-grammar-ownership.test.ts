@@ -6,9 +6,7 @@ const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 
 const CARD_GRAMMAR = ['scripts/policy/touch-scope.ts', 'scripts/policy/placement-growth.ts', 'scripts/policy/derived-files.ts']
 
-const CLEARED_ROWS = ['intake', 'quality', 'card-model', 'plan', 'project'].map(from => `boundary:${from}->rules`)
-
-const CARD_RECORD_ROW = 'boundary:card-record->rules'
+const CLEARED_ROWS = ['intake', 'quality', 'card-model', 'card-record', 'plan', 'project'].map(from => `boundary:${from}->rules`)
 
 function readJson<T>(file: string): T {
   return JSON.parse(readFileSync(path.join(REPO_ROOT, file), 'utf8')) as T
@@ -25,10 +23,9 @@ describe('the touch scope, placement growth and derived-files rules are card gra
       expect(declaredPaths('rules')).not.toContain(file)
   })
 
-  it('the recorded ratchet holds no cleared row and card-record into rules at one', () => {
+  it('the recorded ratchet holds no cleared row, card-record into rules included', () => {
     const recorded = readJson<Record<string, number>>('contract/ratchet.json')
     for (const row of CLEARED_ROWS)
       expect(recorded[row], row).toBeUndefined()
-    expect(recorded[CARD_RECORD_ROW]).toBe(1)
   })
 })

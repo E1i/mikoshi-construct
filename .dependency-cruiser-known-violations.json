@@ -217,21 +217,6 @@
   {
     "type": "dependency",
     "from": "scripts/core/tasks.ts",
-    "to": "src/card/closed.ts",
-    "unresolvedTo": "../../src/card/closed.js",
-    "dependencyTypes": [
-      "local",
-      "type-only",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "core-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/core/tasks.ts",
     "to": "src/card/grammar.ts",
     "unresolvedTo": "../../src/card/grammar.js",
     "dependencyTypes": [
