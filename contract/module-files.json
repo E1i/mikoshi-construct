@@ -731,6 +731,7 @@
     "scripts/tests/cli/board-page-client.test.ts",
     "scripts/tests/cli/board-page-static.test.ts",
     "scripts/tests/cli/board-patch-and-motion.test.ts",
+    "scripts/tests/cli/board-sessionless-tiles.test.ts",
     "scripts/tests/cli/board-timer-start.test.ts",
     "scripts/tests/cli/board-ui-v4.test.ts",
     "scripts/tests/client/adapters-one-contract.test.ts",
@@ -829,6 +830,7 @@
     "scripts/tests/contract/owner-reads/rules.test.ts",
     "scripts/tests/contract/owner-reads/session-supervisor.test.ts",
     "scripts/tests/contract/owner-reads/window-board.test.ts",
+    "scripts/tests/contract/owner-reads/window-session.test.ts",
     "scripts/tests/contract/owner-wait-has-a-lift.test.ts",
     "scripts/tests/contract/permanent-suite-holds-on-any-base.test.ts",
     "scripts/tests/contract/plan-folds-contour.test.ts",
@@ -1527,6 +1529,7 @@
     "declarations/events/window.subagent.json",
     "declarations/events/witness.downgrade.json",
     "declarations/events/witness.fields.backfilled.json",
+    "declarations/events/witness.phase.json",
     "declarations/events/witness.recorded.json",
     "declarations/events/worker.down.json",
     "declarations/events/worker.retiring.json",
@@ -1755,9 +1758,9 @@
   ],
   "plan": [
     "scripts/cli/card-chain.ts",
+    "scripts/core/plan-readings.ts",
     "scripts/window/plan-export.ts",
     "scripts/window/plan-folds.ts",
-    "scripts/window/plan-readings.ts",
     "src/card/slice-depends.ts"
   ],
   "ports": [

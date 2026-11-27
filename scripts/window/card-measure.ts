@@ -6,6 +6,7 @@ import { parseArgs } from 'node:util'
 import { readBodyCard, SIZES } from '../../src/card/grammar.js'
 import { defaultBusPath } from '../core/bus-path.js'
 import { BUSY_TIMEOUT_MS } from '../core/db.js'
+import { events } from '../core/events-query.js'
 import { CARD_ADMITTED, MERGE_DONE, REVIEW_RECORDED, SESSION_HEARTBEAT } from '../core/events.js'
 import { openDatabase } from '../core/sqlite.js'
 
@@ -90,12 +91,12 @@ interface Merged {
   columns: Column[]
 }
 
-interface ReviewRow {
-  id: number
-  card: number
-  pr: number | null
-  head: string | null
-  payload: string
+interface ReviewPayload {
+  verdict?: unknown
+  card_body?: unknown
+  findings?: unknown
+  survivingMutations?: unknown
+  surviving_mutations?: unknown
 }
 
 interface Round {
@@ -126,12 +127,11 @@ function emptyMeasure(): CardMeasure {
 }
 
 function sizesOfCards(db: DatabaseSync): Map<number, SizeRow> {
-  const rows = db.prepare(`SELECT card_id AS card, json_extract(payload, '$.card') AS line, json_extract(payload, '$.text') AS text FROM events WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND card_id IS NOT NULL ORDER BY id`).all() as { card: number, line: unknown, text: unknown }[]
   const sizes = new Map<number, SizeRow>()
-  for (const { card, line, text } of rows) {
-    const size = sizeOfAdmission(line) ?? sizeOfAdmission(text)
+  for (const row of events(db, { types: [CARD_ADMITTED], withCard: true })) {
+    const size = sizeOfAdmission(row.data?.card) ?? sizeOfAdmission(row.data?.text)
     if (size !== null)
-      sizes.set(Number(card), size)
+      sizes.set(Number(row.card_id), size)
   }
   return sizes
 }
@@ -146,10 +146,15 @@ function columnsOf(ts: string, window: Window): Column[] {
 }
 
 function mergedCards(db: DatabaseSync, window: Window): Map<number, Merged> {
-  const rows = db.prepare(`SELECT card_id AS card, max(ts) AS ts FROM events WHERE type = '${MERGE_DONE}' AND legacy = 0 AND card_id IS NOT NULL GROUP BY card_id`).all() as { card: number, ts: string }[]
+  const lastMerge = new Map<number, string>()
+  for (const row of events(db, { types: [MERGE_DONE], withCard: true })) {
+    const card = Number(row.card_id)
+    const seen = lastMerge.get(card)
+    if (row.ts !== null && (seen === undefined || row.ts > seen))
+      lastMerge.set(card, row.ts)
+  }
   const sizes = sizesOfCards(db)
-  return new Map(rows.flatMap(({ card, ts }): [number, Merged][] => {
-    const id = Number(card)
+  return new Map([...lastMerge].flatMap(([id, ts]): [number, Merged][] => {
     const columns = columnsOf(ts, window)
     return columns.length === 0 ? [] : [[id, { card: id, size: sizes.get(id) ?? UNKNOWN_SIZE, columns }]]
   }))
@@ -160,7 +165,7 @@ interface SessionTrace {
 }
 
 function heartbeatTraces(db: DatabaseSync, cards: ReadonlyMap<number, Merged>): Map<number, SessionTrace> {
-  const rows = db.prepare(`SELECT card_id AS card, json_extract(payload, '$.session') AS session, json_extract(payload, '$.step') AS step, json_extract(payload, '$.spent') AS spent FROM events WHERE type = '${SESSION_HEARTBEAT}' AND legacy = 0 AND card_id IS NOT NULL ORDER BY id`).all() as { card: number, session: unknown, step: unknown, spent: unknown }[]
+  const rows = events(db, { types: [SESSION_HEARTBEAT], withCard: true }).map(row => ({ card: row.card_id, session: row.data?.session, step: row.data?.step, spent: row.data?.spent }))
   const traces = new Map<number, SessionTrace>()
   for (const row of rows) {
     const card = Number(row.card)
@@ -202,10 +207,9 @@ function stringsOf(value: unknown): string[] {
 }
 
 function roundsOf(db: DatabaseSync): Round[] {
-  const rows = db.prepare(`SELECT id, card_id AS card, pr, head, payload FROM events WHERE type = '${REVIEW_RECORDED}' AND legacy = 0 AND card_id IS NOT NULL ORDER BY id`).all() as unknown as ReviewRow[]
-  return rows.map((row) => {
-    const payload = JSON.parse(row.payload) as { verdict?: unknown, card_body?: unknown, findings?: unknown, survivingMutations?: unknown, surviving_mutations?: unknown }
-    return { id: Number(row.id), card: Number(row.card), pr: row.pr, head: row.head, verdict: payload.verdict, cardBody: payload.card_body, findings: stringsOf(payload.findings), surviving: stringsOf(payload.survivingMutations ?? payload.surviving_mutations) }
+  return events(db, { types: [REVIEW_RECORDED], withCard: true }).map((row) => {
+    const payload = (row.data ?? {}) as ReviewPayload
+    return { id: row.id, card: Number(row.card_id), pr: row.pr, head: row.head, verdict: payload.verdict, cardBody: payload.card_body, findings: stringsOf(payload.findings), surviving: stringsOf(payload.survivingMutations ?? payload.surviving_mutations) }
   })
 }
 

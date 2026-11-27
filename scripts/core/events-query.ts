@@ -192,16 +192,47 @@ export function lastTsPerActor(db: DatabaseSync): Map<string, string> {
 }
 
 export const BY_CARD = 'card_id'
+export const BY_PR = 'pr'
 
-export type EventKey = typeof BY_CARD | `$.${string}`
+export type EventKey = typeof BY_CARD | typeof BY_PR | `$.${string}`
+
+function isColumn(key: EventKey): key is typeof BY_CARD | typeof BY_PR {
+  return key === BY_CARD || key === BY_PR
+}
 
 export function lastPer(db: DatabaseSync, key: EventKey, query: EventsQuery = {}): EventRow[] {
   if (matchesNothing(query))
     return []
-  const byCard = key === BY_CARD
-  const { where, values } = whereClause(byCard ? query : { ...query, valid: true })
-  const sql = eventsSql({ columns: ROW_COLUMNS, where: ` WHERE id IN (SELECT max(id) FROM events${where} GROUP BY ${byCard ? BY_CARD : 'json_extract(payload, ?)'})`, newestFirst: false, limit: '' })
-  return (db.prepare(sql).all(...values, ...byCard ? [] : [key]) as unknown as RawRow[]).map(rowOf)
+  const byColumn = isColumn(key)
+  const { where, values } = whereClause(byColumn ? query : { ...query, valid: true })
+  const sql = eventsSql({ columns: ROW_COLUMNS, where: ` WHERE id IN (SELECT max(id) FROM events${where} GROUP BY ${byColumn ? key : 'json_extract(payload, ?)'})`, newestFirst: false, limit: '' })
+  return (db.prepare(sql).all(...values, ...byColumn ? [] : [key]) as unknown as RawRow[]).map(rowOf)
+}
+
+function firstWorkSinceSql(types: readonly string[]): string {
+  return `
+  SELECT later.id FROM events AS later
+  WHERE later.id > ? AND later.legacy = 0 AND (
+    later.type IN (${placeholders(types)})
+    OR (later.type = ? AND NOT EXISTS (
+      SELECT 1 FROM events AS earlier
+      WHERE earlier.type = later.type AND earlier.pr = later.pr AND earlier.head IS later.head AND earlier.id < later.id
+    ))
+  )
+  ORDER BY later.id LIMIT 1
+`
+}
+
+export function firstOfTypesOrNewHeadSince(db: DatabaseSync, since: number, types: readonly string[], observed: string): number | null {
+  const row = db.prepare(firstWorkSinceSql(types)).get(since, ...types, observed) as { id: number } | undefined
+  return row === undefined ? null : Number(row.id)
+}
+
+const EVENT_STAMPS_AMONG = 'SELECT id, ts FROM events WHERE id IN (SELECT value FROM json_each(?))'
+
+export function stampsAmong(db: DatabaseSync, ids: readonly number[]): Map<number, string | null> {
+  const rows = db.prepare(EVENT_STAMPS_AMONG).all(JSON.stringify(ids)) as { id: number, ts: string | null }[]
+  return new Map(rows.map(row => [Number(row.id), row.ts === null ? null : String(row.ts)]))
 }
 
 const LAST_EVENT_ID = 'SELECT coalesce(max(id), 0) AS id FROM events'
@@ -452,18 +483,30 @@ export function newestEventsOfEachCard(db: DatabaseSync, perCard: number): CardE
   return db.prepare(NEWEST_EVENTS_OF_EACH_CARD).all(perCard) as unknown as CardEventStamp[]
 }
 
-const LAST_OBJECT_FIELD_PER_CARD = `
+function lastFieldPerCardSql(types: readonly string[]): string {
+  return `
   SELECT card_id, json_extract(payload, ?) AS value FROM events WHERE id IN (
     SELECT max(id) FROM events
-    WHERE legacy = 0 AND type = ? AND card_id IS NOT NULL AND json_valid(payload) AND json_type(payload, ?) = 'object'
+    WHERE legacy = 0 AND type IN (${placeholders(types)}) AND card_id IS NOT NULL AND json_valid(payload) AND json_type(payload, ?) = ?
     GROUP BY card_id
   )
 `
+}
+
+function lastFieldPerCard(db: DatabaseSync, types: readonly string[], field: string, jsonType: string): Map<number, string> {
+  if (types.length === 0)
+    return new Map()
+  const at = `$.${field}`
+  const rows = db.prepare(lastFieldPerCardSql(types)).all(at, ...types, at, jsonType) as { card_id: number, value: string }[]
+  return new Map(rows.map(row => [Number(row.card_id), String(row.value)]))
+}
 
 export function lastObjectFieldPerCard(db: DatabaseSync, type: string, field: string): Map<number, string> {
-  const at = `$.${field}`
-  const rows = db.prepare(LAST_OBJECT_FIELD_PER_CARD).all(at, type, at) as { card_id: number, value: string }[]
-  return new Map(rows.map(row => [Number(row.card_id), String(row.value)]))
+  return lastFieldPerCard(db, [type], field, 'object')
+}
+
+export function lastTextFieldPerCard(db: DatabaseSync, types: readonly string[], field: string): Map<number, string> {
+  return lastFieldPerCard(db, types, field, 'text')
 }
 
 const LAST_SLOTS_PER_QUEUE = `

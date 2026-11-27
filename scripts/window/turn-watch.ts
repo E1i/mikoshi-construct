@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { CardOfWho } from '../core/card-readings.js'
 import type { WindowMode } from '../ports/session.js'
 import type { Status } from './loop.js'
 import { existsSync, realpathSync } from 'node:fs'
@@ -9,9 +10,9 @@ import { fileURLToPath } from 'node:url'
 import { WINDOW_WHO } from '../../src/card/parking.js'
 import { CARDS, OWNER_WAITS, readCurrent } from '../core/bus-readings.js'
 import { RUNNING_CARD } from '../core/card-automaton.js'
-import { CARD_BODIES } from '../core/card-bodies.js'
-import { openOwnerWaits } from '../core/card-readings.js'
+import { cardsOfWho, openOwnerWaits } from '../core/card-readings.js'
 import { defaultBusPath, openBus } from '../core/db.js'
+import { events } from '../core/events-query.js'
 import { WINDOW_HEARTBEAT } from '../core/events.js'
 import { MIKO_WATCH_COMMAND } from '../core/owner-commands.js'
 import { sessionHandoffOf } from './handoff-write.js'
@@ -32,17 +33,17 @@ export function ownCardHasNoPr(card: number): string {
   return `turn-watch: window card #${card} is running with no PR and no open owner wait; take its next step, no watch`
 }
 
-const OWN_CARDS_WITHOUT_PR = `SELECT card.card_id AS id FROM cards AS card JOIN ${CARD_BODIES} AS body ON body.card_id = card.card_id WHERE body.who = '${WINDOW_WHO}' AND card.state = '${RUNNING_CARD}' AND card.pr IS NULL ORDER BY card.card_id`
+function ownCardsWithoutPr(db: DatabaseSync): CardOfWho[] {
+  return cardsOfWho(db, WINDOW_WHO).filter(card => card.state === RUNNING_CARD && card.pr === null)
+}
 
 export function ownCardWithoutPr(db: DatabaseSync): number | null {
-  const reading = readCurrent(db, [OWNER_WAITS, CARDS], () => ({ waits: openOwnerWaits(db), cards: db.prepare(OWN_CARDS_WITHOUT_PR).all() as unknown as { id: number }[] }))
+  const reading = readCurrent(db, [OWNER_WAITS, CARDS], () => ({ waits: openOwnerWaits(db), cards: ownCardsWithoutPr(db) }))
   if (reading.stale !== null)
     return null
   const waiting = new Set(reading.rows.waits.map(wait => wait.card))
   return reading.rows.cards.find(card => !waiting.has(card.id))?.id ?? null
 }
-
-const LAST_BEAT = `SELECT ts FROM events WHERE type = '${WINDOW_HEARTBEAT}' AND legacy = 0 AND json_valid(payload) AND json_extract(payload, '$.session') = ? ORDER BY id DESC LIMIT 1`
 
 export function watchIsLive(lastBeat: string | null, now: number): boolean {
   if (lastBeat === null)
@@ -52,8 +53,8 @@ export function watchIsLive(lastBeat: string | null, now: number): boolean {
 }
 
 export function lastWindowBeat(db: DatabaseSync, session: string): string | null {
-  const row = db.prepare(LAST_BEAT).get(session) as { ts: string } | undefined
-  return row?.ts ?? null
+  const beats = events(db, { types: [WINDOW_HEARTBEAT], mentions: session, valid: true, newestFirst: true })
+  return beats.find(beat => beat.data?.session === session)?.ts ?? null
 }
 
 export interface TurnWatchDeps {
