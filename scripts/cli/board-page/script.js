@@ -59,25 +59,53 @@
       backlog.removeAttribute(names.filterAttribute)
   }
   showFilter(location.hash || view.filter)
-  let hovered = null
+  const daemon = { popped: null, by: null, touch: false, wasOpen: false }
+  const daemonSlotOf = node => (node && node.closest && node.closest('[data-daemon-slot]')) || null
   const showDaemon = () => {
-    document.querySelectorAll('[data-daemon-pane]').forEach((pane) => {
-      if (hovered === null ? pane.hasAttribute('data-default') : pane.dataset.daemonPane === hovered)
-        pane.setAttribute('data-shown', '')
+    document.querySelectorAll('[data-daemon-slot]').forEach((slot) => {
+      if (slot.dataset.daemonSlot === daemon.popped)
+        slot.setAttribute('data-pop', '')
       else
-        pane.removeAttribute('data-shown')
+        slot.removeAttribute('data-pop')
     })
   }
-  const hover = (event) => {
-    const slot = event.target.closest && event.target.closest('[data-daemon-slot]')
-    const next = slot ? slot.dataset.daemonSlot : null
-    if (next === hovered)
-      return
-    hovered = next
+  const popDaemon = (slot, by) => {
+    daemon.popped = slot ? slot.dataset.daemonSlot : null
+    daemon.by = slot ? by : null
     showDaemon()
   }
-  document.addEventListener('mouseover', hover)
-  document.addEventListener('focusin', hover)
+  document.addEventListener('mouseover', (event) => {
+    const slot = daemonSlotOf(event.target)
+    if (slot)
+      popDaemon(slot, 'hover')
+    else if (daemon.by === 'hover')
+      popDaemon(null)
+  })
+  document.addEventListener('focusin', (event) => {
+    const slot = daemonSlotOf(event.target)
+    if (slot)
+      popDaemon(slot, 'focus')
+  })
+  document.addEventListener('focusout', (event) => {
+    const slot = daemonSlotOf(event.target)
+    if (slot && slot.dataset.daemonSlot === daemon.popped && daemonSlotOf(event.relatedTarget) !== slot)
+      popDaemon(null)
+  })
+  document.addEventListener('pointerdown', (event) => {
+    const slot = daemonSlotOf(event.target)
+    daemon.touch = event.pointerType === 'touch'
+    daemon.wasOpen = Boolean(slot) && slot.dataset.daemonSlot === daemon.popped
+  })
+  const tapDaemon = (event) => {
+    const slot = daemonSlotOf(event.target)
+    if (!slot) {
+      if (daemon.by === 'tap')
+        popDaemon(null)
+      return false
+    }
+    popDaemon(daemon.touch && daemon.wasOpen ? null : slot, 'tap')
+    return true
+  }
   const stampFolds = () => {
     document.querySelectorAll('[data-task]').forEach((group) => {
       const task = group.dataset && group.dataset.task
@@ -164,6 +192,8 @@
       dialog.close()
   })
   document.addEventListener('click', (event) => {
+    if (tapDaemon(event))
+      return
     const fold = event.target.closest && event.target.closest('[data-fold]')
     if (fold) {
       toggleFold(fold.dataset.fold)
@@ -191,6 +221,10 @@
   })
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
+      if (daemon.popped !== null) {
+        popDaemon(null)
+        return
+      }
       if (dialog.open)
         dialog.close()
       return

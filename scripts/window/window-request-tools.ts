@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import { busDirOf } from '../core/bus-path.js'
-import { CARD_BODIES } from '../core/card-bodies.js'
+import { bodyLineOf } from '../core/card-readings.js'
 import { reportPath } from '../core/places.js'
 import { pushPolicyOf } from '../core/push-policy.js'
 import { cardSessionOf } from '../nodes/answer/answer-source.js'
@@ -38,17 +38,12 @@ export function worktreesHolding(porcelain: string, branch: string): string[] {
   })
 }
 
-function branchOfBody(db: DatabaseSync, cardId: number): string | null {
-  const row = db.prepare(`SELECT branch FROM ${CARD_BODIES} WHERE card_id = ?`).get(cardId) as { branch: string | null } | undefined
-  return row?.branch ?? null
-}
-
 function standingTreeOf(db: DatabaseSync, cardId: number, treeOf: (cardId: number) => string): { worktree: string, branch: string } | null {
   const recorded = cardSessionOf(db, cardId)
   if (recorded !== null)
     return recorded
   const worktree = treeOf(cardId)
-  const branch = branchOfBody(db, cardId)
+  const branch = bodyLineOf(db, cardId)?.branch ?? null
   return branch === null || !existsSync(worktree) ? null : { worktree, branch }
 }
 

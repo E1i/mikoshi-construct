@@ -3,17 +3,5 @@
   "scripts/core/legacy-history.ts",
   "scripts/core/report.ts",
   "scripts/intake/parking-reads.ts",
-  "scripts/window/requests/amend.ts",
-  "scripts/window/requests/context.ts",
-  "scripts/window/requests/drop.ts",
-  "scripts/window/requests/owner-answer.ts",
-  "scripts/window/requests/owner-wait-close.ts",
-  "scripts/window/requests/plan.ts",
-  "scripts/window/requests/request.ts",
-  "scripts/window/requests/requeue.ts",
-  "scripts/window/requests/takeover.ts",
-  "scripts/window/requests/tree-cut.ts",
-  "scripts/window/window-request-tools.ts",
-  "scripts/window/window-requests.ts",
   "src/card/risk.ts"
 ]

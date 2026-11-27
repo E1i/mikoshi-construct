@@ -3,7 +3,7 @@ import type { GateRunRow } from './gate-runs.js'
 import type { Goal } from './goal.js'
 import type { BoardReads, BusDb, OwnerWait, EventRow as QueriedEvent, TaskRow } from './index.js'
 import type { QueuedStanding, TranscriptReader } from './sessions.js'
-import { BOARD_ALARM, BOARD_ALARM_CLEARED, BUS_PULSE, CARD_ADMITTED, CARD_CONTINUED, CARD_FELL, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, GATE_RUN, LANE_HELD, NETWATCH_SKIPPED, PR_GROUPS, PROCESS_HEARTBEAT, REVIEW_DRIP, SESSION_HEARTBEAT, SLICE_PARENTS_BACKFILLED, TASK_RENEWED, TERMINAL_LANES, WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
+import { BOARD_ALARM, BOARD_ALARM_CLEARED, BUS_PULSE, CARD_ADMITTED, CARD_CONTINUED, CARD_FELL, CARD_PULSE, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CHECKS_MATRIX_EVENT, GATE_RUN, LANE_HELD, NETWATCH_SKIPPED, PR_GROUPS, PROCESS_HEARTBEAT, RESTARTED, REVIEW_DRIP, SESSION_HEARTBEAT, SLICE_PARENTS_BACKFILLED, TASK_RENEWED, TERMINAL_LANES, WINDOW_HEARTBEAT, WINDOW_SUBAGENT_EVENT } from '../../../scripts/core/events.js'
 import { PLAIN_LORE } from '../../ui/lore.js'
 import { busPanelFacts, panelSince, payloadOf, RECENT_EVENTS, text } from './bus-panel.js'
 import { gateRunFacts } from './gate-runs.js'
@@ -37,7 +37,7 @@ export const SHORT_SHA = 7
 export const SUBAGENT_SHOWN_HOURS = 12
 export const SESSION_SHOWN_MINUTES = 10
 export const LIVE_STATES = ['queued', 'running', 'changes', 'in_review', 'ready', 'stopped']
-export const CARD_STAGES = ['planned', 'in work', 'review', 'answer/changes', 'ready', 'merged', 'stopped', 'dropped'] as const
+export const CARD_STAGES = ['planned', 'queue', 'in work', 'review', 'answer/changes', 'ready', 'merged', 'stopped', 'dropped'] as const
 const HOUR_MS = 3_600_000
 const MINUTE_MS = 60_000
 
@@ -167,6 +167,12 @@ export interface BusFacts {
   laneHeads?: LaneHead[]
   window?: BusWindow
   panel?: BusPanelFacts
+  restart?: BusRestart
+}
+
+export interface BusRestart {
+  sha: string | null
+  at: string
 }
 
 export interface LaneHead {
@@ -535,7 +541,15 @@ function stampsOf(bus: BoardBus, db: BusDb, ids: readonly number[]): Map<number,
   return new Map(bus.events(db, { ids: [...new Set(ids)], legacy: bus.eitherJournal }).map(row => [row.id, row.ts] as const))
 }
 
-function cardsOf(bus: BoardBus, db: BusDb, events: BoardEvents): BusCard[] {
+export function openLineCards(goal: Goal | null): ReadonlySet<number> {
+  return new Set(goal?.plans.flatMap(plan => plan.cards.map(card => card.card)) ?? [])
+}
+
+function queueOutsideOpenLine(stage: CardStage, card: number, openLine: ReadonlySet<number>): CardStage {
+  return stage === 'planned' && !openLine.has(card) ? 'queue' : stage
+}
+
+function cardsOf(bus: BoardBus, db: BusDb, events: BoardEvents, openLine: ReadonlySet<number>): BusCard[] {
   const rows = bus.cardsWithTheirLines(db)
   const since = stampsOf(bus, db, rows.map(row => row.event_id))
   const parents = sliceParents(bus, db)
@@ -545,7 +559,7 @@ function cardsOf(bus: BoardBus, db: BusDb, events: BoardEvents): BusCard[] {
   return rows.map((row) => {
     const lane = laneOf(bus, db, row)
     const parent = sliceParentIn(parents, row.id) ?? undefined
-    return { id: row.id, state: row.state, stage: TERMINAL_LANES.has(lane ?? '') ? 'dropped' : stageOf(row.state, closed.has(row.id), queues.get(row.id), leased.get(row.id)), lane, line: row.line, since: since.get(row.event_id) ?? null, body: row.body, closed: closed.has(row.id), closedAt: closed.get(row.id) ?? null, ...(parent === undefined ? {} : { parent }) }
+    return { id: row.id, state: row.state, stage: TERMINAL_LANES.has(lane ?? '') ? 'dropped' : queueOutsideOpenLine(stageOf(row.state, closed.has(row.id), queues.get(row.id), leased.get(row.id)), row.id, openLine), lane, line: row.line, since: since.get(row.event_id) ?? null, body: row.body, closed: closed.has(row.id), closedAt: closed.get(row.id) ?? null, ...(parent === undefined ? {} : { parent }) }
   })
 }
 
@@ -644,7 +658,7 @@ function tailFacts(events: BoardEvents): Pick<BusFacts, 'tails'> {
 }
 
 function laneHeads(events: BoardEvents, cards: readonly BusCard[]): LaneHead[] {
-  const planned = new Set(cards.filter(card => card.stage === 'planned').map(card => card.id))
+  const planned = new Set(cards.filter(card => card.stage === 'planned' || card.stage === 'queue').map(card => card.id))
   const latest = new Map<string, LaneHead | null>()
   for (const row of events.of(LANE_HELD).filter(each => each.legacy === 0)) {
     const payload = payloadOf(row.payload)
@@ -681,17 +695,23 @@ function panelOf(bus: BoardBus, db: BusDb, now: Date): BusPanelFacts {
   return busPanelFacts(row, now)
 }
 
+function lastRestart(bus: BoardBus, db: BusDb): Pick<BusFacts, 'restart'> {
+  const row = bus.latest(db, { types: [RESTARTED] })
+  return row === null || row.ts === null ? {} : { restart: { sha: text(payloadOf(row.payload).sha), at: row.ts } }
+}
+
 export function boardFacts(bus: BoardBus, db: BusDb, now: Date, transcripts: TranscriptReader = clientTranscriptReader): BusFacts {
   const reviewQueue = bus.tasksInStates(db, OPEN_TASK_STATES).filter(task => task.queue === REVIEW_QUEUE).length
   const events = boardEvents(bus, db)
-  const cardReading = bus.lastReducedCards(db, () => cardsOf(bus, db, events))
+  const goal = goalOf(db, now)
+  const cardReading = bus.lastReducedCards(db, () => cardsOf(bus, db, events, openLineCards(goal)))
   const cards = cardReading.rows
   const sessions = sessionServices(events, cards, now, transcripts)
   const waits = bus.lastReducedOwnerWaits(db)
   const panel = panelOf(bus, db, now)
   return {
     at: now.toISOString(),
-    goal: goalOf(db, now),
+    goal,
     waits: waits.rows,
     ...waits.behind === null ? {} : { waitsStale: waits.behind },
     pulse: panel.pulses[0] ?? null,
@@ -707,6 +727,7 @@ export function boardFacts(bus: BoardBus, db: BusDb, now: Date, transcripts: Tra
     ...tailFacts(events),
     ...queuedFacts(bus, db),
     ...laneHeadFacts(events, cards),
+    ...lastRestart(bus, db),
     panel,
   }
 }

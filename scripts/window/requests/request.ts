@@ -1,6 +1,9 @@
+import type { DatabaseSync } from 'node:sqlite'
+import type { TaskRow } from '../../core/tasks-query.js'
 import type { CloseOutcome, CloseRequest, DryRunRecord } from './reach.js'
 import path from 'node:path'
 import { BUS_REQUEST_COMMAND } from '../../core/owner-commands.js'
+import { ofCard as tasksOfCard } from '../../core/tasks-query.js'
 import { ANSWER_SOURCE, CARD_PLANNED, CARD_UNPLANNED, CLOSED_CARD, DROPPED_CARD, LEASED, MERGED_CARD, OWNER_MOVE_REQUESTS, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, prOf, QUEUED, USED_WORD } from './reach.js'
 
 export const REQUEST_KINDS = ['tree.cut', 'amend', 'allow-merge', 'close-pr', 'reopen-pr', 'pr.body', 'ci.rerun', 'requeue', 'mode', 'plan', 'owner.wait', 'owner.wait.close', 'decisions:add', 'hold', 'release', 'takeover', 'drop', 'numbers.foreign', 'owner.answer', 'order.move', 'contention.suspend', ...OWNER_MOVE_REQUESTS] as const
@@ -15,7 +18,11 @@ export const PLAN_OPS: ReadonlyMap<string, string> = new Map([['open', PLAN_OPEN
 export const OWNER_WORD_NEEDED = `closing an owner wait needs the owner's word from the channel or a recorded decision`
 export const OWNER_ANSWER_USAGE = `an owner's word from the channel closes a wait with: ${BUS_REQUEST_COMMAND} owner.wait.close --id Q<N> --answer <the owner's word> --from ${ANSWER_SOURCE}`
 export const ENDED_CARDS: ReadonlySet<string | null | undefined> = new Set([MERGED_CARD, CLOSED_CARD, DROPPED_CARD])
-export const LIVE_TASK_OF_CARD = `SELECT task_key, queue, state FROM tasks WHERE card_id = ? AND state IN ('${QUEUED}', '${LEASED}') ORDER BY id DESC LIMIT 1`
+const LIVE_STATES: ReadonlySet<string> = new Set([QUEUED, LEASED])
+
+export function liveTaskOf(db: DatabaseSync, cardId: number): TaskRow | null {
+  return tasksOfCard(db, cardId).filter(task => LIVE_STATES.has(task.state)).reduce<TaskRow | null>((newest, task) => newest === null || task.id > newest.id ? task : newest, null)
+}
 
 export interface CardTask { taskKey: string, cardId: number }
 

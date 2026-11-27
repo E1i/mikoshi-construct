@@ -173,9 +173,8 @@ describe('the board tells the truth and hints', () => {
       { ts: ago(20 * MINUTE), type: LANE_ASSIGNED, card: 1395, payload: JSON.stringify({ lane: 'lane-21', reason: 'moved', after: [], lanes: 4 }) },
     ], [{ id: 1395, state: 'queued', lane: null, line: '#1395 moved' }])
     const facts = factsOf(busPath)
-    expect(facts.cards.map(card => [card.id, card.lane])).toEqual([[1395, 'lane-21']])
-    const backlog = backlogLines(facts.cards, PLAIN_LORE)
-    expect(backlog).toEqual(['  #1395 moved · planned'])
+    expect(facts.cards.map(card => [card.id, card.lane, card.stage])).toEqual([[1395, 'lane-21', 'queue']])
+    expect(backlogLines(facts.cards, PLAIN_LORE)).toEqual(['queue (1)', '  #1395 moved · queue'])
   })
 
   it('service tile readings of six and more digits show whole at any card count and width', () => {
@@ -206,8 +205,8 @@ describe('the board tells the truth and hints', () => {
       { ts: ago(20 * MINUTE), type: LANE_ASSIGNED, card: 1368, payload: JSON.stringify({ lane: 'superseded', reason: 'moved', after: [], lanes: 4 }) },
     ], [{ id: 1368, state: 'queued', lane: 'lane-21', line: '#1368 absorbed' }, { id: 1369, state: 'queued', lane: 'archive', line: '#1369 archived' }, { id: 1371, state: 'queued', lane: 'lane-21', line: '#1371 live' }])
     const facts = factsOf(busPath)
-    expect(facts.cards.map(card => [card.id, card.stage])).toEqual([[1368, 'dropped'], [1369, 'dropped'], [1371, 'planned']])
-    expect(flowLines(facts.cards, PLAIN_LORE)[0]).toBe('planned (1): #1371')
+    expect(facts.cards.map(card => [card.id, card.stage])).toEqual([[1368, 'dropped'], [1369, 'dropped'], [1371, 'queue']])
+    expect(flowLines(facts.cards, PLAIN_LORE)[0]).toBe('planned (0): —')
 
     const db = openBus(path.join(tempDir(), 'bus.db'))
     try {

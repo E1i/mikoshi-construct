@@ -64,6 +64,41 @@ export function openCardWaits(db: DatabaseSync): OpenCardWait[] {
   }))
 }
 
+export interface OwnerWaitRow {
+  id: string
+  state: string
+  need: string
+  card_id: number | null
+  pr: number | null
+}
+
+const OWNER_WAIT_ROWS = `SELECT id, state, need, card_id, pr FROM ${OWNER_WAITS}`
+const OWNER_WAIT_BY_ID = `${OWNER_WAIT_ROWS} WHERE id = ?`
+const OPEN_WAITS_OF_A_CARD = `${OWNER_WAIT_ROWS} WHERE card_id = ? AND state = '${OPEN_WAIT}' ORDER BY event_id`
+
+function ownerWaitRowOf(row: { id: string, state: string, need: string, card_id: number | null, pr: number | null }): OwnerWaitRow {
+  return { id: String(row.id), state: String(row.state), need: String(row.need), card_id: row.card_id === null ? null : Number(row.card_id), pr: row.pr === null ? null : Number(row.pr) }
+}
+
+export function ownerWaitOf(db: DatabaseSync, id: string): OwnerWaitRow | null {
+  const row = db.prepare(OWNER_WAIT_BY_ID).get(id) as Parameters<typeof ownerWaitRowOf>[0] | undefined
+  return row === undefined ? null : ownerWaitRowOf(row)
+}
+
+export function openWaitsOfCard(db: DatabaseSync, cardId: number): OwnerWaitRow[] {
+  return (db.prepare(OPEN_WAITS_OF_A_CARD).all(cardId) as Parameters<typeof ownerWaitRowOf>[0][]).map(ownerWaitRowOf)
+}
+
+const DECISION_NEED = 'decision'
+
+export function unclosedDecisionWaitWithText(db: DatabaseSync, text: string): string | null {
+  const closedEvents = events(db, { types: [OWNER_WAIT_CLOSED], legacy: EITHER_JOURNAL }).map(closed => closed.data?.id)
+  const closed = new Set<unknown>([...closedWaitIds(db), ...closedEvents])
+  const opened = events(db, { types: [OWNER_WAIT_OPENED], valid: true })
+    .find(event => event.data?.need === DECISION_NEED && event.data.text === text && !closed.has(event.data.id))
+  return opened === undefined ? null : String(opened.data?.id)
+}
+
 export function lastReducedOwnerWaits(db: DatabaseSync): LastReduced<OwnerWait[]> {
   return readLastReduced(db, [OWNER_WAITS], () => openOwnerWaits(db))
 }
@@ -166,6 +201,28 @@ export function bodyAdmittedAfter(db: DatabaseSync, cardId: number, eventId: num
 
 export function admittedBodyOf(db: DatabaseSync, cardId: number): AdmittedBody | null {
   return bodyOf(db.prepare(BODY_COLUMNS).get(cardId) as StoredBody | undefined)
+}
+
+export interface CardBodyLine {
+  card_line: string | null
+  branch: string | null
+  lane: string | null
+}
+
+const BODY_LINE = `SELECT card_line, branch, lane FROM ${CARD_BODIES} WHERE card_id = ?`
+
+export function bodyLineOf(db: DatabaseSync, cardId: number): CardBodyLine | null {
+  const row = db.prepare(BODY_LINE).get(cardId) as { card_line: unknown, branch: unknown, lane: unknown } | undefined
+  return row === undefined ? null : { card_line: textOrNull(row.card_line), branch: textOrNull(row.branch), lane: textOrNull(row.lane) }
+}
+
+export interface HeldCard {
+  state: string | null
+}
+
+export function heldCardOf(db: DatabaseSync, cardId: number): HeldCard | null {
+  const states = cardStatesAmong(db, [cardId])
+  return states.has(cardId) ? { state: states.get(cardId) ?? null } : null
 }
 
 const CARD_STATES_AMONG = `SELECT card_id, state FROM cards WHERE card_id IN (SELECT value FROM json_each(?))`

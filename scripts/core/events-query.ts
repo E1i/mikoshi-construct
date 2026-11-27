@@ -27,6 +27,7 @@ export interface EventsQuery {
   mentions?: string
   withCard?: boolean
   withPr?: boolean
+  withHead?: boolean
   valid?: boolean
   present?: readonly string[]
   legacy?: boolean | typeof EITHER_JOURNAL
@@ -116,6 +117,8 @@ function whereOf(query: EventsQuery): { clauses: string[], values: SQLInputValue
     add('card_id IS NOT NULL')
   if (query.withPr === true)
     add('pr IS NOT NULL')
+  if (query.withHead === true)
+    add('head IS NOT NULL')
   if (query.valid === true || query.present !== undefined)
     add('json_valid(payload)')
   if (query.present !== undefined)
@@ -451,6 +454,22 @@ export interface StatusSetRow {
 
 export function lastStatusSetOnHead(db: DatabaseSync, pr: number, head: string): StatusSetRow | null {
   return db.prepare(LAST_STATUS_SET_ON_HEAD).get(pr, head) as StatusSetRow | undefined ?? null
+}
+
+const UNANSWERED = `
+  SELECT ${ROW_COLUMNS} FROM events AS asked
+  WHERE asked.type = ? AND asked.legacy = 0
+    AND NOT EXISTS (SELECT 1 FROM events AS answer WHERE answer.dedupe_key = ? || asked.id || ?)
+  ORDER BY asked.id
+`
+
+export interface AnswerKey {
+  prefix: string
+  suffix: string
+}
+
+export function unanswered(db: DatabaseSync, type: string, answer: AnswerKey): EventRow[] {
+  return (db.prepare(UNANSWERED).all(type, answer.prefix, answer.suffix) as unknown as RawRow[]).map(rowOf)
 }
 
 const LATEST_PR = 'SELECT max(pr) AS pr FROM events'

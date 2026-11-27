@@ -38,11 +38,11 @@ function boardJson(busPath: string, liveOnly: boolean): { cards: { id: number }[
   return JSON.parse(text) as { cards: { id: number }[], waits: unknown[] }
 }
 
-it('board --json --live lists only live cards', () => {
+it('board --json --live lists only live cards, and a queued card in no open release is not live', () => {
   const busPath = seededBus()
   const all = boardJson(busPath, false)
   const live = boardJson(busPath, true)
   expect(all.cards.map(card => card.id).sort()).toEqual([1701, 1702, 1703, 1704, 1705, 1706])
-  expect(live.cards.map(card => card.id).sort()).toEqual([1701, 1702, 1703])
+  expect(live.cards.map(card => card.id).sort()).toEqual([1702, 1703])
   expect(Object.keys(live)).toEqual(Object.keys(all))
 })

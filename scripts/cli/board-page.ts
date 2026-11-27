@@ -25,7 +25,7 @@ import { fieldCommand } from '../../src/card/witness-fields.js'
 import { CARD_STAGES, latestCardEvents, openTasks } from '../../src/commands/board/bus.js'
 import { DROPPED, droppedLine, goalOf, MARK_WORDS, planLine } from '../../src/commands/board/goal.js'
 import { BOARD_BUS, busFacts } from '../../src/commands/board/index.js'
-import { backlogCards, byStage, counted, inLiveView, isLive, liftedByTheWindow, markedName, matrixLines, screenLines, sliceMark, slotsReading, standingLine, standingOf, tallyLine, taskGroupLine, taskGroups, taskTally, waitAction, waitTarget, WINDOW_WAITS_ROLE } from '../../src/commands/board/screens.js'
+import { backlogCards, byStage, counted, inLiveView, isLive, isQueued, liftedByTheWindow, markedName, matrixLines, QUEUE_STAGE, screenLines, sliceMark, slotsReading, standingLine, standingOf, tallyLine, taskGroupLine, taskGroups, taskTally, waitAction, waitTarget, WINDOW_WAITS_ROLE } from '../../src/commands/board/screens.js'
 import { clientTranscriptReader, factoryLiveness, readTranscript } from '../../src/commands/liveness.js'
 import { BANNER, LORE, PLAIN_LORE } from '../../src/ui/lore.js'
 import { currentVersion } from '../../src/version.js'
@@ -390,12 +390,8 @@ function shownStages(facts: BusFacts): CardsAtStage[] {
   return CARD_STAGES.map(stage => ({ stage, cards: shown.filter(card => card.stage === stage).map(card => card.id) }))
 }
 
-function inProgressOrder(stages: CardsAtStage[]): CardsAtStage[] {
+function flowStages(facts: BusFacts, stages = shownStages(facts)): CardsAtStage[] {
   return PROGRESS_ORDER.flatMap(stage => stages.filter(entry => entry.stage === stage))
-}
-
-function flowStages(facts: BusFacts): CardsAtStage[] {
-  return inProgressOrder(shownStages(facts))
 }
 
 function swatch(stage: CardStage | ReleaseStage, count?: number): string {
@@ -479,8 +475,9 @@ function cardRowOf(facts: BusFacts, standing: CardStanding): (card: BusCard) => 
   }
 }
 
-function wholeCardsBody(cards: BusCard[], cardRow: (card: BusCard) => string): string[] {
-  return cards.length === 0 ? [] : [`<tbody>${byStage(cards).map(cardRow).join('')}</tbody>`]
+function wholeCardsBody(cards: BusCard[], cardRow: (card: BusCard) => string, [queue, rest] = [cards.filter(isQueued), cards.filter(card => !isQueued(card))]): string[] {
+  const queueBody = `<tbody class="task-group" data-task="${QUEUE_STAGE}" data-collapsed><tr class="task"><th colspan="11" scope="rowgroup"><button type="button" class="task-fold" data-fold="${QUEUE_STAGE}" aria-expanded="false">${escaped(PLAIN_LORE.boardLaneLine(QUEUE_STAGE, queue.length))}</button></th></tr>${queue.map(cardRow).join('')}</tbody>`
+  return [...rest.length === 0 ? [] : [`<tbody>${byStage(rest).map(cardRow).join('')}</tbody>`], ...queue.length === 0 ? [] : [queueBody]]
 }
 
 function stagesOf(cards: BusCard[]): string[] {

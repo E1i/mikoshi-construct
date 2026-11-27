@@ -3,12 +3,12 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { openOwnerWait } from '../../core/db.js'
+import { closeOwnerWait, openOwnerWait } from '../../core/db.js'
 import { ANSWER_SOURCE } from '../../core/inbox.js'
 import { reduce } from '../../core/reducer.js'
 import { consumeOwnerWord, consumeOwnerWordClosing, OWNER_WORD_TERM_MS, sayToOwnerChannel, USED_WORD } from '../../owner/channel.js'
 import { busProjections } from '../../supervisor/composition.js'
-import { runRequest, WindowRequests } from '../../window/window-requests.js'
+import { requestFromWindow, runRequest, WindowRequests } from '../../window/window-requests.js'
 import { mergeBench } from '../bus/merge-bench.js'
 
 const CARD = 1876
@@ -89,6 +89,19 @@ describe('a word of the owner is bound to one wait, used once, within its term',
     expect(stateOf(open, one)).toBe('open')
     expect(existsSync(word)).toBe(true)
     expect(consumeOwnerWordClosing(open.channel, `${one}0`, open.made.clock.now())).toBeNull()
+  })
+
+  it('an answer by id leaves a wait the bus holds closed untouched, and keeps the word', () => {
+    const open = room()
+    const wait = waitFor(open)
+    closeOwnerWait(open.made.db, open.made.clock.now().toISOString(), 'policy', wait, 'decided elsewhere', 8)
+    expect(stateOf(open, wait)).toBe('closed')
+    const word = sayToOwnerChannel(open.channel, `answer ${wait}: ${ANSWER}`, open.made.clock.now())
+    requestFromWindow(open.made.db, open.made.clock.now().toISOString(), 'test', { kind: 'owner.answer', id: wait, text: ANSWER, from: ANSWER_SOURCE })
+    const [outcome] = new WindowRequests(open.made.db, open.made.clock.now, { closeDropped: () => [] } as never, open.channel).run()
+
+    expect(outcome).toMatchObject({ kind: 'refused', detail: `${wait} is no open owner wait; nothing moves` })
+    expect(existsSync(word)).toBe(true)
   })
 
   it('a used word does not fire twice', () => {

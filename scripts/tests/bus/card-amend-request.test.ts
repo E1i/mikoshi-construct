@@ -6,9 +6,10 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { riskLines, riskReading } from '../../../src/card/risk.js'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
-import { BUS_DB_VARIABLE } from '../../core/db.js'
+import { appendEvent, BUS_DB_VARIABLE } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_MOVED, REQUEST_DONE, REQUEST_REFUSED } from '../../core/events.js'
 import { reduce } from '../../core/reducer.js'
+import { INTAKE_ACTOR_PREFIX } from '../../intake/admissions.js'
 import { busCardAdmissions, busCardEvents, busHeldCards } from '../../intake/bus-intake.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { busProjections, openComposedBus, windowRequestBus } from '../../supervisor/composition.js'
@@ -103,6 +104,17 @@ describe('bus:request amend edits a card in the bus with no file', () => {
     expect(after.text).not.toContain(STALE_RISK)
     expect(readdirSync(path.join(w.root, '.construct', 'parking'))).toEqual([])
     expect(existsSync(path.join(w.root, '80.md'))).toBe(false)
+    w.db.close()
+  })
+
+  it('an amend builds on the latest intake admission that names its card as text, past a newer one that does not', () => {
+    const w = world()
+    admitted(w, 80)
+    const real = latest(w, 80).text
+    appendEvent(w.db, { ts: NOW.toISOString(), type: CARD_ADMITTED, actor: `${INTAKE_ACTOR_PREFIX}by-hand`, cardId: 80, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:80:not-text`, payload: { card: 80, bodySha: 'not-a-text-card', text: 'card: not a card body\n' }, legacy: false })
+    expect(asked(w, { card: 80, add_witness: [JSON.stringify(witness('W3'))] })).toMatchObject({ type: REQUEST_DONE })
+    expect(latest(w, 80).text).toContain('"id":"W3"')
+    expect(latest(w, 80).text).toContain(real.split('\n')[0])
     w.db.close()
   })
 
