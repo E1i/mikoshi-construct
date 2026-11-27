@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_OPENED, QUESTION_AGENT, QUESTION_OWNER } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, OWNER_WAIT_OPENED, QUESTION_AGENT, QUESTION_OWNER, SHARD_ISSUED } from '../../core/events.js'
 import { leaseNext } from '../../core/lease.js'
 import { all as pullRequests } from '../../core/pr-readings.js'
 import { AnswerExecutor, ratchetGrowthLine, ratchetRowsAskedToGrow } from '../../nodes/answer/answer-executor.js'
@@ -39,7 +39,10 @@ interface Card {
   nextAnswer: () => unknown
 }
 
-function startedCard(): Card {
+const NEW_WITNESS = 'scripts/tests/bus/a-new-witness.test.ts'
+const WITNESSED_BODY = `#${CARD} a-card [implement/bus/S/cheap/auto] · depends — · blocks —\n\nwitnesses: ${JSON.stringify([{ id: 'W1', run: `pnpm exec vitest run ${NEW_WITNESS}`, test: null, head: 'pass', base: 'fail', proves: 'the new witness' }])}`
+
+function startedCard(witnessed = false): Card {
   const made = mergeBench()
   benches.push(made)
   const trees = mkdtempSync(path.join(tmpdir(), 'owner-only-question-'))
@@ -48,7 +51,14 @@ function startedCard(): Card {
   mkdirSync(worktree)
   const answers = path.join(trees, 'answers')
   const ts = (): string => made.clock.now().toISOString()
-  appendEvent(made.db, { ts: ts(), type: CARD_ADMITTED, actor: 'policy', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARD}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${CARD}` }, legacy: false })
+  const body = witnessed ? { bodySha: 'body-1', text: WITNESSED_BODY } : {}
+  appendEvent(made.db, { ts: ts(), type: CARD_ADMITTED, actor: 'policy', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARD}`, payload: { lane: 'lane-a', decision: 'auto', contour: 'cheap', depends: [], admission: `admission-${CARD}`, ...body }, legacy: false })
+  if (witnessed) {
+    mkdirSync(path.join(worktree, path.dirname(NEW_WITNESS)), { recursive: true })
+    writeFileSync(path.join(worktree, NEW_WITNESS), '')
+    const until = new Date(made.clock.now().getTime() + 3_600_000).toISOString()
+    appendEvent(made.db, { ts: ts(), type: SHARD_ISSUED, actor: 'owner', cardId: null, pr: null, head: null, dedupeKey: `${SHARD_ISSUED}:shard-1`, payload: { id: 'shard-1', by: 'window', scope: 'merge', until, window: true }, legacy: false })
+  }
   appendEvent(made.db, { ts: ts(), type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${CARD}`, payload: { session: CARD_SESSION, worktree, branch: `feat/card-${CARD}`, base: sha('1') }, legacy: false })
   let stops = 0
   let sessions = 0
@@ -112,6 +122,24 @@ describe('a question only the owner can answer', () => {
     expect(ratchetRowsAskedToGrow(`grow lines:scripts/board/board-page.ts. to 1941?`)).toEqual(['lines:scripts/board/board-page.ts'])
     expect(ratchetRowsAskedToGrow('may contract/ratchet.json raise gate:bus to 647?')).toEqual(['gate:bus'])
     expect(ratchetRowsAskedToGrow('gate:bus 648→647 after the cure')).toEqual([])
+  })
+
+  it('under a shard gate:bus +1 for one new witness file opens no owner wait, +2 still does (D-883)', async () => {
+    const within = 'the new witness file grows gate:bus 659→660 in contract/ratchet.json; may the card grow it?'
+    const card = startedCard(true)
+    card.stopOnTheAgent(PLAIN_QUESTION)
+    await card.asks(within)
+    expect(eventsOf(card.made.db, OWNER_WAIT_OPENED)).toEqual([])
+
+    const beyond = 'the new witness file grows gate:bus 659→661 in contract/ratchet.json; may the card grow it?'
+    const other = startedCard(true)
+    other.stopOnTheAgent(PLAIN_QUESTION)
+    expect(await other.asks(beyond)).toMatchObject({ kind: 'stopped', reason: QUESTION_OWNER })
+    expect(eventsOf(other.made.db, OWNER_WAIT_OPENED)).toEqual([expect.objectContaining({ text: ratchetGrowthLine(CARD, ['gate:bus'], beyond) })])
+
+    const unwitnessed = startedCard()
+    unwitnessed.stopOnTheAgent(PLAIN_QUESTION)
+    expect(await unwitnessed.asks(within)).toMatchObject({ kind: 'stopped', reason: QUESTION_OWNER })
   })
 
   it('another question after a plain stop stays with the agent', async () => {

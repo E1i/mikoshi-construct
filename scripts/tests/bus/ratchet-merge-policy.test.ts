@@ -58,6 +58,23 @@ describe('the merge policy on the ratchet', () => {
       expect(mergePolicy(facts(ofRatchet(patch))), patch).toMatchObject({ kind: 'allowed', rule: 'auto' })
   })
 
+  it('under a shard gate:bus grows by at most one per new test file a witness run of the card names (D-883)', () => {
+    const witness = 'scripts/tests/bus/a-new-witness.test.ts'
+    const raised = (to: number): PatchedFile => ofRatchet(`@@ -52,3 +52,3 @@\n   "boundary:a->b": 3,\n-  "gate:bus": 659,\n+  "gate:bus": ${to},\n   "lines:a.ts": 900\n`)
+    const withWitness = (to: number, overrides: Partial<MergeFacts> = {}): MergeFacts => facts(raised(to), { files: [RATCHET, witness], patched: [raised(to), { filename: witness, status: 'added', patch: '@@ -0,0 +1 @@\n+x' }], witnessRuns: [`pnpm exec vitest run ${witness}`], ...overrides })
+    for (const lifted of LIFTED.slice(0, 2))
+      expect(mergePolicy(withWitness(660, lifted)), JSON.stringify(lifted)).toMatchObject({ kind: 'allowed', rule: 'auto' })
+    const denials = [
+      withWitness(661, LIFTED[0]),
+      withWitness(660, LIFTED[2]),
+      withWitness(660, { ...LIFTED[0], witnessRuns: [] }),
+      withWitness(660, { ...LIFTED[0], patched: [raised(660), { filename: witness, status: 'modified', patch: '@@ -1 +1 @@\n-x\n+y' }] }),
+      facts(ofRatchet('@@ -1,2 +1,2 @@\n-  "boundary:a->b": 3,\n+  "boundary:a->b": 4,\n   "gate:bus": 659\n'), { ...LIFTED[0], files: [RATCHET, witness], patched: [ofRatchet('@@ -1,2 +1,2 @@\n-  "boundary:a->b": 3,\n+  "boundary:a->b": 4,\n   "gate:bus": 659\n'), { filename: witness, status: 'added' }], witnessRuns: [`pnpm exec vitest run ${witness}`] }),
+    ]
+    for (const denied of denials)
+      expect(mergePolicy(denied), JSON.stringify(denied.patched)).toMatchObject({ kind: 'denied', rule: 'ratchet_grows' })
+  })
+
   it('a pull request that does not change the ratchet is not read by this rule', () => {
     expect(mergePolicy(facts({ filename: 'scripts/other.ts', patch: '@@ -1 +1 @@\n-x\n+y' }, { files: ['scripts/other.ts'] }))).toMatchObject({ kind: 'allowed', rule: 'auto' })
   })
