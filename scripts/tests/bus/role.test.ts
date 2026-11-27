@@ -122,6 +122,18 @@ describe('a role stopped at a threshold', () => {
     bus.close()
   })
 
+  it('a role that stopped for a reason other than context or spend never goes to the owner', () => {
+    for (const reason of ['done', 'core']) {
+      const bus = roleBus()
+      role.observeRoleStop(bus.db, bus.at(), 'worker:miko:7', { role: 'miko', handoff: MIKO_HANDOFF, status: 'CONTINUE', reason, raised: false })
+      role.observeRoleStop(bus.db, bus.at(), 'worker:operator:7', { role: 'operator', handoff: '/handoff/operator.md', status: 'CONTINUE', reason, raised: false })
+
+      expect(bus.worker.step()).toEqual({ kind: 'idle' })
+      expect(countOf(bus.db, [ROLE_TO_OWNER])).toBe(0)
+      bus.close()
+    }
+  })
+
   it('a role stopped at its threshold under a live pnpm miko loop opens no Q3', () => {
     const bus = roleBus()
     claimLoop(bus.db, 4242, new Date(bus.at()))

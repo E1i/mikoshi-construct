@@ -1,6 +1,6 @@
-import type { RoleStop, THRESHOLDS, WindowEnd } from '../nodes/restart/role.js'
+import type { RoleStop, WindowEnd } from '../nodes/restart/role.js'
 import type { ProcessTable } from '../ports/process-table.js'
-import type { ExitLine, ExitReadings, Reading } from './eddies-measure.js'
+import type { ExitLine, ExitReadings, Reading, StopReason } from './eddies-measure.js'
 import { mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -33,7 +33,7 @@ export const TAB_THRESHOLD = 'in a tab window a threshold ends no session: conti
 export const SANDBOX_REFUSAL = `outside the ${MIKO_COMMAND} loop the sandbox lets this command neither find nor signal any process: nothing ended; run the session under ${MIKO_COMMAND}`
 const MESSAGES_BEFORE_THE_OWNER_SPOKE = 1
 
-export type StopReason = typeof THRESHOLDS[number] | 'done' | 'core'
+export type { StopReason }
 
 export interface ProcessRow {
   pid: number

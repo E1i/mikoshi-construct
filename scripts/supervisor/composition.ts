@@ -12,12 +12,13 @@ import type { CardTransitions, HolderStart, Lease, PullHead } from '../core/leas
 import type { NodeKind, NodeSupply, ProcessIdentity, WorkerIdentity } from '../core/node.js'
 import type { PrOrderTick } from '../core/order/turn.js'
 import type { PlanOfCard } from '../core/plan-readings.js'
-import type { CandidateRules, Derived, MayRequeue, QueueSource, RequeueRow } from '../core/queue.js'
+import type { CandidateRules, Derived, MayRequeue, QueuedTask, QueueSource, RequeueRow } from '../core/queue.js'
 import type { Projections } from '../core/reducer.js'
 import type { Fold, StoredEvent } from '../core/stored.js'
 import type { AnswerParts } from '../nodes/answer/answer-candidates.js'
 import type { MergeParts } from '../nodes/merge/merge-candidates.js'
 import type { DriftWatch } from '../nodes/merge/weights-drift.js'
+import type { RoleToOwner } from '../nodes/restart/role.js'
 import type { UpdateSourceParts } from '../nodes/update/update-candidates.js'
 import type { DerivedHolds, ThresholdSet } from '../nodes/update/update-executor.js'
 import type { WitnessParts } from '../nodes/witness/witness-candidates.js'
@@ -64,7 +65,7 @@ import { ownerWaitCommand, shardRenewalCommand } from '../core/owner-commands.js
 import { plans } from '../core/plan-readings.js'
 import { linkRefusal, openedPrOf, prFolds, prRow } from '../core/pr-folds.js'
 import * as prs from '../core/pr-readings.js'
-import { closeCandidates, keyOf, reviewCandidates, taskRow, TASKS_PROJECTION, unmergedDependenciesOf } from '../core/queue.js'
+import { keyOf, taskRow, TASKS_PROJECTION, unmergedDependenciesOf } from '../core/queue.js'
 import { payloadOf, storedByKey } from '../core/stored.js'
 import * as tasks from '../core/tasks-query.js'
 import { busHeldCards } from '../intake/bus-intake.js'
@@ -77,7 +78,7 @@ import { LAUNCH_SOURCE } from '../nodes/launch/launch-candidates.js'
 import { handFile } from '../nodes/launch/launch-starter.js'
 import { mergeCandidates, mergeSource } from '../nodes/merge/merge-candidates.js'
 import { WeightsDriftWatch } from '../nodes/merge/weights-drift.js'
-import { ROLES_PROJECTION } from '../nodes/restart/role.js'
+import { ROLES_PROJECTION, roleToOwner } from '../nodes/restart/role.js'
 import { updateCandidates, updateSource } from '../nodes/update/update-candidates.js'
 import { witnessSource } from '../nodes/witness/witness-candidates.js'
 import { archiveSpentDecisions, BusDecisions, decisionFolds } from '../policy/decisions/index.js'
@@ -92,12 +93,13 @@ import { isFullSha } from '../ports/identifier-shapes.js'
 import { requiredCheckOf } from '../ports/snapshot.js'
 import { launchDirOf } from '../ports/tree-publish.js'
 import { cardTreeRoots } from '../ports/worktree-home.js'
+import { THRESHOLDS } from '../window/eddies-measure.js'
 import { foldPlanEvent } from '../window/plan-folds.js'
 import { releasingTakeoverOnPush } from '../window/takeover-push-release.js'
 import { PREFIX } from './bg.js'
 import { cardWaitFolds, closeWaitsOfAnEndedCard, closingTheWaitsOfAClosedPr, ownerWaitFolds } from './card-waits.js'
 import { DEAD_END_ACTOR, DEAD_END_LIFTS } from './dead-ends.js'
-import { causeGoneSource, derivedQueues, downgradeParkedSource, dueAgainSource, noCardTreeSource, restartSource, settleSource, stopNoLongerHoldsSource } from './derive-queues.js'
+import { causeGoneSource, closeCandidates, derivedQueues, downgradeParkedSource, dueAgainSource, noCardTreeSource, restartSource, reviewCandidates, settleSource, stopNoLongerHoldsSource } from './derive-queues.js'
 import { unendedStarts } from './expected-time.js'
 import { busSessionPulse, heartbeatEnv, measureCardSession, ownStart, recordProcessHeartbeat } from './heartbeat.js'
 import { SILENT_MS } from './liveness-sites.js'
@@ -399,6 +401,18 @@ export function candidateRules(): CandidateRules {
     reviewedUnderTheCardDecision: (db, ts) => reviewedUnderTheCardDecision(cardDecisionReads(db, decisionsAt(db, ts), REVIEWS_OF_A_PR, storedByKey)),
     mergedCards: prs.mergedCards,
   }
+}
+
+export function reviewCandidatesOfTheBus(db: DatabaseSync, ts: string): QueuedTask[] {
+  return reviewCandidates(db, ts, candidateRules())
+}
+
+export function closeCandidatesOfTheBus(db: DatabaseSync, ts: string): QueuedTask[] {
+  return closeCandidates(db, ts, candidateRules())
+}
+
+export function roleToOwnerAtTheThresholds(db: DatabaseSync, ts: string, actor: string): RoleToOwner | null {
+  return roleToOwner(db, ts, actor, THRESHOLDS)
 }
 
 export function mayRequeue(): MayRequeue {

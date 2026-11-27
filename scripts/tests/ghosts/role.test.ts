@@ -13,6 +13,7 @@ import { cloudOn } from '../../ladder/cloud-key.js'
 import { roleOutcome } from '../../ladder/role.js'
 import { observeRoleStop, returnEndedRole, returnSilentRole, ROLES_PROJECTION, roleToOwner, WINDOW_ENDS } from '../../nodes/restart/role.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { THRESHOLDS } from '../../window/eddies-measure.js'
 import { windowEndObserver } from '../../window/role-end.js'
 import { recordWindowHeartbeat } from '../../window/window-heartbeat.js'
 import { requestFromWindow } from '../../window/window-requests.js'
@@ -59,7 +60,7 @@ describe('the window role with the owner', () => {
     const db = openBus(file)
     observeRoleStop(db, at(0), 'worker:miko:7', { role: 'miko', handoff: HANDOFF, status: 'CONTINUE', reason: 'context', raised: false })
     reduce(db, 'pending', busProjections())
-    expect(roleToOwner(db, at(10), 'worker:restart:w')).toMatchObject({ role: 'miko' })
+    expect(roleToOwner(db, at(10), 'worker:restart:w', THRESHOLDS)).toMatchObject({ role: 'miko' })
     reduce(db, 'pending', busProjections())
     return { db, file, close: () => {
       db.close()
@@ -79,7 +80,7 @@ describe('the window role with the owner', () => {
     const live = projectionDump(bus.db)
     reduce(bus.db, 'pending', busProjections())
     expect(projectionDump(bus.db)).toBe(live)
-    expect(roleToOwner(bus.db, at(1002 + LEASE_MS), 'worker:restart:w')).toMatchObject({ role: 'miko', handoff: HANDOFF })
+    expect(roleToOwner(bus.db, at(1002 + LEASE_MS), 'worker:restart:w', THRESHOLDS)).toMatchObject({ role: 'miko', handoff: HANDOFF })
     bus.close()
   })
 
@@ -145,7 +146,7 @@ describe('the window role with the owner', () => {
     const live = projectionDump(bus.db)
     reduce(bus.db, 'pending', busProjections())
     expect(projectionDump(bus.db)).toBe(live)
-    expect(roleToOwner(bus.db, at(3002), 'worker:restart:w')).toMatchObject({ role: 'miko', handoff: HANDOFF })
+    expect(roleToOwner(bus.db, at(3002), 'worker:restart:w', THRESHOLDS)).toMatchObject({ role: 'miko', handoff: HANDOFF })
     bus.close()
   })
 
