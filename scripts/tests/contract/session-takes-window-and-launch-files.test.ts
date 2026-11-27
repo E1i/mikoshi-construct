@@ -26,7 +26,7 @@ const WINDOW_TO_RESTART = 'boundary:window->node-restart'
 const WINDOW_TO_RESTART_RECORDED = 4
 
 const SESSION_TO_INTAKE = 'boundary:session->intake'
-const SESSION_TO_INTAKE_AT_CUT = 2
+const SESSION_TO_INTAKE_RECORDED = 2
 const PARKING_READS = 'scripts/intake/parking-reads.ts'
 
 interface Declaration {
@@ -63,7 +63,11 @@ describe('session owns the window and launch files it runs on', () => {
   it('handoff-check reaches parking-reads in card-record, so session->intake does not grow', () => {
     expect(declared('card-record')).toContain(PARKING_READS)
     expect(declared('intake')).not.toContain(PARKING_READS)
+  })
+
+  it('session->intake is recorded as 2 beside window->node-restart as 4', () => {
     const ratchet = jsonAt<Record<string, number>>('contract/ratchet.json')
-    expect(ratchet[SESSION_TO_INTAKE] ?? 0).toBeLessThanOrEqual(SESSION_TO_INTAKE_AT_CUT)
+    expect(ratchet[SESSION_TO_INTAKE]).toBe(SESSION_TO_INTAKE_RECORDED)
+    expect(ratchet[WINDOW_TO_RESTART]).toBe(WINDOW_TO_RESTART_RECORDED)
   })
 })
