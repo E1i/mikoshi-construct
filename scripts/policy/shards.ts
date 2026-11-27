@@ -5,7 +5,7 @@ import { shardUsedByRun, unendedWindowShardRows, unspentShardRows } from '../cor
 import { SHARD_EXPIRED } from '../core/events.js'
 import { decisionCommand, lapsed, termOf, visibleToCard } from './decisions/decisions.js'
 import { inForceDecisions } from './decisions/index.js'
-import { OWNER_EVEN_UNDER_THE_DECISION } from './policy.js'
+import { OWNER_EVEN_UNDER_THE_DECISION } from './decisions/read.js'
 
 export const WINDOW_SHARD_HOURS = 6
 export const SHARD_NOTICE_HOURS = 2
