@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { QueuedTask } from '../../core/queue.js'
 import type { TimedShell, WitnessTrees } from '../../nodes/witness/witness-executor.js'
 import type { GitAsync } from '../../ports/worktree.js'
 import { execFileSync } from 'node:child_process'
@@ -12,12 +13,14 @@ import { textSha } from '../../../src/card/text-sha.js'
 import { witnessFieldsLine } from '../../../src/card/witness-fields.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, PR_OBSERVED, WITNESS_PHASE, WITNESS_RECORDED } from '../../core/events.js'
+import { leaseQueued } from '../../core/lease.js'
+import { keyOf, queueTask } from '../../core/queue.js'
 import { reduce } from '../../core/reducer.js'
-import { gitWitnessTrees, realTimedShell } from '../../nodes/witness/witness-executor.js'
+import { gitWitnessTrees, realTimedShell, WitnessExecutor } from '../../nodes/witness/witness-executor.js'
 import { WitnessNode } from '../../nodes/witness/witness-worker.js'
 import { GREEN, RED, witnessDenial, witnessRecordOf, witnessSubjectOf } from '../../policy/policy.js'
 import { gitInAsync, SetupTurns, withWorktreeAsync } from '../../ports/worktree.js'
-import { busProjections } from '../../supervisor/composition.js'
+import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { waitFor } from '../wait-for.js'
 
@@ -391,5 +394,28 @@ describe('the steps the witness node records', () => {
     expect(steps.map(({ phase, witness }) => `${witness} ${phase}`)).toEqual(['W1 base', 'W2 base', 'W1 head', 'W2 head'])
     expect(new Set(steps.map(step => step.task_key)).size).toBe(1)
     expect(recorded(w)).toHaveLength(1)
+  })
+
+  function phasesOf(w: World): string[] {
+    return (w.db.prepare('SELECT payload FROM events WHERE type = ? ORDER BY id').all(WITNESS_PHASE) as { payload: string }[]).map(row => JSON.parse(row.payload) as Record<string, string>).map(({ phase, witness }) => `${witness} ${phase}`)
+  }
+
+  it('records the witness id a criterion names, not its position', async () => {
+    const w = world([], 'done.txt', [], `Write done.txt.\n\n${witnessFieldsLine([{ id: 'W3', run: 'test -f done.txt', test: null, head: 'pass', base: 'fail', proves: 'what it says' }])}`)
+    await witnessRun(w)
+
+    expect(phasesOf(w)).toEqual(['W3 base', 'W3 head'])
+  })
+
+  it('records one head step per witness when the card is witnessed on main without a pull request', async () => {
+    const w = world([], 'done.txt')
+    const task: QueuedTask = { queue: 'witness', cardId: CARD, head: w.head }
+    queueTask(w.db, '2026-10-21T10:02:00.000Z', task)
+    const lease = leaseQueued(w.db, '2026-10-21T10:02:00.000Z', keyOf(task), 'worker:witness:on-main')!
+    const turns = new SetupTurns()
+    const outcome = await new WitnessExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: w.db, clock: () => new Date('2026-10-21T10:02:00.000Z'), shell: realTimedShell, log: () => {}, trees: { baseOf: async () => w.head, withTree: (base, run) => withWorktreeAsync(w.repo, base, run, turns) } }).run(lease)
+
+    expect(outcome).toEqual(expect.objectContaining({ kind: 'recorded', verdict: GREEN, base: w.head }))
+    expect(phasesOf(w)).toEqual(['W1 head', 'W2 head'])
   })
 })

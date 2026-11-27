@@ -84,4 +84,28 @@ describe('a sessionless node tile', () => {
     const view = nodeViewOf(slices, 'witness')
     expect(view).toEqual({ startedAt: minutesAgo(6), expectedMs: null, steps: [], terminal: null, node: { phases: [{ phase: ON_BASE, witness: 'W1', at: minutesAgo(5) }, { phase: ON_HEAD, witness: 'W1', at: minutesAgo(2) }], outcome: null } })
   })
+
+  it('the node view anchors on its own queue lease when a later lease of another queue follows it', () => {
+    const slices = slicesOver([
+      row(TASK_LEASED, 6, { queue: 'witness' }),
+      row(WITNESS_PHASE, 5, { phase: ON_BASE, witness: 'W1' }),
+      row(TASK_LEASED, 4, { queue: 'review' }),
+      row(WITNESS_PHASE, 2, { phase: ON_HEAD, witness: 'W1' }),
+    ])
+    const view = nodeViewOf(slices, 'witness')
+    expect(view.startedAt).toBe(minutesAgo(6))
+    expect(view.node?.phases.map(({ phase }) => phase)).toEqual([ON_BASE, ON_HEAD])
+  })
+
+  it('a witness tile reads its verdict from the witness.recorded row after its lease', () => {
+    const slices = slicesOver([
+      row(TASK_LEASED, 6, { queue: 'witness' }),
+      row(WITNESS_PHASE, 5, { phase: ON_BASE, witness: 'W1' }),
+      row(WITNESS_PHASE, 2, { phase: ON_HEAD, witness: 'W1' }),
+      row(WITNESS_RECORDED, 1, { verdict: 'green' }),
+    ])
+    const tile = sessionCard(service('witness'), nodeViewOf(slices, 'witness'), PARTS)
+    expect(tile).toContain('RECORDED · GREEN')
+    expect(tile).toContain('<span class="round-step-now">green · recorded 07:59:00</span>')
+  })
 })
