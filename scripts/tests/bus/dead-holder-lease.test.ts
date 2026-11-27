@@ -15,8 +15,9 @@ import { InMemoryProcessTable } from '../../ports/process-table.js'
 import { launchName, PREFIX } from '../../supervisor/bg.js'
 import { cardTransitions, reviewLaunch } from '../../supervisor/composition.js'
 import { ownStart } from '../../supervisor/heartbeat.js'
+import { LivenessJudge } from '../../supervisor/liveness-judge.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
-import { busDrain, BusSupervisor, freeLeasesOf, LivenessJudge, lstartToIso, psStartOf } from '../../supervisor/supervisor.js'
+import { busDrain, BusSupervisor, freeLeasesOf, lstartToIso, psStartOf } from '../../supervisor/supervisor.js'
 import { workerLaunches } from '../../supervisor/workers.js'
 import { sha } from './github-fake.js'
 
@@ -61,7 +62,7 @@ function bench(): Bench {
     recordWorkerStarted(db, ts(), worker, holder)
     return holder
   }
-  const judge = new LivenessJudge(db, () => STARTED_AT + clock.now, () => () => false, async () => [], pid => startOf(pid))
+  const judge = new LivenessJudge(db, () => STARTED_AT + clock.now, () => () => false, async () => [], { startOf: pid => startOf(pid), cards: cardTransitions() })
   return { db, clock, ts, processes, startOf, start, judge }
 }
 
