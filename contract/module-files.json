@@ -1706,7 +1706,6 @@
   ],
   "node-launch": [
     "scripts/nodes/launch/body-amend.ts",
-    "scripts/nodes/launch/continuation.ts",
     "scripts/nodes/launch/header.md",
     "scripts/nodes/launch/holders.ts",
     "scripts/nodes/launch/host-gate.ts",
@@ -1734,7 +1733,6 @@
     "scripts/nodes/merge/weights-drift.ts"
   ],
   "node-restart": [
-    "scripts/nodes/restart/chain-process.ts",
     "scripts/nodes/restart/restart-executor.ts",
     "scripts/nodes/restart/restart-worker.ts",
     "scripts/nodes/restart/role-readings.ts",
@@ -1797,7 +1795,6 @@
     "scripts/ports/netwatch.ts",
     "scripts/ports/pr-status.ts",
     "scripts/ports/process-table.ts",
-    "scripts/ports/result.ts",
     "scripts/ports/review-planner.ts",
     "scripts/ports/session.ts",
     "scripts/ports/snapshot.ts",
@@ -2618,7 +2615,6 @@
     "scripts/privacy/check.ts",
     "scripts/privacy/scan.ts",
     "scripts/quality/foreign-table-sql-excepted.json",
-    "scripts/quality/lock.ts",
     "scripts/quality/real-time-waits-excepted.json",
     "scripts/quality/table-owners.json",
     "scripts/quality/witness-records.ts",
@@ -2727,6 +2723,10 @@
     "scripts/core/report.ts",
     "scripts/core/tasks.ts",
     "scripts/intake/witness-fields-backfill.ts",
+    "scripts/nodes/launch/continuation.ts",
+    "scripts/nodes/restart/chain-process.ts",
+    "scripts/ports/result.ts",
+    "scripts/quality/lock.ts",
     "scripts/supervisor/bg.ts",
     "scripts/supervisor/bus-heal.ts",
     "scripts/supervisor/bus-snapshot.ts",
@@ -2763,6 +2763,8 @@
     "scripts/supervisor/wait-lifts.ts",
     "scripts/supervisor/window-subagent-tick.ts",
     "scripts/supervisor/workers.ts",
+    "scripts/window/eddies-measure.ts",
+    "scripts/window/handoff-check.ts",
     "src/commands/liveness.ts"
   ],
   "templates": [
@@ -2920,9 +2922,7 @@
     "scripts/window/card-measure.ts",
     "scripts/window/compact-start.ts",
     "scripts/window/day-archive.ts",
-    "scripts/window/eddies-measure.ts",
     "scripts/window/exit.ts",
-    "scripts/window/handoff-check.ts",
     "scripts/window/handoff-write.ts",
     "scripts/window/loop.ts",
     "scripts/window/miko.ts",

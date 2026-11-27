@@ -4163,6 +4163,7 @@
         ],
         "owns": [
           "scripts/nodes/launch/**",
+          "!scripts/nodes/launch/continuation.ts",
           "!scripts/nodes/launch/tree-pr.ts"
         ],
         "status": "decided"
@@ -4236,7 +4237,8 @@
           "factory-contract"
         ],
         "owns": [
-          "scripts/nodes/restart/**"
+          "scripts/nodes/restart/**",
+          "!scripts/nodes/restart/chain-process.ts"
         ],
         "status": "decided"
       },
@@ -4414,7 +4416,6 @@
           "scripts/ports/meter.ts",
           "scripts/ports/netwatch.ts",
           "scripts/ports/process-table.ts",
-          "scripts/ports/result.ts",
           "scripts/ports/review-planner.ts",
           "scripts/ports/session.ts",
           "scripts/ports/snapshot.ts",
@@ -4455,6 +4456,7 @@
           "!scripts/ports/host/macos-thermal.ts",
           "!scripts/ports/prepare-tree.ts",
           "!scripts/ports/prompt-store.ts",
+          "!scripts/ports/result.ts",
           "!scripts/ports/serve-record.ts",
           "!scripts/ports/shift-settings.ts",
           "!scripts/ports/witnesses.ts",
@@ -4615,7 +4617,6 @@
           "scripts/cli/check-catalog.ts",
           "scripts/cli/check-matrix.ts",
           "scripts/cli/mutate.ts",
-          "scripts/quality/**",
           "scripts/privacy/**",
           "src/commands/mutate/apply.ts",
           "src/commands/mutate/journal.ts",
@@ -4625,6 +4626,10 @@
           "src/commands/test-runner.ts",
           "src/card/covering-tests.ts",
           "scripts/ports/witnesses.ts",
+          "scripts/quality/foreign-table-sql-excepted.json",
+          "scripts/quality/real-time-waits-excepted.json",
+          "scripts/quality/table-owners.json",
+          "scripts/quality/witness-records.ts",
           "scripts/ci/browser-tests-ran.mjs",
           "scripts/ci/card-automaton.ts",
           "scripts/ci/card-runs.ts",
@@ -4688,7 +4693,8 @@
           "src/commands/test-runner.ts",
           "src/card/covering-tests.ts",
           "scripts/ports/witnesses.ts",
-          "!scripts/ci/required.ts"
+          "!scripts/ci/required.ts",
+          "!scripts/quality/lock.ts"
         ],
         "status": "decided"
       },
@@ -4808,6 +4814,12 @@
           "scripts/core/import-closure.ts",
           "scripts/core/cadence.ts",
           "scripts/intake/witness-fields-backfill.ts",
+          "scripts/window/eddies-measure.ts",
+          "scripts/window/handoff-check.ts",
+          "scripts/nodes/launch/continuation.ts",
+          "scripts/nodes/restart/chain-process.ts",
+          "scripts/ports/result.ts",
+          "scripts/quality/lock.ts",
           "scripts/cli/slot.ts",
           "src/commands/liveness.ts",
           "scripts/supervisor/bg.ts",
@@ -4847,6 +4859,12 @@
           "scripts/core/import-closure.ts",
           "scripts/core/cadence.ts",
           "scripts/intake/witness-fields-backfill.ts",
+          "scripts/window/eddies-measure.ts",
+          "scripts/window/handoff-check.ts",
+          "scripts/nodes/launch/continuation.ts",
+          "scripts/nodes/restart/chain-process.ts",
+          "scripts/ports/result.ts",
+          "scripts/quality/lock.ts",
           "scripts/cli/slot.ts",
           "src/commands/liveness.ts",
           "scripts/supervisor/**",
@@ -4887,8 +4905,6 @@
         ],
         "contract": [
           "scripts/window/board.ts",
-          "scripts/window/eddies-measure.ts",
-          "scripts/window/handoff-check.ts",
           "scripts/window/loop.ts",
           "scripts/window/tab.ts",
           "scripts/window/takeover-push-release.ts",
@@ -4937,6 +4953,8 @@
         "owns": [
           "scripts/window/**",
           "scripts/conveyor/**",
+          "!scripts/window/eddies-measure.ts",
+          "!scripts/window/handoff-check.ts",
           "!scripts/window/miko.ts",
           "!scripts/window/plan-export.ts",
           "!scripts/window/plan-folds.ts"
