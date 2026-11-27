@@ -11,7 +11,6 @@
   "boundary:card-record->quality": 1,
   "boundary:cost->node-launch": 2,
   "boundary:cost->node-update": 1,
-  "boundary:decisions->composition-root": 1,
   "boundary:decisions->session": 2,
   "boundary:node-close->cost": 2,
   "boundary:node-launch->cost": 3,
