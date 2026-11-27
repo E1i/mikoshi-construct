@@ -5,7 +5,7 @@ import ts from 'typescript'
 import { FACTORY_NAMED, FACTORY_RUNTIME } from '../../core/factory-paths.js'
 import { GENERATED_FILES, GENERATED_PATHS } from '../../core/generated-files.js'
 import { BUS_TABLES } from '../../ports/bus-read.js'
-import { clientAdapter } from '../../ports/client/index.js'
+import { clientAdapter } from '../../ports/session.js'
 import {
   adjacentLiterals,
   called,

@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clientHome } from '../../ports/client/claude/adapter.js'
-import { clientAdapter } from '../../ports/client/index.js'
 import { OsProcessTable } from '../../ports/process-table.js'
+import { clientAdapter } from '../../ports/session.js'
 
 const claudeAdapter = clientAdapter()
 
