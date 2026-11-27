@@ -1,0 +1,9 @@
+{
+  "event": "witness.phase",
+  "constant": "WITNESS_PHASE",
+  "payload": [
+    "phase",
+    "task_key",
+    "witness"
+  ]
+}

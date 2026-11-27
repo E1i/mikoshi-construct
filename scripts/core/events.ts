@@ -128,6 +128,7 @@ export const REQUEST_REFUSED = 'window.request.refused'
 export const WINDOW_SUBAGENT_EVENT = 'window.subagent'
 export const WITNESS_DOWNGRADE = 'witness.downgrade'
 export const WITNESS_FIELDS_BACKFILLED = 'witness.fields.backfilled'
+export const WITNESS_PHASE = 'witness.phase'
 export const WITNESS_RECORDED = 'witness.recorded'
 export const WORKER_DOWN = 'worker.down'
 export const WORKER_RETIRING = 'worker.retiring'
@@ -287,6 +288,7 @@ export const EVENT_PAYLOADS = {
   [REQUEST_REFUSED]: ['detail', 'kind', 'owner', 'request'],
   [WINDOW_SUBAGENT_EVENT]: ['phase', 'role', 'session', 'step', 'task', 'tree'],
   [WITNESS_FIELDS_BACKFILLED]: ['cards', 'unparsed'],
+  [WITNESS_PHASE]: ['phase', 'task_key', 'witness'],
   [WITNESS_RECORDED]: ['base', 'cardBody', 'detail', 'head', 'verdict'],
   [WORKER_DOWN]: ['cause', 'failures', 'next_attempt_at', 'worker'],
   [WORKER_RETIRING]: ['from', 'node', 'pids', 'sha', 'worker'],
