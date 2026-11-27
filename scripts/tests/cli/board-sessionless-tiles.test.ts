@@ -1,7 +1,7 @@
 import type { CardService, EventSlices, SessionCardParts, SessionView, SlicedRow } from '../../cli/board-page/session-card.js'
 import { describe, expect, it } from 'vitest'
 import { nodeViewOf, sessionCard, SESSIONLESS_ROLES } from '../../cli/board-page/session-card.js'
-import { MERGE_DONE, TASK_LEASED, WITNESS_PHASE, WITNESS_RECORDED } from '../../core/events.js'
+import { CARD_CLOSED, MERGE_DONE, TASK_LEASED, UPDATE_DONE, WITNESS_PHASE, WITNESS_RECORDED } from '../../core/events.js'
 
 const NOW = new Date('2026-11-27T08:00:00.000Z')
 const CARD = 2361
@@ -107,5 +107,20 @@ describe('a sessionless node tile', () => {
     const tile = sessionCard(service('witness'), nodeViewOf(slices, 'witness'), PARTS)
     expect(tile).toContain('RECORDED · GREEN')
     expect(tile).toContain('<span class="round-step-now">green · recorded 07:59:00</span>')
+  })
+
+  it('update and close tiles read their recorded outcome after their own lease', () => {
+    const updated = sessionCard(service('update'), nodeViewOf(slicesOver([row(TASK_LEASED, 3, { queue: 'update' }), row(UPDATE_DONE, 1, { head: 'a'.repeat(40) })]), 'update'), PARTS)
+    expect(updated).toContain('<span class="round-step-now">updated · recorded 07:59:00</span>')
+    expect(updated).toContain('RECORDED · UPDATED')
+    const closed = sessionCard(service('close'), nodeViewOf(slicesOver([row(TASK_LEASED, 3, { queue: 'close' }), row(CARD_CLOSED, 1, { reason: 'merged' })]), 'close'), PARTS)
+    expect(closed).toContain('<span class="round-step-now">closed · recorded 07:59:00</span>')
+    expect(closed).toContain('RECORDED · CLOSED')
+  })
+
+  it('an update tile reads no witness phase recorded after its lease and stays leased', () => {
+    const view = nodeViewOf(slicesOver([row(TASK_LEASED, 4, { queue: 'update' }), row(WITNESS_PHASE, 2, { phase: ON_BASE, witness: 'W1' })]), 'update')
+    expect(view.node?.phases).toEqual([])
+    expect(sessionCard(service('update'), view, PARTS)).toContain('<span class="round-step-now">leased · 4 min</span>')
   })
 })
