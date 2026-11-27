@@ -22,6 +22,8 @@
   { "file": "scripts/supervisor/composition.ts", "kind": "pid-file" },
   { "file": "scripts/supervisor/recorded-worker.ts", "kind": "imported-judge" },
   { "file": "scripts/supervisor/run.ts", "kind": "imported-judge" },
+  { "file": "scripts/supervisor/signal-sent.ts", "kind": "kill" },
+  { "file": "scripts/supervisor/supervisor.ts", "kind": "pid-file" },
   { "file": "scripts/window/exit.ts", "kind": "kill" },
   { "file": "scripts/window/loop.ts", "kind": "kill" },
   { "file": "scripts/window/watch-store.ts", "kind": "imported-judge" }

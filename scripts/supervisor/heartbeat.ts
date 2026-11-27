@@ -10,7 +10,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { appendEvent, defaultBusPath, inTransaction, openBus, recordBeat, retirePreviousGenerationBeats } from '../core/db.js'
 import { BY_CARD, EITHER_JOURNAL, events, lastPer, latest, processBeats } from '../core/events-query.js'
-import { BOARD_ALARM, PROCESS_HEARTBEAT, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../core/events.js'
+import { BOARD_ALARM, PROCESS_HEARTBEAT, PROCESS_JUDGED, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../core/events.js'
 import { prOf } from '../core/identifiers.js'
 import { LEASE_FOLDS } from '../core/lease.js'
 import { storedByKey } from '../core/stored.js'
@@ -90,6 +90,26 @@ function windowBeats(db: DatabaseSync): ProcessBeat[] {
 export function lastProcessBeats(db: DatabaseSync): ProcessBeat[] {
   const cards = lastPer(db, BY_CARD, { types: [SESSION_HEARTBEAT], withCard: true }).map(row => ({ process: `${CARD_PROCESS}${row.card_id}`, ts: row.ts }))
   return latestOfEachProcess([...processBeats(db), ...cards, ...windowBeats(db)])
+}
+
+export interface Judged {
+  process: string
+  lastBeat: string
+}
+
+function lastJudged(db: DatabaseSync): Map<string, string> {
+  const judged = new Map<string, string>()
+  for (const { data } of events(db, { types: [PROCESS_JUDGED], valid: true })) {
+    const [name, beat] = [data?.process, data?.last_beat]
+    if (typeof name === 'string' && typeof beat === 'string' && beat > (judged.get(name) ?? ''))
+      judged.set(name, beat)
+  }
+  return new Map([...judged].sort(([a], [b]) => a < b ? -1 : 1))
+}
+
+export function stillSilent(db: DatabaseSync): Judged[] {
+  const beats = new Map(lastProcessBeats(db).map(beat => [beat.process, beat.ts]))
+  return [...lastJudged(db)].filter(([name, lastBeat]) => (beats.get(name) ?? lastBeat) <= lastBeat).map(([name, lastBeat]) => ({ process: name, lastBeat }))
 }
 
 const PID_OF_PROCESS = /:([1-9]\d*)$/

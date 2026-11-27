@@ -18,10 +18,11 @@ import { queueTask } from '../../../core/queue.js'
 import { BusRead } from '../../../ports/bus-read.js'
 import { OsProcessTable } from '../../../ports/process-table.js'
 import { cardTransitions } from '../../../supervisor/composition.js'
+import { LivenessJudge } from '../../../supervisor/liveness-judge.js'
 import { SILENT_MS } from '../../../supervisor/liveness-sites.js'
 import { tableIdentity } from '../../../supervisor/recorded-worker.js'
 import { recordSignalSent } from '../../../supervisor/signal-sent.js'
-import { LivenessJudge, psStartOf } from '../../../supervisor/supervisor.js'
+import { psStartOf } from '../../../supervisor/supervisor.js'
 import { waitFor } from '../../wait-for.js'
 
 const CARD = 1912
@@ -100,7 +101,7 @@ class World {
   readonly release = path.join(this.root, 'release')
   readonly db: DatabaseSync = openBus(path.join(this.root, 'bus.db'))
   readonly clock = new Clock()
-  readonly judge = new LivenessJudge(this.db, () => this.clock.now(), () => () => false, async () => [], psStartOf)
+  readonly judge = new LivenessJudge(this.db, () => this.clock.now(), () => () => false, async () => [], { startOf: psStartOf, cards: cardTransitions() })
 
   constructor() {
     roots.push(this.root)
