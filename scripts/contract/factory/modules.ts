@@ -221,7 +221,10 @@ export function carvedOut(modules: Readonly<Record<string, ModuleSpec>>): Record
   const named = [...namedFiles(modules)]
   return Object.fromEntries(Object.entries(modules).map(([id, spec]) => {
     const taken = spec.owns.filter(isFolderGlob).flatMap(folder => named.filter(([file, holder]) => holder !== id && insideFolder(folder, file)).map(([file]) => `${CARVED_OUT}${file}`))
-    return [id, taken.length === 0 ? spec : { ...spec, owns: [...spec.owns, ...taken.sort()] }]
+    if (taken.length === 0)
+      return [id, spec]
+    const owns = [...spec.owns, ...taken.sort()]
+    return [id, { ...spec, owns, contract: spec.contract === spec.owns ? owns : spec.contract }]
   }))
 }
 

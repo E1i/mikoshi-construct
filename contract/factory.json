@@ -3523,7 +3523,8 @@
           "scripts/cli/board-page.ts",
           "scripts/cli/board-page/**",
           "scripts/cli/board-warnings.ts",
-          "src/commands/board/**"
+          "src/commands/board/**",
+          "!src/commands/board/goal.ts"
         ],
         "may_use": [
           "layout",
@@ -3889,7 +3890,10 @@
           "scripts/core/card-decisions.ts",
           "scripts/policy/live-decision.ts",
           "scripts/policy/decisions/**",
-          "scripts/owner/**"
+          "scripts/owner/**",
+          "!scripts/owner/answer.ts",
+          "!scripts/policy/decisions/add.ts",
+          "!scripts/policy/decisions/window-door.ts"
         ],
         "may_use": [
           "layout",
