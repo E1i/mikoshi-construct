@@ -4340,7 +4340,7 @@
         "contract": [
           "scripts/window/plan-export.ts",
           "scripts/window/plan-folds.ts",
-          "scripts/window/plan-readings.ts",
+          "scripts/core/plan-readings.ts",
           "scripts/cli/card-chain.ts",
           "src/card/slice-depends.ts"
         ],
@@ -4359,7 +4359,7 @@
         "owns": [
           "scripts/window/plan-export.ts",
           "scripts/window/plan-folds.ts",
-          "scripts/window/plan-readings.ts",
+          "scripts/core/plan-readings.ts",
           "scripts/cli/card-chain.ts",
           "src/card/slice-depends.ts"
         ],
@@ -4897,8 +4897,7 @@
           "scripts/conveyor/**",
           "!scripts/window/miko.ts",
           "!scripts/window/plan-export.ts",
-          "!scripts/window/plan-folds.ts",
-          "!scripts/window/plan-readings.ts"
+          "!scripts/window/plan-folds.ts"
         ],
         "status": "decided"
       }
@@ -5123,12 +5122,13 @@
       "scripts/core/chain.ts": 2,
       "scripts/core/db.ts": 3,
       "scripts/core/dependency-wait.ts": 3,
-      "scripts/core/events-query.ts": 28,
+      "scripts/core/events-query.ts": 29,
       "scripts/core/inbox.ts": 1,
       "scripts/core/lease.ts": 17,
       "scripts/core/legacy-history.ts": 1,
       "scripts/core/node.ts": 4,
       "scripts/core/observations.ts": 4,
+      "scripts/core/plan-readings.ts": 4,
       "scripts/core/pr-folds.ts": 1,
       "scripts/core/pr-readings.ts": 10,
       "scripts/core/pr-status.ts": 2,
@@ -5148,7 +5148,6 @@
       "scripts/supervisor/card-waits.ts": 4,
       "scripts/supervisor/derive-queues.ts": 1,
       "scripts/window/plan-folds.ts": 5,
-      "scripts/window/plan-readings.ts": 2,
       "scripts/window/requests/amend.ts": 2,
       "scripts/window/requests/context.ts": 6,
       "scripts/window/requests/drop.ts": 1,
@@ -5157,8 +5156,7 @@
       "scripts/window/requests/requeue.ts": 5,
       "scripts/window/requests/takeover.ts": 3,
       "scripts/window/requests/tree-cut.ts": 1,
-      "scripts/window/window-requests.ts": 2,
-      "src/commands/board/goal.ts": 4
+      "scripts/window/window-requests.ts": 2
     },
     "ci-reading": {},
     "generated-files": {},

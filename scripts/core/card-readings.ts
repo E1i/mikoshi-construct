@@ -2,11 +2,11 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { LastReduced, OwnerWait } from './bus-readings.js'
 import type { EventRow } from './events-query.js'
 import { CLOSED_WAIT, OPEN_WAIT, OWNER_WAITS, readLastReduced } from './bus-readings.js'
-import { cardIdsInEvents, EITHER_JOURNAL, events, eventsWhere, latest } from './events-query.js'
-import { CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, LADDER_RUN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_CLOSED, QUESTION_AGENT, WITNESS_DOWNGRADE } from './events.js'
+import { cardIdsInEvents, EITHER_JOURNAL, events, eventsWhere, lastTextFieldPerCard, latest } from './events-query.js'
+import { CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_MOVED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, LADDER_RUN, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_CLOSED, QUESTION_AGENT, WITNESS_DOWNGRADE } from './events.js'
 
 export type { BusPanelRow, EventRow } from './events-query.js'
-export { busPanelRow, EITHER_JOURNAL, events, lastObjectFieldPerCard, lastPer, lastSlotsPerQueue, latest, newestEventsOfEachCard } from './events-query.js'
+export { busPanelRow, EITHER_JOURNAL, events, lastObjectFieldPerCard, lastPer, lastSlotsPerQueue, latest, newestEventsOfEachCard, stampsAmong } from './events-query.js'
 export type { TaskRow } from './tasks-query.js'
 export { inStates as tasksInStates } from './tasks-query.js'
 
@@ -129,6 +129,15 @@ function textOrNull(value: unknown): string | null {
 export function cardBodyLanes(db: DatabaseSync): CardBodyLane[] {
   const rows = db.prepare(BODY_LANES).all() as { card_id: number, lane: unknown, who: unknown, priority: unknown, depends: unknown }[]
   return rows.map(row => ({ card_id: Number(row.card_id), lane: textOrNull(row.lane), who: textOrNull(row.who), priority: textOrNull(row.priority), depends: listOf(row.depends) }))
+}
+
+const LANE_TURNS = [CARD_ADMITTED, CARD_MOVED]
+
+export function lanesOfCards(db: DatabaseSync): Map<number, string | null> {
+  const lanes = new Map(cardBodyLanes(db).map(body => [body.card_id, body.lane] as const))
+  for (const [card, lane] of lastTextFieldPerCard(db, LANE_TURNS, 'lane'))
+    lanes.set(card, lane)
+  return lanes
 }
 
 const PRIORITIES_AMONG = `SELECT card_id, priority FROM ${CARD_BODIES} WHERE card_id IN (SELECT value FROM json_each(?))`

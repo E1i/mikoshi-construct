@@ -1226,6 +1226,7 @@
     "scripts/tests/window/requests-dispatch.test.ts",
     "scripts/tests/window/tree-cut-session-ends.test.ts",
     "scripts/tests/window/turn-watch-needs-a-running-watch.test.ts",
+    "scripts/tests/window/window-session-readings.test.ts",
     "scripts/tests/witness/one-gib-disk.test.ts",
     "scripts/tests/witness/test-runner-one-owner.test.ts",
     "scripts/tests/witness/unfit-witness.test.ts",
@@ -1754,9 +1755,9 @@
   ],
   "plan": [
     "scripts/cli/card-chain.ts",
+    "scripts/core/plan-readings.ts",
     "scripts/window/plan-export.ts",
     "scripts/window/plan-folds.ts",
-    "scripts/window/plan-readings.ts",
     "src/card/slice-depends.ts"
   ],
   "ports": [
