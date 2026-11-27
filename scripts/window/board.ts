@@ -1,19 +1,27 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Goal } from '../../src/commands/board/goal.js'
+import type { CardBodyLane, OpenCardWait } from '../core/card-readings.js'
+import type { ChainState } from '../core/chain.js'
+import type { EventRow } from '../core/events-query.js'
 import type { WaitKind, WaitLifter } from '../core/events.js'
 import type { Queue } from '../core/identifiers.js'
 import type { LeaseOrder, PullHead } from '../core/lease.js'
+import type { PrRow } from '../core/pr-readings.js'
 import type { WindowShard } from '../policy/shards.js'
 import { goalOf } from '../../src/commands/board/goal.js'
 import { isLaneName } from '../../src/commands/intake/admit.js'
 import { DROPPED_CARD, FALLEN_CARD, MERGED_CARD, QUEUED_CARD, STOPPED_CARD } from '../core/card-automaton.js'
-import { WAITING } from '../core/chain.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_WAITS, CHAIN_OBSERVED, CUTOVER, MERGE_DONE, OWNER_WAIT_CLOSED, PR_OPENED, REJECTED, RESTARTED, REVIEW_RECORDED, SESSION_HEARTBEAT, SHARD_DECIDED, TASK_COMPLETED, TASK_LEASED, WINDOW_HEARTBEAT } from '../core/events.js'
+import { cardBodyLanes, cardStatesAmong, cardsWithTheirLines, openCardWaits } from '../core/card-readings.js'
+import { chainOfCard, chainOfDir, WAITING } from '../core/chain.js'
+import { BY_CARD, countOf, EITHER_JOURNAL, events, lastPer, lastTsPerActor, latest, latestTs } from '../core/events-query.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_WAITS, CHAIN_OBSERVED, CHAIN_RESTARTED, CUTOVER, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_OPENED, REJECTED, RESTARTED, REVIEW_RECORDED, SESSION_HEARTBEAT, SHARD_DECIDED, TASK_COMPLETED, TASK_LEASED, WINDOW_HEARTBEAT } from '../core/events.js'
 import { QUEUES } from '../core/identifiers.js'
 import { RESTART_MISSED } from '../core/inbox.js'
 import { grantOrder, RENEW_MS } from '../core/lease.js'
+import { all as allPrs } from '../core/pr-readings.js'
 import { LEASED } from '../core/queue.js'
 import { replayDifferences } from '../core/report.js'
+import { inStates as tasksInStates } from '../core/tasks-query.js'
 import { cardContract } from '../intake/card-contract.js'
 import { roleReadings } from '../nodes/restart/role.js'
 import { activeWindowShards } from '../policy/shards.js'
@@ -168,99 +176,242 @@ const STAGE_WORKER: Record<string, string> = { 'review': 'review', 'awaiting mer
 interface ChainRow {
   dir: string
   card_id: number
-  state: string
+  state: ChainState
   since: string | null
-  waiting_on: string | null
+  waiting_on: unknown[]
 }
-
-function mergedSinceItsLastStart(card: string): string {
-  return `EXISTS (SELECT 1 FROM prs AS merged WHERE merged.card_id = ${card} AND merged.state = 'merged'
-    AND merged.event_id > (SELECT coalesce(max(last_start.id), 0) FROM events AS last_start WHERE last_start.type = '${CARD_STARTED}' AND last_start.legacy = 0 AND last_start.card_id = ${card}))`
-}
-
-const CHAINS = `
-  SELECT chains.dir, chains.card_id, chains.state,
-    (SELECT min(seen.ts) FROM events AS seen WHERE seen.type = '${CHAIN_OBSERVED}' AND seen.card_id = chains.card_id AND json_extract(seen.payload, '$.dir') = chains.dir) AS since,
-    (SELECT json_extract(folded.payload, '$.waitingOn') FROM events AS folded WHERE folded.id = chains.event_id) AS waiting_on
-  FROM chains
-  WHERE NOT EXISTS (SELECT 1 FROM cards WHERE cards.card_id = chains.card_id AND cards.state = '${DROPPED_CARD}')
-  ORDER BY chains.dir
-`
-
-const CARDS_IN_WORK = `
-  SELECT card_id FROM (
-    SELECT card_id FROM chains WHERE state IN ('running', 'fault')
-    UNION
-    SELECT started.card_id FROM events AS started
-    WHERE started.type = '${CARD_STARTED}' AND started.legacy = 0 AND started.card_id IS NOT NULL
-      AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${CARD_CLOSED}' AND closed.card_id = started.card_id AND closed.id > started.id)
-  ) AS work
-  WHERE NOT EXISTS (SELECT 1 FROM cards WHERE cards.card_id = work.card_id AND cards.state IN ('${DROPPED_CARD}', '${MERGED_CARD}'))
-    AND NOT ${mergedSinceItsLastStart('work.card_id')}
-`
-
-const OPEN_PRS = `
-  SELECT prs.pr, prs.card_id, prs.head, prs.ci, prs.verdict_on_head,
-    (SELECT min(seen.ts) FROM events AS seen WHERE seen.type = 'pr.observed' AND seen.pr = prs.pr AND seen.head = prs.head
-      AND json_extract(seen.payload, '$.ci') = prs.ci AND json_extract(seen.payload, '$.verdict_on_head') IS prs.verdict_on_head) AS since,
-    (SELECT json_extract(recorded.payload, '$.verdict') || ' · ' || json_extract(recorded.payload, '$.depth') || CASE WHEN recorded.head = prs.head THEN '' ELSE ' (an earlier head)' END
-      FROM events AS recorded WHERE recorded.type = '${REVIEW_RECORDED}' AND recorded.pr = prs.pr AND recorded.legacy = 0 ORDER BY recorded.id DESC LIMIT 1) AS review,
-    (SELECT 'stopped ' || json_extract(stop.payload, '$.reason') || coalesce(': ' || json_extract(stop.payload, '$.detail'), '')
-      FROM cards JOIN events AS stop ON stop.card_id = cards.card_id AND stop.type = '${CARD_STOPPED}' AND stop.legacy = 0
-      WHERE cards.card_id = prs.card_id AND cards.state = '${STOPPED_CARD}' ORDER BY stop.id DESC LIMIT 1) AS stop
-  FROM prs WHERE prs.state = 'open' AND prs.card_id IS NOT NULL ORDER BY prs.pr
-`
-
-const MERGED_PAST_THE_BUS = `
-  SELECT closed.pr, closed.ts,
-    coalesce(closed.card_id, (SELECT named.card_id FROM events AS named WHERE named.pr = closed.pr AND named.card_id IS NOT NULL ORDER BY named.id DESC LIMIT 1)) AS card_id,
-    json_extract(closed.payload, '$.commit') AS commit_sha
-  FROM events AS closed
-  WHERE closed.type = 'pr.closed' AND closed.legacy = 0 AND json_extract(closed.payload, '$.merged') = 1
-    AND NOT EXISTS (SELECT 1 FROM events AS done WHERE done.type = '${MERGE_DONE}' AND done.pr = closed.pr)
-  ORDER BY closed.pr
-`
-
-const PROJECTED_QUEUE = `
-  WITH stop AS (SELECT card_id, id, ts, json_extract(payload, '$.reason') AS reason FROM events
-      WHERE id IN (SELECT max(id) FROM events WHERE type = '${CARD_STOPPED}' AND legacy = 0 AND card_id IS NOT NULL GROUP BY card_id)),
-    standing AS (SELECT card_id, id, ts FROM events WHERE id IN (SELECT max(id) FROM events WHERE legacy = 0 AND card_id IS NOT NULL GROUP BY card_id)),
-    owner AS (SELECT wait.card_id, wait.id, wait.need, wait.opened_at, wait.event_id FROM owner_waits AS wait
-      WHERE wait.state = 'open' AND wait.card_id IS NOT NULL
-        AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${OWNER_WAIT_CLOSED}' AND closed.legacy = 0 AND json_valid(closed.payload) AND json_extract(closed.payload, '$.id') = wait.id)),
-    ahead AS (SELECT other.lane, other.card_id, prs.pr, opened.id, opened.ts FROM card_bodies AS other
-      JOIN prs ON prs.card_id = other.card_id AND prs.state = 'open' JOIN events AS opened ON opened.id = prs.event_id)
-  SELECT body.card_id, body.lane, cards.state,
-    (SELECT group_concat('#' || dep.value, ', ') FROM json_each(body.depends) AS dep
-      WHERE NOT EXISTS (SELECT 1 FROM cards AS done WHERE done.card_id = dep.value AND done.state = '${MERGED_CARD}')) AS unmet,
-    stop.id AS stop_id, stop.ts AS stop_ts, stop.reason AS stop_reason,
-    standing.id AS standing_id, standing.ts AS standing_ts,
-    (SELECT owner.id FROM owner WHERE owner.card_id = body.card_id ORDER BY owner.event_id LIMIT 1) AS owner_id,
-    (SELECT owner.need FROM owner WHERE owner.card_id = body.card_id ORDER BY owner.event_id LIMIT 1) AS owner_need,
-    (SELECT owner.opened_at FROM owner WHERE owner.card_id = body.card_id ORDER BY owner.event_id LIMIT 1) AS owner_since,
-    (SELECT owner.event_id FROM owner WHERE owner.card_id = body.card_id ORDER BY owner.event_id LIMIT 1) AS owner_event,
-    (SELECT ahead.card_id FROM ahead WHERE ahead.lane = body.lane AND ahead.card_id != body.card_id ORDER BY ahead.pr LIMIT 1) AS ahead_card,
-    (SELECT ahead.pr FROM ahead WHERE ahead.lane = body.lane AND ahead.card_id != body.card_id ORDER BY ahead.pr LIMIT 1) AS ahead_pr,
-    (SELECT ahead.id FROM ahead WHERE ahead.lane = body.lane AND ahead.card_id != body.card_id ORDER BY ahead.pr LIMIT 1) AS ahead_event,
-    (SELECT ahead.ts FROM ahead WHERE ahead.lane = body.lane AND ahead.card_id != body.card_id ORDER BY ahead.pr LIMIT 1) AS ahead_since
-  FROM card_bodies AS body LEFT JOIN cards ON cards.card_id = body.card_id
-  LEFT JOIN stop ON stop.card_id = body.card_id LEFT JOIN standing ON standing.card_id = body.card_id
-  WHERE body.who = 'shift' AND (cards.state IS NULL OR cards.state IN ('${QUEUED_CARD}', '${FALLEN_CARD}', '${STOPPED_CARD}'))
-    AND NOT EXISTS (SELECT 1 FROM chains WHERE chains.card_id = body.card_id AND chains.state != 'stopped')
-    AND NOT ${mergedSinceItsLastStart('body.card_id')}
-  ORDER BY body.priority IS NOT 'p0', body.card_id
-`
-
-const LEASED_TASKS = `
-  SELECT tasks.task_key, tasks.card_id, tasks.lease_gen, leased.actor, leased.ts FROM tasks
-  LEFT JOIN events AS leased ON leased.dedupe_key = '${TASK_LEASED}:' || tasks.task_key || ':' || tasks.lease_gen
-  WHERE tasks.queue = ? AND tasks.state = '${LEASED}' ORDER BY tasks.id
-`
 
 const SHOWN_SHARD_DECISIONS = 20
 
-function count(db: DatabaseSync, sql: string, ...params: (string | number)[]): number {
-  return Number((db.prepare(sql).get(...params) as { n: number }).n)
+const ANSWER_QUEUE: Queue = 'answer'
+
+const OPEN_PR = 'open'
+
+const MERGED_PR = 'merged'
+
+const AUTO_RULE = 'auto'
+
+const CHAIN_STOPPED: ChainState = 'stopped'
+
+const CHAINS_IN_WORK: readonly ChainState[] = ['running', 'fault']
+
+const STANDING_STATES: readonly (string | null)[] = [null, QUEUED_CARD, FALLEN_CARD, STOPPED_CARD]
+
+const MERGED_FLAGS: readonly unknown[] = [1, true]
+
+const SHIFT_CARD = 'shift'
+
+const FIRST_PRIORITY = 'p0'
+
+function textOf(value: unknown): string | null {
+  return value === null || value === undefined ? null : String(value)
+}
+
+function earliest(stamps: readonly (string | null)[]): string | null {
+  return stamps.filter(ts => ts !== null).sort()[0] ?? null
+}
+
+function newest(stamps: readonly (string | null)[]): string | null {
+  return stamps.filter(ts => ts !== null).sort().at(-1) ?? null
+}
+
+function idsByCard(rows: readonly EventRow[]): Map<number, EventRow> {
+  return new Map(rows.flatMap(row => row.card_id === null ? [] : [[row.card_id, row] as const]))
+}
+
+function statesOf(db: DatabaseSync, cards: readonly number[]): (card: number) => string | null {
+  const states = cardStatesAmong(db, [...new Set(cards)])
+  return card => states.get(card) ?? null
+}
+
+function chainOf(db: DatabaseSync, dir: string): ChainRow | null {
+  const chain = chainOfDir(db, dir)
+  if (chain === undefined)
+    return null
+  const card = Number(chain.card_id)
+  const observed = events(db, { types: [CHAIN_OBSERVED], card, legacy: EITHER_JOURNAL }).filter(row => row.data?.dir === dir)
+  const waitingOn = chain.state === WAITING ? [...observed].reverse().find(row => row.data?.state === WAITING)?.data?.waitingOn : undefined
+  return { dir, card_id: card, state: chain.state, since: earliest(observed.map(row => row.ts)), waiting_on: Array.isArray(waitingOn) ? waitingOn : [] }
+}
+
+function allChains(db: DatabaseSync): ChainRow[] {
+  const observed = lastPer(db, '$.dir', { types: [CHAIN_OBSERVED, CHAIN_RESTARTED], legacy: EITHER_JOURNAL }).flatMap(row => typeof row.data?.dir === 'string' ? [row.data.dir] : [])
+  const cards = new Set([...cardsWithTheirLines(db).map(card => card.id), ...cardBodyLanes(db).map(body => body.card_id)])
+  const ofCards = [...cards].flatMap(card => chainOfCard(db, card)?.dir ?? [])
+  return [...new Set([...observed, ...ofCards])].sort().flatMap(dir => chainOf(db, dir) ?? [])
+}
+
+function undroppedChains(db: DatabaseSync, chains: readonly ChainRow[]): ChainRow[] {
+  const stateOf = statesOf(db, chains.map(chain => chain.card_id))
+  return chains.filter(chain => stateOf(chain.card_id) !== DROPPED_CARD)
+}
+
+function mergedSinceItsLastStart(db: DatabaseSync, prs: readonly PrRow[]): (card: number) => boolean {
+  const lastStart = idsByCard(lastPer(db, BY_CARD, { types: [CARD_STARTED], withCard: true }))
+  const merged = prs.filter(pr => pr.state === MERGED_PR && pr.card_id !== null)
+  return card => merged.some(pr => pr.card_id === card && pr.event_id > (lastStart.get(card)?.id ?? 0))
+}
+
+function cardsInWork(db: DatabaseSync, chains: readonly ChainRow[]): number[] {
+  const lastClosed = idsByCard(lastPer(db, BY_CARD, { types: [CARD_CLOSED], withCard: true, legacy: EITHER_JOURNAL }))
+  const started = lastPer(db, BY_CARD, { types: [CARD_STARTED], withCard: true })
+    .filter(row => row.id > (lastClosed.get(row.card_id!)?.id ?? 0))
+    .map(row => row.card_id!)
+  const candidates = [...new Set([...chains.filter(chain => CHAINS_IN_WORK.includes(chain.state)).map(chain => chain.card_id), ...started])]
+  const stateOf = statesOf(db, candidates)
+  const merged = mergedSinceItsLastStart(db, allPrs(db))
+  return candidates.filter(card => stateOf(card) !== DROPPED_CARD && stateOf(card) !== MERGED_CARD && !merged(card)).sort((a, b) => a - b)
+}
+
+interface OpenPrRow {
+  open: PrRow
+  card: number
+  since: string | null
+  review: string | null
+  stop: string | null
+}
+
+function observedSince(db: DatabaseSync, pr: PrRow): string | null {
+  if (pr.head === null || pr.ci === null)
+    return null
+  const seen = events(db, { types: [PR_OBSERVED], pr: pr.pr, head: pr.head, legacy: EITHER_JOURNAL })
+    .filter(row => row.data?.ci === pr.ci && (row.data.verdict_on_head ?? null) === pr.verdict_on_head)
+  return earliest(seen.map(row => row.ts))
+}
+
+function lastReviewOf(db: DatabaseSync, pr: PrRow): string | null {
+  const recorded = latest(db, { types: [REVIEW_RECORDED], pr: pr.pr })
+  const verdict = textOf(recorded?.data?.verdict)
+  const depth = textOf(recorded?.data?.depth)
+  if (recorded === null || verdict === null || depth === null)
+    return null
+  return `${verdict} · ${depth}${recorded.head !== null && recorded.head === pr.head ? '' : ' (an earlier head)'}`
+}
+
+function standingStopLine(db: DatabaseSync, card: number): string | null {
+  const stop = latest(db, { types: [CARD_STOPPED], card })
+  const reason = textOf(stop?.data?.reason)
+  if (reason === null)
+    return null
+  const detail = textOf(stop?.data?.detail)
+  return `stopped ${reason}${detail === null ? '' : `: ${detail}`}`
+}
+
+function openPrRows(db: DatabaseSync): OpenPrRow[] {
+  const open = allPrs(db).filter(pr => pr.state === OPEN_PR && pr.card_id !== null)
+  const stateOf = statesOf(db, open.map(pr => pr.card_id!))
+  return open.map(pr => ({
+    open: pr,
+    card: pr.card_id!,
+    since: observedSince(db, pr),
+    review: lastReviewOf(db, pr),
+    stop: stateOf(pr.card_id!) === STOPPED_CARD ? standingStopLine(db, pr.card_id!) : null,
+  }))
+}
+
+interface MergedPastTheBus {
+  pr: number | null
+  ts: string | null
+  card_id: number | null
+  commit_sha: string | null
+}
+
+function mergedPastTheBus(db: DatabaseSync): MergedPastTheBus[] {
+  const done = new Set(events(db, { types: [MERGE_DONE], withPr: true, legacy: EITHER_JOURNAL }).map(row => row.pr))
+  const closed = events(db, { types: [PR_CLOSED] }).filter(row => MERGED_FLAGS.includes(row.data?.merged) && (row.pr === null || !done.has(row.pr)))
+  return closed.sort((a, b) => (a.pr ?? Number.NEGATIVE_INFINITY) - (b.pr ?? Number.NEGATIVE_INFINITY)).map(row => ({
+    pr: row.pr,
+    ts: row.ts,
+    card_id: row.card_id ?? (row.pr === null ? null : latest(db, { pr: row.pr, withCard: true, legacy: EITHER_JOURNAL })?.card_id ?? null),
+    commit_sha: textOf(row.data?.commit),
+  }))
+}
+
+interface Ahead {
+  lane: string
+  card: number
+  pr: number
+  event: number
+  since: string | null
+}
+
+function aheadInLanes(db: DatabaseSync, bodies: readonly CardBodyLane[], prs: readonly PrRow[]): Ahead[] {
+  const lanes = new Map(bodies.flatMap(body => body.lane === null ? [] : [[body.card_id, body.lane] as const]))
+  const open = prs.filter(pr => pr.state === OPEN_PR && pr.card_id !== null && lanes.has(pr.card_id))
+  const opened = new Map(events(db, { ids: open.map(pr => pr.event_id), legacy: EITHER_JOURNAL }).map(row => [row.id, row.ts] as const))
+  return open.filter(pr => opened.has(pr.event_id))
+    .map(pr => ({ lane: lanes.get(pr.card_id!)!, card: pr.card_id!, pr: pr.pr, event: pr.event_id, since: opened.get(pr.event_id) ?? null }))
+}
+
+function firstOpenWaits(waits: readonly OpenCardWait[]): Map<number, OpenCardWait> {
+  const first = new Map<number, OpenCardWait>()
+  for (const wait of waits) {
+    if (!first.has(wait.card))
+      first.set(wait.card, wait)
+  }
+  return first
+}
+
+function unmetOf(body: CardBodyLane, stateOf: (card: number) => string | null): string | null {
+  const unmet = body.depends.filter(dep => stateOf(Number(dep)) !== MERGED_CARD).map(dep => `#${String(dep)}`)
+  return unmet.length === 0 ? null : unmet.join(', ')
+}
+
+function standingRows(db: DatabaseSync): StandingRow[] {
+  const bodies = cardBodyLanes(db)
+  const prs = allPrs(db)
+  const stateOf = statesOf(db, bodies.flatMap(body => [body.card_id, ...body.depends.map(Number)]))
+  const live = new Set(allChains(db).filter(chain => chain.state !== CHAIN_STOPPED).map(chain => chain.card_id))
+  const merged = mergedSinceItsLastStart(db, prs)
+  const standing = bodies.filter(body => body.who === SHIFT_CARD && STANDING_STATES.includes(stateOf(body.card_id)) && !live.has(body.card_id) && !merged(body.card_id))
+    .sort((a, b) => Number(a.priority !== FIRST_PRIORITY) - Number(b.priority !== FIRST_PRIORITY) || a.card_id - b.card_id)
+  const stops = idsByCard(lastPer(db, BY_CARD, { types: [CARD_STOPPED], withCard: true }))
+  const lasts = idsByCard(lastPer(db, BY_CARD, { withCard: true }))
+  const owners = firstOpenWaits(openCardWaits(db))
+  const ahead = aheadInLanes(db, bodies, prs)
+  return standing.map((body) => {
+    const stop = stops.get(body.card_id)
+    const last = lasts.get(body.card_id)
+    const owner = owners.get(body.card_id)
+    const before = ahead.find(entry => entry.lane === body.lane && entry.card !== body.card_id)
+    return {
+      card_id: body.card_id,
+      lane: body.lane,
+      state: stateOf(body.card_id),
+      unmet: unmetOf(body, stateOf),
+      stop_id: stop?.id ?? null,
+      stop_ts: stop?.ts ?? null,
+      stop_reason: textOf(stop?.data?.reason),
+      standing_id: last?.id ?? null,
+      standing_ts: last?.ts ?? null,
+      owner_id: owner?.id ?? null,
+      owner_need: owner?.need ?? null,
+      owner_since: owner?.since ?? null,
+      owner_event: owner?.event_id ?? null,
+      ahead_card: before?.card ?? null,
+      ahead_pr: before?.pr ?? null,
+      ahead_event: before?.event ?? null,
+      ahead_since: before?.since ?? null,
+    }
+  })
+}
+
+interface LeasedRow {
+  task_key: string
+  card_id: number
+  lease_gen: number
+  actor: string | null
+  ts: string | null
+}
+
+function leasedTasks(db: DatabaseSync, queue: Queue): LeasedRow[] {
+  const tasks = tasksInStates(db, [LEASED]).filter(task => task.queue === queue)
+  const keyOf = (task: { task_key: string, lease_gen: number }): string => `${TASK_LEASED}:${task.task_key}:${task.lease_gen}`
+  const leased = new Map(events(db, { keys: tasks.map(keyOf), legacy: EITHER_JOURNAL }).map(row => [row.dedupe_key, row] as const))
+  return tasks.map((task) => {
+    const event = leased.get(keyOf(task))
+    return { task_key: task.task_key, card_id: task.card_id, lease_gen: task.lease_gen, actor: event?.actor ?? null, ts: event?.ts ?? null }
+  })
 }
 
 function ageMs(now: Date, ts: string | null): number {
@@ -328,7 +479,7 @@ function copyEventOf(db: DatabaseSync): number {
 
 export function cardWaits(db: DatabaseSync, now: Date): WaitsReading {
   const at = copyEventOf(db)
-  const rows = (db.prepare(PROJECTED_QUEUE).all() as unknown as StandingRow[]).filter(row => row.lane !== null && isLaneName(row.lane))
+  const rows = standingRows(db).filter(row => row.lane !== null && isLaneName(row.lane))
   return { at, waits: rows.map(row => waitOf(Number(row.card_id), row.lane!, openedWait(row, now))) }
 }
 
@@ -348,11 +499,6 @@ function projectedQueue(db: DatabaseSync, now: Date): Pick<Board, 'ready' | 'wai
   return queue
 }
 
-function lastSigns(db: DatabaseSync): Map<string, string> {
-  const rows = db.prepare(`SELECT actor, max(ts) AS ts FROM events WHERE legacy = 0 AND actor IS NOT NULL GROUP BY actor`).all() as { actor: string, ts: string }[]
-  return new Map(rows.map(row => [row.actor, row.ts]))
-}
-
 function lastSignOf(signs: ReadonlyMap<string, string>, actor: string | null): string | null {
   if (actor === null)
     return null
@@ -361,7 +507,8 @@ function lastSignOf(signs: ReadonlyMap<string, string>, actor: string | null): s
 }
 
 function liveLease(db: DatabaseSync, queue: Queue | null, now: Date): boolean {
-  return queue !== null && count(db, `SELECT count(*) AS n FROM tasks WHERE queue = ? AND state = '${LEASED}' AND lease_until > ?`, queue, now.toISOString()) > 0
+  const at = now.toISOString()
+  return queue !== null && tasksInStates(db, [LEASED]).some(task => task.queue === queue && task.lease_until !== null && task.lease_until > at)
 }
 
 function componentHealth(db: DatabaseSync, signs: ReadonlyMap<string, string>, now: Date, watched: Watched): ComponentHealth {
@@ -386,17 +533,7 @@ function roleHealth(db: DatabaseSync, now: Date, role: string, name: string): Co
   return { name, health: 'unknown', lastSign: reading.ts, why: `${reading.state}${reading.pid === null ? '' : ` as pid ${reading.pid}`}, no fresh event and no live lease` }
 }
 
-interface OpenPrRow {
-  pr: number
-  card_id: number
-  ci: string | null
-  verdict_on_head: string | null
-  since: string | null
-  review: string | null
-  stop: string | null
-}
-
-function stageOf(row: OpenPrRow): string {
+function stageOf(row: PrRow): string {
   if (row.verdict_on_head === 'changes' || row.ci === 'red')
     return 'fixes'
   if (row.verdict_on_head === 'pass')
@@ -414,28 +551,28 @@ function markersOf(stage: string, down: ReadonlySet<string>): string[] {
 function stageOfChain(chain: ChainRow): string {
   if (chain.state !== WAITING)
     return 'writing'
-  const cards = JSON.parse(chain.waiting_on ?? '[]') as number[]
-  return `waiting on ${cards.map(card => `#${card}`).join(', ')}`
+  return `waiting on ${chain.waiting_on.map(card => `#${String(card)}`).join(', ')}`
 }
 
 function executionBlock(db: DatabaseSync, now: Date, chains: readonly ChainRow[], down: ReadonlySet<string>): ExecutionRow[] {
-  const open = db.prepare(OPEN_PRS).all() as unknown as OpenPrRow[]
-  const withPr = new Set(open.map(row => row.card_id))
+  const open = openPrRows(db)
+  const withPr = new Set(open.map(row => row.card))
   const writing = chains.filter(chain => chain.state !== 'stopped' && !withPr.has(chain.card_id))
     .map(chain => ({ card: chain.card_id, pr: null, stage: stageOfChain(chain), since: chain.since, review: null, markers: [] }))
   const reviewed = open.map((row) => {
-    const stage = stageOf(row)
-    return { card: row.card_id, pr: row.pr, stage, since: row.since, review: row.review, markers: [...markersOf(stage, down), ...(row.stop === null ? [] : [row.stop])] }
+    const stage = stageOf(row.open)
+    return { card: row.card, pr: row.open.pr, stage, since: row.since, review: row.review, markers: [...markersOf(stage, down), ...(row.stop === null ? [] : [row.stop])] }
   })
-  const past = (db.prepare(MERGED_PAST_THE_BUS).all() as { pr: number, ts: string, card_id: number | null, commit_sha: string | null }[])
+  const past = mergedPastTheBus(db)
     .filter(row => row.card_id !== null && ageMs(now, row.ts) <= PAST_THE_BUS_SHOWN_MS)
     .map(row => ({ card: row.card_id!, pr: row.pr, stage: `merged${row.commit_sha === null ? '' : ` ${row.commit_sha}`}`, since: row.ts, review: null, markers: [MERGE_PAST_THE_BUS] }))
   return [...writing, ...reviewed, ...past]
 }
 
 function lastProgress(db: DatabaseSync, inWork: readonly number[]): string | null {
-  const ofCardsInWork = inWork.length === 0 ? '' : ` AND card_id IN (${inWork.join(', ')})`
-  return (db.prepare(`SELECT max(ts) AS ts FROM events WHERE legacy = 0 AND type IN (${PROGRESS_EVENTS.map(type => `'${type}'`).join(', ')})${ofCardsInWork}`).get() as { ts: string | null }).ts
+  if (inWork.length === 0)
+    return latestTs(db, { types: PROGRESS_EVENTS })
+  return newest(inWork.map(card => latestTs(db, { types: PROGRESS_EVENTS, card })))
 }
 
 function queueBlockedCause(inWork: readonly number[], blocked: readonly QueueCard[], ready: readonly QueueCard[]): string | null {
@@ -456,8 +593,9 @@ function silentAtStep(db: DatabaseSync, now: Date, inWork: readonly number[]): s
   return silent.length === 0 ? null : silent.join('; ')
 }
 
-function progressOf(db: DatabaseSync, now: Date, health: readonly ComponentHealth[], blocked: readonly QueueCard[], ready: readonly QueueCard[]): Progress {
-  const inWork = (db.prepare(CARDS_IN_WORK).all() as { card_id: number }[]).map(row => row.card_id)
+function progressOf(db: DatabaseSync, now: Date, chains: readonly ChainRow[], health: readonly ComponentHealth[], queue: Pick<Board, 'blocked' | 'ready'>): Progress {
+  const { blocked, ready } = queue
+  const inWork = cardsInWork(db, chains)
   const last = lastProgress(db, inWork)
   if (ageMs(now, last) < NO_PROGRESS_MS)
     return { last, stalled: false, cause: null }
@@ -477,10 +615,10 @@ function link(name: string, green: boolean, fact: string): ContractLink {
 }
 
 function writerLink(db: DatabaseSync): ContractLink {
-  const cutover = db.prepare(`SELECT id FROM events WHERE type = '${CUTOVER}' ORDER BY id LIMIT 1`).get() as { id: number } | undefined
+  const cutover = events(db, { types: [CUTOVER], legacy: EITHER_JOURNAL, limit: 1 })[0]
   if (cutover === undefined)
     return link('one writer', false, `no ${CUTOVER} recorded`)
-  const after = count(db, 'SELECT count(*) AS n FROM events WHERE legacy = 1 AND id > ?', cutover.id)
+  const after = countOf(db, { legacy: true, since: cutover.id })
   return link('one writer', after === 0, `${after} legacy events after the cutover`)
 }
 
@@ -495,13 +633,14 @@ function replayLink(db: DatabaseSync, projections: Projections): ContractLink {
 }
 
 function contractRow(db: DatabaseSync, projections: Projections): ContractLink[] {
-  const started = count(db, `SELECT count(*) AS n FROM events WHERE type = '${CARD_STARTED}' AND legacy = 0`)
-  const answered = count(db, `SELECT count(*) AS n FROM events WHERE type = '${TASK_COMPLETED}' AND legacy = 0 AND json_extract(payload, '$.queue') = 'answer'`)
-  const shards = count(db, `SELECT count(*) AS n FROM events WHERE type = '${MERGE_DONE}' AND legacy = 0 AND json_extract(payload, '$.rule') != 'auto'`)
-  const opened = count(db, `SELECT count(*) AS n FROM events WHERE type = '${PR_OPENED}' AND legacy = 0`)
-  const stateless = count(db, 'SELECT count(*) AS n FROM cards WHERE state IS NULL')
-  const rejected = count(db, `SELECT count(*) AS n FROM events WHERE type = '${REJECTED}'`)
-  const missed = count(db, `SELECT count(*) AS n FROM events WHERE type = '${RESTART_MISSED}' AND id > (SELECT coalesce(max(id), 0) FROM events WHERE type = '${RESTARTED}')`)
+  const started = countOf(db, { types: [CARD_STARTED] })
+  const answered = events(db, { types: [TASK_COMPLETED] }).filter(row => row.data?.queue === ANSWER_QUEUE).length
+  const shards = events(db, { types: [MERGE_DONE] }).filter(row => textOf(row.data?.rule) !== null && row.data?.rule !== AUTO_RULE).length
+  const opened = countOf(db, { types: [PR_OPENED] })
+  const stateless = cardsWithTheirLines(db).filter(card => card.state === null).length
+  const rejected = countOf(db, { types: [REJECTED], legacy: EITHER_JOURNAL })
+  const lastRestart = latest(db, { types: [RESTARTED], legacy: EITHER_JOURNAL })?.id ?? 0
+  const missed = countOf(db, { types: [RESTART_MISSED], since: lastRestart, legacy: EITHER_JOURNAL })
   return [
     link('launch', started > 0, `${started} ${CARD_STARTED} from the bus`),
     link('answer', answered > 0, `${answered} answer tasks completed`),
@@ -528,7 +667,7 @@ export function shardDecisions(db: DatabaseSync): ShardDecision[] {
 function taskQueues(db: DatabaseSync, pulls: readonly PullHead[], orders: LeaseOrders): TaskQueue[] {
   return QUEUES.map(queue => ({
     queue,
-    leased: (db.prepare(LEASED_TASKS).all(queue) as { task_key: string, card_id: number, lease_gen: number, actor: string | null, ts: string | null }[])
+    leased: leasedTasks(db, queue)
       .map(row => ({ taskKey: row.task_key, card: row.card_id, holder: row.actor, leaseGen: row.lease_gen, since: row.ts })),
     waiting: grantOrder(db, pulls, queue, orders[queue]).map(task => ({ taskKey: task.taskKey, card: task.cardId })),
   })).filter(queue => queue.leased.length + queue.waiting.length > 0)
@@ -558,8 +697,8 @@ export function windowGauges(db: DatabaseSync): WindowGauges | null {
 
 export function readBoard(sources: BoardSources): Board {
   const { db, now } = sources
-  const chains = db.prepare(CHAINS).all() as unknown as ChainRow[]
-  const signs = lastSigns(db)
+  const chains = undroppedChains(db, allChains(db))
+  const signs = lastTsPerActor(db)
   const health = [
     ...sources.watched.map(watched => componentHealth(db, signs, now, watched)),
     roleHealth(db, now, 'operator', 'Operator'),
@@ -576,7 +715,7 @@ export function readBoard(sources: BoardSources): Board {
     shardDecisions: shardDecisions(db),
     execution: executionBlock(db, now, chains, down),
     health,
-    progress: progressOf(db, now, health, queue.blocked, queue.ready),
+    progress: progressOf(db, now, chains, health, queue),
     contract: contractRow(db, sources.projections),
     queues: taskQueues(db, sources.pulls, sources.leaseOrders),
     gauges: cardGauges(db),
