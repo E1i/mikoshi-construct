@@ -1,5 +1,7 @@
+import type { DatabaseSync } from 'node:sqlite'
 import type { CloseOutcome, CloseRequest, DryRunRecord } from './reach.js'
 import path from 'node:path'
+import { latestTaskOfCardIn } from '../../core/events-query.js'
 import { BUS_REQUEST_COMMAND } from '../../core/owner-commands.js'
 import { ANSWER_SOURCE, CARD_PLANNED, CARD_UNPLANNED, CLOSED_CARD, DROPPED_CARD, LEASED, MERGED_CARD, OWNER_MOVE_REQUESTS, PLAN_BACKFILLED, PLAN_CLOSED, PLAN_OPENED, prOf, QUEUED, USED_WORD } from './reach.js'
 
@@ -15,7 +17,17 @@ export const PLAN_OPS: ReadonlyMap<string, string> = new Map([['open', PLAN_OPEN
 export const OWNER_WORD_NEEDED = `closing an owner wait needs the owner's word from the channel or a recorded decision`
 export const OWNER_ANSWER_USAGE = `an owner's word from the channel closes a wait with: ${BUS_REQUEST_COMMAND} owner.wait.close --id Q<N> --answer <the owner's word> --from ${ANSWER_SOURCE}`
 export const ENDED_CARDS: ReadonlySet<string | null | undefined> = new Set([MERGED_CARD, CLOSED_CARD, DROPPED_CARD])
-export const LIVE_TASK_OF_CARD = `SELECT task_key, queue, state FROM tasks WHERE card_id = ? AND state IN ('${QUEUED}', '${LEASED}') ORDER BY id DESC LIMIT 1`
+export const LIVE_TASK_OF_CARD = latestTaskOfCardIn([QUEUED, LEASED])
+
+export interface LiveTask {
+  task_key: string
+  queue: string
+  state: string
+}
+
+export function liveTaskOf(db: DatabaseSync, cardId: number): LiveTask | null {
+  return db.prepare(LIVE_TASK_OF_CARD).get(cardId) as LiveTask | undefined ?? null
+}
 
 export interface CardTask { taskKey: string, cardId: number }
 

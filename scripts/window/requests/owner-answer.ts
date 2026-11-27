@@ -1,23 +1,25 @@
+import type { OwnerWaitRow } from '../../core/card-readings.js'
 import type { RequestContext, RequestExecutor } from './context.js'
 import type { Executed } from './request.js'
-import { ANSWER_SOURCE, cardIdOf, changesRoundsOf, closeOwnerWait, consumeOwnerWordClosing, decisionOnAWait, inTransaction, OPEN_WAIT, openPrOfCard, OWNER_SOURCE, OWNER_WAITS, OWNER_WORD_NOT_FOUND, QUEUE_ACTOR, REVIEW_ROUNDS } from './reach.js'
+import { openWaitsOfCard, ownerWaitOf } from '../../core/card-readings.js'
+import { ANSWER_SOURCE, cardIdOf, changesRoundsOf, closeOwnerWait, consumeOwnerWordClosing, decisionOnAWait, inTransaction, OPEN_WAIT, openPrOfCard, OWNER_SOURCE, OWNER_WORD_NOT_FOUND, QUEUE_ACTOR, REVIEW_ROUNDS } from './reach.js'
 import { flagsOf, text, unreleasedWord } from './request.js'
 
-interface Wait {
-  id: string
-  need: string
-  card_id: number | null
-  pr: number | null
-}
+type Wait = Omit<OwnerWaitRow, 'state'>
 
 const CONTINUE_FIXES = 'continue-fixes'
 const ANSWER_WORD = 'answer'
 const NEEDS_A_DECISION_ANSWERS: ReadonlySet<string> = new Set(['decision', 'command'])
-const OPEN_WAIT_BY_ID = `SELECT id, need, card_id, pr FROM ${OWNER_WAITS} WHERE id = ? AND state = '${OPEN_WAIT}'`
-const OPEN_WAITS_OF_CARD = `SELECT id, need, card_id, pr FROM ${OWNER_WAITS} WHERE card_id = ? AND state = '${OPEN_WAIT}' ORDER BY event_id`
+
+function waitOf({ id, need, card_id, pr }: OwnerWaitRow): Wait {
+  return { id, need, card_id, pr }
+}
 
 function openWaits(context: RequestContext, id: string | null, card: number | null): Wait[] {
-  return (id !== null ? context.db.prepare(OPEN_WAIT_BY_ID).all(id) : context.db.prepare(OPEN_WAITS_OF_CARD).all(card)) as unknown as Wait[]
+  if (id === null)
+    return card === null ? [] : openWaitsOfCard(context.db, card).map(waitOf)
+  const wait = ownerWaitOf(context.db, id)
+  return wait === null || wait.state !== OPEN_WAIT ? [] : [waitOf(wait)]
 }
 
 function roundLimitedPr(context: RequestContext, wait: Wait | null, card: number | null): number | null {
