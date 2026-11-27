@@ -74,8 +74,8 @@ const QUALITY_CONTRACT = [
 ]
 
 const PORTS_CONTRACT = [
-  ...within(factory('ports'), 'ci-reading.ts', 'client/claude/adapter.ts', 'client/index.ts', 'diff.ts', 'gh.ts', 'github-status.ts', 'github.ts', 'identifier-shapes.ts', 'isolation.ts', 'main-merge.ts', 'meter.ts', 'netwatch.ts', 'prepare-tree.ts', 'process-table.ts', 'result.ts', 'review-planner.ts', 'serve-record.ts', 'session.ts', 'shift-settings.ts', 'snapshot.ts', 'task-start.ts', 'tree-publish.ts', 'worktree.ts'),
-  ...core('bus-contract.ts'),
+  ...within(factory('ports'), 'card-grants.ts', 'ci-reading.ts', 'client/claude/adapter.ts', 'client/index.ts', 'diff.ts', 'gh.ts', 'github-status.ts', 'github.ts', 'identifier-shapes.ts', 'isolation.ts', 'main-merge.ts', 'meter.ts', 'netwatch.ts', 'process-table.ts', 'result.ts', 'review-planner.ts', 'session.ts', 'snapshot.ts', 'task-start.ts', 'tree-publish.ts', 'wide-vitest-guard.ts', 'worktree.ts'),
+  ...core('bus-contract.ts', 'process-listing.ts'),
   factory('ci/required.ts'),
   `${CI_COMMAND}/state.ts`,
   `${INTAKE_COMMAND}/command-word.ts`,
