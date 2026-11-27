@@ -168,7 +168,7 @@ describe('owner:answer <Q|#card> "words"', () => {
   it('owner:answer by card with an open wait closes it and binds the decision', () => {
     const [card, pr] = [1870, 1594]
     const room = roomWithPr(card, pr)
-    const wait = openOwnerWait(room.bench.db, room.bench.clock.now().toISOString(), 'policy', { need: 'merge', text: `PR #${pr} of card #${card} waits for the owner's merge`, card, pr })
+    const wait = openOwnerWait(room.bench.db, room.bench.clock.now().toISOString(), 'policy', { need: 'decision', text: `PR #${pr} of card #${card} waits for the owner's word`, card, pr })
     reduce(room.bench.db, 'pending', busProjections())
 
     const outcome = answer(room, `#${card}`, 'merged by hand')
@@ -233,16 +233,16 @@ describe('owner:answer <Q|#card> "words"', () => {
     expect(existsSync(said)).toBe(true)
   })
 
-  it('a merge wait closes on the answer and binds no decision to its card', () => {
+  it('owner:answer on a merge wait is refused with the merge line, and the wait stays open', () => {
     const [card, pr] = [1870, 1594]
     const room = roomWithPr(card, pr)
     const wait = openOwnerWait(room.bench.db, room.bench.clock.now().toISOString(), 'policy', { need: 'merge', text: `PR #${pr} of card #${card} waits for the owner's merge`, card, pr })
     reduce(room.bench.db, 'pending', busProjections())
 
-    const outcome = answer(room, wait, 'merged by hand')
+    expect(runOwnerAnswer([wait, 'merged by hand'], room.bench.db, room.channel, room.bench.clock.now(), line => room.lines.push(line), requestFromWindow)).toBe(2)
 
-    expect(outcome).toMatchObject({ kind: 'done', detail: `closed ${wait}: merged by hand` })
-    expect(stateOf(room, wait)).toBe('closed')
+    expect(room.lines.join('\n')).toContain(`closes when PR #${pr} merges, not on an answer; the owner runs: merge PR #${pr} (owner)`)
+    expect(stateOf(room, wait)).toBe('open')
     expect(decisionsOn(room, card)).toEqual([])
   })
 })
