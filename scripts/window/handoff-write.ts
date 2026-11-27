@@ -9,6 +9,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defaultBusPath, openBus } from '../core/db.js'
+import { EITHER_JOURNAL, events } from '../core/events-query.js'
 import { MERGE_DONE } from '../core/events.js'
 import { handoffDirOf } from '../core/handoff-dir.js'
 import { statusLineOf as lastStatusLineOf, statusOf } from '../core/handoff-status.js'
@@ -455,8 +456,9 @@ export function busMerged(busPath: string, since: string): MergedReading {
   try {
     const db = openBus(busPath)
     try {
-      const cards = db.prepare('SELECT DISTINCT card_id FROM events WHERE type = ? AND ts >= ? AND card_id IS NOT NULL ORDER BY card_id').all(MERGE_DONE, since) as { card_id: number | string }[]
-      return { kind: 'read', cards: cards.map(row => Number(row.card_id)), merges: windowOf(db, 'merge').run.length, updates: windowOf(db, 'update').run.length }
+      const done = events(db, { types: [MERGE_DONE], from: since, withCard: true, legacy: EITHER_JOURNAL })
+      const cards = [...new Set(done.map(row => Number(row.card_id)))].sort((a, b) => a - b)
+      return { kind: 'read', cards, merges: windowOf(db, 'merge').run.length, updates: windowOf(db, 'update').run.length }
     }
     finally {
       db.close()

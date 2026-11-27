@@ -1,5 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { EventRow } from '../core/events-query.js'
+import { cardStatesAmong, prioritiesAmong } from '../core/card-readings.js'
+import { latest } from '../core/events-query.js'
 import { CARD_STARTED } from '../core/events.js'
+import { open } from '../core/pr-readings.js'
 import { ciWord } from '../ports/ci-reading.js'
 
 export const STARTER_ACTOR = 'worker:start:'
@@ -13,24 +17,14 @@ export interface WindowPr {
   priority: string | null
 }
 
-const WINDOW_OPEN_PRS = `
-  SELECT prs.pr, prs.card_id, prs.head, prs.ci, cards.state AS card_state, card_bodies.priority FROM prs
-  JOIN events started ON started.id = (SELECT max(id) FROM events WHERE card_id = prs.card_id AND type = '${CARD_STARTED}' AND legacy = 0)
-  LEFT JOIN cards ON cards.card_id = prs.card_id
-  LEFT JOIN card_bodies ON card_bodies.card_id = prs.card_id
-  WHERE prs.state = 'open' AND started.actor LIKE '${STARTER_ACTOR}%' AND json_extract(started.payload, '$.shift') IS NULL
-  ORDER BY prs.pr
-`
-
-interface WindowPrRow {
-  pr: number
-  card_id: number
-  head: string | null
-  ci: string | null
-  card_state: string | null
-  priority: string | null
+export function startedByTheWindow(started: EventRow | null): boolean {
+  return started !== null && (started.actor ?? '').startsWith(STARTER_ACTOR) && (started.data?.shift ?? null) === null
 }
 
 export function windowOpenPrs(db: DatabaseSync): WindowPr[] {
-  return (db.prepare(WINDOW_OPEN_PRS).all() as unknown as WindowPrRow[]).map(row => ({ pr: Number(row.pr), cardId: Number(row.card_id), head: row.head, ci: ciWord(row.ci), cardState: row.card_state, priority: row.priority }))
+  const prs = open(db).flatMap(pr => pr.card_id !== null && startedByTheWindow(latest(db, { card: pr.card_id, types: [CARD_STARTED] })) ? [{ ...pr, card_id: pr.card_id }] : [])
+  const cards = prs.map(pr => pr.card_id)
+  const states = cardStatesAmong(db, cards)
+  const priorities = prioritiesAmong(db, cards)
+  return prs.map(pr => ({ pr: pr.pr, cardId: pr.card_id, head: pr.head, ci: ciWord(pr.ci), cardState: states.get(pr.card_id) ?? null, priority: priorities.get(pr.card_id) ?? null }))
 }

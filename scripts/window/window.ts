@@ -1,12 +1,15 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Equivalence } from '../core/node.js'
+import type { TaskRow } from '../core/tasks-query.js'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defaultBusPath, openBus } from '../core/db.js'
+import { EITHER_JOURNAL, events } from '../core/events-query.js'
 import { CARD_CLOSED, MERGE_DONE, NODE_DETECTED, NODE_EQUIVALENCE, REVIEW_RECORDED, UPDATE_DONE } from '../core/events.js'
 import { FACTORY_RUNTIME } from '../core/factory-paths.js'
 import { TSX_COMMAND } from '../core/owner-commands.js'
+import { ofQueue } from '../core/tasks-query.js'
 import { BusRead } from '../ports/bus-read.js'
 
 export const PREFIX = '[bus:window] '
@@ -48,21 +51,20 @@ function isWindowQueue(value: string | undefined): value is WindowQueue {
   return value !== undefined && Object.hasOwn(COMPLETION_OF, value)
 }
 
-function tasksOf(db: DatabaseSync, queue: WindowQueue, completion: Completion): string[] {
-  const rows = db.prepare('SELECT task_key FROM tasks WHERE queue = ? AND card_id IS ? AND pr IS ? AND head IS ? ORDER BY id').all(queue, completion.card_id, completion.pr, completion.head) as { task_key: string }[]
-  return rows.map(row => row.task_key)
+function tasksOf(queued: readonly TaskRow[], completion: Completion): string[] {
+  return queued.filter(task => task.card_id === completion.card_id && task.pr === completion.pr && task.head === completion.head).sort((a, b) => a.id - b.id).map(task => task.task_key)
 }
 
 function liveDetectionBefore(db: DatabaseSync, queue: WindowQueue, key: string, before: number): number | null {
-  const row = db.prepare('SELECT id, payload FROM events WHERE dedupe_key = ? AND type = ? AND id < ?').get(`${NODE_DETECTED}:${queue}:${key}`, NODE_DETECTED, before) as { id: number, payload: string } | undefined
+  const row = events(db, { keys: [`${NODE_DETECTED}:${queue}:${key}`], types: [NODE_DETECTED], before, legacy: EITHER_JOURNAL })[0]
   if (row === undefined)
     return null
-  const payload = JSON.parse(row.payload) as { key?: unknown, via?: unknown, outcome?: unknown }
-  return payload.key === key && payload.via === DETECTED_VIA && typeof payload.outcome === 'string' && DETECTED_OUTCOMES.has(payload.outcome) ? Number(row.id) : null
+  const payload = (row.data ?? {}) as { key?: unknown, via?: unknown, outcome?: unknown }
+  return payload.key === key && payload.via === DETECTED_VIA && typeof payload.outcome === 'string' && DETECTED_OUTCOMES.has(payload.outcome) ? row.id : null
 }
 
-function keyOfCompletion(db: DatabaseSync, queue: WindowQueue, completion: Completion): KeyInRun | string {
-  const tasks = tasksOf(db, queue, completion)
+function keyOfCompletion(db: DatabaseSync, queue: WindowQueue, queued: readonly TaskRow[], completion: Completion): KeyInRun | string {
+  const tasks = tasksOf(queued, completion)
   if (tasks.length !== 1)
     return `${tasks.length} ${queue} tasks for card ${completion.card_id ?? '-'} pr ${completion.pr ?? '-'} head ${completion.head ?? '-'}, not one`
   const key = tasks[0]!
@@ -81,11 +83,12 @@ function equivalenceTicks(db: DatabaseSync, queue: WindowQueue, since: number): 
 }
 
 export function windowOf(db: DatabaseSync, queue: WindowQueue): WindowCount {
-  const completions = db.prepare('SELECT id, card_id, pr, head FROM events WHERE type = ? ORDER BY id DESC').all(COMPLETION_OF[queue]) as unknown as Completion[]
+  const completions: Completion[] = events(db, { types: [COMPLETION_OF[queue]], legacy: EITHER_JOURNAL, newestFirst: true })
+  const queued = ofQueue(db, queue)
   const run: KeyInRun[] = []
   let stop: WindowCount['stop'] = null
   for (const completion of completions) {
-    const found = keyOfCompletion(db, queue, completion)
+    const found = keyOfCompletion(db, queue, queued, completion)
     if (typeof found === 'string') {
       stop = { id: Number(completion.id), cardId: completion.card_id === null ? null : Number(completion.card_id), why: found }
       break
