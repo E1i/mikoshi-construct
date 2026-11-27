@@ -52,7 +52,7 @@ const SPAWNED_BY_THE_FACTORY: Record<string, string> = {
   'scripts/ci/sandbox-trace.ts': 'scripts/ci/sandbox-liveness.ts',
 }
 
-const NAMED_BUT_NEVER_RUN_BY_THE_FACTORY: string[] = [FACTORY_NAMED.ghCallers]
+const NAMED_BUT_NEVER_RUN_BY_THE_FACTORY: string[] = [FACTORY_NAMED.busUpdateDone, FACTORY_NAMED.ghCallers]
 const FORMER_FOLDER_ENTRIES: string[] = Object.values(FACTORY_FORMER_FOLDERS).flat()
 
 const READ_BESIDE_THE_MODULE: Record<string, string> = {
