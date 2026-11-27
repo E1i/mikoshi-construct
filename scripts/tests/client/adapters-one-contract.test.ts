@@ -6,7 +6,7 @@ import process from 'node:process'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CLIENT_ENV_PREFIXES, clientHome, transcriptFile } from '../../ports/client/claude/adapter.js'
 import { codexAdapter } from '../../ports/client/codex/adapter.js'
-import { clientAdapter } from '../../ports/client/index.js'
+import { clientAdapter } from '../../ports/session.js'
 
 const SESSION = 'sess-1642'
 const PROMPT = 'Review this change.'

@@ -16,25 +16,21 @@ import { claudeAnswerer, ownerQuestionPath, realAnswererTools } from '../../node
 import { cardCommand, launchArgv, shellWord, ShiftCardStarter } from '../../nodes/launch/launch-starter.js'
 import { claudeResume } from '../../nodes/launch/tree-pr-cli.js'
 import { WINDOW_RESUME_REFUSAL } from '../../ports/client/claude/adapter.js'
-import { clientInvocation, sessionEnv, spawnReviewSession } from '../../ports/session.js'
+import { clientAdapter, clientInvocation, sessionEnv, spawnReviewSession } from '../../ports/session.js'
 import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
 
 const client = vi.hoisted(() => ({ binary: '', specs: [] as SessionSpec[] }))
 
-vi.mock('../../ports/client/index.js', async () => {
-  const actual = await vi.importActual<typeof import('../../ports/client/index.js')>('../../ports/client/index.js')
-  return {
-    ...actual,
-    clientAdapter: (): ClientAdapter => ({
-      ...actual.clientAdapter(),
-      invocation: (spec) => {
-        client.specs.push(spec)
-        const result = actual.clientAdapter().invocation(spec)
-        return 'kind' in result ? result : { ...result, command: client.binary, env: { ...result.env, CLIENT_MARK: 'from-the-adapter' } }
-      },
-    }),
-  }
-})
+const THE_ADAPTER: ClientAdapter = clientAdapter()
+const ADAPTER_INVOCATION = THE_ADAPTER.invocation.bind(THE_ADAPTER)
+
+function markedInvocations(): void {
+  vi.spyOn(THE_ADAPTER, 'invocation').mockImplementation((spec) => {
+    client.specs.push(spec)
+    const result = ADAPTER_INVOCATION(spec)
+    return 'kind' in result ? result : { ...result, command: client.binary, env: { ...result.env, CLIENT_MARK: 'from-the-adapter' } }
+  })
+}
 
 const SESSION = 'sess-1574'
 const PROMPT = 'do the card'
@@ -70,9 +66,11 @@ const roots: string[] = []
 
 beforeEach(() => {
   client.specs.length = 0
+  markedInvocations()
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   vi.unstubAllEnvs()
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true })

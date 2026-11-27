@@ -3,7 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
 import { SESSION_VARIABLE, USER_SETTINGS } from '../../ports/client/claude/adapter.js'
-import { clientAdapter } from '../../ports/client/index.js'
+import { clientAdapter } from '../../ports/session.js'
 import { USER_SETTINGS as WATCH_SETTINGS } from '../../window/watch.js'
 import { requestSession } from '../../window/window-requests.js'
 

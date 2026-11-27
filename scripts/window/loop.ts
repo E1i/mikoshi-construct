@@ -1,5 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Status } from '../core/handoff-status.js'
+import type { Role } from '../ports/client/contract.js'
+import type { ClientConfig } from '../ports/client/index.js'
 import type { WindowMode } from '../ports/session.js'
 import type { ProcessRow } from './exit.js'
 import { spawn, spawnSync } from 'node:child_process'
@@ -9,15 +11,16 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { CLIENT_ROLES, clientIdFor, clientModelOf, readManifest } from '../../src/manifest.js'
 import { isOwnerCheckout } from '../core/bus-path.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
 import { PROCESS_ENDED, PROCESS_HEARTBEAT, PROCESS_REFUSED } from '../core/events.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { statusOfFile } from '../core/handoff-status.js'
 import { HANDOFF_WRITE_COMMAND, MIKO_COMMAND, MIKO_EXIT_COMMAND, MIKO_WATCH_COMMAND } from '../core/owner-commands.js'
-import { defaultWindowCommand, windowCommandIn as windowCommandOfClientIn } from '../ports/client/index.js'
+import { ClientPort } from '../ports/client/index.js'
 import { OsProcessTable } from '../ports/process-table.js'
-import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE } from '../ports/session.js'
+import { clientAdapter, EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE } from '../ports/session.js'
 import { recordProcessHeartbeat } from '../supervisor/heartbeat.js'
 import { beatsLive, SILENT_MS } from '../supervisor/liveness-sites.js'
 import { coreVersionIn, LOADED_CORE_VARIABLE, UNKNOWN } from './eddies-measure.js'
@@ -28,9 +31,19 @@ import { lastLoopBeats, LOOP_PROCESS } from './window-heartbeat.js'
 export const PREFIX = '[miko] '
 export const HANDOFF_VARIABLE = 'CONSTRUCT_HANDOFF'
 
-export const windowCommandIn = windowCommandOfClientIn
+export function clientConfigIn(root: string, role: Role): ClientConfig {
+  const record = readManifest(root)?.client
+  const recordedRole = CLIENT_ROLES.find(clientRole => clientRole === role)
+  return { id: recordedRole === undefined ? record?.id ?? null : clientIdFor(record, recordedRole), model: clientModelOf(record) }
+}
 
-const DEFAULT_WINDOW = defaultWindowCommand()
+const CLIENT_PORT = new ClientPort(clientAdapter(), clientConfigIn)
+
+export function windowCommandIn(root: string): ReturnType<ClientPort['windowCommandIn']> {
+  return CLIENT_PORT.windowCommandIn(root)
+}
+
+const DEFAULT_WINDOW = CLIENT_PORT.defaultWindowCommand()
 export const CLAUDE_VARIABLE = DEFAULT_WINDOW.variable
 export const DEFAULT_CLAUDE = DEFAULT_WINDOW.command({})
 export const claudeCommand = DEFAULT_WINDOW.command

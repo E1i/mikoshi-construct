@@ -5913,6 +5913,7 @@
       },
       "src/manifest.ts": {
         "constants": [
+          "CLIENT_ROLES",
           "DEFAULT_LANES",
           "DISCOVERY_MARKERS",
           "MANIFEST_FILE"
@@ -5928,8 +5929,6 @@
         },
         "reexports": [],
         "types": {
-          "ClientRecord": "interface ClientRecord { id?: string; model?: string; roles?: Partial<Record<ClientRole, string>>; }",
-          "ClientRole": "type ClientRole = (typeof CLIENT_ROLES)[number]",
           "ShiftGate": "interface ShiftGate { prepush: string[]; handoffWrite: string | null; codeMatrix: string | null; }"
         }
       },
@@ -6287,19 +6286,15 @@
       },
       "scripts/ports/client/index.ts": {
         "constants": [],
-        "functions": {
-          "clientAdapter": "(): ClientAdapter",
-          "clientAdapterById": "(id: string): ClientAdapter | Refusal",
-          "clientForRole": "(record: ClientRecord | undefined, role: ClientRole): ClientChoice | Refusal",
-          "clientForRoleIn": "(root: string, role: ClientRole): ClientChoice | Refusal",
-          "defaultWindowCommand": "(): WindowCommand",
-          "windowCommandIn": "(root: string): WindowCommand | Refusal"
-        },
+        "functions": {},
         "language": "factory",
         "reexports": [],
         "technologyWords": [],
         "types": {
-          "ClientChoice": "interface ClientChoice { adapter: ClientAdapter; model: ModelChoice; }"
+          "ClientChoice": "interface ClientChoice { adapter: ClientAdapter; model: ModelChoice; }",
+          "ClientConfig": "interface ClientConfig { id: string | null; model: ModelChoice; }",
+          "ClientConfigReader": "type ClientConfigReader = (root: string, role: Role) => ClientConfig",
+          "ClientPort": "class ClientPort { constructor(private readonly defaultAdapter: ClientAdapter, private readonly configOf: ClientConfigReader); clientAdapterById(id: string): ClientAdapter | Refusal; clientFor({ id, model }: ClientConfig): ClientChoice | Refusal; clientForRoleIn(root: string, role: Role): ClientChoice | Refusal; windowCommandIn(root: string): WindowCommand | Refusal; defaultWindowCommand(): WindowCommand }"
         }
       },
       "scripts/ports/client/role-policy.ts": {
@@ -6823,6 +6818,7 @@
         "functions": {
           "cardSessionOverlay": "(root: string, base: NodeJS.ProcessEnv, size: string | null): NodeJS.ProcessEnv",
           "cardSizeIn": "(cardBody: string | null): string | null",
+          "clientAdapter": "(): ClientAdapter",
           "clientCommand": "(): string",
           "clientInvocation": "(spec: SessionSpec): Invocation",
           "headlessInvocation": "(parts: Partial<SessionSpec> = {}): Invocation",

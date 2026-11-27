@@ -2,11 +2,12 @@ import type { SessionSpec } from '../../../ports/client/contract.js'
 import { describe, expect, it } from 'vitest'
 import { repositoryReport } from '../../../contract/module-graph/report.js'
 import { claudeAdapterWith } from '../../../ports/client/claude/adapter.js'
-import { clientAdapter } from '../../../ports/client/index.js'
+import { clientAdapter } from '../../../ports/session.js'
 import { settingsFlag, shiftSettings } from '../../../ports/shift-settings.js'
 
 const ADAPTER = 'scripts/ports/client/claude/adapter.ts'
 const CLIENT_INDEX = 'scripts/ports/client/index.ts'
+const SESSION_PORT = 'scripts/ports/session.ts'
 const SHIFT_SETTINGS = 'scripts/ports/shift-settings.ts'
 const GATE = 'pnpm run gate'
 const WRITABLE = '/tree/.construct/report.md'
@@ -16,13 +17,13 @@ function sandboxedLaunch(): SessionSpec {
 }
 
 describe('the claude adapter takes the shift settings from the one who builds it', () => {
-  it('repositoryReport() holds no import scripts/ports/client/claude/adapter.ts -> scripts/ports/shift-settings.ts', () => {
+  it('repositoryReport() holds no import of scripts/ports/shift-settings.ts from the claude adapter or the client index, and one from the session port', () => {
     const { graph } = repositoryReport()
-    expect(graph.imports.filter(({ from, to }) => from === ADAPTER && to === SHIFT_SETTINGS)).toEqual([])
-    expect(graph.imports.some(({ from, to }) => from === CLIENT_INDEX && to === SHIFT_SETTINGS)).toBe(true)
+    expect(graph.imports.filter(({ from, to }) => (from === ADAPTER || from === CLIENT_INDEX) && to === SHIFT_SETTINGS)).toEqual([])
+    expect(graph.imports.some(({ from, to }) => from === SESSION_PORT && to === SHIFT_SETTINGS)).toBe(true)
   })
 
-  it('the adapter the client index builds invokes a sandboxed launch with the shift settings it was given', () => {
+  it('the adapter the session port builds invokes a sandboxed launch with the shift settings it was given', () => {
     const built = claudeAdapterWith({ shiftSettings, settingsFlag })
     const invocation = clientAdapter().invocation(sandboxedLaunch())
     expect(invocation).toEqual(built.invocation(sandboxedLaunch()))

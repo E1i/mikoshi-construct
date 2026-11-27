@@ -34,8 +34,8 @@ import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { archiveOf, decisionsNumbered, defaultDecisionsFile } from '../../policy/decisions/read.js'
 import { closeWitnessDenial } from '../../policy/policy.js'
 import { SESSION_VARIABLE } from '../../ports/client/claude/adapter.js'
-import { clientAdapter } from '../../ports/client/index.js'
 import { execGh, readGhJson } from '../../ports/gh.js'
+import { clientAdapter } from '../../ports/session.js'
 
 export const PREFIX = '[task:close] '
 export const USAGE = `usage: ${pnpmCommand('task:close', '<id> (--pr <N> | --report <path>) --verification <word> [--override-report <reason>] [--shared-by D-<N>]')}`

@@ -14,10 +14,9 @@ import { BOARD_ALARM, PROCESS_HEARTBEAT, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } f
 import { prOf } from '../core/identifiers.js'
 import { LEASE_FOLDS } from '../core/lease.js'
 import { storedByKey } from '../core/stored.js'
-import { clientAdapter } from '../ports/client/index.js'
 import { HOST_DEGRADED, hostAlarmKey, hostDegradedLine } from '../ports/host-fault.js'
 import { isFullSha } from '../ports/identifier-shapes.js'
-import { CARD_VARIABLE } from '../ports/session.js'
+import { CARD_VARIABLE, clientAdapter } from '../ports/session.js'
 import { projectRoot, sessionGauges } from '../window/eddies-measure.js'
 import { crossedVitals, hostDegradedCause, sampleVitals } from './host-vitals.js'
 

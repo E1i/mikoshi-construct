@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { codexAdapter } from '../../ports/client/codex/adapter.js'
-import { clientAdapter } from '../../ports/client/index.js'
+import { clientAdapter } from '../../ports/session.js'
 
 const TREE = '/tree'
 const W1 = path.join(import.meta.dirname, 'fixtures', 'codex-w1.jsonl')
