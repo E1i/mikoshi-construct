@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { pathToFileURL } from 'node:url'
 import { ESLint } from 'eslint'
 import { afterEach, describe, expect, it } from 'vitest'
-import { plans, releases } from '../../../window/plan-readings.js'
+import { plans, releases } from '../../../core/plan-readings.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../../..')
 const CONFIG_URL = pathToFileURL(path.join(REPO_ROOT, 'eslint.config.mjs')).href
@@ -24,7 +24,7 @@ const OWNER_OF: Record<string, string> = {
   'scripts/nodes/review/pr-reopen.ts': 'pr-record',
   'scripts/nodes/review/record-verdict.ts': 'pr-record',
   'scripts/nodes/merge/merge-worker.ts': 'node-merge',
-  'scripts/window/plan-readings.ts': 'plan',
+  'scripts/core/plan-readings.ts': 'plan',
 }
 const FILES = Object.keys(OWNER_OF)
 

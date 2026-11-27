@@ -830,6 +830,7 @@
     "scripts/tests/contract/owner-reads/rules.test.ts",
     "scripts/tests/contract/owner-reads/session-supervisor.test.ts",
     "scripts/tests/contract/owner-reads/window-board.test.ts",
+    "scripts/tests/contract/owner-reads/window-session.test.ts",
     "scripts/tests/contract/owner-wait-has-a-lift.test.ts",
     "scripts/tests/contract/permanent-suite-holds-on-any-base.test.ts",
     "scripts/tests/contract/plan-folds-contour.test.ts",
@@ -1757,9 +1758,9 @@
   ],
   "plan": [
     "scripts/cli/card-chain.ts",
+    "scripts/core/plan-readings.ts",
     "scripts/window/plan-export.ts",
     "scripts/window/plan-folds.ts",
-    "scripts/window/plan-readings.ts",
     "src/card/slice-depends.ts"
   ],
   "ports": [

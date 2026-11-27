@@ -4,6 +4,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { WINDOW_WHO } from '../../src/card/parking.js'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.js'
+import { cardsOfWho } from '../core/card-readings.js'
 import { openBus } from '../core/db.js'
 import { findTranscript, measuredSession, stoppedTasksOf } from '../ports/client/claude/adapter.js'
 import { processGit } from '../ports/git.js'
@@ -241,8 +242,9 @@ function dirtinessOf(tree: string): string | null {
 }
 
 export function openCardTreesOf(db: DatabaseSync, env: NodeJS.ProcessEnv, busPath: string): string[] {
-  const rows = db.prepare('SELECT cards.card_id FROM cards JOIN card_bodies AS body ON body.card_id = cards.card_id WHERE body.who = ? AND cards.state IS NOT NULL AND cards.state NOT IN (?, ?, ?)').all(WINDOW_WHO, MERGED_CARD, CLOSED_CARD, DROPPED_CARD) as { card_id: number }[]
-  return rows.map(row => cardTree(env, busPath, String(row.card_id))).filter(tree => existsSync(tree))
+  const ended = new Set([MERGED_CARD, CLOSED_CARD, DROPPED_CARD])
+  const open = cardsOfWho(db, WINDOW_WHO).filter(card => card.state !== null && !ended.has(card.state))
+  return open.map(card => cardTree(env, busPath, String(card.id))).filter(tree => existsSync(tree))
 }
 
 export function dirtyTreesOf(trees: string[]): string[] {
