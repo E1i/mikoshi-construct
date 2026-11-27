@@ -11,7 +11,7 @@ const AT = '2026-11-13T10:00:00.000Z'
 const CYRILLIC = /\p{Script=Cyrillic}/u
 const TASK = 30
 
-const STATE_OF_STAGE: Readonly<Record<BusCard['stage'], string>> = { 'planned': 'queued', 'in work': 'running', 'review': 'in_review', 'answer/changes': 'changes', 'ready': 'ready', 'merged': 'merged', 'stopped': 'stopped', 'dropped': 'dropped' }
+const STATE_OF_STAGE: Readonly<Record<BusCard['stage'], string>> = { 'planned': 'queued', 'queue': 'queued', 'in work': 'running', 'review': 'in_review', 'answer/changes': 'changes', 'ready': 'ready', 'merged': 'merged', 'stopped': 'stopped', 'dropped': 'dropped' }
 
 function card(id: number, stage: BusCard['stage'], lane: string | null, parent?: BusCard['parent']): BusCard {
   return { id, state: STATE_OF_STAGE[stage], stage, lane, line: `#${id} card-${id} [implement/construct/S/cheap/auto] · depends — · blocks —`, since: AT, body: true, closed: false, closedAt: null, ...parent === undefined ? {} : { parent } }
@@ -19,6 +19,7 @@ function card(id: number, stage: BusCard['stage'], lane: string | null, parent?:
 
 const CARDS: BusCard[] = [
   card(10, 'planned', 'lane-1'),
+  card(18, 'queue', null),
   card(11, 'in work', 'lane-2'),
   card(12, 'review', null),
   card(13, 'answer/changes', 'lane-1'),

@@ -10,7 +10,8 @@ import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../core/db.js'
 import { CARD_ADMITTED } from '../../core/events.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
 import { replayDifferences } from '../../core/report.js'
-import { busCardAdmissions, busIntakePorts, intakeAdmissions } from '../../intake/intake.js'
+import { busCardAdmissions, intakeAdmissions } from '../../intake/bus-intake.js'
+import { busIntakePorts } from '../../intake/intake.js'
 import { busProjections } from '../../supervisor/composition.js'
 
 const AFTER_THE_CUTOFF = new Date('2026-10-13T09:00:00.000Z')

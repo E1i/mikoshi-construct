@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { EventRow } from '../core/events-query.js'
 import type { CiReading } from '../ports/ci-reading.js'
 import type { WatchCursor } from './watch-store.js'
 import type { WindowPr } from './window-prs.js'
@@ -9,11 +10,14 @@ import { fileURLToPath } from 'node:url'
 import { PRIORITIES } from '../../src/card/parking.js'
 import { IN_REVIEW_CARD, RUNNING_CARD, STOPPED_CARD } from '../core/card-automaton.js'
 import { cardHoldOf } from '../core/card-hold.js'
+import { stateEventsOfCardsIn } from '../core/card-readings.js'
 import { BOARD_STALE_TICKS, BOARD_TIMER_PERIOD_MS, defaultBusPath, lastBoardBeat, openBus } from '../core/db.js'
+import { BY_CARD, BY_PR, EITHER_JOURNAL, events, lastEventId, lastPer, latest } from '../core/events-query.js'
 import { BOARD_ALARM, BUS_PULSE, CARD_CLOSED, CARD_CONTINUED, CARD_DROPPED, CARD_STARTED, CARD_STOPPED, CARD_WAITING, DECISION_RECORDED, GHOST_LINE, MERGE_DONE, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OBSERVED, PROCESS_JUDGED, REQUEST_DONE, REQUEST_REFUSED, REVIEW_RECORDED, SESSION_STALLED, TASK_COMPLETED, TASK_EXPIRED, TASK_RELEASED, WINDOW_REQUEST, WITNESS_RECORDED, WORKER_DOWN } from '../core/events.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { HEARTBEAT_QUEUES } from '../core/lease.js'
 import { MIKO_WATCH_COMMAND } from '../core/owner-commands.js'
+import { ofCard as prsOfCard } from '../core/pr-readings.js'
 import { REVIEW_ROUNDS_SPENT } from '../nodes/review/review-executor.js'
 import { ciWord } from '../ports/ci-reading.js'
 import { USER_SETTINGS } from '../ports/client/claude/adapter.js'
@@ -550,11 +554,8 @@ function emitLine(line: string): Promise<void> {
   })
 }
 
-type BusRow = Pick<BusEvent, 'id' | 'type' | 'pr' | 'head' | 'payload' | 'ts'> & { card_id: number | null }
-
-function eventOfRow(row: BusRow): BusEvent {
-  return { id: Number(row.id), type: row.type, cardId: row.card_id === null ? null : Number(row.card_id), pr: row.pr === null ? null : Number(row.pr), head: row.head, payload: row.payload, ...(row.ts === undefined ? {} : { ts: row.ts }) }
-}
+const untimed = (row: EventRow): BusEvent => ({ id: row.id, type: row.type, cardId: row.card_id, pr: row.pr, head: row.head, payload: row.payload })
+const eventOfRow = (row: EventRow): BusEvent => ({ ...untimed(row), ts: row.ts })
 
 function readBus<T>(bus: string, read: (db: DatabaseSync) => T): T {
   const db = openBus(bus)
@@ -567,22 +568,18 @@ function readBus<T>(bus: string, read: (db: DatabaseSync) => T): T {
 }
 
 function lastBusId(bus: string): number {
-  return readBus(bus, db => Number((db.prepare('SELECT COALESCE(MAX(id), 0) AS id FROM events').get() as { id: number }).id))
+  return readBus(bus, lastEventId)
 }
 
 function busEventsAfter(bus: string, id: number): BusEvent[] {
   return readBus(bus, (db) => {
-    const ofTypes = (types: readonly string[], after: number): BusEvent[] => (db.prepare(`SELECT id, type, card_id, pr, head, payload, ts FROM events WHERE type IN (${types.map(() => '?').join(', ')}) AND id > ? ORDER BY id`).all(...types, after) as unknown as BusRow[]).map(eventOfRow)
+    const ofTypes = (types: readonly string[], after: number): BusEvent[] => events(db, { types, since: after, legacy: EITHER_JOURNAL }).map(eventOfRow)
     return ownerAnswersOfWaits(ofTypes([...WAKING_BUS_EVENTS, ...RELEASE_LOOP_TYPES], id), ofTypes, OWNER_ANSWER_TYPES)
   })
 }
 
-function observedUpTo(bus: string, id: number): BusEvent[] {
-  return readBus(bus, db => (db.prepare('SELECT id, type, card_id, pr, head, payload FROM events WHERE id IN (SELECT MAX(id) FROM events WHERE type = ? AND id <= ? GROUP BY pr) ORDER BY id').all(PR_OBSERVED, id) as unknown as BusRow[]).map(eventOfRow))
-}
-
-function witnessedUpTo(bus: string, id: number): BusEvent[] {
-  return readBus(bus, db => (db.prepare('SELECT id, type, card_id, pr, head, payload FROM events WHERE id IN (SELECT MAX(id) FROM events WHERE type = ? AND id <= ? GROUP BY pr) ORDER BY id').all(WITNESS_RECORDED, id) as unknown as BusRow[]).map(eventOfRow))
+function lastPerPrUpTo(bus: string, type: string, id: number): BusEvent[] {
+  return readBus(bus, db => lastPer(db, BY_PR, { types: [type], before: id + 1, legacy: EITHER_JOURNAL }).map(untimed))
 }
 
 function windowPrs(bus: string): ReadonlySet<number> {
@@ -590,15 +587,17 @@ function windowPrs(bus: string): ReadonlySet<number> {
 }
 
 function ownRequest(bus: string, actor: string, request: number): boolean {
-  return readBus(bus, db => db.prepare('SELECT 1 FROM events WHERE id = ? AND type = ? AND actor = ?').get(request, WINDOW_REQUEST, actor) !== undefined)
+  return readBus(bus, db => events(db, { ids: [request], types: [WINDOW_REQUEST], legacy: EITHER_JOURNAL }).some(row => row.actor === actor))
 }
 
 function ofTypesUpTo(bus: string, types: readonly string[], id: number): BusEvent[] {
-  return readBus(bus, db => (db.prepare(`SELECT id, type, card_id, pr, head, payload, ts FROM events WHERE type IN (${types.map(() => '?').join(', ')}) AND id <= ? ORDER BY id`).all(...types, id) as unknown as BusRow[]).map(eventOfRow))
+  return readBus(bus, db => events(db, { types, before: id + 1, legacy: EITHER_JOURNAL }).map(eventOfRow))
 }
 
 function observedHeads(bus: string, pr: number, beforeId: number): string[] {
-  return readBus(bus, db => (db.prepare('SELECT head FROM events WHERE type = ? AND pr = ? AND id < ? AND head IS NOT NULL GROUP BY head ORDER BY MAX(id)').all(PR_OBSERVED, pr, beforeId) as unknown as Array<{ head: string }>).map(row => row.head))
+  const observed = readBus(bus, db => events(db, { types: [PR_OBSERVED], pr, before: beforeId, legacy: EITHER_JOURNAL }))
+  const lastAt = new Map(observed.flatMap(row => row.head === null ? [] : [[row.head, row.id] as const]))
+  return [...lastAt].sort((a, b) => a[1] - b[1]).map(([head]) => head)
 }
 
 function signalsReader(bus: string): (now: number) => WatchSignal[] {
@@ -610,28 +609,23 @@ function signalsReader(bus: string): (now: number) => WatchSignal[] {
   }
 }
 
-interface ActivityRow { card_id: number, id: number, type: string, ts: string }
-
 function heldWithItsPullRequestClosed(db: DatabaseSync, cardId: number): boolean {
   if (cardHoldOf(db, cardId) === null)
     return false
-  const states = (db.prepare('SELECT state FROM prs WHERE card_id = ?').all(cardId) as unknown as Array<{ state: string }>).map(row => row.state)
+  const states = prsOfCard(db, cardId).map(row => row.state)
   return states.includes(CLOSED_PR) && !states.includes(OPEN_PR)
+}
+
+function lastActivityOfCardsInFlight(db: DatabaseSync): EventRow[] {
+  const inFlight = stateEventsOfCardsIn(db, IN_FLIGHT_CARDS)
+  return inFlight.size === 0 ? [] : lastPer(db, BY_CARD, { since: Math.min(...inFlight.values()) - 1, withCard: true, legacy: EITHER_JOURNAL }).filter(row => inFlight.has(row.card_id!))
 }
 
 function stalls(bus: string, now: number): CardActivity[] {
   return readBus(bus, (db) => {
-    const pulse = db.prepare('SELECT ts FROM events WHERE type = ? ORDER BY id DESC LIMIT 1').get(BUS_PULSE) as { ts: string } | undefined
-    const states = IN_FLIGHT_CARDS.map(() => '?').join(', ')
-    const rows = db.prepare(`
-      SELECT card_id, id, type, ts FROM events WHERE id IN (
-        SELECT MAX(event.id) FROM events AS event JOIN cards AS card ON card.card_id = event.card_id
-        WHERE card.state IN (${states}) AND event.id >= (SELECT COALESCE(MIN(event_id), 0) FROM cards WHERE state IN (${states}))
-        GROUP BY event.card_id
-      ) ORDER BY id
-    `).all(...IN_FLIGHT_CARDS, ...IN_FLIGHT_CARDS) as unknown as ActivityRow[]
-    const cards = rows.map(row => ({ cardId: Number(row.card_id), lastEventId: Number(row.id), lastType: row.type, lastTs: row.ts }))
-    return stalledOf(cards, pulse?.ts, now).filter(card => !heldWithItsPullRequestClosed(db, card.cardId))
+    const pulse = latest(db, { types: [BUS_PULSE], legacy: EITHER_JOURNAL })
+    const cards = lastActivityOfCardsInFlight(db).map(row => ({ cardId: row.card_id!, lastEventId: row.id, lastType: row.type, lastTs: row.ts! }))
+    return stalledOf(cards, pulse?.ts ?? undefined, now).filter(card => !heldWithItsPullRequestClosed(db, card.cardId))
   })
 }
 
@@ -701,8 +695,8 @@ export function productionDeps(handoff: string, bus: string): WatchDeps {
     bus,
     lastBusId: () => lastBusId(bus),
     busEventsAfter: id => busEventsAfter(bus, id),
-    observedUpTo: id => observedUpTo(bus, id),
-    witnessedUpTo: id => witnessedUpTo(bus, id),
+    observedUpTo: id => lastPerPrUpTo(bus, PR_OBSERVED, id),
+    witnessedUpTo: id => lastPerPrUpTo(bus, WITNESS_RECORDED, id),
     deniedUpTo: id => ofTypesUpTo(bus, [POLICY_DENIED], id),
     releasedUpTo: id => ofTypesUpTo(bus, RELEASE_LOOP_TYPES, id),
     windowPrs: () => windowPrs(bus),

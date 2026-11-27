@@ -9,7 +9,7 @@ import { recordIntake } from '../../../src/commands/intake/index.js'
 import { openBus } from '../../core/db.js'
 import { declarationFileOf, MODULE_FILES } from '../../core/declarations.js'
 import { CARD_ADMITTED, CARD_WAITING } from '../../core/events.js'
-import { busCardEvents } from '../../intake/intake.js'
+import { busCardEvents } from '../../intake/bus-intake.js'
 
 const DRAFT = [2050, 2051, 2052, 2053, 2054, 2055]
 const REFUSED = 2055

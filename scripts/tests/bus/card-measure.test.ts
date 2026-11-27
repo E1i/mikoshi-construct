@@ -193,6 +193,14 @@ describe('verdict reasons', () => {
     expect(categoryOf('the guard flips unnoticed', ['the guard flips unnoticed'])).toBe('mutations')
   })
 
+  it('a card merged twice is measured in the column of its last merge', () => {
+    const { db } = bus()
+    merged(db, 1, EARLY)
+    review(db, 1, HEAD_ONE, 'changes', ['a finding'])
+    merged(db, 1, LATE)
+    expect(findingsOf(db, WINDOW, 'unclassified').map(found => found.column)).toEqual(['after'])
+  })
+
   it('--list prints the texts of one category, only of merged cards', () => {
     const { db, file } = bus()
     admitted(db, 1, 'S')

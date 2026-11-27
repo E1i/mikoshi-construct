@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { CardsOfTheBus } from '../../src/commands/intake/numbers.js'
 import type { CardAutomaton, CardCondition, CardsSelected, NodeCandidates } from '../ci/card-automaton.js'
 import type { Understood } from '../core/bus-version.js'
 import type { CardPrReadings } from '../core/card-automaton.js'
@@ -10,6 +11,7 @@ import type { InboxPrReadings } from '../core/inbox.js'
 import type { CardTransitions, HolderStart, Lease, PullHead } from '../core/lease.js'
 import type { NodeKind, NodeSupply, ProcessIdentity, WorkerIdentity } from '../core/node.js'
 import type { PrOrderTick } from '../core/order/turn.js'
+import type { PlanOfCard } from '../core/plan-readings.js'
 import type { CandidateRules, Derived, MayRequeue, QueueSource, RequeueRow } from '../core/queue.js'
 import type { Projections } from '../core/reducer.js'
 import type { Fold, StoredEvent } from '../core/stored.js'
@@ -23,7 +25,6 @@ import type { DecisionEventReads, InForceDecision } from '../policy/decisions/in
 import type { GitHub } from '../ports/github.js'
 import type { PrHistory } from '../ports/netwatch.js'
 import type { PlanParts } from '../window/plan-folds.js'
-import type { PlanOfCard } from '../window/plan-readings.js'
 import type { DetachedLaunch } from './bg.js'
 import type { CardWaitParts } from './card-waits.js'
 import type { DeadEndEvents, DeadEndParts } from './dead-ends.js'
@@ -60,11 +61,13 @@ import { previousObservationOf } from '../core/observations.js'
 import { orderDeclarationsAt, overlaps } from '../core/order/overlap.js'
 import { orderEventsFrom, prOrderTickAt } from '../core/order/turn.js'
 import { ownerWaitCommand, shardRenewalCommand } from '../core/owner-commands.js'
+import { plans } from '../core/plan-readings.js'
 import { linkRefusal, openedPrOf, prFolds, prRow } from '../core/pr-folds.js'
 import * as prs from '../core/pr-readings.js'
 import { closeCandidates, keyOf, reviewCandidates, taskRow, TASKS_PROJECTION, unmergedDependenciesOf } from '../core/queue.js'
 import { payloadOf, storedByKey } from '../core/stored.js'
 import * as tasks from '../core/tasks-query.js'
+import { busHeldCards } from '../intake/bus-intake.js'
 import { cardContract } from '../intake/card-contract.js'
 import { BusWeightsRecompute } from '../intake/intake.js'
 import { answerSource } from '../nodes/answer/answer-candidates.js'
@@ -90,7 +93,6 @@ import { requiredCheckOf } from '../ports/snapshot.js'
 import { launchDirOf } from '../ports/tree-publish.js'
 import { cardTreeRoots } from '../ports/worktree-home.js'
 import { foldPlanEvent } from '../window/plan-folds.js'
-import { plans } from '../window/plan-readings.js'
 import { releasingTakeoverOnPush } from '../window/takeover-push-release.js'
 import { PREFIX } from './bg.js'
 import { cardWaitFolds, closeWaitsOfAnEndedCard, closingTheWaitsOfAClosedPr, ownerWaitFolds } from './card-waits.js'
@@ -100,6 +102,7 @@ import { unendedStarts } from './expected-time.js'
 import { busSessionPulse, heartbeatEnv, measureCardSession, ownStart, recordProcessHeartbeat } from './heartbeat.js'
 import { SILENT_MS } from './liveness-sites.js'
 import { ownIdentity, tableIdentity } from './recorded-worker.js'
+import { releaseWaitsTick, unreleasedMainShas } from './release-waits.js'
 import { slotsOf, slotsVariable } from './scheduler.js'
 import { namesNoticeOf, SHARD_TERM_ACTOR, ShardTerm } from './shard-term.js'
 import { WaitLifts } from './wait-lifts.js'
@@ -171,6 +174,10 @@ export function planOfCard(db: DatabaseSync, cardId: number): PlanOfCard | null 
   return plans.ofCard(db, cardId)
 }
 
+export function cardStatesOfTheBus(db: DatabaseSync): CardsOfTheBus {
+  return busHeldCards(db)
+}
+
 const COMPOSED_BUS_CONTRACT = { ...BUS_CONTRACT, openDecisionWaitsOfCard }
 
 export function busContract(): typeof COMPOSED_BUS_CONTRACT {
@@ -192,6 +199,7 @@ export const PR_HISTORY: PrHistory = {
     const row = lastPrLifecycleEvent(db, pr)
     return row === null ? null : previousObservationOf({ ...row })
   },
+  unreleasedMainShas: db => unreleasedMainShas(db),
 }
 
 export function nodeSupply(): NodeSupply {
@@ -615,7 +623,11 @@ export function waitLiftsTick(db: DatabaseSync, clock: () => Date = () => new Da
   return { step: () => lifts.step().map(line => `${PREFIX}${line}`) }
 }
 
+function prefixed(tick: { step: () => string[] }): { step: () => string[] } {
+  return { step: () => tick.step().map(line => `${PREFIX}${line}`) }
+}
+
 export function orderAndShardTermTicks(db: DatabaseSync, root: string): { step: () => string[] } {
-  const ticks = [busOrderTick(db, root), shardTermTick(db), waitLiftsTick(db)]
+  const ticks = [busOrderTick(db, root), shardTermTick(db), waitLiftsTick(db), prefixed(releaseWaitsTick(db, () => new Date()))]
   return { step: () => ticks.flatMap(tick => tick.step()) }
 }

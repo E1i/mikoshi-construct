@@ -134,6 +134,10 @@ describe('a window card with no pull request holds the turn on the card, not on 
   it('a running card the shift takes is not the window card', () => {
     expect(ownCardAfter('shift')).toBeNull()
   })
+
+  it('a running window card that has its pull request is not a card without one', () => {
+    expect(ownCardAfter(WINDOW_WHO, () => {}, db => db.prepare('UPDATE cards SET pr = 77 WHERE card_id = ?').run(OWN_CARD))).toBeNull()
+  })
 })
 
 describe('a window turn ends only while a miko:watch holds the cursor and beats for its session', () => {
@@ -176,6 +180,19 @@ describe('a window turn ends only while a miko:watch holds the cursor and beats 
     }
     expect(lastBeatIn(bus, 's-window')).toBe(new Date(NOW - 2 * WINDOW_BEAT_MS).toISOString())
     expect(lastBeatIn(bus, 's-none')).toBeNull()
+  })
+
+  it('the last beat of a session is its own, not a newer beat of another session that names it', () => {
+    const bus = busFile()
+    beat(bus, 's-window', NOW - 2 * WINDOW_BEAT_MS)
+    const db = openBus(bus)
+    try {
+      appendEvent(db, { ts: new Date(NOW).toISOString(), type: WINDOW_HEARTBEAT, actor: 'worker:window:s-other', cardId: null, pr: null, head: null, dedupeKey: 'naming-beat', payload: { session: 's-other', root: '/trees/s-window' }, legacy: false })
+    }
+    finally {
+      db.close()
+    }
+    expect(lastBeatIn(bus, 's-window')).toBe(new Date(NOW - 2 * WINDOW_BEAT_MS).toISOString())
   })
 
   it('the CLI exits 1 for a window session with no live watch and 0 once its watch holds the cursor and beats', () => {

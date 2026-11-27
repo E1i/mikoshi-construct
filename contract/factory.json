@@ -918,6 +918,17 @@
           "type"
         ]
       },
+      "release.run": {
+        "complete": true,
+        "keys": [
+          "conclusion",
+          "failed_step",
+          "run_id",
+          "sha",
+          "steps",
+          "verdict"
+        ]
+      },
       "review.drip": {
         "complete": true,
         "keys": [
@@ -1369,6 +1380,14 @@
         "keys": [
           "cards",
           "unparsed"
+        ]
+      },
+      "witness.phase": {
+        "complete": true,
+        "keys": [
+          "phase",
+          "task_key",
+          "witness"
         ]
       },
       "witness.recorded": {
@@ -3941,6 +3960,7 @@
       "intake": {
         "concepts": [],
         "contract": [
+          "scripts/intake/bus-intake.ts",
           "scripts/intake/lane-json.ts",
           "scripts/intake/parking-reads.ts",
           "src/commands/intake/admit.ts",
@@ -4345,7 +4365,7 @@
         "contract": [
           "scripts/window/plan-export.ts",
           "scripts/window/plan-folds.ts",
-          "scripts/window/plan-readings.ts",
+          "scripts/core/plan-readings.ts",
           "scripts/cli/card-chain.ts",
           "src/card/slice-depends.ts"
         ],
@@ -4364,7 +4384,7 @@
         "owns": [
           "scripts/window/plan-export.ts",
           "scripts/window/plan-folds.ts",
-          "scripts/window/plan-readings.ts",
+          "scripts/core/plan-readings.ts",
           "scripts/cli/card-chain.ts",
           "src/card/slice-depends.ts"
         ],
@@ -4906,8 +4926,7 @@
           "scripts/conveyor/**",
           "!scripts/window/miko.ts",
           "!scripts/window/plan-export.ts",
-          "!scripts/window/plan-folds.ts",
-          "!scripts/window/plan-readings.ts"
+          "!scripts/window/plan-folds.ts"
         ],
         "status": "decided"
       }
@@ -5128,16 +5147,17 @@
       "scripts/cli/card.ts": 1,
       "scripts/core/bus-readings.ts": 3,
       "scripts/core/card-automaton.ts": 3,
-      "scripts/core/card-readings.ts": 13,
+      "scripts/core/card-readings.ts": 14,
       "scripts/core/chain.ts": 2,
       "scripts/core/db.ts": 3,
       "scripts/core/dependency-wait.ts": 3,
-      "scripts/core/events-query.ts": 27,
+      "scripts/core/events-query.ts": 30,
       "scripts/core/inbox.ts": 1,
       "scripts/core/lease.ts": 17,
       "scripts/core/legacy-history.ts": 1,
       "scripts/core/node.ts": 4,
       "scripts/core/observations.ts": 4,
+      "scripts/core/plan-readings.ts": 5,
       "scripts/core/pr-folds.ts": 1,
       "scripts/core/pr-readings.ts": 10,
       "scripts/core/pr-status.ts": 2,
@@ -5156,27 +5176,7 @@
       "scripts/ports/worktree-home.ts": 1,
       "scripts/supervisor/card-waits.ts": 4,
       "scripts/supervisor/derive-queues.ts": 1,
-      "scripts/window/card-measure.ts": 4,
-      "scripts/window/handoff-write.ts": 1,
-      "scripts/window/operator-work.ts": 2,
-      "scripts/window/plan-folds.ts": 5,
-      "scripts/window/plan-readings.ts": 2,
-      "scripts/window/requests/amend.ts": 2,
-      "scripts/window/requests/context.ts": 6,
-      "scripts/window/requests/drop.ts": 1,
-      "scripts/window/requests/plan.ts": 2,
-      "scripts/window/requests/request.ts": 1,
-      "scripts/window/requests/requeue.ts": 5,
-      "scripts/window/requests/takeover.ts": 3,
-      "scripts/window/requests/tree-cut.ts": 1,
-      "scripts/window/turn-watch.ts": 2,
-      "scripts/window/watch.ts": 10,
-      "scripts/window/window-agents.ts": 1,
-      "scripts/window/window-prs.ts": 1,
-      "scripts/window/window-requests.ts": 2,
-      "scripts/window/window-session-end.ts": 7,
-      "scripts/window/window.ts": 3,
-      "src/commands/board/goal.ts": 4
+      "scripts/window/plan-folds.ts": 5
     },
     "ci-reading": {},
     "generated-files": {},
@@ -5413,14 +5413,13 @@
         ],
         "types": {
           "BusCard": "interface BusCard { id: number; state: string | null; stage: CardStage; lane: string | null; line: string | null; since: string | null; body: boolean; closed: boolean; closedAt: string | null; parent?: SliceParent; }",
-          "BusFacts": "interface BusFacts { at: string; goal: Goal | null; waits: OwnerWait[]; waitsStale?: string; cardsStale?: string; pulse: string | null; slots: BusSlot[]; cards: BusCard[]; services: BusService[]; matrices: BusMatrix[]; failure: string | null; reviewQueue: number; groups?: BusGroup[]; shadow?: BusShadow; tails?: BusTail[]; queued?: QueuedStanding[]; laneHeads?: LaneHead[]; window?: BusWindow; panel?: BusPanelFacts; }",
+          "BusFacts": "interface BusFacts { at: string; goal: Goal | null; waits: OwnerWait[]; waitsStale?: string; cardsStale?: string; pulse: string | null; slots: BusSlot[]; cards: BusCard[]; services: BusService[]; matrices: BusMatrix[]; failure: string | null; reviewQueue: number; groups?: BusGroup[]; shadow?: BusShadow; tails?: BusTail[]; queued?: QueuedStanding[]; laneHeads?: LaneHead[]; window?: BusWindow; panel?: BusPanelFacts; restart?: BusRestart; }",
           "BusMatrix": "interface BusMatrix { pr: number; head: string | null; full: string | null; killed: number; survived: number; notRun: number; }",
           "BusService": "interface BusService { role: string; task: string; tree: string | null; step: string; session?: string; gauges?: ServiceGauges; subagents?: SubagentReading[]; }",
           "BusSlot": "interface BusSlot { queue: string; used: number; total: number | null; }",
           "CardStage": "type CardStage = typeof CARD_STAGES[number]",
           "CardsAtStage": "interface CardsAtStage { stage: CardStage; cards: number[]; }",
-          "CrawlerReading": "interface CrawlerReading { id: string; kind: string; description: string | null; startedAt: string | null; state: string; context: number | null; spent: number | null; }",
-          "SubagentReading": "interface SubagentReading { name: string; context: number | null; spent: number | null; at: string | null; }"
+          "CrawlerReading": "interface CrawlerReading { id: string; kind: string; description: string | null; startedAt: string | null; state: string; context: number | null; spent: number | null; }"
         }
       },
       "src/commands/board/goal.ts": {
@@ -5454,6 +5453,7 @@
       },
       "src/commands/board/screens.ts": {
         "constants": [
+          "QUEUE_STAGE: CardStage",
           "WINDOW_WAITS_ROLE"
         ],
         "functions": {
@@ -5462,6 +5462,7 @@
           "counted": "(count: number, noun: string): string",
           "inLiveView": "(card: BusCard, standing: CardStanding): boolean",
           "isLive": "(card: BusCard): boolean",
+          "isQueued": "(card: BusCard): boolean",
           "liftedByTheWindow": "(wait: OwnerWait): boolean",
           "markedName": "(name: string, card: BusCard): string",
           "matrixLines": "(facts: BusFacts, lore: Lore): string[]",
@@ -5913,6 +5914,7 @@
       },
       "src/manifest.ts": {
         "constants": [
+          "CLIENT_ROLES",
           "DEFAULT_LANES",
           "DISCOVERY_MARKERS",
           "MANIFEST_FILE"
@@ -5928,8 +5930,6 @@
         },
         "reexports": [],
         "types": {
-          "ClientRecord": "interface ClientRecord { id?: string; model?: string; roles?: Partial<Record<ClientRole, string>>; }",
-          "ClientRole": "type ClientRole = (typeof CLIENT_ROLES)[number]",
           "ShiftGate": "interface ShiftGate { prepush: string[]; handoffWrite: string | null; codeMatrix: string | null; }"
         }
       },
@@ -6128,9 +6128,12 @@
         }
       },
       "scripts/ports/ci-reading.ts": {
-        "constants": [],
+        "constants": [
+          "RELEASE_WORKFLOW"
+        ],
         "functions": {
-          "annotationTitles": "(meter: Meter, check: AnnotatedCheck | undefined): string[]"
+          "annotationTitles": "(meter: Meter, check: AnnotatedCheck | undefined): string[]",
+          "releaseRunOf": "(runs: readonly WorkflowRunOfHead[]): ReleaseRun | null"
         },
         "language": "technology",
         "reexports": [
@@ -6165,13 +6168,15 @@
           "CiOfCommits": "interface CiOfCommits { onCommit: (sha: string, requiredCheck?: string) => CommitCi; approvedRunOn: (head: string | undefined) => boolean; }",
           "CiRead": "type CiRead<T> = GhRead<T>",
           "CiRuns": "interface CiRuns { pullRequest: (pr: PullRequest, repository: string) => PrDetails; failureLogOn: (head: string, tree: string) => FailedJobLog | null; successfulRunsOnMain: (limit: number) => CiRead<RunOnMain[]>; jobsOfRun: (runId: number) => CiRead<{ jobs: RunJob[]; }>; artifactsNamed: (run: RunIdentity, name: string) => CiRead<number>; downloadArtifact: (runId: string | number, artifact: ArtifactRequest) => CiAct; cancel: (run: RunIdentity) => boolean; }",
-          "CiWorld": "interface CiWorld { commits?: Record<string, CheckRun[]>; approvedHeads?: string[]; rollups?: Record<number, RollupCheck[]>; failedLogs?: Record<string, FailedJobLog>; runsOnMain?: RunOnMain[]; jobs?: Record<number, RunJob[]>; artifacts?: Record<string, string[]>; }",
-          "GhCiRuns": "class GhCiRuns implements CiRuns { constructor(private readonly gh: GhPort = PROCESS_GH_PORT); pullRequest(pr: PullRequest, repository: string): PrDetails; failureLogOn(head: string, tree: string): FailedJobLog | null; successfulRunsOnMain(limit: number): CiRead<RunOnMain[]>; jobsOfRun(runId: number): CiRead<{ jobs: RunJob[]; }>; artifactsNamed(run: RunIdentity, name: string): CiRead<number>; downloadArtifact(runId: string | number, artifact: ArtifactRequest): CiAct; cancel(run: RunIdentity): boolean }",
+          "CiWorld": "interface CiWorld { commits?: Record<string, CheckRun[]>; approvedHeads?: string[]; rollups?: Record<number, RollupCheck[]>; failedLogs?: Record<string, FailedJobLog>; runsOnMain?: RunOnMain[]; jobs?: Record<number, RunJob[]>; releaseRuns?: Record<string, ReleaseRun>; artifacts?: Record<string, string[]>; }",
+          "GhCiRuns": "class GhCiRuns implements CiRuns, ReleaseRuns { constructor(private readonly gh: GhPort = PROCESS_GH_PORT); pullRequest(pr: PullRequest, repository: string): PrDetails; failureLogOn(head: string, tree: string): FailedJobLog | null; successfulRunsOnMain(limit: number): CiRead<RunOnMain[]>; jobsOfRun(runId: number): CiRead<{ jobs: RunJob[]; }>; releaseRunOn(sha: string): CiRead<ReleaseRun | null>; artifactsNamed(run: RunIdentity, name: string): CiRead<number>; downloadArtifact(runId: string | number, artifact: ArtifactRequest): CiAct; cancel(run: RunIdentity): boolean }",
           "GitHubCommitCi": "class GitHubCommitCi implements CiOfCommits { constructor(private readonly meter: Meter); onCommit(sha: string, requiredCheck = REQUIRED_CHECK): CommitCi; approvedRunOn(head: string | undefined): boolean }",
-          "InMemoryCi": "class InMemoryCi implements CiOfCommits, CiRuns { cancelled: RunIdentity[]; downloaded: ArtifactRequest[]; constructor(private readonly world: CiWorld = {}); onCommit(sha: string, requiredCheck = REQUIRED_CHECK): CommitCi; approvedRunOn(head: string | undefined): boolean; pullRequest(pr: PullRequest): PrDetails; failureLogOn(head: string): FailedJobLog | null; successfulRunsOnMain(limit: number): CiRead<RunOnMain[]>; jobsOfRun(runId: number): CiRead<{ jobs: RunJob[]; }>; artifactsNamed(run: RunIdentity, name: string): CiRead<number>; downloadArtifact(runId: string | number, artifact: ArtifactRequest): CiAct; cancel(run: RunIdentity): boolean }",
+          "InMemoryCi": "class InMemoryCi implements CiOfCommits, CiRuns, ReleaseRuns { cancelled: RunIdentity[]; downloaded: ArtifactRequest[]; constructor(private readonly world: CiWorld = {}); onCommit(sha: string, requiredCheck = REQUIRED_CHECK): CommitCi; approvedRunOn(head: string | undefined): boolean; pullRequest(pr: PullRequest): PrDetails; failureLogOn(head: string): FailedJobLog | null; successfulRunsOnMain(limit: number): CiRead<RunOnMain[]>; jobsOfRun(runId: number): CiRead<{ jobs: RunJob[]; }>; releaseRunOn(sha: string): CiRead<ReleaseRun | null>; artifactsNamed(run: RunIdentity, name: string): CiRead<number>; downloadArtifact(runId: string | number, artifact: ArtifactRequest): CiAct; cancel(run: RunIdentity): boolean }",
+          "ReleaseRun": "interface ReleaseRun { databaseId: number; status: string; conclusion: string | null; }",
+          "ReleaseRuns": "interface ReleaseRuns { releaseRunOn: (sha: string) => CiRead<ReleaseRun | null>; jobsOfRun: (runId: number) => CiRead<{ jobs: RunJob[]; }>; }",
           "RunJob": "interface RunJob { name: string; conclusion: string; startedAt: string; completedAt: string; steps?: RunStep[]; }",
           "RunOnMain": "interface RunOnMain { databaseId: number; headSha: string; }",
-          "RunStep": "interface RunStep { name: string; startedAt: string; completedAt: string; }"
+          "RunStep": "interface RunStep { name: string; conclusion?: string | null; startedAt: string; completedAt: string; }"
         }
       },
       "scripts/ports/client/claude/adapter.ts": {
@@ -6282,19 +6287,15 @@
       },
       "scripts/ports/client/index.ts": {
         "constants": [],
-        "functions": {
-          "clientAdapter": "(): ClientAdapter",
-          "clientAdapterById": "(id: string): ClientAdapter | Refusal",
-          "clientForRole": "(record: ClientRecord | undefined, role: ClientRole): ClientChoice | Refusal",
-          "clientForRoleIn": "(root: string, role: ClientRole): ClientChoice | Refusal",
-          "defaultWindowCommand": "(): WindowCommand",
-          "windowCommandIn": "(root: string): WindowCommand | Refusal"
-        },
+        "functions": {},
         "language": "factory",
         "reexports": [],
         "technologyWords": [],
         "types": {
-          "ClientChoice": "interface ClientChoice { adapter: ClientAdapter; model: ModelChoice; }"
+          "ClientChoice": "interface ClientChoice { adapter: ClientAdapter; model: ModelChoice; }",
+          "ClientConfig": "interface ClientConfig { id: string | null; model: ModelChoice; }",
+          "ClientConfigReader": "type ClientConfigReader = (root: string, role: Role) => ClientConfig",
+          "ClientPort": "class ClientPort { constructor(private readonly defaultAdapter: ClientAdapter, private readonly configOf: ClientConfigReader); clientAdapterById(id: string): ClientAdapter | Refusal; clientFor({ id, model }: ClientConfig): ClientChoice | Refusal; clientForRoleIn(root: string, role: Role): ClientChoice | Refusal; windowCommandIn(root: string): WindowCommand | Refusal; defaultWindowCommand(): WindowCommand }"
         }
       },
       "scripts/ports/client/role-policy.ts": {
@@ -6670,6 +6671,7 @@
           "pollLine": "(poll: Poll): string",
           "prClosed": "(ts: string, closed: ClosedPr, reopening: number | null = null): BusEvent",
           "prObserved": "(ts: string, open: OpenPr, previous: PreviousObservation | null): BusEvent",
+          "releaseRun": "(ts: string, sha: string, releases: ReleaseRuns): BusEvent | null",
           "watchTheNetwork": "(requiredCheck: () => string, once: boolean, history: PrHistory): Promise<number>"
         },
         "language": "technology",
@@ -6679,10 +6681,10 @@
           "git"
         ],
         "types": {
-          "NetWatch": "class NetWatch { constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly clock: () => Date, private readonly process: string, private readonly requiredCheck: () => string, private readonly history: PrHistory); dueReason(nowMs: number): PollReason | null; poll(): Poll | null }",
+          "NetWatch": "class NetWatch { constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly clock: () => Date, private readonly process: string, private readonly requiredCheck: () => string, private readonly history: PrHistory, private readonly releases: ReleaseRuns | null = null); dueReason(nowMs: number): PollReason | null; poll(): Poll | null }",
           "Poll": "type Poll = { kind: 'ticked'; reason: PollReason; calls: number; remaining: number | null; written: number; unsettled: number[]; } | { kind: 'skipped'; reason: PollReason; cause: 'retry-after' | 'rate-limited' | 'failed'; calls: number; until?: string; detail?: string; }",
           "PollReason": "type PollReason = 'start' | 'interval' | 'wake'",
-          "PrHistory": "interface PrHistory { knownOpenPrs: (db: DatabaseSync) => number[]; lastMainSha: (db: DatabaseSync) => string | null; lastObservation: (db: DatabaseSync, pr: number) => PreviousObservation | null; }"
+          "PrHistory": "interface PrHistory { knownOpenPrs: (db: DatabaseSync) => number[]; lastMainSha: (db: DatabaseSync) => string | null; lastObservation: (db: DatabaseSync, pr: number) => PreviousObservation | null; unreleasedMainShas?: (db: DatabaseSync) => string[]; }"
         }
       },
       "scripts/ports/pr-status.ts": {
@@ -6817,6 +6819,7 @@
         "functions": {
           "cardSessionOverlay": "(root: string, base: NodeJS.ProcessEnv, size: string | null): NodeJS.ProcessEnv",
           "cardSizeIn": "(cardBody: string | null): string | null",
+          "clientAdapter": "(): ClientAdapter",
           "clientCommand": "(): string",
           "clientInvocation": "(spec: SessionSpec): Invocation",
           "headlessInvocation": "(parts: Partial<SessionSpec> = {}): Invocation",

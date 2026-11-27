@@ -3,8 +3,8 @@ import type { Card } from '../../src/card/grammar.js'
 import type { ParkedTask } from '../../src/card/parking.js'
 import type { EventRow, ReviewRow } from '../core/events-query.js'
 import type { Queue } from '../core/identifiers.js'
-import type { CleanUpdate } from '../nodes/update/update-done.js'
 import type { InForceDecision } from './decisions/index.js'
+import type { CleanUpdate } from './decisions/read.js'
 import { cardLine } from '../../src/card/grammar.js'
 import { parkingFileText, parseParkingFile } from '../../src/card/parking.js'
 import { RISK_PREFIX, riskReading, SEAM_PREFIX, SLICE_DEPENDS, SLICE_PREFIX } from '../../src/card/risk.js'
@@ -12,12 +12,11 @@ import { witnessesOf } from '../../src/card/witness-fields.js'
 import { AMEND_SOURCE } from '../../src/commands/intake/admit.js'
 import { WITNESSES_HEADING } from '../../src/commands/intake/slice.js'
 import { all, bodiesAdmittedBySource, bodiesAdmittedBySourceForAPr, EITHER_JOURNAL, ofPr, reviewsOfPr } from '../core/events-query.js'
-import { PR_OBSERVED, PR_OPENED, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, ROUND_EXTENDED, ROUND_MUTATIONS_PARKED, SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED } from '../core/events.js'
+import { PR_OBSERVED, REVIEW_RECORDED, REVIEW_ROUNDS_SPENT, ROUND_EXTENDED, ROUND_MUTATIONS_PARKED, SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, UPDATE_DONE } from '../core/events.js'
 import { REVIEW_ROUNDS } from '../core/identifiers.js'
 import { INTAKE_ACTOR_PREFIX } from '../intake/admissions.js'
-import { cleanUpdatesOf } from '../nodes/update/update-done.js'
 import { isFullSha } from '../ports/identifier-shapes.js'
-import { OWNER_SOURCE } from './decisions/decisions.js'
+import { ALLOW_MERGE, continueFixesDecisionOf, decisionUnder, headsOf, headsWithTheSameDiff, observedHeadsOf } from './decisions/read.js'
 import { DECISIONS_SCOPE, decisionsInForceAt } from './shards.js'
 import { createdPaths } from './touch-scope.js'
 
@@ -26,41 +25,16 @@ export const RECUT_ACTOR = `${INTAKE_ACTOR_PREFIX}${RECUT_SOURCE}`
 
 const OWNER_DECISION = 'owner'
 const OWNER_EVEN_PAST_THE_LIMIT = 'R1'
-const OWNER_PREFIX = `${OWNER_SOURCE.replace(/[[\]]/g, '\\$&')} `
-
-const ALLOW_MERGE = 'allow-merge'
-export const CONTINUE_FIXES = 'continue-fixes'
-
-function namesPrAtHeadUnder(marker: string, text: string, pr: number, head: string): boolean {
-  return new RegExp(`^(?:${OWNER_PREFIX})?${marker} PR #${pr} at ${head}(?![0-9a-f])`).test(text)
-}
-
-export function namesPrAtHead(text: string, pr: number, head: string): boolean {
-  return namesPrAtHeadUnder(ALLOW_MERGE, text, pr, head)
-}
+const JSON_TRUE: readonly unknown[] = [1, true]
 
 export function allowMergeOfPrAtHead(pr: number, head: string): string {
   return `${ALLOW_MERGE} PR #${pr} at ${head}`
 }
 
-function headsOf(rows: readonly EventRow[]): string[] {
-  return rows.flatMap(row => row.head === null ? [] : [row.head])
-}
-
-export function observedHeadsOf(db: DatabaseSync, pr: number): string[] {
-  const heads = headsOf(ofPr(db, pr, { types: [PR_OPENED, PR_OBSERVED] }))
-  return heads.filter((head, at) => at === 0 || heads[at - 1] !== head)
-}
-
-function headsWithTheSameDiff(head: string, cleanUpdates: readonly CleanUpdate[]): string[] {
-  const heads = [head]
-  for (let current = head; ;) {
-    const from = cleanUpdates.find(update => update.to === current)?.from
-    if (from === undefined || heads.includes(from))
-      return heads
-    heads.push(from)
-    current = from
-  }
+export function cleanUpdatesOf(db: DatabaseSync, pr: number): CleanUpdate[] {
+  return ofPr(db, pr, { types: [UPDATE_DONE] })
+    .filter(row => JSON_TRUE.includes(row.data?.clean))
+    .map(row => ({ from: row.data!.from as string, to: row.data!.to as string }))
 }
 
 function headObservedBefore(head: string, observedHeads: readonly string[]): string | undefined {
@@ -335,13 +309,6 @@ export function limitRuleOf(reading: LimitReading): LimitRule {
   return { kind: 'extend', findings, previous: [...trimmedSet(reading.previous)] }
 }
 
-function decisionUnder(marker: string, decisions: readonly InForceDecision[], pr: number, head: string, cleanUpdates: readonly CleanUpdate[]): number | null {
-  if (!isFullSha(head))
-    return null
-  const heads = headsWithTheSameDiff(head, cleanUpdates)
-  return decisions.find(decision => heads.some(decided => namesPrAtHeadUnder(marker, decision.text, pr, decided)))?.decisionId ?? null
-}
-
 export function roundLimitDecisionOf(decisions: readonly InForceDecision[], pr: number, head: string, cleanUpdates: readonly CleanUpdate[]): number | null {
   return decisionUnder(ALLOW_MERGE, decisions, pr, head, cleanUpdates)
 }
@@ -356,10 +323,6 @@ export function mutationsParkedGrantOf(parkings: readonly MutationParking[], hea
     return null
   const heads = headsWithTheSameDiff(head, cleanUpdates)
   return parkings.find(parking => heads.includes(parking.head))?.id ?? null
-}
-
-export function continueFixesDecisionOf(decisions: readonly InForceDecision[], pr: number, head: string, cleanUpdates: readonly CleanUpdate[]): number | null {
-  return decisionUnder(CONTINUE_FIXES, decisions, pr, head, cleanUpdates)
 }
 
 export interface PushHistory {
@@ -411,7 +374,6 @@ export function roundsOf(reviews: readonly RoundReview[], ownerAmended: Readonly
 }
 
 export const REPEAT_FINDINGS = 'repeat_findings'
-const JSON_TRUE: readonly unknown[] = [1, true]
 
 function repeatStopOnHead(db: DatabaseSync, pr: number, head: string | null): boolean {
   return ofPr(db, pr, { types: [REVIEW_ROUNDS_SPENT] }).some(row => row.head === head && row.data?.state === REPEAT_FINDINGS)

@@ -2,12 +2,13 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../../core/lease.js'
 import { DatabaseSync as Sqlite } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
-import { bodyAdmittedAfter, cardBodyLanes, cardsAmong, cardsWithAState, openCardWaits, openWaitEventsByCard, waitClosedBefore, waitStatesAmong } from '../../../core/card-readings.js'
+import { bodyAdmittedAfter, bodyLineOf, cardBodyLanes, cardsAmong, cardsWithAState, heldCardOf, openCardWaits, openWaitEventsByCard, openWaitsOfCard, ownerWaitOf, unclosedDecisionWaitWithText, waitClosedBefore, waitStatesAmong } from '../../../core/card-readings.js'
 import { appendEvent, openBus } from '../../../core/db.js'
-import { all, byId, countOf, EITHER_JOURNAL, eventLog, events, lastTsPerActor, latest, latestOfCardWhere, latestTs, ofCard, ofPr, perCard, unspentShardRows } from '../../../core/events-query.js'
-import { CARD_ADMITTED, CARD_ANSWERED, CARD_HELD, CARD_STARTED, CARD_STOPPED, DECISIONS_IMPORTED, DECISIONS_PROJECTED, OWNER_WAIT_CLOSED, PR_OBSERVED, QUESTION_AGENT, REVIEW_RECORDED, SHARD_ISSUED, TASK_COMPLETED, TASK_FAILED, TASK_RELEASED } from '../../../core/events.js'
+import { all, byId, countOf, EITHER_JOURNAL, eventLog, events, firstOfTypesOrNewHeadSince, lastTsPerActor, latest, latestOfCardWhere, latestTs, ofCard, ofPr, perCard, unanswered, unspentShardRows } from '../../../core/events-query.js'
+import { CARD_ADMITTED, CARD_ANSWERED, CARD_HELD, CARD_STARTED, CARD_STOPPED, DECISIONS_IMPORTED, DECISIONS_PROJECTED, OWNER_WAIT_CLOSED, OWNER_WAIT_OPENED, PR_OBSERVED, QUESTION_AGENT, REQUEST_DONE, REVIEW_RECORDED, SHARD_ISSUED, TASK_COMPLETED, TASK_FAILED, TASK_RELEASED, WINDOW_REQUEST } from '../../../core/events.js'
 import { TREE_CARRIER_QUEUE } from '../../../core/lease.js'
 import { NETWATCH } from '../../../core/observations.js'
+import { plans } from '../../../core/plan-readings.js'
 import * as prs from '../../../core/pr-readings.js'
 import { reduce } from '../../../core/reducer.js'
 import * as tasks from '../../../core/tasks-query.js'
@@ -15,6 +16,7 @@ import { lastEventId } from '../../../core/watermark.js'
 import { answerSourceOf, cardSessionOf, carriedTreeOf, failedChecksOn, openPrOfCard, ownerHoldOf } from '../../../nodes/answer/answer-source.js'
 import { decisionRows, recordDecision } from '../../../policy/decisions/index.js'
 import { busProjections, DECISION_EVENT_READS } from '../../../supervisor/composition.js'
+import { liveTaskOf } from '../../../window/requests/request.js'
 
 const TS = '2026-11-20T08:00:00.000Z'
 const LATER = '2026-11-20T09:00:00.000Z'
@@ -38,6 +40,7 @@ interface Seed {
   type: string
   card?: number | null
   pr?: number | null
+  head?: string | null
   key: string
   payload?: Record<string, unknown> | string
   ts?: string
@@ -46,7 +49,7 @@ interface Seed {
 }
 
 function append(db: DatabaseSync, seed: Seed): number {
-  appendEvent(db, { ts: seed.ts ?? TS, type: seed.type, actor: seed.actor ?? 'policy', cardId: seed.card ?? null, pr: seed.pr ?? null, head: null, dedupeKey: seed.key, payload: seed.payload ?? {}, legacy: seed.legacy ?? false })
+  appendEvent(db, { ts: seed.ts ?? TS, type: seed.type, actor: seed.actor ?? 'policy', cardId: seed.card ?? null, pr: seed.pr ?? null, head: seed.head ?? null, dedupeKey: seed.key, payload: seed.payload ?? {}, legacy: seed.legacy ?? false })
   return lastEventId(db)
 }
 
@@ -490,5 +493,101 @@ describe('the readings the window board takes from bus and card-record', () => {
       { id: 'Q1', need: 'merge', card: OTHER_CARD, since: TS, event_id: ids[0] },
       { id: 'Q2', need: 'decision', card: CARD, since: LATER, event_id: ids[1] },
     ])
+  })
+})
+
+describe('the first event of given types, or the first new head of an observed pull request, since a cursor', () => {
+  it('skips a repeated observation of the same head and stops at the first new head', () => {
+    const db = bus()
+    const first = append(db, { type: PR_OBSERVED, pr: PR, head: 'a'.repeat(40), key: 'o1' })
+    append(db, { type: PR_OBSERVED, pr: PR, head: 'a'.repeat(40), key: 'o2' })
+    const moved = append(db, { type: PR_OBSERVED, pr: PR, head: 'b'.repeat(40), key: 'o3' })
+    expect(firstOfTypesOrNewHeadSince(db, first, [REVIEW_RECORDED], PR_OBSERVED)).toBe(moved)
+  })
+
+  it('stops at an event of the given types before a later new head', () => {
+    const db = bus()
+    const first = append(db, { type: PR_OBSERVED, pr: PR, head: 'a'.repeat(40), key: 'o1' })
+    const reviewed = append(db, { type: REVIEW_RECORDED, card: CARD, pr: PR, key: 'r1' })
+    append(db, { type: PR_OBSERVED, pr: PR, head: 'b'.repeat(40), key: 'o2' })
+    expect(firstOfTypesOrNewHeadSince(db, first, [REVIEW_RECORDED], PR_OBSERVED)).toBe(reviewed)
+    expect(firstOfTypesOrNewHeadSince(db, reviewed + 1, [REVIEW_RECORDED], PR_OBSERVED)).toBeNull()
+  })
+})
+
+describe('the readings the window requests take from bus, card-record and plan', () => {
+  it('bus answers the live window requests no answer names yet, oldest first', () => {
+    const db = bus()
+    const first = append(db, { type: WINDOW_REQUEST, key: 'r1', payload: { kind: 'mode' } })
+    const second = append(db, { type: WINDOW_REQUEST, key: 'r2', payload: { kind: 'plan' } })
+    append(db, { type: WINDOW_REQUEST, key: 'r3', payload: { kind: 'hold' }, legacy: true })
+    append(db, { type: REQUEST_DONE, key: `${WINDOW_REQUEST}:${first}:answered` })
+    const pending = unanswered(db, WINDOW_REQUEST, { prefix: `${WINDOW_REQUEST}:`, suffix: ':answered' })
+    expect(pending.map(row => row.id)).toEqual([second])
+    expect(pending[0]!.data).toEqual({ kind: 'plan' })
+  })
+
+  it('bus answers the newest event that carries a head, past a newer one that carries none', () => {
+    const db = bus()
+    const withHead = append(db, { type: PR_OBSERVED, pr: PR, head: HEAD, key: 'o1' })
+    append(db, { type: PR_OBSERVED, pr: PR, key: 'o2' })
+    expect(latest(db, { types: [PR_OBSERVED], pr: PR, withHead: true })?.id).toBe(withHead)
+    expect(latest(db, { types: [PR_OBSERVED], pr: PR })?.id).toBe(withHead + 1)
+  })
+
+  it('the window takes the newest queued or leased task of a card through the tasks reader of bus', () => {
+    const db = bus()
+    const event = append(db, { type: WINDOW_REQUEST, key: 't0' })
+    db.prepare(`INSERT INTO tasks (task_key, queue, card_id, state, event_id) VALUES ('answer:old', 'answer', ?, 'queued', ?), ('launch:new', 'launch', ?, 'leased', ?), ('review:done', 'review', ?, 'done', ?), ('answer:other', 'answer', ?, 'done', ?)`).run(CARD, event, CARD, event, CARD, event, OTHER_CARD, event)
+    expect(liveTaskOf(db, CARD)).toMatchObject({ task_key: 'launch:new', queue: 'launch', state: 'leased' })
+    expect(liveTaskOf(db, OTHER_CARD)).toBeNull()
+  })
+
+  it('card-record answers a wait by its id and the open waits of a card in the order they opened', () => {
+    const db = bus()
+    const ids = [1, 2, 3].map(at => append(db, { type: WINDOW_REQUEST, key: `w${at}` }))
+    db.prepare(`INSERT INTO owner_waits (id, need, text, card_id, pr, state, opened_at, event_id) VALUES
+      ('Q2', 'decision', 't', ?, NULL, 'open', ?, ?),
+      ('Q1', 'merge', 't', ?, ?, 'open', ?, ?),
+      ('Q3', 'decision', 't', ?, NULL, 'closed', ?, ?)`).run(CARD, TS, ids[1]!, CARD, PR, TS, ids[0]!, CARD, TS, ids[2]!)
+    expect(ownerWaitOf(db, 'Q3')).toEqual({ id: 'Q3', state: 'closed', need: 'decision', card_id: CARD, pr: null })
+    expect(ownerWaitOf(db, 'Q9')).toBeNull()
+    expect(openWaitsOfCard(db, CARD).map(wait => wait.id)).toEqual(['Q1', 'Q2'])
+    expect(openWaitsOfCard(db, CARD)[0]).toEqual({ id: 'Q1', state: 'open', need: 'merge', card_id: CARD, pr: PR })
+    expect(openWaitsOfCard(db, OTHER_CARD)).toEqual([])
+  })
+
+  it('card-record answers the open decision wait with the same text, and none that a row or an event closed', () => {
+    const db = bus()
+    const question = 'which "one"?'
+    append(db, { type: OWNER_WAIT_OPENED, key: 'q1', payload: { id: 'Q1', need: 'decision', text: question } })
+    append(db, { type: OWNER_WAIT_OPENED, key: 'q2', payload: { id: 'Q2', need: 'merge', text: question } })
+    expect(unclosedDecisionWaitWithText(db, question)).toBe('Q1')
+    expect(unclosedDecisionWaitWithText(db, 'another question')).toBeNull()
+    append(db, { type: OWNER_WAIT_CLOSED, key: 'c1', payload: { id: 'Q1' } })
+    expect(unclosedDecisionWaitWithText(db, question)).toBeNull()
+    const reopened = append(db, { type: OWNER_WAIT_OPENED, key: 'q3', payload: { id: 'Q3', need: 'decision', text: question } })
+    db.prepare(`INSERT INTO owner_waits (id, need, text, state, opened_at, event_id) VALUES ('Q3', 'decision', ?, 'closed', ?, ?)`).run(question, TS, reopened)
+    expect(unclosedDecisionWaitWithText(db, question)).toBeNull()
+  })
+
+  it('card-record answers the line, branch and lane of a body, and the state of a card it holds', () => {
+    const db = bus()
+    const event = append(db, { type: WINDOW_REQUEST, key: 'b1' })
+    db.prepare(`INSERT INTO card_bodies (card_id, admission_event_id, text, text_sha, card_line, branch, lane) VALUES (?, ?, 't', 's', '#7 x', 'feat/x', 'lane-1')`).run(CARD, event)
+    db.prepare(`INSERT INTO cards (card_id, state, pr, event_id) VALUES (?, 'started', NULL, ?), (?, NULL, NULL, ?)`).run(CARD, event, OTHER_CARD, event)
+    expect(bodyLineOf(db, CARD)).toEqual({ card_line: '#7 x', branch: 'feat/x', lane: 'lane-1' })
+    expect(bodyLineOf(db, OTHER_CARD)).toBeNull()
+    expect(heldCardOf(db, CARD)).toEqual({ state: 'started' })
+    expect(heldCardOf(db, OTHER_CARD)).toEqual({ state: null })
+    expect(heldCardOf(db, 99)).toBeNull()
+  })
+
+  it('plan answers the cards the items of a plan link, once each and in order', () => {
+    const db = bus()
+    const event = append(db, { type: WINDOW_REQUEST, key: 'p1' })
+    db.prepare(`INSERT INTO plan_items (plan_id, item_id, title, cards, event_id) VALUES ('rel', 'b', 't', '[9, 3]', ?), ('rel', 'a', 't', '[3, 5]', ?), ('other', 'a', 't', '[1]', ?)`).run(event, event, event)
+    expect(plans.linkedCards(db, 'rel')).toEqual([3, 5, 9])
+    expect(plans.linkedCards(db, 'none')).toEqual([])
   })
 })

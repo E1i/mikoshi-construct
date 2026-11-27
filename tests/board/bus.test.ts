@@ -11,7 +11,7 @@ import { PROCESS_HEARTBEAT } from '../../scripts/core/events.js'
 import { ANSWER_SOURCE } from '../../scripts/core/inbox.js'
 import { Node } from '../../scripts/core/node.js'
 import { reduce } from '../../scripts/core/reducer.js'
-import { busCardEvents } from '../../scripts/intake/intake.js'
+import { busCardEvents } from '../../scripts/intake/bus-intake.js'
 import { sayToOwnerChannel } from '../../scripts/owner/channel.js'
 import { busProjections, nodeSupply, openComposedBus } from '../../scripts/supervisor/composition.js'
 import { SILENT_MS } from '../../scripts/supervisor/liveness-sites.js'
@@ -71,7 +71,7 @@ describe('the board bus reader', () => {
 
   it('reads every card with its state, lane and card line, in card order', () => {
     expect(facts({ cards: [{ id: 2, state: 'changes', lane: null, line: null }, { id: 1, state: 'queued', lane: 'a', line: 'card: #1 alpha' }] }).cards).toEqual([
-      { id: 1, state: 'queued', stage: 'planned', lane: 'a', line: 'card: #1 alpha', since: null, body: true, closed: false, closedAt: null },
+      { id: 1, state: 'queued', stage: 'queue', lane: 'a', line: 'card: #1 alpha', since: null, body: true, closed: false, closedAt: null },
       { id: 2, state: 'changes', stage: 'answer/changes', lane: null, line: null, since: null, body: true, closed: false, closedAt: null },
     ])
   })
@@ -95,7 +95,7 @@ describe('the board bus reader', () => {
       [2, 'in work'],
       [3, 'answer/changes'],
       [4, 'ready'],
-      [5, 'planned'],
+      [5, 'queue'],
       [6, 'merged'],
       [7, 'stopped'],
       [8, 'dropped'],

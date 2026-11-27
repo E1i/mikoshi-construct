@@ -62,7 +62,7 @@ const INTAKE_COMMAND = 'src/commands/intake'
 const CI_COMMAND = 'src/commands/ci'
 
 const INTAKE_CONTRACT = [
-  ...within(factory('intake'), 'lane-json.ts', 'parking-reads.ts'),
+  ...within(factory('intake'), 'bus-intake.ts', 'lane-json.ts', 'parking-reads.ts'),
   ...within(INTAKE_COMMAND, 'admit.ts', 'amend.ts', 'bash-syntax.ts', 'check.ts', 'confirm.ts', 'draft.ts', 'export.ts', 'facts.ts', 'index.ts', 'move.ts', 'numbers.ts', 'parking-tree.ts', 'shared-code-masks.ts', 'slice.ts'),
 ]
 

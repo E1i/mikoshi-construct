@@ -43,7 +43,7 @@ function readBus<T>(read: (db: DatabaseSync) => T): T {
   const root = mkdtempSync(path.join(tmpdir(), 'construct-slice-mark-'))
   roots.push(root)
   const file = writeBus(path.join(root, 'bus.db'), {
-    cards: [card(WHOLE, 'whole-card'), card(FIRST_SLICE, 'cut-slice-1'), card(SECOND_SLICE, 'cut-slice-2', 'queued'), card(BACKFILLED_SLICE, 'old-slice-1'), card(OTHER_WHOLE, 'another-whole', 'queued')],
+    cards: [card(WHOLE, 'whole-card'), card(FIRST_SLICE, 'cut-slice-1'), card(SECOND_SLICE, 'cut-slice-2', 'in_review'), card(BACKFILLED_SLICE, 'old-slice-1'), card(OTHER_WHOLE, 'another-whole', 'in_review')],
     events: [
       admitted(WHOLE, null),
       admitted(FIRST_SLICE, { card: CUT_PARENT, part: 1, of: 2 }),

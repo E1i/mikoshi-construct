@@ -1,16 +1,23 @@
-import type { Invocation, Role, SessionPolicy, SessionReading, SessionSpec } from './client/contract.js'
+import type { ClientAdapter, Invocation, Role, SessionPolicy, SessionReading, SessionSpec } from './client/contract.js'
 import { spawn } from 'node:child_process'
 import { closeSync, openSync, writeFileSync } from 'node:fs'
 import process from 'node:process'
 import { BUS_DB_VARIABLE } from '../core/bus-path.js'
-import { CLIENT_ENV_PREFIXES, compactWindowOverlay } from './client/claude/adapter.js'
-import { clientAdapter } from './client/index.js'
+import { claudeAdapterWith, CLIENT_ENV_PREFIXES, compactWindowOverlay } from './client/claude/adapter.js'
 import { HOST_FAILURES, HostFaultPersists } from './host-fault.js'
 import { PREPARE_ENV_KEYS } from './prepare-tree.js'
+import { settingsFlag, shiftSettings } from './shift-settings.js'
 
 export { WIDE_VITEST_RULE } from './wide-vitest-guard.js'
 
 export const TECHNOLOGY_WORDS = ['argv', 'spawn', 'stderr', 'stdout'] as const
+
+let builtClientAdapter: ClientAdapter | undefined
+
+export function clientAdapter(): ClientAdapter {
+  builtClientAdapter ??= claudeAdapterWith({ shiftSettings, settingsFlag })
+  return builtClientAdapter
+}
 
 export function clientInvocation(spec: SessionSpec): Invocation {
   const invocation = clientAdapter().invocation(spec)

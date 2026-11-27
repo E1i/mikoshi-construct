@@ -1,4 +1,5 @@
 import type { RequestExecutor } from './context.js'
+import { bodyLineOf } from '../../core/card-readings.js'
 import { cardIdOf } from './reach.js'
 import { messageOf, text } from './request.js'
 
@@ -6,7 +7,7 @@ export const execute: RequestExecutor = (context, _request, payload) => {
   const cardId = cardIdOf(payload.card)
   if (cardId === null)
     return { done: false, why: 'tree.cut names no card' }
-  const body = context.db.prepare('SELECT card_line, branch FROM card_bodies WHERE card_id = ?').get(cardId) as { card_line: string | null, branch: string | null } | undefined
+  const body = bodyLineOf(context.db, cardId)
   const cardLine = text(body?.card_line)
   const branch = text(body?.branch)
   if (cardLine === null || branch === null)

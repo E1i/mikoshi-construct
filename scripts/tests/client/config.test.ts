@@ -1,12 +1,26 @@
-import type { ClientRecord } from '../../../src/manifest.js'
+import type { ClientRecord, ClientRole } from '../../../src/manifest.js'
+import type { ClientConfig } from '../../ports/client/index.js'
 import { describe, expect, it } from 'vitest'
-import { CLIENT_IDS, CLIENT_ROLES, DEFAULT_CLIENT_MODEL } from '../../../src/manifest.js'
+import { CLIENT_IDS, CLIENT_ROLES, clientIdFor, clientModelOf, DEFAULT_CLIENT_MODEL } from '../../../src/manifest.js'
 import { codexAdapter } from '../../ports/client/codex/adapter.js'
-import { clientAdapter, clientAdapterById, clientForRole } from '../../ports/client/index.js'
+import { ClientPort } from '../../ports/client/index.js'
+import { clientAdapter } from '../../ports/session.js'
 
 const claudeAdapter = clientAdapter()
 
 const UNKNOWN = 'no-such-client'
+
+const CONFIG_OF_ROOT: Record<string, ClientConfig> = { '/a-repository': { id: codexAdapter.id, model: DEFAULT_CLIENT_MODEL } }
+
+const port = new ClientPort(claudeAdapter, root => CONFIG_OF_ROOT[root] ?? { id: null, model: DEFAULT_CLIENT_MODEL })
+
+function clientAdapterById(id: string): ReturnType<ClientPort['clientAdapterById']> {
+  return port.clientAdapterById(id)
+}
+
+function clientForRole(record: ClientRecord | undefined, role: ClientRole): ReturnType<ClientPort['clientFor']> {
+  return port.clientFor({ id: clientIdFor(record, role), model: clientModelOf(record) })
+}
 
 describe('client choice is configuration (D-323)', () => {
   it('no record gives the default adapter and auto for every role', () => {
@@ -43,5 +57,18 @@ describe('client choice is configuration (D-323)', () => {
     expect(refusal).toEqual({ kind: 'refused', reason: `no client adapter for id "${UNKNOWN}"; known: ${claudeAdapter.id}, ${codexAdapter.id}` })
     expect(clientForRole({ roles: { answer: UNKNOWN } }, 'answer')).toEqual(refusal)
     expect(clientForRole({ id: UNKNOWN }, 'launch')).toEqual(refusal)
+  })
+
+  it('reads the client config of a root only through the reader its builder hands it', () => {
+    expect(port.clientForRoleIn('/a-repository', 'window')).toEqual({ adapter: codexAdapter, model: 'auto' })
+    expect(port.clientForRoleIn('/another-repository', 'window')).toEqual({ adapter: claudeAdapter, model: 'auto' })
+    expect(port.windowCommandIn('/a-repository')).toEqual(codexAdapter.window())
+  })
+
+  it('a reader that throws becomes a Refusal naming the root', () => {
+    const unreadable = new ClientPort(claudeAdapter, () => {
+      throw new Error('broken record')
+    })
+    expect(unreadable.clientForRoleIn('/a-repository', 'launch')).toEqual({ kind: 'refused', reason: 'the client record of /a-repository is unreadable: broken record' })
   })
 })

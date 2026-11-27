@@ -12,7 +12,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appendEvent, closeOwnerWait, OPEN_WAIT, openBus, OWNER_WAITS } from '../../core/db.js'
-import { CARD_WAITS, NODE_DETECTED, OWNER_WAIT_OPENED, WINDOW_REQUEST } from '../../core/events.js'
+import { CARD_WAITS, MERGE_DONE, NODE_DETECTED, OWNER_WAIT_OPENED, WINDOW_REQUEST } from '../../core/events.js'
 import { HANDOFF_FIELDS } from '../../core/handoff-fields.js'
 import { statusOf } from '../../core/handoff-status.js'
 import { keyOf, queueTask } from '../../core/queue.js'
@@ -567,6 +567,16 @@ describe('handoff:write', () => {
     }
     db.close()
     expect(busMerged(bus, '2026-10-17T00:00:00.000Z')).toEqual({ kind: 'read', cards: [990, 991], merges: 0, updates: 1 })
+  })
+
+  it('the merged cards are those merged since the start only', () => {
+    const { dir } = world()
+    const bus = path.join(dir, 'bus.db')
+    const db = openBus(bus)
+    for (const [card, ts] of [[993, '2026-10-16T00:00:00.000Z'], [994, '2026-10-18T00:00:00.000Z']] as const)
+      appendEvent(db, { ts, type: MERGE_DONE, actor: 'worker:merge:s1', cardId: card, pr: card, head: null, dedupeKey: `${MERGE_DONE}:${card}`, payload: {}, legacy: false })
+    db.close()
+    expect(busMerged(bus, '2026-10-17T00:00:00.000Z')).toMatchObject({ kind: 'read', cards: [994] })
   })
 
   it('handoff:write with STATUS: CONTINUE does not kill the session', () => {

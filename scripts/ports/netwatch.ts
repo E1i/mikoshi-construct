@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../core/db.js'
 import type { EventPayload } from '../core/events.js'
 import type { PreviousObservation, PreviousObservationOf, ReopeningOf } from '../core/observations.js'
+import type { ReleaseRuns, RunJob } from './ci-reading.js'
 import type { GitHub } from './github.js'
 import type { ChangedPaths, ClosedPr, MainHead, OpenPr, Snapshot } from './snapshot.js'
 import { createHash } from 'node:crypto'
@@ -9,9 +10,10 @@ import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { CHECK_MS, TICK_MS, WAKE_GAP_MS } from '../core/cadence.js'
 import { appendEvent, defaultBusPath, inTransaction, openBus } from '../core/db.js'
-import { BUS_PULSE, declaredPayload, MAIN_ADVANCED, NETWATCH_SKIPPED, PR_CLOSED, PR_OBSERVED } from '../core/events.js'
+import { BUS_PULSE, declaredPayload, MAIN_ADVANCED, NETWATCH_SKIPPED, PR_CLOSED, PR_OBSERVED, RELEASE_RUN } from '../core/events.js'
 import { closedKey, NETWATCH, pathsOfTheLastObservation, reopeningOf } from '../core/observations.js'
 import { recordProcessHeartbeat } from '../supervisor/heartbeat.js'
+import { GhCiRuns } from './ci-reading.js'
 import { ghApi } from './github.js'
 import { Meter, RateLimited } from './meter.js'
 import { takeSnapshot } from './snapshot.js'
@@ -101,6 +103,32 @@ function withMainCi(event: BusEvent, ci: string | undefined): BusEvent {
   return { ...event, payload: mainPayloadWithCi(event.payload as EventPayload<typeof MAIN_ADVANCED>, ci) }
 }
 
+const COMPLETED_RUN = 'completed'
+const GREEN_CONCLUSIONS: readonly (string | null)[] = ['success', 'skipped', 'neutral']
+const FAILED_CONCLUSIONS: readonly (string | null | undefined)[] = ['failure', 'timed_out', 'cancelled', 'startup_failure']
+
+function failedStepOf(jobs: readonly RunJob[]): string | null {
+  const job = jobs.find(each => FAILED_CONCLUSIONS.includes(each.conclusion))
+  if (job === undefined)
+    return null
+  const step = (job.steps ?? []).find(each => FAILED_CONCLUSIONS.includes(each.conclusion))
+  return step === undefined ? job.name : `${job.name} › ${step.name}`
+}
+
+export function releaseRun(ts: string, sha: string, releases: ReleaseRuns): BusEvent | null {
+  const run = releases.releaseRunOn(sha)
+  if (run.kind === 'failed' || run.value === null || run.value.status !== COMPLETED_RUN)
+    return null
+  const { databaseId, conclusion } = run.value
+  const jobs = releases.jobsOfRun(databaseId)
+  if (jobs.kind === 'failed')
+    return null
+  const steps = jobs.value.jobs.flatMap(job => (job.steps ?? []).map(step => ({ job: job.name, step: step.name, conclusion: step.conclusion ?? null })))
+  const green = GREEN_CONCLUSIONS.includes(conclusion)
+  const payload = declaredPayload(RELEASE_RUN, { sha, run_id: databaseId, conclusion, verdict: green ? 'green' : 'red', failed_step: green ? null : failedStepOf(jobs.value.jobs), steps })
+  return observation(ts, RELEASE_RUN, { cardId: null, pr: null, head: null, dedupeKey: `${RELEASE_RUN}:${databaseId}:${conclusion}`, payload })
+}
+
 function record<T extends typeof BUS_PULSE | typeof NETWATCH_SKIPPED>(ts: string, type: T, payload: EventPayload<T>): BusEvent {
   return { ts, type, actor: NETWATCH, cardId: null, pr: null, head: null, dedupeKey: `${type}:${ts}`, payload, legacy: false }
 }
@@ -109,16 +137,25 @@ export interface PrHistory {
   knownOpenPrs: (db: DatabaseSync) => number[]
   lastMainSha: (db: DatabaseSync) => string | null
   lastObservation: (db: DatabaseSync, pr: number) => PreviousObservation | null
+  unreleasedMainShas?: (db: DatabaseSync) => string[]
 }
 
 export class NetWatch {
   private lastPollAt: number | null = null
   private blockedUntil = 0
 
-  constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly clock: () => Date, private readonly process: string, private readonly requiredCheck: () => string, private readonly history: PrHistory) {}
+  constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly clock: () => Date, private readonly process: string, private readonly requiredCheck: () => string, private readonly history: PrHistory, private readonly releases: ReleaseRuns | null = null) {}
 
   private lastObservation(pr: number): PreviousObservation | null {
     return this.history.lastObservation(this.db, pr)
+  }
+
+  private releaseRuns(ts: string, observedMain: string | undefined): BusEvent[] {
+    const releases = this.releases
+    if (releases === null)
+      return []
+    const shas = new Set([...(observedMain === undefined ? [] : [observedMain]), ...(this.history.unreleasedMainShas?.(this.db) ?? [])])
+    return [...shas].flatMap(sha => releaseRun(ts, sha, releases) ?? [])
   }
 
   dueReason(nowMs: number): PollReason | null {
@@ -146,10 +183,11 @@ export class NetWatch {
     try {
       const snapshot = takeSnapshot(meter, this.history.knownOpenPrs(this.db), this.history.lastMainSha(this.db), this.requiredCheck(), (pr, head) => pathsOfTheLastObservation(this.lastObservation(pr), head))
       const poll: Poll = { kind: 'ticked', reason, calls: meter.calls, remaining: meter.remaining, written: 0, unsettled: snapshot.unsettled }
+      const released = this.releaseRuns(ts, snapshot.main?.sha)
       inTransaction(this.db, () => {
         const observed = observationsOf(ts, snapshot, pr => this.lastObservation(pr), reopeningOf(this.db))
-        for (const event of mainBeforeMovedHeads(observed, pr => this.lastObservation(pr)?.event?.head)) {
-          if (appendEvent(this.db, withMainCi(event, snapshot.main?.ci)))
+        for (const event of [...mainBeforeMovedHeads(observed, pr => this.lastObservation(pr)?.event?.head).map(each => withMainCi(each, snapshot.main?.ci)), ...released]) {
+          if (appendEvent(this.db, event))
             poll.written += 1
         }
         appendEvent(this.db, record(ts, BUS_PULSE, { reason, gap_s: gapSeconds, calls: poll.calls, rate_remaining: poll.remaining, written: poll.written, unsettled: poll.unsettled }))
@@ -180,7 +218,7 @@ export function pollLine(poll: Poll): string {
 export async function watchTheNetwork(requiredCheck: () => string, once: boolean, history: PrHistory): Promise<number> {
   const busPath = defaultBusPath()
   const db = openBus(busPath)
-  const netWatch = new NetWatch(db, ghApi(process.cwd()), () => new Date(), NETWATCH_SCRIPT, requiredCheck, history)
+  const netWatch = new NetWatch(db, ghApi(process.cwd()), () => new Date(), NETWATCH_SCRIPT, requiredCheck, history, new GhCiRuns())
   console.log(`${PREFIX}${busPath}, a tick every ${TICK_MS / 1000} s${once ? ', once' : ''}`)
   try {
     for (;;) {

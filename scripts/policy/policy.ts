@@ -9,6 +9,7 @@ import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.j
 import { mergeRecordOf, ofCard } from '../core/events-query.js'
 import { CARD_ADMITTED, WITNESS_RECORDED } from '../core/events.js'
 import { GENERATED_FILES } from '../core/generated-files.js'
+import { OWNER_EVEN_UNDER_THE_DECISION } from './decisions/read.js'
 import { matchGlob } from './shredder/glob.js'
 import { readOwnerMergeKinds } from './shredder/reader.js'
 import { createdPaths } from './touch-scope.js'
@@ -20,7 +21,6 @@ export const MERGES_UNDER_A_SHARD = 'merges under a shard'
 const MERGES_UNDER_A_SHARD_VALUES: Readonly<Record<string, boolean>> = { yes: true, no: false }
 const OWNER_KINDS_HEADER = '| kind |'
 export const OWNER_PR_MERGED_BY_THE_BUS = 77
-export const OWNER_EVEN_UNDER_THE_DECISION = 'R1'
 export const MATRIX_COUNT_LINE = /■ \d+ □ \d+ · \d+/
 const MATRIX_REQUIRED_UNDER = ['src/', 'templates/']
 

@@ -1,15 +1,21 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { StoredEvent } from '../../scripts/core/stored.js'
 import type { BusFacts } from '../../src/commands/board/bus.js'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { busJson, renderBoard } from '../../scripts/cli/board-page.js'
-import { openBus } from '../../scripts/core/db.js'
-import { CARD_ADMITTED } from '../../scripts/core/events.js'
+import { appendEvent, openBus } from '../../scripts/core/db.js'
+import { byId } from '../../scripts/core/events-query.js'
+import { CARD_ADMITTED, CARD_PLANNED, PLAN_OPENED } from '../../scripts/core/events.js'
+import { OWNER } from '../../scripts/core/inbox.js'
 import { reduce } from '../../scripts/core/reducer.js'
+import { payloadOf, STORED_COLUMNS, storedByKey } from '../../scripts/core/stored.js'
 import { busIntakePorts } from '../../scripts/intake/intake.js'
+import { RECUT_ACTOR } from '../../scripts/policy/round-limit-decision.js'
 import { busProjections } from '../../scripts/supervisor/composition.js'
+import { foldPlanEvent } from '../../scripts/window/plan-folds.js'
 import { busFacts } from '../../src/commands/board/index.js'
 import { screenLines } from '../../src/commands/board/screens.js'
 import { runAdmit } from '../../src/commands/intake/admit.js'
@@ -22,6 +28,7 @@ const ADMITTED_SLICE = 72
 const SLICES = 2
 const BASE = 'grouped-card'
 const MINUTE_MS = 60_000
+const OPEN_LINE = 'factory-line'
 const roots: string[] = []
 
 afterEach(() => {
@@ -51,11 +58,20 @@ function admit(w: World, id: number, part: number, minute: number): void {
   expect(result.status).toBe('admitted')
 }
 
+function planEvent(db: DatabaseSync, type: string, payload: Record<string, unknown>, cardId: number | null = null): void {
+  const dedupeKey = `${type}:${cardId}:${JSON.stringify(payload)}`
+  appendEvent(db, { ts: AT.toISOString(), type, actor: OWNER, cardId, pr: null, head: null, dedupeKey, payload, legacy: false })
+  foldPlanEvent(db, db.prepare(`SELECT ${STORED_COLUMNS} FROM events WHERE id = ?`).get(storedByKey(db, dedupeKey).id) as unknown as StoredEvent, { owner: OWNER, recut: RECUT_ACTOR, payloadOf, actorOf: (read, event) => byId(read, event.id)?.actor ?? null })
+}
+
 function admittedBus(): World {
   const w = world()
   admit(w, HELD_SLICE, 2, 1)
   admit(w, ADMITTED_SLICE, 1, 2)
   reduce(w.db, 'pending', busProjections())
+  planEvent(w.db, PLAN_OPENED, { id: OPEN_LINE, title: OPEN_LINE, goal: 'slices in one group', plan_file: '/plans/line.md' })
+  for (const card of [HELD_SLICE, ADMITTED_SLICE])
+    planEvent(w.db, CARD_PLANNED, { release: OPEN_LINE }, card)
   return w
 }
 
