@@ -133,7 +133,6 @@
     "src/commands/board/bus.ts",
     "src/commands/board/drain.ts",
     "src/commands/board/gate-runs.ts",
-    "src/commands/board/goal.ts",
     "src/commands/board/heal.ts",
     "src/commands/board/index.ts",
     "src/commands/board/items.ts",
@@ -362,7 +361,6 @@
     "scripts/policy/decisions/projection.ts",
     "scripts/policy/decisions/read.ts",
     "scripts/policy/decisions/wait-folds.ts",
-    "scripts/policy/decisions/window-door.ts",
     "scripts/policy/live-decision.ts"
   ],
   "docs": [
@@ -2763,7 +2761,6 @@
     "scripts/supervisor/start.ts",
     "scripts/supervisor/supervisor.ts",
     "scripts/supervisor/wait-lifts.ts",
-    "scripts/supervisor/window-subagent-tick.ts",
     "scripts/supervisor/workers.ts",
     "scripts/window/eddies-measure.ts",
     "scripts/window/handoff-check.ts",
@@ -2920,6 +2917,8 @@
   ],
   "window": [
     "scripts/conveyor/measures.ts",
+    "scripts/policy/decisions/window-door.ts",
+    "scripts/supervisor/window-subagent-tick.ts",
     "scripts/window/board.ts",
     "scripts/window/card-measure.ts",
     "scripts/window/compact-start.ts",
@@ -2981,6 +2980,7 @@
     "scripts/window/window-requests.ts",
     "scripts/window/window-session-end.ts",
     "scripts/window/window-subagents.ts",
-    "scripts/window/window.ts"
+    "scripts/window/window.ts",
+    "src/commands/board/goal.ts"
   ]
 }

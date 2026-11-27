@@ -300,5 +300,8 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
   'window': [
     `${FACTORY_ROOT}/window/**`,
     `${FACTORY_ROOT}/conveyor/**`,
+    `${FACTORY_ROOT}/policy/decisions/window-door.ts`,
+    `${FACTORY_ROOT}/supervisor/window-subagent-tick.ts`,
+    'src/commands/board/goal.ts',
   ],
 }
