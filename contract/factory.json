@@ -3456,6 +3456,8 @@
       "scripts/supervisor/launchd/install.ts",
       "scripts/supervisor/netwatch-root.ts",
       "scripts/cli/task-start.ts",
+      "scripts/policy/decisions/add.ts",
+      "scripts/owner/answer.ts",
       "scripts/supervisor/composition.ts"
     ],
     "exclusions": {
@@ -3521,7 +3523,8 @@
           "scripts/cli/board-page.ts",
           "scripts/cli/board-page/**",
           "scripts/cli/board-warnings.ts",
-          "src/commands/board/**"
+          "src/commands/board/**",
+          "!src/commands/board/goal.ts"
         ],
         "may_use": [
           "layout",
@@ -3562,7 +3565,8 @@
           "scripts/cli/board-page.ts",
           "scripts/cli/board-page/**",
           "scripts/cli/board-warnings.ts",
-          "src/commands/board/**"
+          "src/commands/board/**",
+          "!src/commands/board/goal.ts"
         ],
         "status": "decided"
       },
@@ -3886,7 +3890,10 @@
           "scripts/core/card-decisions.ts",
           "scripts/policy/live-decision.ts",
           "scripts/policy/decisions/**",
-          "scripts/owner/**"
+          "scripts/owner/**",
+          "!scripts/owner/answer.ts",
+          "!scripts/policy/decisions/add.ts",
+          "!scripts/policy/decisions/window-door.ts"
         ],
         "may_use": [
           "layout",
@@ -3907,7 +3914,10 @@
           "scripts/core/card-decisions.ts",
           "scripts/policy/live-decision.ts",
           "scripts/policy/decisions/**",
-          "scripts/owner/**"
+          "scripts/owner/**",
+          "!scripts/owner/answer.ts",
+          "!scripts/policy/decisions/add.ts",
+          "!scripts/policy/decisions/window-door.ts"
         ],
         "status": "decided"
       },
@@ -4876,7 +4886,8 @@
           "!scripts/supervisor/review-bg.ts",
           "!scripts/supervisor/run.ts",
           "!scripts/supervisor/start.ts",
-          "!scripts/supervisor/supervisor.ts"
+          "!scripts/supervisor/supervisor.ts",
+          "!scripts/supervisor/window-subagent-tick.ts"
         ],
         "status": "decided"
       },
@@ -4914,7 +4925,10 @@
           "scripts/window/window-request-tools.ts",
           "scripts/window/window-requests.ts",
           "scripts/window/window-session-end.ts",
-          "scripts/window/window-subagents.ts"
+          "scripts/window/window-subagents.ts",
+          "scripts/policy/decisions/window-door.ts",
+          "scripts/supervisor/window-subagent-tick.ts",
+          "src/commands/board/goal.ts"
         ],
         "may_use": [
           "layout",
@@ -4953,6 +4967,9 @@
         "owns": [
           "scripts/window/**",
           "scripts/conveyor/**",
+          "scripts/policy/decisions/window-door.ts",
+          "scripts/supervisor/window-subagent-tick.ts",
+          "src/commands/board/goal.ts",
           "!scripts/window/eddies-measure.ts",
           "!scripts/window/handoff-check.ts",
           "!scripts/window/miko.ts",

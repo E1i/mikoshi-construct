@@ -51,8 +51,9 @@ function staleGlobs(spec: ModuleGraphSpec, files: readonly string[]): OwnershipF
 
 function contractFaults(spec: ModuleGraphSpec, files: readonly string[]): OwnershipFault[] {
   return Object.entries(spec.modules).flatMap(([module, { owns, contract }]) => contract
+    .filter(glob => !glob.startsWith(CARVED_OUT))
     .filter((glob) => {
-      const covered = files.filter(file => matchesGlob(glob, file))
+      const covered = files.filter(file => matchesGlob(glob, file) && heldBy(contract, file))
       return covered.length === 0 || covered.some(file => !heldBy(owns, file))
     })
     .map((glob): OwnershipFault => ({ kind: 'contract-outside-owns', module, glob })))

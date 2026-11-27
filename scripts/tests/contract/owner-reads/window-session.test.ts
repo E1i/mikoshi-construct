@@ -25,7 +25,7 @@ const OWNER_OF: Record<string, string> = {
   'scripts/window/window.ts': 'window',
   'scripts/window/window-agents.ts': 'window',
   'scripts/window/handoff-write.ts': 'window',
-  'src/commands/board/goal.ts': 'board',
+  'src/commands/board/goal.ts': 'window',
 }
 const FILES = Object.keys(OWNER_OF)
 
