@@ -514,6 +514,7 @@
     "scripts/tests/bus/first-tick-bound.test.ts",
     "scripts/tests/bus/first-tick-bound.ts",
     "scripts/tests/bus/fixtures/role-returned-incident.json",
+    "scripts/tests/bus/gate-bus-per-witness-file.test.ts",
     "scripts/tests/bus/gate-stream.ts",
     "scripts/tests/bus/generated-rebuilt-not-overlap.test.ts",
     "scripts/tests/bus/github-fake.ts",

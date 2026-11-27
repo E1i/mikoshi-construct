@@ -17,7 +17,7 @@ import { ofPr } from '../../core/pr-readings.js'
 import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
 import { cardContract } from '../../intake/card-contract.js'
 import { allowLiveCommand, liveDecisionOf } from '../../policy/live-decision.js'
-import { mergePolicy, OWNER_MERGES, OWNER_MERGES_RULES, underOwnerDecision, VERSION_BRANCH, WITNESS_REASON, witnessDenial, witnessSubjectOf } from '../../policy/policy.js'
+import { cardWitnessRunsOf, mergePolicy, OWNER_MERGES, OWNER_MERGES_RULES, underOwnerDecision, VERSION_BRANCH, WITNESS_REASON, witnessDenial, witnessSubjectOf } from '../../policy/policy.js'
 import { activeWindowShards, decisionsInForceAt, expiredWindowShards, shardActive, unspentShard } from '../../policy/shards.js'
 import { followsTouches, pathsOutside, removesEntriesOnly, textBeforePatch } from '../../policy/touch-scope.js'
 import { ciOf, GitHubCommitCi } from '../../ports/ci-reading.js'
@@ -327,6 +327,7 @@ export class MergeExecutor {
           shardUnder: shard?.under ?? null,
           windowShard: activeWindowShards(this.parts.db, this.parts.clock())[0]?.id ?? null,
           decisions,
+          witnessRuns: cardWitnessRunsOf(this.parts.db, lease.cardId),
         },
       }
     }

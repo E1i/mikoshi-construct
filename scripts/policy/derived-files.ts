@@ -201,13 +201,54 @@ function valuesAllowedFor(row: string, text: string): number[] {
   return values
 }
 
+export const GATE_BUS_ROW = 'gate:bus'
+const WITNESS_GROWTH_DECISION = 'D-883'
+const GROWTH_BY = /^ \+(\d+)\b/
+const TEST_FILE_IN_RUN = /(?<![\w./-])((?:[\w-]+\/)*[\w.-]+\.test\.m?ts)(?![\w.-])/g
+
+export interface WitnessGrowthFacts {
+  underAShard: boolean
+  witnessRuns: readonly string[]
+  added: (file: string) => boolean
+}
+
+export function witnessTestFilesOf(runs: readonly string[]): string[] {
+  return [...new Set(runs.flatMap(run => [...run.matchAll(TEST_FILE_IN_RUN)].map(match => match[1]!)))]
+}
+
+export function newWitnessFilesOf(facts: WitnessGrowthFacts): string[] {
+  return facts.underAShard ? witnessTestFilesOf(facts.witnessRuns).filter(facts.added) : []
+}
+
+export function witnessGrowthAllowances(facts: WitnessGrowthFacts): string[] {
+  const files = newWitnessFilesOf(facts)
+  return files.length === 0 ? [] : [`${GATE_BUS_ROW} +${files.length} under ${WITNESS_GROWTH_DECISION}, one per new witness file: ${files.join(', ')}`]
+}
+
+function growthAllowedFor(text: string): number[] {
+  const values: number[] = []
+  for (let at = text.indexOf(GATE_BUS_ROW); at !== -1; at = text.indexOf(GATE_BUS_ROW, at + 1)) {
+    const value = at > 0 && ROW_CHARACTER.test(text[at - 1]!) ? undefined : GROWTH_BY.exec(text.slice(at + GATE_BUS_ROW.length))?.[1]
+    if (value !== undefined)
+      values.push(Number(value))
+  }
+  return values
+}
+
+function allowedAsWitnessGrowth(row: string, held: string | undefined, grownTo: string | undefined, allowances: readonly string[]): boolean {
+  if (row !== GATE_BUS_ROW || held === undefined || grownTo === undefined)
+    return false
+  const growth = Number(grownTo) - Number(held)
+  return allowances.some(text => growthAllowedFor(text).some(allowed => growth <= allowed))
+}
+
 export function allowedEntry(entry: string, allowances: readonly string[]): boolean {
   const measured = MEASURED_ROW.exec(entry)
   if (measured === null)
     return allowances.some(text => text.includes(entry))
-  const [, row, , grownTo, newAt] = measured as unknown as [string, string, string | undefined, string | undefined, string | undefined]
+  const [, row, held, grownTo, newAt] = measured as unknown as [string, string, string | undefined, string | undefined, string | undefined]
   const value = Number(grownTo ?? newAt)
-  return allowances.some(text => valuesAllowedFor(row, text).some(allowed => value <= allowed))
+  return allowances.some(text => valuesAllowedFor(row, text).some(allowed => value <= allowed)) || allowedAsWitnessGrowth(row, held, grownTo, allowances)
 }
 
 export function unallowedGrowth(grown: readonly GrownDerived[], allowances: readonly string[]): GrownDerived[] {

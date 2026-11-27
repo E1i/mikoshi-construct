@@ -10,6 +10,7 @@ import { mergeRecordOf, ofCard } from '../core/events-query.js'
 import { CARD_ADMITTED, WITNESS_RECORDED } from '../core/events.js'
 import { GENERATED_FILES } from '../core/generated-files.js'
 import { OWNER_EVEN_UNDER_THE_DECISION } from './decisions/read.js'
+import { allowedEntry, witnessGrowthAllowances } from './derived-files.js'
 import { matchGlob } from './shredder/glob.js'
 import { readOwnerMergeKinds } from './shredder/reader.js'
 import { createdPaths } from './touch-scope.js'
@@ -50,6 +51,7 @@ export interface PatchedFile {
   filename: string
   patch?: string
   additions?: number
+  status?: string
 }
 
 export interface MergeFacts {
@@ -64,6 +66,7 @@ export interface MergeFacts {
   shardUnder: number | null
   windowShard: string | null
   decisions: readonly InForceDecision[]
+  witnessRuns?: readonly string[]
 }
 
 function delegatedByShard(facts: MergeFacts): number | null {
@@ -344,9 +347,15 @@ function unsandboxedCommand(facts: MergeFacts): MergeVerdict | null {
 }
 
 const RATCHET_RECORD = 'contract/ratchet.json'
+const ADDED = 'added'
 const RATCHET_NUMBER = /^[+-]\s*"(?<key>[^"]+)":\s*(?<value>\d+),?\s*$/
 
-function ratchetGrowthIn(patch: string): string | undefined {
+function witnessGrowthOf(facts: MergeFacts): string[] {
+  const added = new Set(facts.patched.filter(file => file.status === ADDED).map(file => file.filename))
+  return witnessGrowthAllowances({ underAShard: facts.shardActive || facts.windowShard !== null, witnessRuns: facts.witnessRuns ?? [], added: file => added.has(file) })
+}
+
+function ratchetGrowthIn(patch: string, allowances: readonly string[] = []): string | undefined {
   const lines = patch.split('\n')
   const lowered = new Map(lines.filter(line => line.startsWith('-')).flatMap((line) => {
     const groups = RATCHET_NUMBER.exec(line)?.groups
@@ -359,7 +368,7 @@ function ratchetGrowthIn(patch: string): string | undefined {
     const held = lowered.get(groups.key!)
     if (held === undefined)
       return `adds ${groups.key}`
-    if (Number(groups.value) > held)
+    if (Number(groups.value) > held && !allowedEntry(`${groups.key} (${held} → ${groups.value})`, allowances))
       return `raises ${groups.key} from ${held} to ${groups.value}`
   }
   return undefined
@@ -371,7 +380,7 @@ function ratchetGrows(facts: MergeFacts): MergeVerdict | null {
   const patch = facts.patched.find(({ filename }) => filename === RATCHET_RECORD)?.patch
   if (patch === undefined)
     return denied('ratchet_grows', `GitHub gives no patch for ${RATCHET_RECORD}, so whether it grows is unknown, and it stays the owner's`)
-  const growth = ratchetGrowthIn(patch)
+  const growth = ratchetGrowthIn(patch, witnessGrowthOf(facts))
   return growth === undefined ? null : denied('ratchet_grows', `the diff of ${RATCHET_RECORD} ${growth}: its growth stays the owner's under every shard and every decision`)
 }
 
@@ -713,6 +722,11 @@ export function witnessSubjectOf(db: DatabaseSync, cardId: number): WitnessSubje
     return null
   const witnesses = cardWitnessesOf(admission.text)
   return witnesses.acceptance.length + witnesses.invariants.length === 0 ? null : { cardId, cardBody: admission.bodySha, creates: cardCreatesOf(admission.text), ...witnesses }
+}
+
+export function cardWitnessRunsOf(db: DatabaseSync, cardId: number): string[] {
+  const subject = witnessSubjectOf(db, cardId)
+  return subject === null ? [] : [...subject.acceptance, ...subject.invariants].map(witness => witness.command)
 }
 
 export interface WitnessDenial {
