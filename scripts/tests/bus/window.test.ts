@@ -145,3 +145,28 @@ describe('bus:window', () => {
     db.close()
   })
 })
+
+describe('bus:window takes the task and the detection of the completion itself', () => {
+  it('a task of an earlier head of the same pull request is not a second task of the completion', () => {
+    const db = newBus()
+    queueTask(db, TS, { queue: 'merge', cardId: 1, pr: 1001, head: headOf(0xBEEF) })
+    const key = complete(db, 'merge', 1, 'event')
+    const count = windowOf(db, 'merge')
+    db.close()
+    expect(count.run.map(entry => [entry.key, entry.tasks])).toEqual([[key, 1]])
+    expect(count.stop).toBeNull()
+  })
+
+  it('a detection written after the completion does not count', () => {
+    const db = newBus()
+    const task = { queue: 'merge' as const, cardId: 1, pr: 1001, head: headOf(1) }
+    queueTask(db, TS, task)
+    const key = keyOf(task)
+    appendEvent(db, { ts: TS, type: COMPLETION_OF.merge, actor: 'worker:merge:s1', cardId: 1, pr: task.pr, head: task.head, dedupeKey: `${COMPLETION_OF.merge}:${key}`, payload: {}, legacy: false })
+    appendEvent(db, { ts: TS, type: NODE_DETECTED, actor: 'worker:merge:s1', cardId: 1, pr: task.pr, head: task.head, dedupeKey: `${NODE_DETECTED}:merge:${key}`, payload: { key, via: 'event', event_id: 1, outcome: 'queued' }, legacy: false })
+    const count = windowOf(db, 'merge')
+    db.close()
+    expect(count.run).toEqual([])
+    expect(count.stop?.cardId).toBe(1)
+  })
+})
