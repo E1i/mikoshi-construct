@@ -1,7 +1,7 @@
 import type { ArtifactRequest, CheckRun, CommitCi, FailedJobLog, PrDetails, PullRequestView, RollupCheck, RunIdentity } from '../../src/commands/ci/state.js'
 import type { GhPort, GhRead, PullRequest } from './gh.js'
 import type { Meter } from './meter.js'
-import { artifactDownloadArgs, artifactsOfRunArgs, ciOfRollup, commitCi, commitCiOfRuns, detailsOfPullRequestView, failedJobLog, hasApprovedRun, jobsOfRunArgs, pullRequestViewArgs, REQUIRED_CHECK, runCancelArgs, shortHead, successfulRunsOnMainArgs, unreadPullRequest } from '../../src/commands/ci/state.js'
+import { artifactDownloadArgs, artifactsOfRunArgs, ciOfRollup, commitCi, commitCiOfRuns, detailsOfPullRequestView, failedJobLog, hasApprovedRun, jobsOfRunArgs, pullRequestViewArgs, REQUIRED_CHECK, runCancelArgs, runsOnHeadEndpoint, shortHead, successfulRunsOnMainArgs, unreadPullRequest } from '../../src/commands/ci/state.js'
 import { GH_QUERY_FAILED, PROCESS_GH_PORT, readGhJson } from './gh.js'
 
 export { CI_LOG_CEILING, ciFieldsOfObservation, ciLogForPrompt, ciOf, ciWord, failedJobLinkIn, rerunFailedJobsEndpoint, runsOnHeadEndpoint } from '../../src/commands/ci/state.js'
@@ -30,6 +30,7 @@ export interface RunOnMain {
 
 export interface RunStep {
   name: string
+  conclusion?: string | null
   startedAt: string
   completedAt: string
 }
@@ -43,6 +44,35 @@ export interface RunJob {
 }
 
 export type CiRead<T> = GhRead<T>
+
+export const RELEASE_WORKFLOW = 'Release'
+
+export interface ReleaseRun {
+  databaseId: number
+  status: string
+  conclusion: string | null
+}
+
+export interface ReleaseRuns {
+  releaseRunOn: (sha: string) => CiRead<ReleaseRun | null>
+  jobsOfRun: (runId: number) => CiRead<{ jobs: RunJob[] }>
+}
+
+interface WorkflowRunOfHead {
+  id: number
+  name?: string
+  event?: string
+  status?: string
+  conclusion?: string | null
+}
+
+const PUSH_EVENT = 'push'
+const GH_API = 'api'
+
+export function releaseRunOf(runs: readonly WorkflowRunOfHead[]): ReleaseRun | null {
+  const run = runs.find(each => each.name === RELEASE_WORKFLOW && each.event === PUSH_EVENT)
+  return run === undefined ? null : { databaseId: run.id, status: run.status ?? '', conclusion: run.conclusion ?? null }
+}
 
 export type CiAct = { done: true } | { done: false, reason: string }
 
@@ -73,7 +103,7 @@ export class GitHubCommitCi implements CiOfCommits {
   }
 }
 
-export class GhCiRuns implements CiRuns {
+export class GhCiRuns implements CiRuns, ReleaseRuns {
   constructor(private readonly gh: GhPort = PROCESS_GH_PORT) {}
 
   private read<T>(args: string[]): CiRead<T> {
@@ -99,6 +129,11 @@ export class GhCiRuns implements CiRuns {
     return this.read<{ jobs: RunJob[] }>(jobsOfRunArgs(runId))
   }
 
+  releaseRunOn(sha: string): CiRead<ReleaseRun | null> {
+    const runs = this.read<{ workflow_runs?: WorkflowRunOfHead[] }>([GH_API, runsOnHeadEndpoint(sha)])
+    return runs.kind === 'failed' ? runs : { kind: 'read', value: releaseRunOf(runs.value.workflow_runs ?? []) }
+  }
+
   artifactsNamed(run: RunIdentity, name: string): CiRead<number> {
     const artifacts = this.read<{ total_count?: number }>(artifactsOfRunArgs(run, name))
     return artifacts.kind === 'failed' ? artifacts : { kind: 'read', value: artifacts.value.total_count ?? 0 }
@@ -121,10 +156,11 @@ export interface CiWorld {
   failedLogs?: Record<string, FailedJobLog>
   runsOnMain?: RunOnMain[]
   jobs?: Record<number, RunJob[]>
+  releaseRuns?: Record<string, ReleaseRun>
   artifacts?: Record<string, string[]>
 }
 
-export class InMemoryCi implements CiOfCommits, CiRuns {
+export class InMemoryCi implements CiOfCommits, CiRuns, ReleaseRuns {
   readonly cancelled: RunIdentity[] = []
   readonly downloaded: ArtifactRequest[] = []
 
@@ -152,6 +188,10 @@ export class InMemoryCi implements CiOfCommits, CiRuns {
 
   jobsOfRun(runId: number): CiRead<{ jobs: RunJob[] }> {
     return { kind: 'read', value: { jobs: this.world.jobs?.[runId] ?? [] } }
+  }
+
+  releaseRunOn(sha: string): CiRead<ReleaseRun | null> {
+    return { kind: 'read', value: this.world.releaseRuns?.[sha] ?? null }
   }
 
   artifactsNamed(run: RunIdentity, name: string): CiRead<number> {
