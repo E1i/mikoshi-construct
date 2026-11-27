@@ -37,7 +37,7 @@ function cardDeclarations(): ModuleDeclaration[] {
   return readdirSync(path.join(REPO_ROOT, DECLARATIONS)).filter(file => CARD_DECLARATION.test(file)).map(declarationOf)
 }
 
-describe('the intake grammar symbols live in card and the lane files are declared in card', () => {
+describe('the intake grammar symbols are declared outside admit, busCardStates lives in card-readings and the lane files are declared in card', () => {
   it('admit declares none of the moved grammar symbols', () => {
     const admit = sourceOf(ADMIT)
     expect(MOVED_FROM_ADMIT.filter(symbol => declares(admit, symbol))).toEqual([])
