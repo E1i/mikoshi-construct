@@ -12,7 +12,8 @@ import { WINDOW_REQUEST } from '../../core/events.js'
 import { ANSWER_SOURCE } from '../../core/inbox.js'
 import { OWNER_ANSWER_COMMAND, OWNER_MOVE_REQUESTS, OWNER_MOVES, ownerMergeLine, ownerMoveCommand, ownerWaitCommand } from '../../core/owner-commands.js'
 import { reduce } from '../../core/reducer.js'
-import { runOwnerAnswer } from '../../owner/answer.js'
+import { answerWord, runOwnerAnswer } from '../../owner/answer.js'
+import { sayToOwnerChannel } from '../../owner/channel.js'
 import { decisionsFileOf } from '../../policy/decisions/decisions.js'
 import { decisionsAdderOfBus, decisionsSettlerOfBus } from '../../policy/decisions/projection.js'
 import { busProjections, DECISION_EVENT_READS } from '../../supervisor/composition.js'
@@ -92,6 +93,20 @@ function answers(at: Room, named: string, words: string): number {
   return runOwnerAnswer([named, words], at.bench.db, at.channel, at.bench.clock.now(), () => {}, requestFromWindow)
 }
 
+function written(at: Room, payload: Record<string, unknown>): number {
+  return requestFromWindow(at.bench.db, at.bench.clock.now().toISOString(), 'one-owner-entry', payload)
+}
+
+function ownerSaysMove(at: Room, move: typeof OWNER_MOVES[number], target: string | number): void {
+  sayToOwnerChannel(at.channel, ownerMoveCommand(move, target), at.bench.clock.now())
+}
+
+function confirmedStraight(at: Room, wait: string, words: string): RequestOutcome | undefined {
+  const request = written(at, { kind: 'owner.answer', id: wait, text: words, from: ANSWER_SOURCE })
+  sayToOwnerChannel(at.channel, answerWord(wait, words), at.bench.clock.now())
+  return outcomeOf(busRun(at), request)
+}
+
 function requestsOf(at: Room): Record<string, unknown>[] {
   return eventsOf(at.bench.db, WINDOW_REQUEST) as Record<string, unknown>[]
 }
@@ -126,7 +141,17 @@ describe('one owner entry: the board prints owner:answer and owner:answer does t
     const printed = printedFor(at, wait, ASKED_BY_NEED[need])
 
     if (need === 'merge') {
+      const row = openOwnerWaits(at.bench.db).find(open => open.id === wait)!
       expect(printed).toBe(ownerMergeLine(PR))
+      expect(row.command).toContain(`merge PR #${PR}`)
+      expect(`${row.command} ${row.text}`).not.toContain(OWNER_ANSWER_COMMAND)
+      const said: string[] = []
+      expect(runOwnerAnswer([wait, OWNER_WORDS], at.bench.db, at.channel, at.bench.clock.now(), line => said.push(line), requestFromWindow)).toBe(2)
+      expect(said.join('\n')).toContain(`${wait} closes when PR #${PR} merges, not on an answer; the owner runs: merge PR #${PR}`)
+      expect(requestsOf(at)).toEqual([])
+      written(at, { kind: 'owner.answer', id: wait, text: OWNER_WORDS, from: ANSWER_SOURCE })
+      sayToOwnerChannel(at.channel, answerWord(wait, OWNER_WORDS), at.bench.clock.now())
+      expect(busRun(at)).toMatchObject([{ kind: 'refused', detail: expect.stringContaining(`the owner runs: merge PR #${PR}`) }])
       expect(stateOf(at, wait)).toBe('open')
       at.bench.gitHub.close(PR, true)
       at.bench.tick()
@@ -215,5 +240,66 @@ describe('one owner entry: the board prints owner:answer and owner:answer does t
     const amend = `pnpm bus:request amend --card ${CARD}`
     expect(printedFor(at, waitAsking(at, 'command', amend), amend)).toBe(amend)
     expect(ownerWaitCommand({ id: 'Q9', need: 'command', card: null, pr: null }, SHELL_COMMAND)).toBe(`${OWNER_ANSWER_COMMAND} Q9 ${PRINTED_WORDS}`)
+  })
+
+  it('a move refused once and confirmed again closes its wait on the newest move', () => {
+    const at = room()
+    const wait = waitAsking(at, 'command', ownerMoveCommand('takeover', CARD))
+    const first = written(at, { kind: 'owner.takeover', card: CARD, reason: MOVE_REASON, from: ANSWER_SOURCE })
+    expect(outcomeOf(busRun(at), first)).toMatchObject({ kind: 'refused' })
+
+    expect(answers(at, wait, `takeover: ${MOVE_REASON}`)).toBe(0)
+
+    const outcomes = busRun(at)
+    expect(outcomes, JSON.stringify(outcomes)).toMatchObject([{ kind: 'done' }, { kind: 'done' }])
+    expect(stateOf(at, wait)).toBe('closed')
+  })
+
+  it('an answer confirming a move with no move request of the owner\'s answer after the wait stays open', () => {
+    const at = room()
+    const wait = waitAsking(at, 'command', ownerMoveCommand('takeover', CARD))
+
+    expect(confirmedStraight(at, wait, `takeover: ${MOVE_REASON}`)).toMatchObject({ kind: 'refused', detail: expect.stringContaining(`no owner.takeover request of the owner's answer follows ${wait}`) })
+    expect(stateOf(at, wait)).toBe('open')
+  })
+
+  it.each([
+    ['from the window', { card: CARD, from: 'window' }, 'after'],
+    ['on another card', { card: CARD + 1, from: ANSWER_SOURCE }, 'after'],
+    ['before the wait opened', { card: CARD, from: ANSWER_SOURCE }, 'before'],
+  ] as const)('a move of the same kind %s is not the move the wait asks for', (_case, move, when) => {
+    const at = room()
+    const before = when === 'before' ? written(at, { kind: 'owner.takeover', reason: MOVE_REASON, ...move }) : null
+    const wait = waitAsking(at, 'command', ownerMoveCommand('takeover', CARD))
+    if (before === null) {
+      ownerSaysMove(at, 'takeover', move.card)
+      written(at, { kind: 'owner.takeover', reason: MOVE_REASON, ...move })
+    }
+
+    expect(confirmedStraight(at, wait, `takeover: ${MOVE_REASON}`)).toMatchObject({ kind: 'refused', detail: expect.stringContaining(`no owner.takeover request of the owner's answer follows ${wait}`) })
+    expect(stateOf(at, wait)).toBe('open')
+  })
+
+  it.each([
+    ['takeover:', 'takeover:'],
+    [`Takeover: ${MOVE_REASON}`, MOVE_REASON],
+  ])('the confirmation %s writes the move with the reason %s', (words, reason) => {
+    const at = room()
+    const wait = waitAsking(at, 'command', ownerMoveCommand('takeover', CARD))
+
+    expect(answers(at, wait, words)).toBe(0)
+
+    expect(requestsOf(at)).toEqual([expect.objectContaining({ kind: 'owner.takeover', card: CARD, reason }), expect.objectContaining({ kind: 'owner.answer', id: wait })])
+  })
+
+  it('a wait asking an owner move whose arguments do not parse prints it as it is and answers without a move', () => {
+    const at = room()
+    const unparsed = 'pnpm bus:request owner.stop'
+    const wait = waitAsking(at, 'command', unparsed)
+
+    expect(printedFor(at, wait, unparsed)).toBe(unparsed)
+    expect(answers(at, wait, `stop: ${MOVE_REASON}`)).toBe(0)
+
+    expect(requestsOf(at).map(request => request.kind)).toEqual(['owner.answer'])
   })
 })

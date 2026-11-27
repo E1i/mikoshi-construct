@@ -3,7 +3,7 @@ import type { RequestContext, RequestExecutor } from './context.js'
 import type { Executed } from './request.js'
 import { openWaitsOfCard, ownerWaitOf } from '../../core/card-readings.js'
 import { events } from '../../core/events-query.js'
-import { askedOwnerMoveOf, ownerMoveReasonOf } from '../../core/owner-commands.js'
+import { askedOwnerMoveOf, mergeWaitRefusal, ownerMoveReasonOf } from '../../core/owner-commands.js'
 import { payloadOf } from '../../core/stored.js'
 import { ANSWER_SOURCE, cardIdOf, changesRoundsOf, closeOwnerWait, consumeOwnerWordClosing, decisionOnAWait, inTransaction, OPEN_WAIT, openPrOfCard, OWNER_SOURCE, OWNER_WAIT_OPENED, OWNER_WORD_NOT_FOUND, QUEUE_ACTOR, REQUEST_DONE, REQUEST_REFUSED, REVIEW_ROUNDS, storedByKey, WINDOW_REQUEST } from './reach.js'
 import { flagsOf, text, unreleasedWord } from './request.js'
@@ -91,6 +91,9 @@ export const execute: RequestExecutor = (context, request, payload) => {
     return { done: false, why: `${id} is no open owner wait; nothing moves` }
   if (waits.length > 1)
     return { done: false, why: `card #${card} has ${waits.length} open waits (${waits.map(wait => wait.id).join(', ')}); answer one by its id; nothing moves` }
+  const only = waits[0]
+  if (only?.need === 'merge' && only.pr !== null)
+    return { done: false, why: mergeWaitRefusal(only.id, only.pr) }
   const unmoved = waits[0] === undefined ? null : moveNotDone(context, request, waits[0].id, words)
   if (unmoved !== null)
     return { done: false, why: unmoved }

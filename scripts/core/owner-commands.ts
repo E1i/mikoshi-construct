@@ -145,6 +145,10 @@ export function ownerMergeLine(pr: number): string {
   return `merge PR #${pr} (owner)`
 }
 
+export function mergeWaitRefusal(waitId: string, pr: number): string {
+  return `${waitId} closes when PR #${pr} merges, not on an answer; the owner runs: ${ownerMergeLine(pr)}; nothing moves`
+}
+
 export function ownerAnswerCommand(wait: OwnerWaitFacts): string {
   if (wait.need === 'merge' && wait.pr !== null)
     return ownerMergeLine(wait.pr)

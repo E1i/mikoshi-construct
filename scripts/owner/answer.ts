@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { OwnerWaitRow } from '../core/card-readings.js'
 import type { AskedOwnerMove } from '../core/owner-commands.js'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
@@ -8,7 +9,7 @@ import { OPEN_WAIT } from '../core/db.js'
 import { events } from '../core/events-query.js'
 import { OWNER_WAIT_OPENED } from '../core/events.js'
 import { ANSWER_SOURCE } from '../core/inbox.js'
-import { askedOwnerMoveOf, ownerMoveCommand, ownerMoveReasonOf } from '../core/owner-commands.js'
+import { askedOwnerMoveOf, mergeWaitRefusal, ownerMoveCommand, ownerMoveReasonOf } from '../core/owner-commands.js'
 import { withOwnerShellBus } from '../policy/decisions/add.js'
 import { requestFromWindow } from '../policy/decisions/window-door.js'
 import { sayToOwnerChannel } from './channel.js'
@@ -50,15 +51,22 @@ function ownerStop(db: DatabaseSync, channel: string, now: Date, out: (line: str
   return 0
 }
 
-function openWaitNamed(db: DatabaseSync, target: Target): string | null {
-  if ('id' in target)
-    return ownerWaitOf(db, target.id)?.state === OPEN_WAIT ? target.id : null
+function openWaitNamed(db: DatabaseSync, target: Target): OwnerWaitRow | null {
+  if ('id' in target) {
+    const wait = ownerWaitOf(db, target.id)
+    return wait?.state === OPEN_WAIT ? wait : null
+  }
   const waits = openWaitsOfCard(db, target.card)
-  return waits.length === 1 ? waits[0]!.id : null
+  return waits.length === 1 ? waits[0]! : null
+}
+
+function mergeWaitRefused(db: DatabaseSync, target: Target): string | null {
+  const wait = openWaitNamed(db, target)
+  return wait?.need === 'merge' && wait.pr !== null ? mergeWaitRefusal(wait.id, wait.pr) : null
 }
 
 function askedMoveOfWait(db: DatabaseSync, target: Target): AskedOwnerMove | null {
-  const id = openWaitNamed(db, target)
+  const id = openWaitNamed(db, target)?.id ?? null
   if (id === null)
     return null
   const [opened] = events(db, { types: [OWNER_WAIT_OPENED], keys: [`${OWNER_WAIT_OPENED}:${id}`], limit: 1 })
@@ -97,6 +105,11 @@ export function runOwnerAnswer(args: readonly string[], db: DatabaseSync, channe
   const stop = 'card' in target ? stopReasonOf(words) : null
   if (stop !== null && 'card' in target)
     return ownerStop(db, channel, now, out, target.card, stop, toWindow)
+  const refused = mergeWaitRefused(db, target)
+  if (refused !== null) {
+    out(`${PREFIX}${refused}`)
+    return 2
+  }
   sayToOwnerChannel(channel, answerWord(label, words), now)
   const request = toWindow(db, now.toISOString(), ANSWER_SESSION, { kind: 'owner.answer', ...target, text: words, from: ANSWER_SOURCE })
   out(`${PREFIX}window.request ${request} (owner.answer ${label}) written with the owner's word; bus:run answers it on its next tick with window.request.done (the wait closed, or continue-fixes written) or window.request.refused with the reason`)
