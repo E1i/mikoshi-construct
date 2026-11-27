@@ -918,6 +918,17 @@
           "type"
         ]
       },
+      "release.run": {
+        "complete": true,
+        "keys": [
+          "conclusion",
+          "failed_step",
+          "run_id",
+          "sha",
+          "steps",
+          "verdict"
+        ]
+      },
       "review.drip": {
         "complete": true,
         "keys": [
@@ -6108,9 +6119,12 @@
         }
       },
       "scripts/ports/ci-reading.ts": {
-        "constants": [],
+        "constants": [
+          "RELEASE_WORKFLOW"
+        ],
         "functions": {
-          "annotationTitles": "(meter: Meter, check: AnnotatedCheck | undefined): string[]"
+          "annotationTitles": "(meter: Meter, check: AnnotatedCheck | undefined): string[]",
+          "releaseRunOf": "(runs: readonly WorkflowRunOfHead[]): ReleaseRun | null"
         },
         "language": "technology",
         "reexports": [
@@ -6145,13 +6159,15 @@
           "CiOfCommits": "interface CiOfCommits { onCommit: (sha: string, requiredCheck?: string) => CommitCi; approvedRunOn: (head: string | undefined) => boolean; }",
           "CiRead": "type CiRead<T> = GhRead<T>",
           "CiRuns": "interface CiRuns { pullRequest: (pr: PullRequest, repository: string) => PrDetails; failureLogOn: (head: string, tree: string) => FailedJobLog | null; successfulRunsOnMain: (limit: number) => CiRead<RunOnMain[]>; jobsOfRun: (runId: number) => CiRead<{ jobs: RunJob[]; }>; artifactsNamed: (run: RunIdentity, name: string) => CiRead<number>; downloadArtifact: (runId: string | number, artifact: ArtifactRequest) => CiAct; cancel: (run: RunIdentity) => boolean; }",
-          "CiWorld": "interface CiWorld { commits?: Record<string, CheckRun[]>; approvedHeads?: string[]; rollups?: Record<number, RollupCheck[]>; failedLogs?: Record<string, FailedJobLog>; runsOnMain?: RunOnMain[]; jobs?: Record<number, RunJob[]>; artifacts?: Record<string, string[]>; }",
-          "GhCiRuns": "class GhCiRuns implements CiRuns { constructor(private readonly gh: GhPort = PROCESS_GH_PORT); pullRequest(pr: PullRequest, repository: string): PrDetails; failureLogOn(head: string, tree: string): FailedJobLog | null; successfulRunsOnMain(limit: number): CiRead<RunOnMain[]>; jobsOfRun(runId: number): CiRead<{ jobs: RunJob[]; }>; artifactsNamed(run: RunIdentity, name: string): CiRead<number>; downloadArtifact(runId: string | number, artifact: ArtifactRequest): CiAct; cancel(run: RunIdentity): boolean }",
+          "CiWorld": "interface CiWorld { commits?: Record<string, CheckRun[]>; approvedHeads?: string[]; rollups?: Record<number, RollupCheck[]>; failedLogs?: Record<string, FailedJobLog>; runsOnMain?: RunOnMain[]; jobs?: Record<number, RunJob[]>; releaseRuns?: Record<string, ReleaseRun>; artifacts?: Record<string, string[]>; }",
+          "GhCiRuns": "class GhCiRuns implements CiRuns, ReleaseRuns { constructor(private readonly gh: GhPort = PROCESS_GH_PORT); pullRequest(pr: PullRequest, repository: string): PrDetails; failureLogOn(head: string, tree: string): FailedJobLog | null; successfulRunsOnMain(limit: number): CiRead<RunOnMain[]>; jobsOfRun(runId: number): CiRead<{ jobs: RunJob[]; }>; releaseRunOn(sha: string): CiRead<ReleaseRun | null>; artifactsNamed(run: RunIdentity, name: string): CiRead<number>; downloadArtifact(runId: string | number, artifact: ArtifactRequest): CiAct; cancel(run: RunIdentity): boolean }",
           "GitHubCommitCi": "class GitHubCommitCi implements CiOfCommits { constructor(private readonly meter: Meter); onCommit(sha: string, requiredCheck = REQUIRED_CHECK): CommitCi; approvedRunOn(head: string | undefined): boolean }",
-          "InMemoryCi": "class InMemoryCi implements CiOfCommits, CiRuns { cancelled: RunIdentity[]; downloaded: ArtifactRequest[]; constructor(private readonly world: CiWorld = {}); onCommit(sha: string, requiredCheck = REQUIRED_CHECK): CommitCi; approvedRunOn(head: string | undefined): boolean; pullRequest(pr: PullRequest): PrDetails; failureLogOn(head: string): FailedJobLog | null; successfulRunsOnMain(limit: number): CiRead<RunOnMain[]>; jobsOfRun(runId: number): CiRead<{ jobs: RunJob[]; }>; artifactsNamed(run: RunIdentity, name: string): CiRead<number>; downloadArtifact(runId: string | number, artifact: ArtifactRequest): CiAct; cancel(run: RunIdentity): boolean }",
+          "InMemoryCi": "class InMemoryCi implements CiOfCommits, CiRuns, ReleaseRuns { cancelled: RunIdentity[]; downloaded: ArtifactRequest[]; constructor(private readonly world: CiWorld = {}); onCommit(sha: string, requiredCheck = REQUIRED_CHECK): CommitCi; approvedRunOn(head: string | undefined): boolean; pullRequest(pr: PullRequest): PrDetails; failureLogOn(head: string): FailedJobLog | null; successfulRunsOnMain(limit: number): CiRead<RunOnMain[]>; jobsOfRun(runId: number): CiRead<{ jobs: RunJob[]; }>; releaseRunOn(sha: string): CiRead<ReleaseRun | null>; artifactsNamed(run: RunIdentity, name: string): CiRead<number>; downloadArtifact(runId: string | number, artifact: ArtifactRequest): CiAct; cancel(run: RunIdentity): boolean }",
+          "ReleaseRun": "interface ReleaseRun { databaseId: number; status: string; conclusion: string | null; }",
+          "ReleaseRuns": "interface ReleaseRuns { releaseRunOn: (sha: string) => CiRead<ReleaseRun | null>; jobsOfRun: (runId: number) => CiRead<{ jobs: RunJob[]; }>; }",
           "RunJob": "interface RunJob { name: string; conclusion: string; startedAt: string; completedAt: string; steps?: RunStep[]; }",
           "RunOnMain": "interface RunOnMain { databaseId: number; headSha: string; }",
-          "RunStep": "interface RunStep { name: string; startedAt: string; completedAt: string; }"
+          "RunStep": "interface RunStep { name: string; conclusion?: string | null; startedAt: string; completedAt: string; }"
         }
       },
       "scripts/ports/client/claude/adapter.ts": {
@@ -6650,6 +6666,7 @@
           "pollLine": "(poll: Poll): string",
           "prClosed": "(ts: string, closed: ClosedPr, reopening: number | null = null): BusEvent",
           "prObserved": "(ts: string, open: OpenPr, previous: PreviousObservation | null): BusEvent",
+          "releaseRun": "(ts: string, sha: string, releases: ReleaseRuns): BusEvent | null",
           "watchTheNetwork": "(requiredCheck: () => string, once: boolean, history: PrHistory): Promise<number>"
         },
         "language": "technology",
@@ -6659,10 +6676,10 @@
           "git"
         ],
         "types": {
-          "NetWatch": "class NetWatch { constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly clock: () => Date, private readonly process: string, private readonly requiredCheck: () => string, private readonly history: PrHistory); dueReason(nowMs: number): PollReason | null; poll(): Poll | null }",
+          "NetWatch": "class NetWatch { constructor(private readonly db: DatabaseSync, private readonly gitHub: GitHub, private readonly clock: () => Date, private readonly process: string, private readonly requiredCheck: () => string, private readonly history: PrHistory, private readonly releases: ReleaseRuns | null = null); dueReason(nowMs: number): PollReason | null; poll(): Poll | null }",
           "Poll": "type Poll = { kind: 'ticked'; reason: PollReason; calls: number; remaining: number | null; written: number; unsettled: number[]; } | { kind: 'skipped'; reason: PollReason; cause: 'retry-after' | 'rate-limited' | 'failed'; calls: number; until?: string; detail?: string; }",
           "PollReason": "type PollReason = 'start' | 'interval' | 'wake'",
-          "PrHistory": "interface PrHistory { knownOpenPrs: (db: DatabaseSync) => number[]; lastMainSha: (db: DatabaseSync) => string | null; lastObservation: (db: DatabaseSync, pr: number) => PreviousObservation | null; }"
+          "PrHistory": "interface PrHistory { knownOpenPrs: (db: DatabaseSync) => number[]; lastMainSha: (db: DatabaseSync) => string | null; lastObservation: (db: DatabaseSync, pr: number) => PreviousObservation | null; unreleasedMainShas?: (db: DatabaseSync) => string[]; }"
         }
       },
       "scripts/ports/pr-status.ts": {
