@@ -119,6 +119,30 @@ describe('the daemons cell', () => {
     expect(cell).toContain(`<span class="pane-description" data-none>${PLAIN_LORE.boardDaemonPane.noDescription}</span>`)
   })
 
+  it('three daemons render three cards with the installed count, and each description only inside the popover of its own card', () => {
+    const three = [
+      { skill: 'lab', daemon: 'LAB', description: 'drives a headed browser for checks' },
+      { skill: 'kit', daemon: 'KIT', description: 'speaks MCP to the dev servers' },
+      { skill: 'eye', daemon: 'EYE', description: 'reads the screenshots back' },
+    ]
+    const catalog = three.map(each => daemonOf(each.skill, `---\nname: ${each.skill}\ndaemon: ${each.daemon}\ndescription: ${each.description}\n---\n`)!)
+    const html = daemonsCell({ daemons: installedDaemons(catalog, ['kit'], { allow: new Set(), excluded: new Set() }), reader: 'reader', loadedIn: 'heartbeat' }, LORE)
+    expect(html.match(/<li class="daemon-slot"/g)).toHaveLength(3)
+    expect(html.match(/<div class="sd-card">/g)).toHaveLength(3)
+    expect(html).toContain('<span class="daemons-chip">INSTALLED · 3</span>')
+    expect(html).not.toContain('daemon-status')
+    const outside = html.replace(/<div class="daemon-pane"[\s\S]*?<\/ul><\/div>/g, '')
+    for (const each of three) {
+      const slot = slotOf(html, each.daemon)
+      expect(outside).not.toContain(each.description)
+      expect(html.split(each.description)).toHaveLength(2)
+      expect(slot).toContain(`aria-describedby="daemon-pane-${each.daemon}"`)
+      expect(slot).toContain(`<span class="pane-description">${each.description}</span>`)
+    }
+    expect(slotOf(html, 'KIT')).toContain('<span class="pane-tag">LOADED</span>')
+    expect(slotOf(html, 'LAB')).toContain('<span class="pane-tag">SLEEPING</span>')
+  })
+
   it('an empty catalog names the reader it adds and where LOADED is observed', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'board-miko-empty-'))
     roots.push(root)
