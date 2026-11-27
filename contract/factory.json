@@ -6932,7 +6932,7 @@
         "types": {
           "HandedContract": "interface HandedContract extends Contract { forecast?: CheapForecast; }",
           "TaskStartContract": "type TaskStartContract = Parameters<typeof unsatisfiedDependencies>[0]",
-          "TaskStartDeps": "interface TaskStartDeps { contract: TaskStartContract; flags: TaskStartFlags; cwd: string; git: (cwd: string, args: string[]) => string; install: (cwd: string, args: string[]) => void; exists: (target: string) => boolean; bus: string; now: () => Date; session: string | undefined; shift?: string; worktreeHome?: string; treeOf?: (id: string) => string; style?: SignalStyle; cardBody?: CardBodyReader; windowLimit?: () => number; }",
+          "TaskStartDeps": "interface TaskStartDeps { contract: TaskStartContract; flags: TaskStartFlags; cwd: string; git: (cwd: string, args: string[]) => string; install: (cwd: string, args: string[]) => void; exists: (target: string) => boolean; bus: string; now: () => Date; session: string | undefined; shift?: string; worktreeHome?: string; treeOf?: (id: string) => string; style?: SignalStyle; cardBody?: (cardId: number) => string | null; windowLimit?: () => number; }",
           "TaskStartFlags": "interface TaskStartFlags { card: string; adopt: string; withoutIntake: string; }",
           "TaskStartResult": "interface TaskStartResult { stdout: string[]; stderr: string[]; exitCode: number; worktree?: string; }"
         }

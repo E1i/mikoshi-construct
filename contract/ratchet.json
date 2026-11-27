@@ -22,7 +22,7 @@
   "boundary:node-update->cost": 1,
   "boundary:ports->bus": 5,
   "boundary:ports->card-model": 3,
-  "boundary:ports->card-record": 3,
+  "boundary:ports->card-record": 2,
   "boundary:ports->cost": 1,
   "boundary:ports->events": 2,
   "boundary:ports->intake": 1,

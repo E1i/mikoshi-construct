@@ -6,7 +6,6 @@ import type { Signal, SignalStyle } from '../../src/ui/signal.js'
 import type { BusEventRow } from '../core/bus-contract.js'
 import type { BusEvent } from '../core/db.js'
 import type { BodyAdmission } from '../core/queue.js'
-import type { CardBodyReader } from '../intake/parking-reads.js'
 import { existsSync } from 'node:fs'
 import { cardLine, cardTerms, parseCard } from '../../src/card/grammar.js'
 import { parseParkingFile } from '../../src/card/parking.js'
@@ -60,7 +59,7 @@ export interface TaskStartDeps {
   worktreeHome?: string
   treeOf?: (id: string) => string
   style?: SignalStyle
-  cardBody?: CardBodyReader
+  cardBody?: (cardId: number) => string | null
   windowLimit?: () => number
 }
 
