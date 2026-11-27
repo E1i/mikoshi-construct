@@ -1,0 +1,12 @@
+{
+  "event": "release.run",
+  "constant": "RELEASE_RUN",
+  "payload": [
+    "conclusion",
+    "failed_step",
+    "run_id",
+    "sha",
+    "steps",
+    "verdict"
+  ]
+}
