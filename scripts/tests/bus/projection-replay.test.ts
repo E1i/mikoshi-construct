@@ -15,6 +15,7 @@ import { observeRoleStop, returnEndedRole, returnSilentRole, ROLE_FOLDS, roleToO
 import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { THRESHOLDS } from '../../window/eddies-measure.js'
 import { recordWindowHeartbeat } from '../../window/window-heartbeat.js'
 import { requestFromWindow } from '../../window/window-requests.js'
 
@@ -31,12 +32,12 @@ function liveRoles(): DatabaseSync {
   const db = openBus(':memory:')
   stop(db, 0, 'miko', '/handoff/miko.md')
   reduce(db, 'pending', busProjections())
-  roleToOwner(db, at(10), ACTOR)
+  roleToOwner(db, at(10), ACTOR, THRESHOLDS)
   requestFromWindow(db, at(20), 'owner-session', { kind: 'status' })
   recordWindowHeartbeat(db, at(30), 'owner-session')
   returnSilentRole(db, at(40 + LEASE_MS), ACTOR)
   stop(db, 50 + LEASE_MS, 'operator', '/handoff/operator.md')
-  roleToOwner(db, at(60 + LEASE_MS), ACTOR)
+  roleToOwner(db, at(60 + LEASE_MS), ACTOR, THRESHOLDS)
   return db
 }
 

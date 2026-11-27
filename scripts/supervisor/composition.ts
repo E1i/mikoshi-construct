@@ -18,6 +18,7 @@ import type { Fold, StoredEvent } from '../core/stored.js'
 import type { AnswerParts } from '../nodes/answer/answer-candidates.js'
 import type { MergeParts } from '../nodes/merge/merge-candidates.js'
 import type { DriftWatch } from '../nodes/merge/weights-drift.js'
+import type { RoleToOwner } from '../nodes/restart/role.js'
 import type { UpdateSourceParts } from '../nodes/update/update-candidates.js'
 import type { DerivedHolds, ThresholdSet } from '../nodes/update/update-executor.js'
 import type { WitnessParts } from '../nodes/witness/witness-candidates.js'
@@ -77,7 +78,7 @@ import { LAUNCH_SOURCE } from '../nodes/launch/launch-candidates.js'
 import { handFile } from '../nodes/launch/launch-starter.js'
 import { mergeCandidates, mergeSource } from '../nodes/merge/merge-candidates.js'
 import { WeightsDriftWatch } from '../nodes/merge/weights-drift.js'
-import { ROLES_PROJECTION } from '../nodes/restart/role.js'
+import { ROLES_PROJECTION, roleToOwner } from '../nodes/restart/role.js'
 import { updateCandidates, updateSource } from '../nodes/update/update-candidates.js'
 import { witnessSource } from '../nodes/witness/witness-candidates.js'
 import { archiveSpentDecisions, BusDecisions, decisionFolds } from '../policy/decisions/index.js'
@@ -92,6 +93,7 @@ import { isFullSha } from '../ports/identifier-shapes.js'
 import { requiredCheckOf } from '../ports/snapshot.js'
 import { launchDirOf } from '../ports/tree-publish.js'
 import { cardTreeRoots } from '../ports/worktree-home.js'
+import { THRESHOLDS } from '../window/eddies-measure.js'
 import { foldPlanEvent } from '../window/plan-folds.js'
 import { releasingTakeoverOnPush } from '../window/takeover-push-release.js'
 import { PREFIX } from './bg.js'
@@ -407,6 +409,10 @@ export function reviewCandidatesOfTheBus(db: DatabaseSync, ts: string): QueuedTa
 
 export function closeCandidatesOfTheBus(db: DatabaseSync, ts: string): QueuedTask[] {
   return closeCandidates(db, ts, candidateRules())
+}
+
+export function roleToOwnerAtTheThresholds(db: DatabaseSync, ts: string, actor: string): RoleToOwner | null {
+  return roleToOwner(db, ts, actor, THRESHOLDS)
 }
 
 export function mayRequeue(): MayRequeue {

@@ -13,13 +13,13 @@ import { CHECK_MS, TICK_MS } from '../../core/cadence.js'
 import { defaultBusPath, openBus } from '../../core/db.js'
 import { expireLeases, LEASE_MS, leaseNext } from '../../core/lease.js'
 import { DATABASE_LOCKED, isDatabaseLocked, recordWorkerIdentity, SWITCH_FLAG } from '../../core/node.js'
-import { cardTransitions, nodeLiveness, pullRequests, workerIdentity } from '../../supervisor/composition.js'
+import { cardTransitions, nodeLiveness, pullRequests, roleToOwnerAtTheThresholds, workerIdentity } from '../../supervisor/composition.js'
 import { ownStart } from '../../supervisor/heartbeat.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { switchedOn } from '../../supervisor/workers.js'
 import { REAL_PROCESSES } from './chain-process.js'
 import { relaunchKey, RestartExecutor } from './restart-executor.js'
-import { returnSilentRole, roleToOwner } from './role.js'
+import { returnSilentRole } from './role.js'
 
 export const PREFIX = '[bus:restart] '
 export type RestartStep = { kind: 'idle' } | { kind: 'locked' } | { kind: 'dead_chains', chains: DeadChain[] } | ({ kind: 'returned' } & RoleReturned) | ({ kind: 'to_owner' } & RoleToOwner) | RestartOutcome
@@ -72,7 +72,7 @@ export class RestartWorker {
     const returned = returnSilentRole(this.parts.db, ts, this.actor)
     if (returned !== null)
       return { kind: 'returned', ...returned }
-    const toOwner = roleToOwner(this.parts.db, ts, this.actor)
+    const toOwner = roleToOwnerAtTheThresholds(this.parts.db, ts, this.actor)
     return toOwner === null ? { kind: 'idle' } : { kind: 'to_owner', ...toOwner }
   }
 }

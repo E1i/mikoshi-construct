@@ -13,10 +13,7 @@ import { WINDOW_ACTOR } from '../../core/node.js'
 import { pnpmCommand } from '../../core/owner-commands.js'
 import { payloadOf, reject } from '../../core/stored.js'
 import { reduceProjection } from '../../core/watermark.js'
-import { THRESHOLDS } from '../../window/eddies-measure.js'
 import { windowLive } from '../../window/window-heartbeat.js'
-
-export { THRESHOLDS }
 
 export const ROLES = ['operator', 'miko'] as const
 export const RAISED_STATUS = 'CONTINUE'
@@ -62,14 +59,15 @@ interface RoleRow {
   event_id: number
 }
 
-const AT_A_THRESHOLD = `status = '${RAISED_STATUS}' AND reason IN (${THRESHOLDS.map(reason => `'${reason}'`).join(', ')})`
 const ROLE_COLUMNS = 'role, handoff, state, lease_gen, lease_until, reason, event_id'
 
-const STOPPED_AT_A_THRESHOLD = `
+function stoppedAtAThreshold(thresholds: readonly string[]): string {
+  return `
   SELECT ${ROLE_COLUMNS} FROM roles
-  WHERE ${AT_A_THRESHOLD} AND state = '${STOPPED}'
+  WHERE status = '${RAISED_STATUS}' AND reason IN (${thresholds.map(() => '?').join(', ')}) AND state = '${STOPPED}'
   ORDER BY role
 `
+}
 
 const OWNER_SESSIONS = `SELECT ${ROLE_COLUMNS} FROM roles WHERE state = '${OWNER}' ORDER BY role`
 const WINDOW_SIGNS: Signs = { types: [WINDOW_HEARTBEAT], actorPrefix: WINDOW_ACTOR }
@@ -276,10 +274,10 @@ function closeStartWaitsAWindowBeatAnswered(db: DatabaseSync, ts: string, actor:
     appendEvent(db, { ts, type: OWNER_WAIT_CLOSED, actor, cardId: null, pr: null, head: null, dedupeKey: `${OWNER_WAIT_CLOSED}:${id}`, payload: { id, answer: `the window beat again at ${beat}` }, legacy: false })
 }
 
-export function roleToOwner(db: DatabaseSync, ts: string, actor: string): RoleToOwner | null {
+export function roleToOwner(db: DatabaseSync, ts: string, actor: string, thresholds: readonly string[]): RoleToOwner | null {
   return inTransaction(db, () => {
     closeStartWaitsAWindowBeatAnswered(db, ts, actor)
-    const stopped = db.prepare(STOPPED_AT_A_THRESHOLD).all() as unknown as RoleRow[]
+    const stopped = db.prepare(stoppedAtAThreshold(thresholds)).all(...thresholds) as unknown as RoleRow[]
     const startable = stopped.some(each => ROLE_STARTS[each.role] !== null)
     const live = startable && windowLive(db, Date.parse(ts), lastWindowEnd(db))
     const row = stopped.find(each => !live || ROLE_STARTS[each.role] === null)

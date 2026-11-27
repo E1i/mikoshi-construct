@@ -21,6 +21,7 @@ import { lastWindowEnd, observeRoleStop, returnSilentRole, roleToOwner, silentOw
 import { earlierChangesRounds } from '../../../nodes/review/review-executor.js'
 import { sessionsUnderLiveLeases } from '../../../nodes/review/review-worker.js'
 import { busProjections } from '../../../supervisor/composition.js'
+import { THRESHOLDS } from '../../../window/eddies-measure.js'
 import { recordWindowHeartbeat } from '../../../window/window-heartbeat.js'
 import { requestFromWindow } from '../../../window/window-requests.js'
 
@@ -115,7 +116,7 @@ describe('a silent owner session is judged from the signs past the event of the 
     expect(recordWindowHeartbeat(db, at(-10 * LEASE_MS), 'owner-session')).toBe(true)
     observeRoleStop(db, at(0), 'worker:miko:7', { role: 'miko', handoff: HANDOFF, status: 'CONTINUE', reason: 'context', raised: false })
     reduce(db, 'pending', busProjections())
-    expect(roleToOwner(db, at(10), ACTOR)).toMatchObject({ role: 'miko' })
+    expect(roleToOwner(db, at(10), ACTOR, THRESHOLDS)).toMatchObject({ role: 'miko' })
     reduce(db, 'pending', busProjections())
     const roleEvent = (db.prepare(OWNED_ROLES).get() as { event_id: number }).event_id
     expect(signStampsSince(db, roleEvent, WINDOW_SIGNS)).toEqual([])
@@ -233,12 +234,12 @@ describe('the readings the nodes now take from the owners keep their filters', (
     const at = (ms: number): string => new Date(Date.parse(TS) + ms).toISOString()
     observeRoleStop(db, at(0), 'worker:operator:1', { role: 'operator', handoff: '/handoff/operator.md', status: 'CONTINUE', reason: 'context', raised: false })
     reduce(db, 'pending', busProjections())
-    expect(roleToOwner(db, at(10), 'worker:restart:w')).toMatchObject({ role: 'operator' })
+    expect(roleToOwner(db, at(10), 'worker:restart:w', THRESHOLDS)).toMatchObject({ role: 'operator' })
     reduce(db, 'pending', busProjections())
     expect(recordWindowHeartbeat(db, at(20), 'owner-session')).toBe(true)
     observeRoleStop(db, at(10 * LEASE_MS), 'worker:miko:1', { role: 'miko', handoff: '/handoff/miko.md', status: 'CONTINUE', reason: 'context', raised: false })
     reduce(db, 'pending', busProjections())
-    expect(roleToOwner(db, at(10 * LEASE_MS + 10), 'worker:restart:w')).toMatchObject({ role: 'miko' })
+    expect(roleToOwner(db, at(10 * LEASE_MS + 10), 'worker:restart:w', THRESHOLDS)).toMatchObject({ role: 'miko' })
     reduce(db, 'pending', busProjections())
     expect((db.prepare(OWNED_ROLES).all() as unknown[]).length).toBe(2)
     expect(returnSilentRole(db, at(12 * LEASE_MS), 'worker:restart:w')).toEqual({ role: 'operator', handoff: '/handoff/operator.md', lastSign: at(20) })
