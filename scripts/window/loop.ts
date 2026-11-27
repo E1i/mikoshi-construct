@@ -31,7 +31,7 @@ import { lastLoopBeats, LOOP_PROCESS } from './window-heartbeat.js'
 export const PREFIX = '[miko] '
 export const HANDOFF_VARIABLE = 'CONSTRUCT_HANDOFF'
 
-function clientConfigIn(root: string, role: Role): ClientConfig {
+export function clientConfigIn(root: string, role: Role): ClientConfig {
   const record = readManifest(root)?.client
   const recordedRole = CLIENT_ROLES.find(clientRole => clientRole === role)
   return { id: recordedRole === undefined ? record?.id ?? null : clientIdFor(record, recordedRole), model: clientModelOf(record) }

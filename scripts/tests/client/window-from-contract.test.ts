@@ -9,7 +9,7 @@ import { MANIFEST_FILE, MANIFEST_VERSION } from '../../../src/manifest.js'
 import { WINDOW_COMMAND_VARIABLE, windowCommand } from '../../ports/client/claude/adapter.js'
 import { codexAdapter, WINDOW_CENSUS_GAPS } from '../../ports/client/codex/adapter.js'
 import { clientAdapter } from '../../ports/session.js'
-import { CLAUDE_VARIABLE, claudeCommand, DEFAULT_CLAUDE, windowCommandIn } from '../../window/loop.js'
+import { CLAUDE_VARIABLE, claudeCommand, clientConfigIn, DEFAULT_CLAUDE, windowCommandIn } from '../../window/loop.js'
 
 const LOOP_SOURCE = path.join(import.meta.dirname, '..', '..', 'window', 'loop.ts')
 const ADAPTER_FILE = /\/ports\/client\/[^/]+\/adapter\.js$/
@@ -64,6 +64,12 @@ describe('the window takes its command from the client contract', () => {
     expect(windowCommandIn(repositoryWith({ id: codexAdapter.id }))).toEqual(codexAdapter.window())
     expect(opened(windowCommandIn(repositoryWith(null))).command).toBe(opened(clientAdapter().window()).command)
     expect(windowCommandIn(repositoryWith({ roles: { window: 'no-such-client' } }))).toEqual({ kind: 'refused', reason: expect.stringContaining('no client adapter for id "no-such-client"') })
+  })
+
+  it('the root reader hands the port the model construct.json records, and auto when it records none', () => {
+    expect(clientConfigIn(repositoryWith({ id: codexAdapter.id, model: 'opus' }), 'window')).toEqual({ id: codexAdapter.id, model: 'opus' })
+    expect(clientConfigIn(repositoryWith({ roles: { launch: codexAdapter.id }, model: 'sonnet' }), 'launch')).toEqual({ id: codexAdapter.id, model: 'sonnet' })
+    expect(clientConfigIn(repositoryWith(null), 'review')).toEqual({ id: null, model: 'auto' })
   })
 
   it('an unreadable construct.json refuses the window and names the record, never falling back to the default client', () => {
