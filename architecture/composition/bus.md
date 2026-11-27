@@ -4,7 +4,7 @@ The flow below is rendered from [bus.yaml](bus.yaml). Edit the model, then run
 `pnpm composition:render`; `pnpm composition:check` fails when the diagram and the model drift apart.
 
 <!-- composition:bus -->
-`composeBusTick` in `scripts/supervisor/run.ts` is the composition root of the bus loop `pnpm bus:run` keeps alive. Each tick NetWatch polls GitHub and writes what it observed; a poll that was skipped or refused ends the tick there. A ticked poll runs the rest in sequence on the one `bus.db`: the window requests, the reducer and the queues it derives. Before the queues, `sliceParentsOnce` runs the slice-parent backfill while the bus holds no `slice.parents.backfilled` event and a slice card without a parent, and never again once that event is written. Then, unless `pr-status.off` sits beside `bus.db`, `setStepStatuses` reads the step events after its cursor in `node_cursors`, which a first run opens at the last event of the journal, and posts the status check `mikoshi: <step>` only where the `prs` projection holds the pull request open on that head, at most `STATUS_BATCH` posts a tick, the rest in later ticks. Each post is recorded as `pr.status.set`, or `pr.status.refused` on a head GitHub refuses for good. A refusal for now records nothing: the root logs it, the tick goes on, and the next tick posts the step again. Last, the board projection is written. The status post is the only write to GitHub the tick makes. A NetWatch given a `ReleaseRuns` reader (the one `pnpm bus:netwatch` starts holds `GhCiRuns`) also reads the Release workflow run of the observed main sha and of the last main shas with no `release.run` yet, and writes one `release.run` per concluded run and conclusion, with its steps, verdict and failed step; a second tick writes nothing. It opens no wait: `releaseWaitsTick` in `scripts/supervisor/release-waits.ts`, wired by `orderAndShardTermTicks` in `scripts/supervisor/composition.ts` into the supervisor's order tick, opens one owner wait for each red `release.run`, deduped by its run id.
+`composeBusTick` in `scripts/supervisor/run.ts` is the composition root of the bus loop `pnpm bus:run` keeps alive. Each tick NetWatch polls GitHub and writes what it observed; a poll that was skipped or refused ends the tick there. A ticked poll runs the rest in sequence on the one `bus.db`: the window requests, the reducer and the queues it derives. Before the queues, `sliceParentsOnce` runs the slice-parent backfill while the bus holds no `slice.parents.backfilled` event and a slice card without a parent, and never again once that event is written. Then, unless `pr-status.off` sits beside `bus.db`, `setStepStatuses` reads the step events after its cursor in `node_cursors`, which a first run opens at the last event of the journal, and posts the status check `mikoshi: <step>` only where the `prs` projection holds the pull request open on that head, at most `STATUS_BATCH` posts a tick, the rest in later ticks. Each post is recorded as `pr.status.set`, or `pr.status.refused` on a head GitHub refuses for good. A refusal for now records nothing: the root logs it, the tick goes on, and the next tick posts the step again. Last, the board projection is written. The status post is the only write to GitHub the tick makes. A NetWatch given a `ReleaseRuns` reader (the one `pnpm bus:netwatch` starts holds `GhCiRuns`) also reads the Release workflow run of the observed main sha and of the last main shas with no `release.run` yet, and writes one `release.run` per concluded run and conclusion, with its steps, verdict and failed step; a second tick writes nothing. It opens no wait: `releaseWaitsTick` in `scripts/supervisor/release-waits.ts`, wired by `orderAndShardTermTicks` in `scripts/supervisor/composition.ts` into the supervisor's order tick, opens one owner wait for each red `release.run`, deduped by its run id, and one owner wait for each main sha a `main.advanced` records with `ci` red, deduped by the sha its text names; a green `main.advanced` opens none.
 
 ```mermaid
 flowchart LR
@@ -15,7 +15,7 @@ flowchart LR
     netwatch["NetWatch.poll → the observed events and release.run · a skipped poll ends the tick"]
   end
   subgraph b_fold["Fold · bus.db"]
-    releasewaits["releaseWaitsTick · one owner wait per red release.run · the supervisor's order tick"]
+    releasewaits["releaseWaitsTick · one owner wait per red release.run and per red main sha · the supervisor's order tick"]
     requests["WindowRequests.run · the window requests"]
     reduce["reduce → reducer.reduced"]
     sliceparents["sliceParentsOnce · slice.parents.backfilled, once"]
@@ -27,7 +27,7 @@ flowchart LR
   end
   root --> netwatch
   netwatch -->|"ticked"| requests
-  netwatch -.->|"a red release.run"| releasewaits
+  netwatch -.->|"a red release.run or a red main.advanced"| releasewaits
   requests --> reduce
   reduce --> sliceparents
   sliceparents --> queues
