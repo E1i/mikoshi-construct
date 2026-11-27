@@ -14,6 +14,22 @@ const CHANGESET_NOTE = /^\.changeset\/[^/]+\.md$/
 const CHANGESET_TOUCH = '.changeset/**'
 const CONTRACT_RECORD_TESTS = 'tests/contract/'
 export const CHANGESET_READERS: readonly string[] = FACTORY_LISTS.changesetReaders
+export const LINT_CONFIG = 'eslint.config.mjs'
+export const STALE_EXCEPTION_CHECK = 'scripts/tests/contract/codegen-events-cards-lint.test.ts'
+const HAND_EVENT_READERS_LIST = /export const HAND_EVENT_READERS_EXCEPTED = \[([^\]]*)\]/
+const QUOTED_PATH = /'([^']+)'/g
+
+export function handEventReadersExcepted(configText: string): string[] {
+  const list = HAND_EVENT_READERS_LIST.exec(configText)?.[1] ?? ''
+  return [...list.matchAll(QUOTED_PATH)].map(match => match[1]!)
+}
+
+function staleExceptionChecks(changed: readonly string[], graph: Graph, moduleText: (module: string) => string): string[] {
+  if (!graph.has(STALE_EXCEPTION_CHECK))
+    return []
+  const excepted = handEventReadersExcepted(moduleText(LINT_CONFIG))
+  return changed.some(file => excepted.includes(file)) ? [STALE_EXCEPTION_CHECK] : []
+}
 
 export type Graph = ReadonlyMap<string, readonly string[]>
 
@@ -154,7 +170,7 @@ export function selectRun(given: readonly string[], graph: Graph, testText: (tes
   const busWide = changed.some(file => BUS_SHARED.includes(file)) ? allTests.filter(test => test.startsWith(BUS_TESTS)) : []
   const named = changed.flatMap(file => NAMED_READERS[file] ?? []).filter(test => graph.has(test))
   const recordReaders = changed.some(file => isRecord(map, file)) ? allTests.filter(test => test.startsWith(CONTRACT_RECORD_TESTS)) : []
-  const spawning = [...[...readByPath.values()].flat(), ...spawnedBy(reached, readers, moduleText), ...changed.flatMap(file => scanning(file, allTests)), ...treeScanners, ...busWide, ...named, ...recordReaders, ...changesetReaders]
+  const spawning = [...[...readByPath.values()].flat(), ...spawnedBy(reached, readers, moduleText), ...changed.flatMap(file => scanning(file, allTests)), ...treeScanners, ...busWide, ...named, ...recordReaders, ...changesetReaders, ...staleExceptionChecks(changed, graph, moduleText)]
   const closure = dependents([...reached, ...spawning], reverse)
   const layers = [...new Set([...closure].flatMap(file => layersInOf(map, file)))].sort()
   const tests = [...closure].filter(isTest).sort()
