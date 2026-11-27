@@ -774,6 +774,7 @@
     "scripts/tests/contract/bus-cut/intake-root-readers-to-intake.test.ts",
     "scripts/tests/contract/bus-cut/lease-liveness-injected.test.ts",
     "scripts/tests/contract/bus-cut/lease-task-must-wait.test.ts",
+    "scripts/tests/contract/bus-cut/netwatch-is-a-root.test.ts",
     "scripts/tests/contract/bus-cut/node-parts-cadence-heartbeat-slots.test.ts",
     "scripts/tests/contract/bus-cut/node-private-last-event-id.test.ts",
     "scripts/tests/contract/bus-cut/node-refuses-injected.test.ts",
