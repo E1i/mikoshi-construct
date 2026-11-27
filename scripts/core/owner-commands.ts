@@ -101,13 +101,28 @@ export function windowCommandOf(command: string | null): string | null {
   return command !== null && WINDOW_COMMANDS.some(prefix => command.startsWith(prefix)) ? command : null
 }
 
-export function ownerMergeLine(pr: number): string {
-  return `merge PR #${pr} (owner)`
+export interface AskedOwnerMove {
+  move: OwnerMove
+  target: OwnerCommandArgument
+  request: Record<string, unknown>
+}
+
+const MOVE_HEAD = `${BUS_REQUEST_COMMAND} `
+
+export function askedOwnerMoveOf(command: string | null): AskedOwnerMove | null {
+  if (command === null || !command.startsWith(MOVE_HEAD))
+    return null
+  const [kind, ...argv] = command.slice(MOVE_HEAD.length).trim().split(/\s+/)
+  if (!isOwnerMoveRequest(kind))
+    return null
+  const request = ownerMoveRequestOf(kind, argv)
+  if (request === null)
+    return null
+  const target = request.task_key ?? request.card
+  return typeof target === 'string' || typeof target === 'number' ? { move: ownerMoveOf(kind), target, request } : null
 }
 
 export function ownerAnswerCommand(wait: OwnerWaitFacts): string {
-  if (wait.need === 'merge' && wait.pr !== null)
-    return ownerMergeLine(wait.pr)
   const target = ANSWERED_BY_ID.test(wait.id) || wait.card === null ? wait.id : `#${wait.card}`
   return `${OWNER_ANSWER_COMMAND} ${target} ${OWNER_WORDS}`
 }
@@ -133,6 +148,8 @@ export function shardRenewalCommand(hours: number, mode: string): string {
 }
 
 function standingCommandOf(asked: string | null): string | null {
+  if (askedOwnerMoveOf(asked) !== null)
+    return null
   return asked === MIKO_COMMAND || asked?.startsWith(OWNER_SAYS) === true ? asked : windowCommandOf(asked)
 }
 

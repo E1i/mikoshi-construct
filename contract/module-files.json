@@ -1115,6 +1115,7 @@
     "scripts/tests/owner/channel.test.ts",
     "scripts/tests/owner/construct-answer.test.ts",
     "scripts/tests/owner/decision-cut-over-marker.test.ts",
+    "scripts/tests/owner/one-owner-entry.test.ts",
     "scripts/tests/owner/request-on-channel.ts",
     "scripts/tests/owner/session-view.test.ts",
     "scripts/tests/owner/word-bound-to-one-wait.test.ts",
