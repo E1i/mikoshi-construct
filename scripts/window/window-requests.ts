@@ -7,11 +7,13 @@ import { realpathSync } from 'node:fs'
 import os from 'node:os'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { unclosedDecisionWaitWithText } from '../core/card-readings.js'
+import { unanswered } from '../core/events-query.js'
 import { WINDOW_ACTOR } from '../core/node.js'
 import { BUS_REQUEST_COMMAND } from '../core/owner-commands.js'
 import { RequestContext } from './requests/context.js'
 import { dispatchRequest } from './requests/index.js'
-import { ANSWER_SOURCE, appendEvent, cardIdOf, clientAdapter, CLOSED_WAIT, declaredPayload, defaultBusPath, FACTORY_MODES, ghApi, inTransaction, isFactoryMode, isFullSha, isOwnerMoveRequest, isOwnerWaitNeed, listFlagOf, openBus, openOwnerWait, OWNER_WAIT_CLOSED, OWNER_WAIT_NEEDS, OWNER_WAIT_OPENED, OWNER_WAITS, ownerChannelOf, ownerMoveRequestOf, ownerMoveUsage, parseTaken, POLICY_DENIED, prOf, QUEUE_ACTOR, readReleaseVersion, REQUEST_DONE, REQUEST_REFUSED, storedByKey, WINDOW_REQUEST } from './requests/reach.js'
+import { ANSWER_SOURCE, appendEvent, cardIdOf, clientAdapter, declaredPayload, defaultBusPath, FACTORY_MODES, ghApi, inTransaction, isFactoryMode, isFullSha, isOwnerMoveRequest, isOwnerWaitNeed, listFlagOf, openBus, openOwnerWait, OWNER_WAIT_NEEDS, ownerChannelOf, ownerMoveRequestOf, ownerMoveUsage, parseTaken, POLICY_DENIED, prOf, QUEUE_ACTOR, readReleaseVersion, REQUEST_DONE, REQUEST_REFUSED, storedByKey, WINDOW_REQUEST } from './requests/reach.js'
 import { foreignIdsOf, HEAD_WORD, isRequestKind, OWNER_ANSWER_USAGE, PLAN_OPS, REQUEST_KINDS, text } from './requests/request.js'
 
 export { SESSION_VARIABLE } from '../ports/client/claude/adapter.js'
@@ -30,21 +32,7 @@ export const USAGE = `usage: ${BUS_REQUEST_COMMAND} tree.cut --card <N> | amend 
 const BY_HAND = 'by-hand'
 const HELP_FLAGS = ['--help', '-h']
 
-const PENDING = `
-  SELECT id, ts, type, actor, card_id, pr, head, dedupe_key, payload FROM events AS request
-  WHERE request.type = '${WINDOW_REQUEST}' AND request.legacy = 0
-    AND NOT EXISTS (SELECT 1 FROM events AS answer WHERE answer.dedupe_key = '${WINDOW_REQUEST}:' || request.id || ':answered')
-  ORDER BY request.id
-`
-
-const UNCLOSED_QUESTION = `
-  SELECT json_extract(opened.payload, '$.id') AS id FROM events AS opened
-  WHERE opened.type = '${OWNER_WAIT_OPENED}' AND opened.legacy = 0
-    AND json_extract(opened.payload, '$.need') = 'decision' AND json_extract(opened.payload, '$.text') = ?
-    AND NOT EXISTS (SELECT 1 FROM ${OWNER_WAITS} AS wait WHERE wait.id = json_extract(opened.payload, '$.id') AND wait.state = '${CLOSED_WAIT}')
-    AND NOT EXISTS (SELECT 1 FROM events AS closed WHERE closed.type = '${OWNER_WAIT_CLOSED}' AND json_extract(closed.payload, '$.id') = json_extract(opened.payload, '$.id'))
-  ORDER BY opened.id LIMIT 1
-`
+const ANSWERED_REQUEST = { prefix: `${WINDOW_REQUEST}:`, suffix: ':answered' }
 
 export function requestFromWindow(db: DatabaseSync, ts: string, session: string, request: RequestPayload): number {
   const dedupeKey = `${WINDOW_REQUEST}:${session}:${ts}:${randomUUID()}`
@@ -57,9 +45,9 @@ export function requestFromWindow(db: DatabaseSync, ts: string, session: string,
 
 export function openWindowQuestion(db: DatabaseSync, ts: string, session: string, question: string): string {
   return inTransaction(db, () => {
-    const open = db.prepare(UNCLOSED_QUESTION).get(question) as { id: string } | undefined
-    if (open !== undefined)
-      return open.id
+    const open = unclosedDecisionWaitWithText(db, question)
+    if (open !== null)
+      return open
     const request = requestFromWindow(db, ts, session, { kind: 'owner.wait', need: 'decision', text: question })
     const id = openOwnerWait(db, ts, QUEUE_ACTOR, { need: 'decision', text: question, request, lift: { on: ['owner-answer'] } })
     appendEvent(db, { ts, type: REQUEST_DONE, actor: QUEUE_ACTOR, cardId: null, pr: null, head: null, dedupeKey: `${WINDOW_REQUEST}:${request}:answered`, payload: { request, kind: 'owner.wait', detail: `opened ${id}` }, legacy: false })
@@ -68,7 +56,7 @@ export function openWindowQuestion(db: DatabaseSync, ts: string, session: string
 }
 
 export function pendingRequests(db: DatabaseSync): StoredEvent[] {
-  return db.prepare(PENDING).all() as unknown as StoredEvent[]
+  return unanswered(db, WINDOW_REQUEST, ANSWERED_REQUEST).map(({ id, ts, type, actor, card_id, pr, head, dedupe_key, payload }) => ({ id, ts, type, actor, card_id, pr, head, dedupe_key, payload }))
 }
 
 export class WindowRequests {

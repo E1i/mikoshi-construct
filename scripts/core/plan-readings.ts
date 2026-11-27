@@ -25,6 +25,7 @@ const MEMBERS_OF_PLANS_IN_STATE = `
   JOIN plans ON plans.plan_id = card_releases.release
   WHERE plans.state = ? ORDER BY card_releases.card_id
 `
+const CARDS_OF_PLAN_ITEMS = 'SELECT cards FROM plan_items WHERE plan_id = ? ORDER BY item_id'
 const PLAN_TABLES = ['plans', 'card_releases']
 const TABLES_PRESENT = `SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (SELECT value FROM json_each(?))`
 
@@ -53,5 +54,9 @@ export const plans = {
   },
   inState(db: DatabaseSync, state: string): PlanRow[] {
     return db.prepare(PLANS_IN_STATE).all(state) as unknown as PlanRow[]
+  },
+  linkedCards(db: DatabaseSync, plan: string): number[] {
+    const items = db.prepare(CARDS_OF_PLAN_ITEMS).all(plan) as { cards: string }[]
+    return [...new Set(items.flatMap(item => JSON.parse(item.cards) as number[]))].sort((a, b) => a - b)
   },
 }

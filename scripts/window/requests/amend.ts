@@ -1,25 +1,27 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { EventRow } from '../../core/events-query.js'
 import type { CardBodiesBus, RequestContext, RequestExecutor } from './context.js'
 import type { AdmitResult, AmendedStop, AmendFlags, CardAdmissionsPort, CardEventPort } from './reach.js'
 import type { Executed, RequestPayload } from './request.js'
+import { bodyLineOf, heldCardStates } from '../../core/card-readings.js'
+import { events } from '../../core/events-query.js'
 import { withWitnessRecords, witnessRecordsOf } from '../../quality/witness-records.js'
-import { answerToResumeAfterAmend, appendCardEvent, bodyNotFoldedYet, BusDecisions, CARD_ADMITTED, CARD_BODIES, cardBodyText, cardIdOf, correctionText, INTAKE_ACTOR_PREFIX, inTransaction, laid, launchWaitsOf, layLanes, OPEN_OWNER_STOP_OF_CARD, queueAgain, repositoryLanes, runAmend } from './reach.js'
+import { answerToResumeAfterAmend, appendCardEvent, bodyNotFoldedYet, BusDecisions, CARD_ADMITTED, cardBodyText, cardIdOf, correctionText, INTAKE_ACTOR_PREFIX, inTransaction, laid, launchWaitsOf, layLanes, OPEN_OWNER_STOP_OF_CARD, queueAgain, repositoryLanes, runAmend } from './reach.js'
 import { messageOf, text } from './request.js'
 
 const HELD_WITHOUT_STATE = 'held'
-const CARD_STATES = `
-  SELECT card_id, state FROM cards WHERE state IS NOT NULL
-  UNION ALL
-  SELECT DISTINCT card_id, NULL FROM events WHERE card_id IS NOT NULL AND card_id NOT IN (SELECT card_id FROM cards WHERE state IS NOT NULL)
-`
-const LATEST_INTAKE_ADMISSION = `SELECT id, ts, payload FROM events WHERE legacy = 0 AND type = '${CARD_ADMITTED}' AND actor LIKE '${INTAKE_ACTOR_PREFIX}%' AND card_id = ? AND json_type(payload, '$.card') = 'text' AND json_extract(payload, '$.bodySha') IS NOT NULL ORDER BY id DESC LIMIT 1`
+
+function latestIntakeAdmission(db: DatabaseSync, cardId: number): EventRow | null {
+  return events(db, { types: [CARD_ADMITTED], card: cardId, actorPrefix: INTAKE_ACTOR_PREFIX, present: ['bodySha'], newestFirst: true })
+    .find(row => typeof row.data?.card === 'string') ?? null
+}
 
 function latestAdmissionOf(db: DatabaseSync): CardAdmissionsPort {
   return (cardId) => {
-    const row = db.prepare(LATEST_INTAKE_ADMISSION).get(cardId) as { id: number, ts: string | null, payload: string } | undefined
-    if (row === undefined)
+    const row = latestIntakeAdmission(db, cardId)
+    if (row === null)
       return null
-    const { card, bodySha, confirmation, source } = JSON.parse(row.payload) as { card: string, bodySha: unknown, confirmation: unknown, source: unknown }
+    const { card, bodySha, confirmation, source } = row.data as { card: string, bodySha: unknown, confirmation: unknown, source: unknown }
     const body = cardBodyText(db, cardId)
     const admission = { card, bodySha, ts: row.ts, confirmation, source, event: row.id }
     return withWitnessRecords(body === null ? admission : { ...admission, text: body }, witnessRecordsOf(db, cardId))
@@ -82,9 +84,9 @@ export const execute: RequestExecutor = (context, request, payload) => {
     return { done: false, why: `#${cardId}: this request runner was composed without the bus contract; amend runs only under bus:run` }
   if (bodyNotFoldedYet(bus, db, cardId))
     return { done: false, why: `#${cardId}: the bus has not folded its latest body yet; ask again on the next tick` }
-  const lane = (db.prepare(`SELECT lane FROM ${CARD_BODIES} WHERE card_id = ?`).get(cardId) as { lane: string | null } | undefined)?.lane ?? null
+  const lane = bodyLineOf(db, cardId)?.lane ?? null
   const stop = db.prepare(OPEN_OWNER_STOP_OF_CARD).get(cardId) as { id: number, payload: string } | undefined
-  const cardStates = (): Map<string, string> => new Map((db.prepare(CARD_STATES).all() as unknown as { card_id: number, state: string | null }[]).map(row => [String(row.card_id), row.state ?? HELD_WITHOUT_STATE]))
+  const cardStates = (): Map<string, string> => new Map([...heldCardStates(db)].map(([card, state]) => [String(card), state ?? HELD_WITHOUT_STATE]))
   const result = runAmend({ card: `#${cardId}`, flags: amendFlagsOf(payload), dir: context.repository, dryRun: false, autoConfirm: payload.auto_confirm === true, events: amendEvents(context, bus, request), admissions: latestAdmissionOf(db), decisions: new BusDecisions(db), cardStates, cardWaits: launchWaitsOf(db, context.repository) }, context.clock)
   const answered = amendAnswer(cardId, result, lane)
   return stop === undefined || result.status !== 'admitted' ? answered : { done: true, why: `${answered.why}; ${resumeAfterAmend(context, request, cardId, stop, payload)}` }

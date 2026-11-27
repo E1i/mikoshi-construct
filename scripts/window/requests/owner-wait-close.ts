@@ -1,8 +1,9 @@
 import type { RequestContext, RequestExecutor } from './context.js'
 import type { Executed } from './request.js'
+import { ownerWaitOf } from '../../core/card-readings.js'
 import { OWNER_SAY_COMMAND } from '../../core/owner-commands.js'
-import { activeDecisionsShard, allowMergeOfPrAtHead, ANSWER_SOURCE, appendEvent, BOARD_ALARM, cardBodyShaOfCard, closeOwnerWait, consumeOwnerWordClosing, deciderUnderAShard, decisionOnAWait, inTransaction, OPEN_OWNER_STOP_OF_CARD, OPEN_WAIT, OWNER_DECIDES, OWNER_SOURCE, OWNER_WAITS, OWNER_WORD_NOT_FOUND, ownerWordAwaited, QUEUE_ACTOR, queueTask, queueTaskWithin, reviewInputOf, SHARD_DECIDED, stopKindOf } from './reach.js'
-import { flagsOf, LIVE_TASK_OF_CARD, messageOf, OWNER_ANSWER_USAGE, OWNER_WORD_NEEDED, text, unreleasedWord } from './request.js'
+import { activeDecisionsShard, allowMergeOfPrAtHead, ANSWER_SOURCE, appendEvent, BOARD_ALARM, cardBodyShaOfCard, closeOwnerWait, consumeOwnerWordClosing, deciderUnderAShard, decisionOnAWait, inTransaction, OPEN_OWNER_STOP_OF_CARD, OPEN_WAIT, OWNER_DECIDES, OWNER_SOURCE, OWNER_WORD_NOT_FOUND, ownerWordAwaited, QUEUE_ACTOR, queueTask, queueTaskWithin, reviewInputOf, SHARD_DECIDED, stopKindOf } from './reach.js'
+import { flagsOf, liveTaskOf, messageOf, OWNER_ANSWER_USAGE, OWNER_WORD_NEEDED, text, unreleasedWord } from './request.js'
 
 interface WaitToClose {
   state: string
@@ -106,7 +107,7 @@ function deadEndWithin(context: RequestContext, at: Answered): string {
   const { cardId } = at
   if (at.wait.need === MERGE_NEED || at.stop !== null || context.routeOf(cardId, true) !== null)
     return ''
-  if (context.db.prepare(LIVE_TASK_OF_CARD).get(cardId) !== undefined || context.openSessionOf(cardId) !== null)
+  if (liveTaskOf(context.db, cardId) !== null || context.openSessionOf(cardId) !== null)
     return ''
   const detail = `the owner's answer to ${at.id} names no node action and card #${cardId} has no queued or leased task and no live session`
   appendEvent(context.db, { ts: context.now(), type: BOARD_ALARM, actor: QUEUE_ACTOR, cardId, pr: at.wait.pr, head: null, dedupeKey: `${BOARD_ALARM}:${DEAD_END_ALARM}:${cardId}:${at.request}`, payload: { reason: DEAD_END_ALARM, detail }, legacy: false })
@@ -162,7 +163,7 @@ function launchMove(context: RequestContext, at: Answered): Move {
       const session = context.openSessionOf(at.cardId)
       if (session !== null)
         return `card #${at.cardId} runs the session started at event ${session}, so no launch task is queued`
-      if ((context.db.prepare(LIVE_TASK_OF_CARD).get(at.cardId) as { queue: string } | undefined)?.queue === 'launch')
+      if (liveTaskOf(context.db, at.cardId)?.queue === 'launch')
         return `card #${at.cardId} has a launch task queued already`
       const queued = queueTaskWithin(context.db, context.now(), { queue: 'launch', cardId: at.cardId, generation })
       return `${queued ? 'queued' : 'already queued'} the launch task launch:${at.cardId}:${generation}`
@@ -229,8 +230,8 @@ export const execute: RequestExecutor = (context, request, payload) => {
     return { done: false, why: 'owner.wait.close needs an id Q<N> and an answer, or --from the owner channel' }
   if (from !== null && from !== ANSWER_SOURCE)
     return { done: false, why: `owner.wait.close --from ${from} is not ${ANSWER_SOURCE}; only the owner's word that ${OWNER_SAY_COMMAND} put into the owner channel closes a wait as the owner's answer` }
-  const wait = db.prepare(`SELECT state, card_id, need, pr FROM ${OWNER_WAITS} WHERE id = ?`).get(id) as WaitToClose | undefined
-  if (wait === undefined)
+  const wait: WaitToClose | null = ownerWaitOf(db, id)
+  if (wait === null)
     return { done: false, why: `${id} is not an owner wait the bus has reduced` }
   const stop = wait.card_id === null ? undefined : db.prepare(OPEN_OWNER_STOP_OF_CARD).get(wait.card_id) as { id: number, payload: string } | undefined
   if (from !== null || answer === null)

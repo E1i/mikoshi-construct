@@ -16,9 +16,9 @@ import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { BUS_DB_VARIABLE, busDirOf } from '../../core/bus-path.js'
 import { factoryMode } from '../../core/card-bodies.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { BOARD_ALARM, BUS_PULSE, CARD_ADMITTED, CARD_DROPPED, CARD_RELEASED, CARD_STOPPED, OWNER_WAIT_OPENED, PR_CLOSED, PR_OPENED, REQUEST_DONE, REQUEST_REFUSED, SHARD_ISSUED, WINDOW_REQUEST } from '../../core/events.js'
+import { BOARD_ALARM, BUS_PULSE, CARD_ADMITTED, CARD_DROPPED, CARD_RELEASED, CARD_STOPPED, OWNER_WAIT_OPENED, PLAN_CLOSED, PLAN_OPENED, PR_CLOSED, PR_OPENED, REQUEST_DONE, REQUEST_REFUSED, SHARD_ISSUED, TASK_REQUEUED, WINDOW_REQUEST } from '../../core/events.js'
 import { taskKey } from '../../core/identifiers.js'
-import { ownerInbox } from '../../core/inbox.js'
+import { OWNER, ownerInbox } from '../../core/inbox.js'
 import { failTask, leaseNext } from '../../core/lease.js'
 import { all as pullRequests } from '../../core/pr-readings.js'
 import { FAILURES_TO_STOP, queueTask, withdrawTask } from '../../core/queue.js'
@@ -433,6 +433,35 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     expect(made.requests().run()[0]).toMatchObject({ kind: 'refused', request: past })
     expect(answerOf(made, past).detail).toContain('the D-104 limit')
     expect(taskState(made.bench.db, key).state).toBe('stopped')
+  })
+
+  it('a requeue request needs a board.alarm that names its own task, not one that names another', () => {
+    const made = room()
+    const ts = made.bench.clock.now().toISOString()
+    appendEvent(made.bench.db, { ts, type: BOARD_ALARM, actor: 'supervisor', cardId: CARD, pr: null, head: null, dedupeKey: `${BOARD_ALARM}:another-task`, payload: { task_key: 'answer:another', reason: 'stalled' }, legacy: true })
+    const request = ask(made, { kind: 'requeue', task_key: 'answer:unalarmed' })
+    expect(made.requests().run()[0]).toMatchObject({ kind: 'refused', request })
+    expect(answerOf(made, request).detail).toBe(`no ${BOARD_ALARM} names answer:unalarmed`)
+  })
+
+  it('requeues the bus made on its own do not count toward the D-104 limit of requeues the window asked for', () => {
+    const made = room()
+    const key = alarmedAnswer(made)
+    const ts = made.bench.clock.now().toISOString()
+    for (let requeue = 0; requeue < FAILURES_TO_STOP; requeue += 1)
+      appendEvent(made.bench.db, { ts, type: TASK_REQUEUED, actor: 'supervisor', cardId: CARD, pr: PR, head: HEAD, dedupeKey: `${TASK_REQUEUED}:automatic:${requeue}`, payload: { task_key: key, queue: 'answer' }, legacy: true })
+    const request = ask(made, { kind: 'requeue', task_key: key })
+    expect(made.requests().run()[0]).toMatchObject({ kind: 'done', request })
+    expect(answerOf(made, request).detail).toContain(`requeue 1 of ${FAILURES_TO_STOP}`)
+  })
+
+  it('a plan.closed older than the plan.opened leaves the release open for a card', () => {
+    const made = room()
+    const ts = made.bench.clock.now().toISOString()
+    appendEvent(made.bench.db, { ts, type: PLAN_CLOSED, actor: OWNER, cardId: null, pr: null, head: null, dedupeKey: `${PLAN_CLOSED}:early`, payload: { plan: 'p-reopened' }, legacy: true })
+    appendEvent(made.bench.db, { ts, type: PLAN_OPENED, actor: OWNER, cardId: null, pr: null, head: null, dedupeKey: `${PLAN_OPENED}:later`, payload: { id: 'p-reopened', title: 't', goal: 'g', plan_file: '/plan.md', version: '0.47.0' }, legacy: true })
+    const request = ask(made, { kind: 'plan', op: 'add', plan: 'p-reopened', card: '#901' })
+    expect(made.requests().run()[0]).toMatchObject({ kind: 'done', request, detail: 'card.planned p-reopened #901' })
   })
 
   it('a request of an unknown kind is refused and becomes an owner question', () => {
