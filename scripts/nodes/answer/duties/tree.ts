@@ -1,9 +1,11 @@
 import type { CarriedTree } from '../../../core/lease.js'
+import type { UnselectedWitness } from '../../../ports/witnesses.js'
 import type { CardSession } from '../answer-source.js'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { processGit, throughGitPort } from '../../../ports/git.js'
 import { MAIN_BRANCH } from '../../../ports/snapshot.js'
+import { unselectedWitnessesLine, unselectedWitnessesOf } from '../../../ports/witnesses.js'
 
 export type TreeMerge = { kind: 'none' } | { kind: 'mid-merge', files: string[] } | { kind: 'unreadable', why: string }
 
@@ -25,6 +27,44 @@ function pushes(card: CardSession): boolean {
   catch {
     return false
   }
+}
+
+function headFileOf(worktree: string, file: string): string | null {
+  try {
+    return git(worktree, ['show', `HEAD:${file}`])
+  }
+  catch {
+    return null
+  }
+}
+
+export function unselectedAtHead(worktree: string, cardBody: string | null): UnselectedWitness[] {
+  return cardBody === null ? [] : unselectedWitnessesOf(cardBody, file => headFileOf(worktree, file))
+}
+
+function treeFileOf(worktree: string, file: string): string | null {
+  try {
+    return readFileSync(path.join(worktree, file), 'utf8')
+  }
+  catch {
+    return null
+  }
+}
+
+export function unselectedInTree(worktree: string, cardBody: string | null): UnselectedWitness[] {
+  return cardBody === null ? [] : unselectedWitnessesOf(cardBody, file => treeFileOf(worktree, file))
+}
+
+export class WitnessUnselected extends Error {
+  constructor(readonly unselected: readonly UnselectedWitness[]) {
+    super(`the bus pushed nothing: ${unselectedWitnessesLine(unselected)}; write each witness test under the card's witness file and its title verbatim`)
+  }
+}
+
+export function refuseUnselectedInTree(worktree: string, cardBody: string | null): void {
+  const unselected = unselectedInTree(worktree, cardBody)
+  if (unselected.length > 0)
+    throw new WitnessUnselected(unselected)
 }
 
 export function localHead(card: CardSession): string | null {
@@ -110,6 +150,7 @@ export type TreeOwned
     | { kind: 'kept', head: string }
     | { kind: 'pushed', head: string, commits: string[] }
     | { kind: 'reset', head: string, dropped: string[], dirty: boolean }
+    | { kind: 'unselected', head: string, unselected: UnselectedWitness[] }
 
 function linesOf(output: string): string[] {
   return output.split('\n').map(line => line.trim()).filter(line => line !== '')
@@ -140,7 +181,7 @@ function onlyMainMergedOver(state: CarriedTree, prHead: string): boolean {
 
 export type TreePushPolicy = 'none' | 'bus'
 
-export function ownCarriedTree(card: CardSession, prHead: string, policy: TreePushPolicy): TreeOwned {
+export function ownCarriedTree(card: CardSession, prHead: string, policy: TreePushPolicy, cardBody: string | null = null): TreeOwned {
   const state = carriedTreeState(card, prHead)
   if (state === null)
     throw new Error(`the tree ${card.worktree} of the card cannot be read against the pull request head ${prHead}`)
@@ -148,7 +189,11 @@ export function ownCarriedTree(card: CardSession, prHead: string, policy: TreePu
     return { kind: 'clean', head: prHead }
   if (policy === 'none')
     return { kind: 'kept', head: state.head }
-  if (onlyMainMergedOver(state, prHead) && pushes(card))
+  const mergedOnly = onlyMainMergedOver(state, prHead)
+  const unselected = mergedOnly ? unselectedAtHead(card.worktree, cardBody) : []
+  if (unselected.length > 0)
+    return { kind: 'unselected', head: state.head, unselected }
+  if (mergedOnly && pushes(card))
     return { kind: 'pushed', head: state.head, commits: state.localCommits }
   if (!processGit.succeeds(card.worktree, ['reset', '--hard', prHead]) || !processGit.succeeds(card.worktree, ['clean', '-fd']))
     throw new Error(`the tree ${card.worktree} of the card could not be reset to the pull request head ${prHead}`)

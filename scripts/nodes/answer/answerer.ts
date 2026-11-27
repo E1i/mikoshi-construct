@@ -6,6 +6,7 @@ import type { MachineGate } from '../../core/machine-sessions.js'
 import type { FailedJobLog } from '../../ports/ci-reading.js'
 import type { Denial, Invocation, ProcessCwds, SessionTool, Usage } from '../../ports/client/contract.js'
 import type { AnswerInput } from '../../ports/prompt-store.js'
+import type { UnselectedWitness } from '../../ports/witnesses.js'
 import type { FreshBaseGap } from '../launch/tree-pr.js'
 import type { AnswerSource, CardSession } from './answer-source.js'
 import type { CardConcept, Importers } from './concept-scope.js'
@@ -34,12 +35,14 @@ import { processGit } from '../../ports/git.js'
 import { identityOf, OsProcessTable } from '../../ports/process-table.js'
 import { CARD_SIZE_VARIABLE, CARD_VARIABLE, cardSessionOverlay, cardSizeIn, clientInvocation, sessionEnv, streamReading, WIDE_VITEST_RULE } from '../../ports/session.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
+import { unselectedWitnessesLine } from '../../ports/witnesses.js'
 import { isAlive } from '../../quality/lock.js'
 import { busSessionPulse } from '../../supervisor/heartbeat.js'
 import { projectRoot, realExitReadings, sessionGauges, UNKNOWN } from '../../window/eddies-measure.js'
 import { answerFollowed, commitAndPush, CONCEPT_RULES, followedLine, freshBaseProblem, freshBaseTask, worktreeCoverage, worktreeImporters } from '../launch/tree-pr.js'
 import { conceptWidening } from './concept-scope.js'
 import { answerPrompt, asksAboutRedCi, diffAgainstBase, gateLine, git, handoffLines, localHead, mergePrompt, pendingPathsOf, remoteHead, spawnClient } from './duties/index.js'
+import { unselectedInTree, WitnessUnselected } from './duties/tree.js'
 
 export const PREFIX = '[bus:answer] '
 export const ANSWER_BEAT_MS = 60_000
@@ -100,6 +103,7 @@ export interface AnswererTools {
   spawn: (run: AnswerRun) => Promise<number>
   newSession: () => string
   publish: (card: CardSession, commitMessage: string) => void
+  unselected?: (card: CardSession, cardBody: string | null) => UnselectedWitness[]
   pushPolicy?: (card: CardSession) => PushPolicy
   pulse?: AnswerPulse
   context?: (session: string) => number | null
@@ -221,6 +225,17 @@ function violationPrompt(lease: Lease, card: CardSession, ownerQuestion: string)
     `Your answer added an entry to ${KNOWN_VIOLATIONS}: a new dependency violation, and that file is outside the touches of card #${lease.cardId}. The bus dropped that change in ${card.worktree} and pushed nothing.`,
     `Your part: find a path without the violation — move the code, invert the import, or reach the dependency through a module the policy allows — and leave ${KNOWN_VIOLATIONS} as it is.`,
     `Then repeat the window gate of D-194 in ${card.worktree} and end the session; the bus pushes. Only if no path without the violation exists, write that for the owner, one line naming the import that cannot be avoided, to ${ownerQuestion}; the bus then pushes nothing.`,
+  ].join('\n')
+}
+
+const WITNESS_STEP = '.witness'
+
+export function unselectedWitnessPrompt(lease: Lease, card: CardSession, unselected: readonly UnselectedWitness[], ownerQuestion: string): string {
+  return [
+    `[answer:${lease.taskKey}]`,
+    `Red gate: a witness of card #${lease.cardId} selects no test in ${card.worktree}, so the bus pushed nothing: ${unselectedWitnessesLine(unselected)}.`,
+    `Your part: write each witness test under the card's witness file and its title verbatim, so its -t selects it; change neither the card's witnesses nor its body.`,
+    `Then repeat the window gate of D-194 in ${card.worktree} and end the session; the bus checks the witnesses again and pushes. Only if the card cannot go on, write that for the owner, one line, to ${ownerQuestion}.`,
   ].join('\n')
 }
 
@@ -540,6 +555,7 @@ export function realAnswererTools(busPath: string = defaultBusPath()): AnswererT
     spawn: spawnClient,
     newSession: randomUUID,
     publish: publishTree,
+    unselected: (card, cardBody) => unselectedInTree(card.worktree, cardBody),
     pushPolicy: pushPolicyOfTree,
     pending: pendingPathsOf,
     coverage: card => worktreeCoverage(git, card.worktree),
@@ -711,8 +727,22 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
         widened.forEach(file => widenedInConcept.add(file))
       return gap
     }
+    const witnessesSelected = async (): Promise<string | null> => {
+      const unselected = tools.unselected?.(card, cardBody) ?? []
+      if (unselected.length === 0)
+        return null
+      steps.push(WITNESS_STEP)
+      await run(invocationOf('resume', unselectedWitnessPrompt(request.lease, card, unselected, ownerQuestion)), WITNESS_STEP)
+      const owner = ownerAfter(WITNESS_STEP)
+      if (owner !== null)
+        return owner
+      const left = tools.unselected?.(card, cardBody) ?? []
+      if (left.length > 0)
+        throw new WitnessUnselected(left)
+      return null
+    }
     const publish = async (): Promise<string | null> => {
-      const noPath = await withoutTheNewViolation()
+      const noPath = await withoutTheNewViolation() ?? await witnessesSelected()
       if (noPath !== null)
         return noPath
       const gap = pushTree()
