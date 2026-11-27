@@ -1384,3 +1384,35 @@ describe('miko:watch wakes the window once per unchanged signal, whatever its ki
     expect(existsSync(path.join(handoff, WOKEN_SIGNALS))).toBe(true)
   })
 })
+
+describe('miko:watch reads observed heads and the last event of each pull request through the events contract', () => {
+  const HEAD_1 = '1'.repeat(40)
+  const HEAD_2 = '2'.repeat(40)
+
+  function written(bus: string, type: string, key: string, pr: number, head: string | null = null, cardId: number | null = null): number {
+    writeBusEvent(bus, type, QUEUE_ACTOR, key, '{}', pr, head, cardId)
+    const db = openBus(bus)
+    try {
+      return Number((db.prepare('SELECT max(id) AS id FROM events').get() as { id: number }).id)
+    }
+    finally {
+      db.close()
+    }
+  }
+
+  it('names the heads of a pull request in the order they were last observed', () => {
+    const bus = journal()
+    written(bus, PR_OBSERVED, 'observed:1', 7, HEAD_1)
+    written(bus, PR_OBSERVED, 'observed:2', 7, HEAD_2)
+    const last = written(bus, PR_OBSERVED, 'observed:3', 7, HEAD_1)
+    expect(productionDeps(path.dirname(bus), bus).observedHeads(7, last + 1)).toEqual([HEAD_2, HEAD_1])
+  })
+
+  it('keeps the last observation and the last witness of every pull request of one card', () => {
+    const bus = journal()
+    const ids = [PR_OBSERVED, WITNESS_RECORDED].flatMap(type => [written(bus, type, `${type}:7`, 7, null, 9), written(bus, type, `${type}:8`, 8, null, 9)])
+    const deps = productionDeps(path.dirname(bus), bus)
+    expect(deps.observedUpTo(ids.at(-1)!).map(event => event.id)).toEqual(ids.slice(0, 2))
+    expect(deps.witnessedUpTo(ids.at(-1)!).map(event => event.id)).toEqual(ids.slice(2))
+  })
+})

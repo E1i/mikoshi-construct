@@ -4,7 +4,7 @@ import { DatabaseSync as Sqlite } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { bodyAdmittedAfter, cardBodyLanes, cardsAmong, cardsWithAState, openCardWaits, openWaitEventsByCard, waitClosedBefore, waitStatesAmong } from '../../../core/card-readings.js'
 import { appendEvent, openBus } from '../../../core/db.js'
-import { all, byId, countOf, EITHER_JOURNAL, eventLog, events, lastTsPerActor, latest, latestOfCardWhere, latestTs, ofCard, ofPr, perCard, unspentShardRows } from '../../../core/events-query.js'
+import { all, byId, countOf, EITHER_JOURNAL, eventLog, events, firstOfTypesOrNewHeadSince, lastTsPerActor, latest, latestOfCardWhere, latestTs, ofCard, ofPr, perCard, unspentShardRows } from '../../../core/events-query.js'
 import { CARD_ADMITTED, CARD_ANSWERED, CARD_HELD, CARD_STARTED, CARD_STOPPED, DECISIONS_IMPORTED, DECISIONS_PROJECTED, OWNER_WAIT_CLOSED, PR_OBSERVED, QUESTION_AGENT, REVIEW_RECORDED, SHARD_ISSUED, TASK_COMPLETED, TASK_FAILED, TASK_RELEASED } from '../../../core/events.js'
 import { TREE_CARRIER_QUEUE } from '../../../core/lease.js'
 import { NETWATCH } from '../../../core/observations.js'
@@ -38,6 +38,7 @@ interface Seed {
   type: string
   card?: number | null
   pr?: number | null
+  head?: string | null
   key: string
   payload?: Record<string, unknown> | string
   ts?: string
@@ -46,7 +47,7 @@ interface Seed {
 }
 
 function append(db: DatabaseSync, seed: Seed): number {
-  appendEvent(db, { ts: seed.ts ?? TS, type: seed.type, actor: seed.actor ?? 'policy', cardId: seed.card ?? null, pr: seed.pr ?? null, head: null, dedupeKey: seed.key, payload: seed.payload ?? {}, legacy: seed.legacy ?? false })
+  appendEvent(db, { ts: seed.ts ?? TS, type: seed.type, actor: seed.actor ?? 'policy', cardId: seed.card ?? null, pr: seed.pr ?? null, head: seed.head ?? null, dedupeKey: seed.key, payload: seed.payload ?? {}, legacy: seed.legacy ?? false })
   return lastEventId(db)
 }
 
@@ -490,5 +491,24 @@ describe('the readings the window board takes from bus and card-record', () => {
       { id: 'Q1', need: 'merge', card: OTHER_CARD, since: TS, event_id: ids[0] },
       { id: 'Q2', need: 'decision', card: CARD, since: LATER, event_id: ids[1] },
     ])
+  })
+})
+
+describe('the first event of given types, or the first new head of an observed pull request, since a cursor', () => {
+  it('skips a repeated observation of the same head and stops at the first new head', () => {
+    const db = bus()
+    const first = append(db, { type: PR_OBSERVED, pr: PR, head: 'a'.repeat(40), key: 'o1' })
+    append(db, { type: PR_OBSERVED, pr: PR, head: 'a'.repeat(40), key: 'o2' })
+    const moved = append(db, { type: PR_OBSERVED, pr: PR, head: 'b'.repeat(40), key: 'o3' })
+    expect(firstOfTypesOrNewHeadSince(db, first, [REVIEW_RECORDED], PR_OBSERVED)).toBe(moved)
+  })
+
+  it('stops at an event of the given types before a later new head', () => {
+    const db = bus()
+    const first = append(db, { type: PR_OBSERVED, pr: PR, head: 'a'.repeat(40), key: 'o1' })
+    const reviewed = append(db, { type: REVIEW_RECORDED, card: CARD, pr: PR, key: 'r1' })
+    append(db, { type: PR_OBSERVED, pr: PR, head: 'b'.repeat(40), key: 'o2' })
+    expect(firstOfTypesOrNewHeadSince(db, first, [REVIEW_RECORDED], PR_OBSERVED)).toBe(reviewed)
+    expect(firstOfTypesOrNewHeadSince(db, reviewed + 1, [REVIEW_RECORDED], PR_OBSERVED)).toBeNull()
   })
 })

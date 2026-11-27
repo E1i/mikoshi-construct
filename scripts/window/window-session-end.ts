@@ -1,44 +1,24 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { EventRow } from '../core/events-query.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { CLOSED_CARD, DROPPED_CARD, MERGED_CARD } from '../core/card-automaton.js'
+import { cardsWithAState } from '../core/card-readings.js'
 import { appendEvent } from '../core/db.js'
+import { BY_CARD, byId, events, lastPer } from '../core/events-query.js'
 import { CARD_SESSION_ENDED, CARD_STARTED, PR_OPENED, WINDOW_HEARTBEAT } from '../core/events.js'
+import { ofCard as prsOfCard } from '../core/pr-readings.js'
 import { latestTurnOf } from '../core/queue.js'
-import { STARTER_ACTOR } from './window-prs.js'
+import { startedByTheWindow } from './window-prs.js'
 
 export const WINDOW_SESSION_END_ACTOR = 'worker:supervisor:window-session-end'
 export const WINDOW_SESSION_SWEEP_MS = 60_000
-const SESSION_ENDED_AFTER = `SELECT 1 FROM events WHERE card_id = ? AND legacy = 0 AND type = '${CARD_SESSION_ENDED}' AND id > ? LIMIT 1`
-const PR_OPENED_AFTER = `SELECT 1 FROM events WHERE card_id = ? AND legacy = 0 AND type = '${PR_OPENED}' AND id > ? LIMIT 1`
 
 export const SESSION_JOURNAL = '.construct/turns.jsonl'
 const SESSION_END_LINE = 'session-end'
-
-const STARTED_BY_A_WINDOW = `started.type = '${CARD_STARTED}' AND started.legacy = 0 AND started.actor LIKE '${STARTER_ACTOR}%' AND json_extract(started.payload, '$.shift') IS NULL AND json_extract(started.payload, '$.session') IS NOT NULL`
-
-const WINDOW_START_WITH_ITS_PR = `SELECT 1 FROM events AS started WHERE started.id = ? AND ${STARTED_BY_A_WINDOW} AND EXISTS (SELECT 1 FROM prs WHERE prs.card_id = started.card_id)`
-
-const UNENDED_WINDOW_STARTS = `
-  SELECT started.card_id, started.ts, started.dedupe_key, json_extract(started.payload, '$.session') AS session, json_extract(started.payload, '$.worktree') AS worktree FROM events AS started
-  LEFT JOIN cards ON cards.card_id = started.card_id
-  WHERE ${STARTED_BY_A_WINDOW}
-    AND started.id = (SELECT max(id) FROM events WHERE card_id = started.card_id AND type = '${CARD_STARTED}' AND legacy = 0)
-    AND coalesce(cards.state, '') NOT IN ('${MERGED_CARD}', '${CLOSED_CARD}', '${DROPPED_CARD}')
-    AND NOT EXISTS (SELECT 1 FROM events WHERE card_id = started.card_id AND id > started.id AND legacy = 0 AND type = '${CARD_SESSION_ENDED}')
-  ORDER BY started.card_id
-`
-
-const PROJECT_ROOTS_OF_SESSION = `SELECT DISTINCT json_extract(payload, '$.root') AS root FROM events WHERE type = '${WINDOW_HEARTBEAT}' AND legacy = 0 AND json_extract(payload, '$.session') = ? AND json_extract(payload, '$.root') IS NOT NULL`
-
-const LAST_BEAT_OF_SESSION = `SELECT max(ts) AS ts FROM events WHERE type = '${WINDOW_HEARTBEAT}' AND legacy = 0 AND json_extract(payload, '$.session') = ?`
-
-const ENDED_WINDOW_TURN = `
-  SELECT started.id, json_extract(started.payload, '$.session') AS session FROM events AS started
-  WHERE started.id = ${latestTurnOf('?')} AND ${STARTED_BY_A_WINDOW}
-    AND EXISTS (SELECT 1 FROM events WHERE card_id = started.card_id AND id > started.id AND legacy = 0 AND type = '${CARD_SESSION_ENDED}')
-    AND NOT EXISTS (SELECT 1 FROM prs WHERE prs.card_id = started.card_id AND prs.state = 'open')
-`
+const ENDED_CARDS = new Set([MERGED_CARD, CLOSED_CARD, DROPPED_CARD])
+const LATEST_TURN = `SELECT ${latestTurnOf('?')} AS id`
+const OPEN_PR = 'open'
 
 interface UnendedStart {
   card_id: number
@@ -46,6 +26,45 @@ interface UnendedStart {
   dedupe_key: string
   session: string
   worktree: string | null
+}
+
+interface WindowStart {
+  row: EventRow
+  session: string
+}
+
+function windowStartOf(row: EventRow | null): WindowStart | null {
+  const session = row?.data?.session ?? null
+  return row === null || row.type !== CARD_STARTED || row.legacy || session === null || !startedByTheWindow(row) ? null : { row, session: session as string }
+}
+
+function unendedWindowStarts(db: DatabaseSync): UnendedStart[] {
+  const states = cardsWithAState(db)
+  const ended = new Map(lastPer(db, BY_CARD, { types: [CARD_SESSION_ENDED] }).map(row => [row.card_id, row.id] as const))
+  return lastPer(db, BY_CARD, { types: [CARD_STARTED], withCard: true }).flatMap((row) => {
+    const start = windowStartOf(row)
+    const card = row.card_id!
+    if (start === null || row.ts === null || ENDED_CARDS.has(states.get(card) ?? '') || (ended.get(card) ?? 0) > row.id)
+      return []
+    const worktree = row.data?.worktree ?? null
+    return [{ card_id: card, ts: row.ts, dedupe_key: row.dedupe_key, session: start.session, worktree: worktree === null ? null : worktree as string }]
+  }).sort((a, b) => a.card_id - b.card_id)
+}
+
+interface SessionBeats {
+  roots: string[]
+  last: string | null
+}
+
+function beatsOfSession(db: DatabaseSync, session: string): SessionBeats {
+  const beats = events(db, { types: [WINDOW_HEARTBEAT], mentions: session }).filter(beat => beat.data?.session === session)
+  const roots = beats.flatMap(beat => beat.data?.root === undefined || beat.data.root === null ? [] : [beat.data.root as string])
+  const last = beats.flatMap(beat => beat.ts === null ? [] : [beat.ts]).sort().at(-1) ?? null
+  return { roots: [...new Set(roots)], last }
+}
+
+function endedAfterTheStart(db: DatabaseSync, cardId: number, startId: number, types: readonly string[]): boolean {
+  return events(db, { card: cardId, types, since: startId, limit: 1 }).length > 0
 }
 
 function journalText(root: string): string {
@@ -105,7 +124,7 @@ export class WindowSessionEnds {
   }
 
   private sweep(nowMs: number): string[] {
-    const starts = this.db.prepare(UNENDED_WINDOW_STARTS).all() as unknown as UnendedStart[]
+    const starts = unendedWindowStarts(this.db)
     const journals = new Map<string, Map<string, string>>()
     return starts.flatMap((start) => {
       const end = this.provenEnd(start, journals)
@@ -114,12 +133,12 @@ export class WindowSessionEnds {
   }
 
   private provenEnd(start: UnendedStart, journals: Map<string, Map<string, string>>): string | null {
-    const beats = this.db.prepare(PROJECT_ROOTS_OF_SESSION).all(start.session) as { root: string }[]
-    const roots = [this.root, ...(start.worktree === null ? [] : [start.worktree]), ...beats.map(beat => beat.root)]
+    const beats = beatsOfSession(this.db, start.session)
+    const roots = [this.root, ...(start.worktree === null ? [] : [start.worktree]), ...beats.roots]
     const end = [...new Set(roots)].flatMap(root => this.endsIn(root, journals).get(start.session) ?? []).sort().at(-1)
     if (end === undefined || !endedAfter(start.ts, end))
       return null
-    const lastBeat = (this.db.prepare(LAST_BEAT_OF_SESSION).get(start.session) as { ts: string | null }).ts
+    const lastBeat = beats.last
     return lastBeat !== null && Date.parse(lastBeat) > Date.parse(end) ? null : end
   }
 
@@ -138,13 +157,21 @@ export class WindowSessionEnds {
   }
 }
 
+function latestTurn(db: DatabaseSync, cardId: number): EventRow | null {
+  const id = (db.prepare(LATEST_TURN).get(cardId) as { id: number | null }).id
+  return id === null ? null : byId(db, Number(id))
+}
+
 export function windowSessionEndGround(db: DatabaseSync, cardId: number): { named: string } | null {
-  const turn = db.prepare(ENDED_WINDOW_TURN).get(cardId) as { id: number, session: string } | undefined
-  return turn === undefined ? null : { named: `its window session ${turn.session} started at event ${turn.id} has ended and no pull request of the card is open` }
+  const start = windowStartOf(latestTurn(db, cardId))
+  if (start === null || !endedAfterTheStart(db, start.row.card_id!, start.row.id, [CARD_SESSION_ENDED]) || prsOfCard(db, start.row.card_id!).some(pr => pr.state === OPEN_PR))
+    return null
+  return { named: `its window session ${start.session} started at event ${start.row.id} has ended and no pull request of the card is open` }
 }
 
 export function startStillOpen(db: DatabaseSync, cardId: number, startId: number): boolean {
-  if (db.prepare(WINDOW_START_WITH_ITS_PR).get(startId) !== undefined)
+  const start = windowStartOf(byId(db, startId))
+  if (start !== null && start.row.card_id !== null && prsOfCard(db, start.row.card_id).length > 0)
     return false
-  return [SESSION_ENDED_AFTER, PR_OPENED_AFTER].every(ended => db.prepare(ended).get(cardId, startId) === undefined)
+  return !endedAfterTheStart(db, cardId, startId, [CARD_SESSION_ENDED, PR_OPENED])
 }

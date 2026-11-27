@@ -167,7 +167,7 @@ describe('pnpm miko:exit waits for the window\'s subagents and card trees', () =
     expect(dirtyOpenCardTrees({ [WORKTREE_HOME_VARIABLE]: home }, busPath)).toEqual([taskWorktree(home, '1')])
   })
 
-  it('names only dirty trees of open bus cards: a dirty merged card tree or a clean open one does not count', () => {
+  it('names only dirty trees of open bus cards: a dirty merged card tree, a card with no state or a clean open one does not count', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'window-trees-'))
     roots.push(root)
     const busPath = path.join(root, 'bus', 'bus.db')
@@ -175,7 +175,7 @@ describe('pnpm miko:exit waits for the window\'s subagents and card trees', () =
     db.exec('PRAGMA foreign_keys = OFF')
     const insert = db.prepare('INSERT INTO cards (card_id, state, pr, event_id) VALUES (?, ?, NULL, 1)')
     const body = db.prepare('INSERT INTO card_bodies (card_id, admission_event_id, text, text_sha, who) VALUES (?, 1, \'\', \'\', \'window\')')
-    const cards = [[1, 'running'], [2, 'merged'], [3, 'in_review'], [4, 'closed']] as const
+    const cards = [[1, 'running'], [2, 'merged'], [3, 'in_review'], [4, 'closed'], [5, null]] as const
     for (const [id, state] of cards) {
       insert.run(id, state)
       body.run(id)

@@ -75,6 +75,7 @@
     "core/layer-map.js",
     "core/merge-event.js",
     "core/owner-commands.js",
+    "core/plan-readings.js",
     "core/pr-readings.js",
     "core/process-listing.js",
     "core/verification.js"
@@ -130,7 +131,8 @@
       "core/owner-commands.js",
       "core/verification.js",
       "core/pr-readings.js",
-      "nodes/restart/role-readings.js"
+      "nodes/restart/role-readings.js",
+      "core/plan-readings.js"
     ],
     "src/commands/doctor": [
       "core/bus-path.js",

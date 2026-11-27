@@ -186,11 +186,30 @@ describe('what does not prove a window session ended', () => {
     expect(sweep()).toEqual([])
   })
 
+  it('a start whose session end another writer already recorded is not swept again', () => {
+    const { made, root, later, sweep } = bench()
+    started(made)
+    const at = later()
+    sessionEnd(root, at)
+    appendEvent(made.db, { ts: later(), type: CARD_SESSION_ENDED, actor: 'worker:test:session-end', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_SESSION_ENDED}:${CARD}:another-writer`, payload: { session: SESSION, stopped: false }, legacy: false })
+    expect(sweep()).toEqual([])
+  })
+
   it('an end at the very moment of the start proves the end: the older-than check is strict', () => {
     const { made, root, sweep } = bench()
     started(made)
     const at = made.clock.now().toISOString()
     sessionEnd(root, at)
+    expect(sweep()).toEqual([endedLine(at)])
+  })
+
+  it('a later heartbeat of another session that only names this one in its root is not a resume', () => {
+    const { made, root, later, sweep } = bench()
+    started(made)
+    const at = later()
+    sessionEnd(root, at)
+    const ts = later()
+    appendEvent(made.db, { ts, type: WINDOW_HEARTBEAT, actor: 'worker:window:another', cardId: null, pr: null, head: null, dedupeKey: `${WINDOW_HEARTBEAT}:another:${ts}`, payload: { session: 'another', root: `/trees/${SESSION}` }, legacy: false })
     expect(sweep()).toEqual([endedLine(at)])
   })
 

@@ -60,6 +60,10 @@ export function all(db: DatabaseSync): PrRow[] {
   return selected(db, '')
 }
 
+export function open(db: DatabaseSync): PrRow[] {
+  return selected(db, 'WHERE state = ?', 'open')
+}
+
 export interface MainsSinceMechanics {
   mechanics: string
   shas: Set<string>
