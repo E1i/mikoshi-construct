@@ -15,8 +15,9 @@ import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { stripVTControlCharacters } from 'node:util'
+import { appendEvent } from '../../core/db.js'
 import { latest, ofCard } from '../../core/events-query.js'
-import { CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, POLICY_DENIED, QUESTION_AGENT, WITNESS_RECORDED } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_CLOSED, CARD_CONTINUED, CARD_SESSION_ENDED, CARD_STARTED, CARD_STOPPED, POLICY_DENIED, QUESTION_AGENT, WITNESS_PHASE, WITNESS_RECORDED } from '../../core/events.js'
 import { assertHeld, completeTask, failTask, RENEW_MS, StaleLease } from '../../core/lease.js'
 import { instanceOf, recordChildEnded, recordChildStarted } from '../../core/node.js'
 import { ofCard as prsOfCard } from '../../core/pr-readings.js'
@@ -106,6 +107,20 @@ export interface WitnessParts {
 
 export const UNFIT = 'unfit'
 export const WITNESS_UNFIT = 'witness_unfit'
+export const ON_BASE = 'base'
+export const ON_HEAD = 'head'
+
+const WITNESS_ID = /^(W[1-9]\d*):/
+const HEAD_STEP = 'P8 sketch'
+const SIDE_OF_STEP: Readonly<Record<string, string>> = { [BASE_PHASE]: ON_BASE, [HEAD_STEP]: ON_HEAD }
+
+export function witnessIdOf(witness: Witness, at: number): string {
+  return WITNESS_ID.exec(witness.criterion)?.[1] ?? `W${at + 1}`
+}
+
+function witnessIdsByCommand(witnesses: readonly Witness[]): Map<string, string> {
+  return new Map(witnesses.flatMap((witness, at) => [witness.command, ...witness.onBase === undefined ? [] : [witness.onBase.command]].map(command => [command, witnessIdOf(witness, at)] as const)))
+}
 
 export type NodeVerdict = WitnessVerdict | typeof UNFIT
 
@@ -389,7 +404,8 @@ export class WitnessExecutor {
     return this.parts.trees.withTree(main, async (tree) => {
       if (existsSync(path.join(tree, LOCKFILE)) && (await shell(INSTALL, tree)).status !== 0)
         return withFailureExcerpt(`${INSTALL} failed on main at ${main}`, last.result)
-      for (const witness of [...subject.acceptance, ...subject.invariants]) {
+      for (const [at, witness] of [...subject.acceptance, ...subject.invariants].entries()) {
+        this.phaseStarted(lease, ON_HEAD, witnessIdOf(witness, at))
         if ((await shell(witness.command, tree)).status !== 0)
           return withFailureExcerpt(`on main: "${witness.criterion}" exits ${last.result?.status ?? 'without a status'} at ${main}`, last.result)
       }
@@ -435,6 +451,15 @@ export class WitnessExecutor {
     catch (error) {
       this.parts.log(`${lease.taskKey}: the start of witness child ${pid} was not recorded: ${error instanceof Error ? error.message : String(error)}`)
       return false
+    }
+  }
+
+  private phaseStarted(lease: Lease, side: string, witness: string): void {
+    try {
+      appendEvent(this.parts.db, { ts: this.ts(), type: WITNESS_PHASE, actor: lease.actor, cardId: lease.cardId, pr: lease.pr, head: lease.head, dedupeKey: `${WITNESS_PHASE}:${lease.taskKey}:${lease.leaseGen}:${side}:${witness}`, payload: { phase: side, witness, task_key: lease.taskKey }, legacy: false })
+    }
+    catch (error) {
+      this.parts.log(`${lease.taskKey}: the ${side} step of ${witness} was not recorded: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
@@ -506,8 +531,13 @@ export class WitnessExecutor {
         return unfitJudgement(outside.map(({ witness, file }) => `witness "${witness.criterion}" names ${file}, absent on the base ${base} and outside the card's touches, creates and diff: a file another card writes`), outside.map(({ witness }) => witness), witnesses, changed)
       const budgeted = this.budgeted(deadline, last, head, lease)
       const onBase: BaseRun[] = []
+      const ids = witnessIdsByCommand(witnesses)
       let phase = ''
       const shell = async (command: string, cwd: string): Promise<ShellResult> => {
+        const side = SIDE_OF_STEP[phase]
+        const witness = ids.get(command)
+        if (side !== undefined && witness !== undefined)
+          this.phaseStarted(lease, side, witness)
         const result = await budgeted(command, cwd)
         if (phase === BASE_PHASE)
           onBase.push({ command, output: result.output })
