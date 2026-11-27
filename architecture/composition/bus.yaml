@@ -19,7 +19,9 @@ description: >-
   and writes one `release.run` per concluded run and conclusion, with its steps, verdict and failed step;
   a second tick writes nothing. It opens no wait: `releaseWaitsTick` in `scripts/supervisor/release-waits.ts`,
   wired by `orderAndShardTermTicks` in `scripts/supervisor/composition.ts` into the supervisor's order
-  tick, opens one owner wait for each red `release.run`, deduped by its run id.
+  tick, opens one owner wait for each red `release.run`, deduped by its run id, and one owner wait for each
+  main sha a `main.advanced` records with `ci` red, deduped by the sha its text names; a green `main.advanced`
+  opens none.
 doc: architecture/composition/bus.md
 boundaries:
   - id: entry
@@ -40,7 +42,7 @@ nodes:
     path: scripts/ports/netwatch.ts
     boundary: observe
   - id: releasewaits
-    label: releaseWaitsTick · one owner wait per red release.run · the supervisor's order tick
+    label: releaseWaitsTick · one owner wait per red release.run and per red main sha · the supervisor's order tick
     path: scripts/supervisor/release-waits.ts
     boundary: fold
   - id: requests
@@ -70,7 +72,7 @@ nodes:
 edges:
   - {from: root, to: netwatch, kind: sequence}
   - {from: netwatch, to: requests, kind: sequence, label: ticked}
-  - {from: netwatch, to: releasewaits, kind: wires, label: a red release.run}
+  - {from: netwatch, to: releasewaits, kind: wires, label: a red release.run or a red main.advanced}
   - {from: requests, to: reduce, kind: sequence}
   - {from: reduce, to: sliceparents, kind: sequence}
   - {from: sliceparents, to: queues, kind: sequence}
