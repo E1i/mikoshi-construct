@@ -7,14 +7,17 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { TICK_MS } from '../../core/cadence.js'
-import { OWNER_WAIT_OPENED, RELEASE_RUN } from '../../core/events.js'
+import { appendEvent } from '../../core/db.js'
+import { MAIN_ADVANCED, OWNER_WAIT_OPENED, RELEASE_RUN } from '../../core/events.js'
+import { GREEN_CI, RED_CI } from '../../core/order/turn.js'
 import { InMemoryCi, releaseRunOf } from '../../ports/ci-reading.js'
 import { NetWatch, NETWATCH_SCRIPT } from '../../ports/netwatch.js'
 import { openComposedBus, orderAndShardTermTicks, PR_HISTORY, requiredCheckAt } from '../../supervisor/composition.js'
-import { RELEASE_WAIT_ACTOR, releaseRunMark, unreleasedMainShas } from '../../supervisor/release-waits.js'
+import { redMainWaitText, RELEASE_WAIT_ACTOR, releaseRunMark, unreleasedMainShas } from '../../supervisor/release-waits.js'
 import { Clock, FakeGitHub, MAIN_1 } from '../bus/github-fake.js'
 
 const RUN_ID = 44616314560
+const RED_MAIN = 'e'.repeat(40)
 const FAILED_STEP = 'Version or publish'
 const roots: string[] = []
 const dbs: DatabaseSync[] = []
@@ -23,6 +26,10 @@ afterEach(() => {
   dbs.splice(0).forEach(db => db.close())
   roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true }))
 })
+
+function advanceMain(db: DatabaseSync, sha: string, ci: string, key = 'first'): void {
+  appendEvent(db, { ts: '2026-11-27T04:40:00.000Z', type: MAIN_ADVANCED, actor: 'netwatch', cardId: null, pr: null, head: null, dedupeKey: `main.advanced:${sha}:${ci}:${key}`, payload: { sha, ci, paths: [], pathsTruncated: false, touches_mechanics: false }, legacy: false })
+}
 
 function step(name: string, conclusion: string): NonNullable<RunJob['steps']>[number] {
   return { name, conclusion, startedAt: '2026-11-27T04:30:00Z', completedAt: '2026-11-27T04:38:00Z' }
@@ -147,6 +154,29 @@ describe('the bus observes the Release run of each main sha', () => {
     ]
     expect(releaseRunOf(runs)).toEqual({ databaseId: RUN_ID, status: 'completed', conclusion: 'failure' })
     expect(releaseRunOf(runs.slice(0, 2))).toBeNull()
+  })
+
+  it('a red main opens one owner wait per sha', () => {
+    const made = bench({ databaseId: RUN_ID, status: 'completed', conclusion: 'success' }, [releaseJob('success')])
+    advanceMain(made.db, RED_MAIN, RED_CI)
+    advanceMain(made.db, RED_MAIN, RED_CI, 'again')
+    made.tick()
+    made.tick()
+
+    const waits = made.waits()
+    expect(waits).toEqual([redMainWaitText(RED_MAIN)])
+    expect(waits[0]).toContain(RED_MAIN)
+    expect(waits[0]).toContain('CI on main red')
+    expect(made.waitNeeds()).toEqual(['decision'])
+  })
+
+  it('a green main opens no owner wait', () => {
+    const made = bench({ databaseId: RUN_ID, status: 'completed', conclusion: 'success' }, [releaseJob('success')])
+    advanceMain(made.db, RED_MAIN, GREEN_CI)
+    made.tick()
+    made.tick()
+
+    expect(made.waits()).toEqual([])
   })
 
   it('a release run still in progress records nothing until it concludes', () => {
