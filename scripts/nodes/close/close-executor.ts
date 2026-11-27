@@ -19,7 +19,7 @@ import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { archiveCardFile } from '../../intake/card-archive.js'
 import { cardContract } from '../../intake/card-contract.js'
 import { closeWitnessDenial, MERGE_RECORD, WITNESS_REASON } from '../../policy/policy.js'
-import { processGit } from '../../ports/git.js'
+import { portGit as git } from '../../ports/git.js'
 import { FREE_TREE_CAPACITY, liveSessionHolds, parkTree } from '../../ports/worktree.js'
 import { cardSessionOf } from '../answer/answer-source.js'
 
@@ -69,10 +69,6 @@ export interface CloseParts {
   silentMs: number
   trees?: CardTreeRemover
   cwds?: () => ProcessCwds
-}
-
-function git(repo: string, args: string[]): string {
-  return processGit.read(repo, args)
 }
 
 export function failureOf(error: unknown): string {

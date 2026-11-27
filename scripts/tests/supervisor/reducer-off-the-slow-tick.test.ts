@@ -21,6 +21,7 @@ import { lockedLine, REDUCER_LOOP_BUS_PATH, REDUCER_LOOP_HOME, REDUCER_LOOP_PERI
 import { BusTick, TICK_STEPS, tickWhileReducing } from '../../supervisor/run.js'
 import { requestFromWindow } from '../../window/window-requests.js'
 import { Clock, FakeGitHub } from '../bus/github-fake.js'
+import { NO_PR_HISTORY } from '../bus/net-watch-bench.js'
 
 const SLOW_TICK_MS = 60_000
 const REDUCED_WITHIN_MS = 5_000
@@ -82,7 +83,7 @@ function slowTick(db: DatabaseSync, done: () => boolean): { tick: BusTick, heldM
       holdTheThread(HOLD_STEP_MS)
     }
   }
-  return { tick: new BusTick(db, null, new NetWatchThatTicks(db, new FakeGitHub().client, clock.now, RUN_SCRIPT, () => REQUIRED_CHECK), clock.now, () => {}, () => {}, stalled), heldMs: () => heldMs }
+  return { tick: new BusTick(db, null, new NetWatchThatTicks(db, new FakeGitHub().client, clock.now, RUN_SCRIPT, () => REQUIRED_CHECK, NO_PR_HISTORY), clock.now, () => {}, () => {}, stalled), heldMs: () => heldMs }
 }
 
 function lagOf(db: DatabaseSync): number {

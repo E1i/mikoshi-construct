@@ -1,6 +1,7 @@
 import type { FollowingRow } from '../../../scripts/policy/touch-scope.js'
 import type { Kind } from '../../card/grammar.js'
 import type { RiskLevel } from '../../card/risk.js'
+import type { AdmittedReach } from '../../card/witness-fields.js'
 import type { EntryPoint } from '../../detect/entry-points.js'
 import type { DraftCard, DraftPlan, UnclearField } from './draft.js'
 import type { RepositoryFacts } from './facts.js'
@@ -14,12 +15,11 @@ import { CONTOURS, decisionsOf, KINDS } from '../../card/grammar.js'
 import { parseParkingFile } from '../../card/parking.js'
 import { RISK_LEVELS, riskOf, riskReading, touchedOrCreated } from '../../card/risk.js'
 import { touchError } from '../../card/task-file.js'
-import { commandInsideJudgedWrap } from '../../card/witness-fields.js'
+import { admittedReachOf as admittedReachWith, FACTORY_TWIN, isChangeWitness } from '../../card/witness-fields.js'
 import { detectEntryPoints, entryPointKindOf, importReach, isProductSource, packageDirOf } from '../../detect/entry-points.js'
 import { globToRegExp } from '../../model/glob.js'
 import { bashSyntaxProblem } from './bash-syntax.js'
 import { commandArguments, commandWord, HOME_REFERENCE, namesATest, pathsNamedBy, TEST_NAME_ARGUMENT } from './command-word.js'
-import { witnessKindField } from './draft.js'
 import { isWithin } from './parking-tree.js'
 
 export const DEFAULT_CONTOUR = 'cheap'
@@ -35,8 +35,6 @@ const PROSE_STEP = /→|->|\b(?:PR body|by hand|manually)\b/i
 const DEVICE_ROOT = '/dev/'
 const INFORMATION_FLAGS = new Set(['-v', '-V', '--version', '-h', '--help'])
 const TREE_READING_COMMANDS = new Set(['pnpm', 'npm', 'npx', 'yarn', 'node', 'git', 'vitest', 'tsx', 'tsc', 'eslint'])
-const CHANGE_WITNESS_WORDING = /\b(?:red on (?:main|the base|base)|fails on (?:main|the base|base))\b/i
-const CHANGE_WITNESS_KIND = 'acceptance'
 const IMPLEMENT_KIND = 'implement'
 const FIELD_ORDER = ['number', 'contour', 'decision', 'touches', 'creates', 'depends', 'blocks']
 
@@ -89,18 +87,14 @@ export function cardRiskOf(cardId: number, card: string | null): RiskLevel | nul
   return reached.length === 0 ? null : riskReading(reached, false).level
 }
 
-export interface AdmittedReach {
-  touches: string[]
-  runs: string[]
-}
+export { COVERING_REASON } from '../../card/covering-tests.js'
 
 export function admittedReachOf(cardId: number, cardBody: string | null): AdmittedReach {
-  const parsed = cardBody === null ? null : parseParkingFile(`${cardId}.md`, cardBody)
-  return parsed?.kind === 'parked' ? { touches: parsed.parked.task.touches, runs: runsOf(parsed.parked.task.body) } : { touches: [], runs: [] }
+  return admittedReachWith(cardId, cardBody, runsOf)
 }
 
 const MAX_LISTED_TESTS_PER_DIRECTORY = 6
-export { COVERING_REASON } from '../../card/covering-tests.js'
+export type { AdmittedReach } from '../../card/witness-fields.js'
 
 export interface Correction {
   field: string
@@ -327,7 +321,7 @@ export function nonPathTouchRefusals(cards: readonly DraftCard[], repository: Re
   })
 }
 
-export const FACTORY_TWIN = GENERATED_FILES.factory.path
+export { FACTORY_TWIN }
 export const FACTORY_TWIN_SOURCE = 'scripts/contract/factory/*.ts'
 export const FACTORY_TWIN_REASON = `${FACTORY_TWIN} is a generated twin: its source is ${FACTORY_TWIN_SOURCE}, the session neither reads nor edits it, and the bus rebuilds it with pnpm ${GENERATED_FILES.factory.rebuild.join(' ')} and commits it with the sources that changed it`
 
@@ -506,13 +500,8 @@ function headIndependentUnclear(commands: readonly string[], witness: string, re
   return commands.some(command => readsTheTree(command, reach)) ? [] : [{ field: 'witnesses', reason: `witness "${witness.trim()}" reads nothing the tree under test can change; its result does not depend on the head` }]
 }
 
-export function unjudgedCommand(command: string): string {
-  return commandInsideJudgedWrap(command) ?? command
-}
-
-export function isChangeWitness(witness: string): boolean {
-  return (witnessKindField(witness) ?? (CHANGE_WITNESS_WORDING.test(witness) ? CHANGE_WITNESS_KIND : undefined)) === CHANGE_WITNESS_KIND
-}
+export { isChangeWitness }
+export { unjudgedCommand } from '../../card/witness-fields.js'
 
 function baseGreenUnclear(card: DraftCard, commands: readonly string[], witness: string, reach: WitnessReach): UnclearField[] {
   if (card.kind !== IMPLEMENT_KIND || !isChangeWitness(witness) || commands.some(command => namesATest(command) || namedPaths(command, reach).length > 0))

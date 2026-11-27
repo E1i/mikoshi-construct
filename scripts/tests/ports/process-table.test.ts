@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { excludedCommandsWritten, PROCESS_TABLE_COMMAND } from '../../../src/commands/attach/settings.js'
 import { psPgid } from '../../nodes/launch/launch-starter.js'
 import { commandLineOf } from '../../nodes/restart/chain-process.js'
-import { InMemoryProcessTable, OsProcessTable, parseListing, rowOf } from '../../ports/process-table.js'
+import { InMemoryProcessTable, OsProcessTable, parseListing, rowOf, userProcessCount } from '../../ports/process-table.js'
 import { outsideOwnGroup } from '../../supervisor/supervisor.js'
 
 afterEach(() => {
@@ -38,6 +38,13 @@ function pathWithBusyListing(): string {
 function pathWhereTheSandboxRefusesAllButTheExcludedLine(): string {
   const dir = mkdtempSync(path.join(tmpdir(), 'process-table-sandboxed-'))
   writeFileSync(path.join(dir, 'ps'), `#!/bin/sh\nif [ "ps $*" = "${PROCESS_TABLE_COMMAND}" ]; then echo '${BUSY_LINE}'; exit 0; fi\necho "ps: Operation not permitted" >&2\nexit 1\n`)
+  chmodSync(path.join(dir, 'ps'), 0o755)
+  return `${dir}${path.delimiter}${process.env.PATH}`
+}
+
+function pathListingThreePidsFor(uid: number): string {
+  const dir = mkdtempSync(path.join(tmpdir(), 'process-table-user-'))
+  writeFileSync(path.join(dir, 'ps'), `#!/bin/sh\nif [ "$*" = "-U ${uid} -o pid=" ]; then printf '  11\\n  12\\n  13\\n'; exit 0; fi\nexit 1\n`)
   chmodSync(path.join(dir, 'ps'), 0o755)
   return `${dir}${path.delimiter}${process.env.PATH}`
 }
@@ -96,6 +103,14 @@ describe('the process table port', () => {
 
     expect(snapshot.readable).toBe(false)
     expect(snapshot.readable ? '' : snapshot.reason).toContain(reason)
+  })
+
+  it('the count of a user\'s processes is the lines ps lists for that uid, and is null when ps cannot be run', () => {
+    vi.stubEnv('PATH', pathListingThreePidsFor(501))
+    expect(userProcessCount(501)).toBe(3)
+    expect(userProcessCount(502)).toBeNull()
+    vi.stubEnv('PATH', pathWithFailingListing())
+    expect(userProcessCount(501)).toBeNull()
   })
 
   it('the in-memory adapter holds the client cwds and the cpu sample it is given', () => {

@@ -18,7 +18,7 @@ import { recordDecision } from '../../policy/decisions/index.js'
 import { Meter } from '../../ports/meter.js'
 import { NetWatch, NETWATCH_SCRIPT } from '../../ports/netwatch.js'
 import { ciOf } from '../../ports/snapshot.js'
-import { busProjections, requiredCheckAt } from '../../supervisor/composition.js'
+import { busProjections, PR_HISTORY, requiredCheckAt } from '../../supervisor/composition.js'
 import { standaloneRequiredCheck } from '../../supervisor/netwatch-root.js'
 import { Clock, FakeGitHub, sha } from '../bus/github-fake.js'
 import { liveBench } from '../bus/merge-bench.js'
@@ -105,7 +105,7 @@ describe('attach records the job of the gate candidate and the bus reads it as t
       const db = openBus(path.join(dir, 'bus.db'))
       const gitHub = new FakeGitHub()
       gitHub.open({ number: 900, review: 'success' })
-      new NetWatch(db, gitHub.client, new Clock().now, NETWATCH_SCRIPT, () => requiredCheckAt(root)).poll()
+      new NetWatch(db, gitHub.client, new Clock().now, NETWATCH_SCRIPT, () => requiredCheckAt(root), PR_HISTORY).poll()
       const row = db.prepare('SELECT payload FROM events WHERE type = ?').get('pr.observed')
       db.close()
       return (JSON.parse(String(row?.payload)) as { ci: unknown }).ci

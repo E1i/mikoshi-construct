@@ -4,7 +4,7 @@ import type { InForceDecision } from '../policy/decisions/index.js'
 import type { ProcessTable } from '../ports/process-table.js'
 import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from './bg.js'
 import type { LivesNow } from './generation-handover.js'
-import type { ProcessBeat } from './heartbeat.js'
+import type { ProcessBeat, VitalsReading } from './heartbeat.js'
 import type { SignalSent } from './signal-sent.js'
 import { spawnSync } from 'node:child_process'
 import { appendFileSync, readFileSync, realpathSync, statSync } from 'node:fs'
@@ -36,7 +36,7 @@ import { BusSnapshot } from './bus-snapshot.js'
 import { busProjections, cardTransitions, orderAndShardTermTicks, recordOwnStart, reviewLaunch } from './composition.js'
 import { freeLeasesOf, judgedLeaseLines, workerKindsOf } from './executor-lease.js'
 import { DRAIN_LIMIT_MS, DRAIN_WHY, GenerationHandover, recordRestarted, RETIRING_WORKERS } from './generation-handover.js'
-import { CARD_PROCESS, lastProcessBeats, ownStart, recordProcessHeartbeat, retiredRowsLines, retirePreviousGeneration } from './heartbeat.js'
+import { CARD_PROCESS, HOST_VITALS, lastProcessBeats, ownStart, recordProcessHeartbeat, retiredRowsLines, retirePreviousGeneration } from './heartbeat.js'
 import { beatsLive, SILENT_MS } from './liveness-sites.js'
 import { installedGeneration, ownPackage } from './package-generation.js'
 import { generationEnv, identifiedOnBus, identifiedProcesses, readableRows, recordedPidLives, runningAs } from './recorded-worker.js'
@@ -767,14 +767,14 @@ export class LivenessJudge {
   private lastBeat = Number.NEGATIVE_INFINITY
   private readonly restartedAt = new Map<string, number>()
 
-  constructor(private readonly db: DatabaseSync, private readonly now: () => number, private readonly expected: () => ExpectedRunning, private readonly restart: (process: string) => Promise<string[]> = async () => [], private readonly startOf?: ProcessStartOf) {}
+  constructor(private readonly db: DatabaseSync, private readonly now: () => number, private readonly expected: () => ExpectedRunning, private readonly restart: (process: string) => Promise<string[]> = async () => [], private readonly startOf?: ProcessStartOf, private readonly vitals: VitalsReading | null = null) {}
 
   async step(): Promise<string[]> {
     try {
       const nowMs = this.now()
       const ts = new Date(nowMs).toISOString()
       if (nowMs - this.lastBeat >= SUPERVISOR_BEAT_MS) {
-        recordProcessHeartbeat(this.db, ts, SUPERVISOR_PROCESS)
+        recordProcessHeartbeat(this.db, ts, SUPERVISOR_PROCESS, undefined, this.vitals)
         this.lastBeat = nowMs
       }
       const lines: string[] = []
@@ -1019,7 +1019,7 @@ async function supervise(busDir: string, cwd: string, reviewOfTheBus: DetachedLa
     await superviseUntilReplaced({
       supervisor,
       keeper,
-      judge: new LivenessJudge(db, () => Date.now(), () => expectedRunning(db, wanted()), restartJudged, psStartOf),
+      judge: new LivenessJudge(db, () => Date.now(), () => expectedRunning(db, wanted()), restartJudged, psStartOf, HOST_VITALS),
       windowEnds: new WindowSessionEnds(db, cwd, () => Date.now(), PREFIX),
       windowSubagents: new WindowSubagentTick(db, cwd, () => Date.now(), PREFIX),
       order: orderAndShardTermTicks(db, cwd),

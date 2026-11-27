@@ -82,6 +82,18 @@ function cwdsIn(output: string): string[] {
   return output.split('\n').filter(line => line.startsWith(CWD_FIELD)).map(line => line.slice(CWD_FIELD.length))
 }
 
+const USER_COUNT_TIMEOUT_MS = 2_000
+
+export function userProcessCount(uid: number): number | null {
+  try {
+    const listed = execFileSync('ps', ['-U', String(uid), '-o', 'pid='], { encoding: 'utf8', timeout: USER_COUNT_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'ignore'] })
+    return listed.split('\n').filter(line => line.trim() !== '').length
+  }
+  catch {
+    return null
+  }
+}
+
 export class OsProcessTable implements ProcessTable {
   snapshot(): ProcessSnapshot {
     try {

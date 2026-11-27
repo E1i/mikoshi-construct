@@ -3,6 +3,7 @@ import type { Card } from '../../src/card/grammar.js'
 import type { ParkedTask } from '../../src/card/parking.js'
 import type { CheapForecast } from '../../src/commands/cost/index.js'
 import type { Signal, SignalStyle } from '../../src/ui/signal.js'
+import type { BusEventRow } from '../core/bus-contract.js'
 import type { BusEvent } from '../core/db.js'
 import type { BodyAdmission } from '../core/queue.js'
 import type { CardBodyReader } from '../intake/parking-reads.js'
@@ -13,11 +14,11 @@ import { RISK_LEVELS, RISK_PREFIX } from '../../src/card/risk.js'
 import { bodySha, bodyShaWithoutTouches } from '../../src/commands/intake/confirm.js'
 import { readMilestones } from '../../src/manifest.js'
 import { PLAIN_STYLE, renderSignal } from '../../src/ui/signal.js'
-import { NOT_A_BACKFILL } from '../core/backfill-source.js'
+import { isBackfill } from '../core/backfill-source.js'
 import { unsatisfiedDependencies } from '../core/card-automaton.js'
 import { appendEvent, inTransaction, openBus } from '../core/db.js'
 import { ENTRY_RESULT, ENTRY_SCHEMA } from '../core/entry.js'
-import { CARD_ADMITTED, CARD_STARTED } from '../core/events.js'
+import { CARD_ADMITTED, CARD_STARTED, INTAKE_EVENT, INTAKE_MOVE_EVENT } from '../core/events.js'
 import { legacyHistory } from '../core/legacy-history.js'
 import { ADMIT_COMMAND, pnpmCommand } from '../core/owner-commands.js'
 import * as prs from '../core/pr-readings.js'
@@ -77,16 +78,30 @@ type Admission
     | { kind: 'admitted', by: 'waiver', flag: string, reason: string }
     | { kind: 'refused', reason: string }
 
-const LATEST_ADMISSION = `SELECT ts, dedupe_key, payload FROM events WHERE type = '${CARD_ADMITTED}' AND legacy = 0 AND card_id = ? AND ${NOT_A_BACKFILL} ORDER BY id DESC LIMIT 1`
-const ADMISSION_SOURCES = `
-  SELECT source.payload FROM events admitted
-  JOIN events source ON source.legacy = 1 AND source.dedupe_key = json_extract(admitted.payload, '$.admission')
-  WHERE admitted.type = '${CARD_ADMITTED}' AND admitted.legacy = 0 AND admitted.card_id = ?
-  ORDER BY admitted.id DESC
-`
-interface AdmittedRow { ts: string, dedupe_key: string, payload: string }
+type AdmittedRow = Pick<BusEventRow, 'ts' | 'dedupe_key' | 'payload'>
 
-const LAUNCH_LEASE = `SELECT 1 FROM tasks WHERE queue = 'launch' AND state = '${LEASED}' AND card_id = ?`
+const ADMISSION_SOURCE_TYPES = [INTAKE_EVENT, INTAKE_MOVE_EVENT]
+
+function admissionsNewestFirst(contract: TaskStartContract, db: DatabaseSync, cardId: number): BusEventRow[] {
+  return contract.ofCard(db, cardId, { types: [CARD_ADMITTED], legacy: false, newestFirst: true })
+}
+
+function latestAdmissionOf(contract: TaskStartContract, db: DatabaseSync, cardId: number): BusEventRow | null {
+  return admissionsNewestFirst(contract, db, cardId).find(row => row.data === null || !isBackfill(row.data)) ?? null
+}
+
+function admissionSourcesOf(contract: TaskStartContract, db: DatabaseSync, cardId: number): BusEventRow[] {
+  const keys = admissionsNewestFirst(contract, db, cardId).map(admitted => admitted.data?.admission).filter(key => typeof key === 'string')
+  if (keys.length === 0)
+    return []
+  const sourceOf = new Map(contract.events(db, { types: ADMISSION_SOURCE_TYPES, legacy: true }).map(source => [source.dedupe_key, source]))
+  return keys.flatMap(key => sourceOf.get(key) ?? [])
+}
+
+function launchLeased(contract: TaskStartContract, db: DatabaseSync, cardId: number | null): boolean {
+  return cardId !== null && contract.tasksOfCard(db, cardId, { queue: 'launch' }).some(task => task.state === LEASED)
+}
+
 const STARTER_SESSION_BY_HAND = 'by-hand'
 
 function unsatisfiedIn(contract: TaskStartContract, bus: string, depends: readonly number[]): number[] {
@@ -146,21 +161,20 @@ function stringField(json: string, field: string): string | undefined {
   }
 }
 
-function admittedCardLine(db: DatabaseSync, id: number, latest: AdmittedRow): string | undefined {
+function admittedCardLine(contract: TaskStartContract, db: DatabaseSync, id: number, latest: AdmittedRow): string | undefined {
   const own = stringField(latest.payload, 'card')
   if (own !== undefined)
     return own
-  const sources = db.prepare(ADMISSION_SOURCES).all(id) as { payload: string }[]
-  return sources.map(source => stringField(source.payload, 'card')).find(line => line !== undefined)
+  return admissionSourcesOf(contract, db, id).map(source => stringField(source.payload, 'card')).find(line => line !== undefined)
 }
 
-function busAdmission(bus: string, card: Card, withoutIntake: string): Admission | undefined {
+function busAdmission(contract: TaskStartContract, bus: string, card: Card, withoutIntake: string): Admission | undefined {
   const db = openBus(bus)
   try {
-    const admitted = db.prepare(LATEST_ADMISSION).get(card.id) as AdmittedRow | undefined
-    if (admitted === undefined)
+    const admitted = latestAdmissionOf(contract, db, card.id)
+    if (admitted === null)
       return undefined
-    const admittedLine = admittedCardLine(db, card.id, admitted)
+    const admittedLine = admittedCardLine(contract, db, card.id, admitted)
     if (admittedLine !== undefined && !sameCard(admittedLine, card))
       return { kind: 'refused', reason: `card #${card.id} was admitted in the bus ${bus} as a different card (${admittedLine}) by ${admitted.dedupe_key}: admit the current card through ${ADMIT_COMMAND}, or pass ${withoutIntake} "<reason>" to record an exception` }
     const body = cardBodyAdmissionOf(db, card.id)
@@ -171,10 +185,10 @@ function busAdmission(bus: string, card: Card, withoutIntake: string): Admission
   }
 }
 
-function admission(bus: string, card: Card, waiver: string | undefined, withoutIntake: string): Admission {
+function admission(contract: TaskStartContract, bus: string, card: Card, waiver: string | undefined, withoutIntake: string): Admission {
   if (waiver !== undefined)
     return { kind: 'admitted', by: 'waiver', flag: withoutIntake, reason: waiver }
-  return busAdmission(bus, card, withoutIntake) ?? { kind: 'refused', reason: `card #${card.id} has no ${CARD_ADMITTED} in the bus ${bus}: it was not admitted; admit it through ${ADMIT_COMMAND}, or pass ${withoutIntake} "<reason>" to record an exception` }
+  return busAdmission(contract, bus, card, withoutIntake) ?? { kind: 'refused', reason: `card #${card.id} has no ${CARD_ADMITTED} in the bus ${bus}: it was not admitted; admit it through ${ADMIT_COMMAND}, or pass ${withoutIntake} "<reason>" to record an exception` }
 }
 
 function admissionRecord(admitted: Exclude<Admission, { kind: 'refused' }>): Record<string, string> {
@@ -188,11 +202,11 @@ function admissionRecord(admitted: Exclude<Admission, { kind: 'refused' }>): Rec
 
 type StartWrite = { kind: 'written' } | { kind: 'launch-owns-it' }
 
-function recordStart(bus: string, event: BusEvent): StartWrite {
+function recordStart(contract: TaskStartContract, bus: string, event: BusEvent): StartWrite {
   const db = openBus(bus)
   try {
     return inTransaction(db, (): StartWrite => {
-      if (db.prepare(LAUNCH_LEASE).get(event.cardId) !== undefined)
+      if (launchLeased(contract, db, event.cardId))
         return { kind: 'launch-owns-it' }
       appendEvent(db, event)
       return { kind: 'written' }
@@ -353,7 +367,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
     return refuse(`card #${id} depends on ${unsatisfied.map(dependency => `#${dependency}`).join(', ')}, which are not merged and not closed by a report; nothing written`)
   let admitted: Admission
   try {
-    admitted = admission(deps.bus, card, args.waiver, flags.withoutIntake)
+    admitted = admission(deps.contract, deps.bus, card, args.waiver, flags.withoutIntake)
   }
   catch (error) {
     return refuse(`the bus ${deps.bus} could not be read: ${firstLine(error)}; nothing written`)
@@ -381,7 +395,7 @@ export function runTaskStart(argv: string[], deps: TaskStartDeps, handed?: Hande
   const event: BusEvent = { ts: at, type: CARD_STARTED, actor: `${STARTER_ACTOR}${deps.session ?? STARTER_SESSION_BY_HAND}`, cardId: card.id, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${id}:${branch}:${at}`, payload: { ...start, entry: { schema: ENTRY_SCHEMA, ...entry } }, legacy: false }
   let written: StartWrite
   try {
-    written = recordStart(deps.bus, event)
+    written = recordStart(deps.contract, deps.bus, event)
   }
   catch (error) {
     return refuse(`${ready.failedAppend} but ${CARD_STARTED} could not be written to the bus ${deps.bus}: ${firstLine(error)}`)

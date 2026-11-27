@@ -16,6 +16,7 @@ import { busPrFolds, gateRunSpoolPlaces } from '../../supervisor/composition.js'
 import { GateRunSpool } from '../../supervisor/gate-run-spool.js'
 import { BusTick, PREFIX, TICK_STEPS, tickLines } from '../../supervisor/run.js'
 import { Clock, FakeGitHub } from '../bus/github-fake.js'
+import { NO_PR_HISTORY } from '../bus/net-watch-bench.js'
 
 const TS = '2026-11-18T00:00:00.000Z'
 const RUN: GateRun = { source: 'prepush', mode: 'layered', reason: 'touched layers', seconds: 42, round: null, card: 2011, moduleFiles: false, tests: 3 }
@@ -58,7 +59,7 @@ function tickOver(root: string): { db: DatabaseSync, tick: () => string[] } {
   buses.push(db)
   const clock = new Clock()
   const spool = new GateRunSpool(db, { homes: [root], spool: GATE_RUN_SPOOL }, PREFIX)
-  const busTick = new BusTick(db, { folds: [busPrFolds()], incremental: [] }, new NetWatchThatTicks(db, new FakeGitHub().client, clock.now, RUN_SCRIPT, () => REQUIRED_CHECK), clock.now, () => {}, () => {}, () => {}, () => spool.step())
+  const busTick = new BusTick(db, { folds: [busPrFolds()], incremental: [] }, new NetWatchThatTicks(db, new FakeGitHub().client, clock.now, RUN_SCRIPT, () => REQUIRED_CHECK, NO_PR_HISTORY), clock.now, () => {}, () => {}, () => {}, () => spool.step())
   return { db, tick: () => tickLines(busTick.run()!) }
 }
 

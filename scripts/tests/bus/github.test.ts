@@ -1,6 +1,6 @@
 import type { GhSpawned } from '../../ports/gh.js'
 import { describe, expect, it } from 'vitest'
-import { GhBudgetWindow, ghPort } from '../../ports/gh.js'
+import { GH_ATTEMPTS, GhBudgetWindow, ghPort } from '../../ports/gh.js'
 import { BUDGET_SPENT_STATUS, ghApi, ghApiPatch, ghApiPut, NO_ANSWER_STATUS } from '../../ports/github.js'
 
 const included = (code: number, body: string): GhSpawned => ({ status: code === 200 ? 0 : 1, stdout: `HTTP/2.0 ${code} X\r\nX-Ratelimit-Remaining: 9\r\n\r\n${body}\n`, stderr: code === 200 ? '' : `gh: no (HTTP ${code})` })
@@ -27,9 +27,10 @@ describe('the bus reads GitHub through the gh port', () => {
     expect(calls).toHaveLength(1)
   })
 
-  it('a call that got no HTTP answer is a technical response naming the endpoint and the reason, never an exception', () => {
-    const { gitHub } = apiOver([{ status: 1, stdout: '', stderr: 'could not resolve host' }])
+  it('a call that got no HTTP answer is retried as a host fault and then is a technical response naming the endpoint and the reason, never an exception', () => {
+    const { gitHub, calls } = apiOver(Array.from({ length: GH_ATTEMPTS }, () => ({ status: 1, stdout: '', stderr: 'could not resolve host' })))
     expect(gitHub('repos/o/r')).toEqual({ status: NO_ANSWER_STATUS, headers: {}, body: { message: 'gh api repos/o/r: gh api --include --method GET repos/o/r: could not resolve host' } })
+    expect(calls).toHaveLength(GH_ATTEMPTS)
     const garbled = apiOver([{ status: 0, stdout: 'not http', stderr: '' }])
     expect(garbled.gitHub('repos/o/r').status).toBe(NO_ANSWER_STATUS)
   })

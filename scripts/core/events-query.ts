@@ -1,6 +1,6 @@
 import type { DatabaseSync, SQLInputValue, SQLOutputValue } from 'node:sqlite'
 import type { StoredEvent } from './stored.js'
-import { CARD_ADMITTED, MERGE_DONE, PR_CLOSED, PR_STATUS_SET, PROCESS_HEARTBEAT, REVIEW_RECORDED, SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, SHARD_USED } from './events.js'
+import { CARD_ADMITTED, MAIN_ADVANCED, MERGE_DONE, PR_CLOSED, PR_OBSERVED, PR_STATUS_SET, PROCESS_HEARTBEAT, REVIEW_RECORDED, SHARD_EXPIRED, SHARD_ISSUED, SHARD_REVOKED, SHARD_USED } from './events.js'
 import { payloadOf, Rejection } from './stored.js'
 
 export type { Reading, ReadProjection, StaleProjection } from './bus-readings.js'
@@ -169,6 +169,28 @@ export function events(db: DatabaseSync, query: EventsQuery = {}): EventRow[] {
   return (db.prepare(sql).all(...values) as unknown as RawRow[]).map(rowOf)
 }
 
+export function countOf(db: DatabaseSync, query: EventsQuery = {}): number {
+  if (matchesNothing(query))
+    return 0
+  const { where, values } = whereClause(query)
+  return Number((db.prepare(`SELECT count(*) AS n FROM events${where}`).get(...values) as { n: number }).n)
+}
+
+export function latestTs(db: DatabaseSync, query: EventsQuery = {}): string | null {
+  if (matchesNothing(query))
+    return null
+  const { where, values } = whereClause(query)
+  const ts = (db.prepare(`SELECT max(ts) AS ts FROM events${where}`).get(...values) as { ts: string | null }).ts
+  return ts === null ? null : String(ts)
+}
+
+const LAST_TS_PER_ACTOR = 'SELECT actor, max(ts) AS ts FROM events WHERE legacy = 0 AND actor IS NOT NULL GROUP BY actor'
+
+export function lastTsPerActor(db: DatabaseSync): Map<string, string> {
+  const rows = db.prepare(LAST_TS_PER_ACTOR).all() as { actor: string, ts: string }[]
+  return new Map(rows.map(row => [String(row.actor), String(row.ts)]))
+}
+
 export const BY_CARD = 'card_id'
 
 export type EventKey = typeof BY_CARD | `$.${string}`
@@ -276,6 +298,30 @@ export function byId(db: DatabaseSync, id: number): EventRow | null {
 
 export function latest(db: DatabaseSync, query: EventsQuery): EventRow | null {
   return events(db, { ...query, newestFirst: true, limit: 1 })[0] ?? null
+}
+
+const PR_LIFECYCLE = [PR_OBSERVED, PR_CLOSED]
+
+export function lastPrLifecycleEvent(db: DatabaseSync, pr: number): EventRow | null {
+  return latest(db, { types: PR_LIFECYCLE, pr, legacy: EITHER_JOURNAL })
+}
+
+export function openPrsAmong(db: DatabaseSync, recorded: readonly number[]): number[] {
+  const lastObservedAt = new Map<number, number>()
+  const lastClosedAt = new Map<number, number>()
+  for (const row of events(db, { types: PR_LIFECYCLE, withPr: true, legacy: EITHER_JOURNAL }))
+    (row.type === PR_OBSERVED ? lastObservedAt : lastClosedAt).set(Number(row.pr), row.id)
+  const open = new Set(recorded.filter(pr => !lastClosedAt.has(pr)))
+  for (const [pr, observedAt] of lastObservedAt) {
+    if (observedAt > (lastClosedAt.get(pr) ?? 0))
+      open.add(pr)
+  }
+  return [...open].sort((a, b) => a - b)
+}
+
+export function lastMainSha(db: DatabaseSync): string | null {
+  const sha = latest(db, { types: [MAIN_ADVANCED], legacy: EITHER_JOURNAL })?.data?.sha
+  return typeof sha === 'string' ? sha : null
 }
 
 const UNENDED_WINDOW_SHARDS = `

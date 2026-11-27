@@ -1,5 +1,5 @@
-import os from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 
 export interface CardGrant {
   card: number
@@ -10,7 +10,7 @@ export interface CardGrant {
   excludedCommands: readonly string[]
 }
 
-const SANDBOX_UID = os.userInfo().uid
+const SANDBOX_UID = process.getuid?.() ?? -1
 
 export const GRANT_SCRATCH_DIRECTORY = `/tmp/claude-${SANDBOX_UID}/codex-live-hooks`
 
