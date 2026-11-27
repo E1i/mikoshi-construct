@@ -220,7 +220,7 @@ export function riskReading(touches: readonly string[], complexitySliced: boolea
 }
 
 const UNSLICED_SIZE = 'XS'
-const WHOLE_XS = 'intake keeps an XS card whole: its risk slices would be one change cut into cards that wait on each other'
+const WHOLE_XS = 'intake keeps an XS card whole: its risk slices would be one change split across cards that wait on each other'
 const WHOLE_SECURITY = 'intake keeps a security-invariants row and the code that changes it whole: the row and its code are one change'
 
 export function riskWholeReason(reading: RiskReading, size: string): string | null {

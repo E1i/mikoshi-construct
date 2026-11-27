@@ -18,8 +18,9 @@ const LINT_MS = 120_000
 const CARD_RUNS = 'scripts/ci/card-runs.ts'
 const CHECK_CATALOG = 'scripts/cli/check-catalog.ts'
 const INTAKE = 'scripts/intake/intake.ts'
-const FILES = [CARD_RUNS, CHECK_CATALOG, INTAKE]
-const OWNER_OF = { [CARD_RUNS]: 'quality', [CHECK_CATALOG]: 'quality', [INTAKE]: 'intake' }
+const PARKING_READS = 'scripts/intake/parking-reads.ts'
+const FILES = [CARD_RUNS, CHECK_CATALOG, INTAKE, PARKING_READS]
+const OWNER_OF = { [CARD_RUNS]: 'quality', [CHECK_CATALOG]: 'quality', [INTAKE]: 'intake', [PARKING_READS]: 'intake' }
 
 async function ruleWithoutExceptions(): Promise<ESLint> {
   const eslint = new ESLint({ cwd: REPO_ROOT })

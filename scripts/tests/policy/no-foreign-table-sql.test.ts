@@ -21,8 +21,8 @@ const MODULE_FILES = JSON.parse(readFileSync(path.join(REPO_ROOT, 'contract/modu
 const A_FILE_WITH_NO_MODULE = 'scripts/core/foreign-sql-probe.ts'
 const A_FILE_OF_PR_RECORD = 'scripts/nodes/review/pr-rerun.ts'
 const A_TEST_FILE = 'scripts/tests/core/foreign-sql-probe.test.ts'
-const AN_EXCEPTED_FILE = 'scripts/core/legacy-history.ts'
 const THE_REPORT_REPLAY = 'scripts/core/report.ts'
+const AN_EXCEPTED_FILE = THE_REPORT_REPLAY
 const WHOLE_LIST_MS = 300_000
 
 const eslint = new ESLint({ cwd: REPO_ROOT })

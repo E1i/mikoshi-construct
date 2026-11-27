@@ -27,6 +27,8 @@ const OWNER_OF: Record<string, string> = {
   'scripts/supervisor/reducer-loop.ts': 'session',
   'scripts/supervisor/supervisor.ts': 'session',
   'scripts/window/eddies-measure.ts': 'window',
+  'scripts/core/legacy-history.ts': 'session',
+  'src/card/risk.ts': 'card-model',
 }
 const FILES = Object.keys(OWNER_OF)
 
