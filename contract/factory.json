@@ -2792,7 +2792,7 @@
         "namedIn": [
           "scripts/intake/card-archive.ts",
           "scripts/intake/lane-json.ts",
-          "src/commands/intake/admit.ts"
+          "src/card/grammar.ts"
         ],
         "owner": "scripts/nodes/launch/lane-assign.ts",
         "source": "event:lane.assigned",
@@ -3635,6 +3635,7 @@
           "src/card/task-file.ts",
           "src/card/risk.ts",
           "src/card/complexity.ts",
+          "src/card/closed.ts",
           "scripts/policy/touch-scope.ts",
           "scripts/policy/derived-files.ts",
           "scripts/policy/placement-growth.ts"
@@ -3654,6 +3655,7 @@
           "src/card/task-file.ts",
           "src/card/risk.ts",
           "src/card/complexity.ts",
+          "src/card/closed.ts",
           "scripts/policy/touch-scope.ts",
           "scripts/policy/derived-files.ts",
           "scripts/policy/placement-growth.ts"
@@ -3670,7 +3672,8 @@
           "scripts/intake/admissions.ts",
           "scripts/intake/card-archive.ts",
           "scripts/intake/card-contract.ts",
-          "scripts/intake/witness-fields-backfill.ts",
+          "scripts/intake/lane-json.ts",
+          "scripts/intake/parking-reads.ts",
           "scripts/cli/card.ts",
           "scripts/core/card-automaton.ts",
           "scripts/core/card-hold.ts",
@@ -3695,7 +3698,8 @@
           "scripts/intake/admissions.ts",
           "scripts/intake/card-archive.ts",
           "scripts/intake/card-contract.ts",
-          "scripts/intake/witness-fields-backfill.ts",
+          "scripts/intake/lane-json.ts",
+          "scripts/intake/parking-reads.ts",
           "scripts/cli/card.ts",
           "scripts/core/card-automaton.ts",
           "scripts/core/card-hold.ts",
@@ -3956,8 +3960,6 @@
         "concepts": [],
         "contract": [
           "scripts/intake/bus-intake.ts",
-          "scripts/intake/lane-json.ts",
-          "scripts/intake/parking-reads.ts",
           "src/commands/intake/admit.ts",
           "src/commands/intake/amend.ts",
           "src/commands/intake/bash-syntax.ts",
@@ -3998,6 +4000,8 @@
           "!scripts/intake/card-archive.ts",
           "!scripts/intake/card-contract.ts",
           "!scripts/intake/intake.ts",
+          "!scripts/intake/lane-json.ts",
+          "!scripts/intake/parking-reads.ts",
           "!scripts/intake/witness-fields-backfill.ts",
           "!src/commands/intake/command-word.ts"
         ],
@@ -4789,7 +4793,7 @@
           "scripts/core/legacy-history.ts",
           "scripts/core/import-closure.ts",
           "scripts/core/cadence.ts",
-          "src/card/closed.ts",
+          "scripts/intake/witness-fields-backfill.ts",
           "scripts/cli/slot.ts",
           "src/commands/liveness.ts",
           "scripts/supervisor/bg.ts",
@@ -4829,7 +4833,7 @@
           "scripts/core/legacy-history.ts",
           "scripts/core/import-closure.ts",
           "scripts/core/cadence.ts",
-          "src/card/closed.ts",
+          "scripts/intake/witness-fields-backfill.ts",
           "scripts/cli/slot.ts",
           "src/commands/liveness.ts",
           "scripts/supervisor/**",
@@ -5255,12 +5259,15 @@
       },
       "src/card/grammar.ts": {
         "constants": [
+          "ADMIT_SOURCE",
           "CARD_PATH_REASON",
+          "LANE_FILE",
           "SIZES"
         ],
         "functions": {
           "cardLine": "(card: Omit<Card, 'line'>): string",
           "cardTerms": "(card: Card): string",
+          "isLaneName": "(name: string): boolean",
           "parseCard": "(text: string, milestones?: readonly string[]): ParsedCard",
           "readBodyCard": "(body: string): ParsedCard",
           "registerCardFunctions": "(db: DatabaseSync, blocks: string): DatabaseSync"
@@ -5322,7 +5329,9 @@
         "types": {}
       },
       "src/card/witness-fields.ts": {
-        "constants": [],
+        "constants": [
+          "FACTORY_TWIN"
+        ],
         "functions": {
           "admittedTouchesOf": "(cardId: number, cardBody: string | null): string[]",
           "fieldCommand": "(field: Pick<WitnessField, 'run' | 'test'>): string",
@@ -5664,14 +5673,9 @@
       },
       "src/commands/intake/admit.ts": {
         "constants": [
-          "ADMIT_SOURCE",
-          "AMEND_SOURCE",
-          "LANE_FILE"
+          "AMEND_SOURCE"
         ],
-        "functions": {
-          "isLaneName": "(name: string): boolean",
-          "pathsNamedOutside": "(parked: ParkedTask, text: string): string[]"
-        },
+        "functions": {},
         "reexports": [
           "parentsFromCardLines"
         ],

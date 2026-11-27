@@ -52,7 +52,7 @@ const BUS_CONTRACT = [
 
 const SESSION_CONTRACT = [
   ...core('machine-sessions.ts', 'eddies.ts', 'journal.ts', 'tasks.ts', 'handoff-dir.ts', 'handoff-fields.ts', 'handoff-status.ts', 'chain.ts', 'places.ts', 'report.ts', 'legacy-history.ts', 'import-closure.ts', 'cadence.ts'),
-  'src/card/closed.ts',
+  factory('intake/witness-fields-backfill.ts'),
   factory('cli/slot.ts'),
   'src/commands/liveness.ts',
   ...supervisor('bg', 'heartbeat', 'liveness-sites', 'scheduler', 'stamp', 'supervisor', 'workers'),
@@ -62,7 +62,7 @@ const INTAKE_COMMAND = 'src/commands/intake'
 const CI_COMMAND = 'src/commands/ci'
 
 const INTAKE_CONTRACT = [
-  ...within(factory('intake'), 'bus-intake.ts', 'lane-json.ts', 'parking-reads.ts'),
+  factory('intake/bus-intake.ts'),
   ...within(INTAKE_COMMAND, 'admit.ts', 'amend.ts', 'bash-syntax.ts', 'check.ts', 'confirm.ts', 'draft.ts', 'export.ts', 'facts.ts', 'index.ts', 'move.ts', 'numbers.ts', 'parking-tree.ts', 'shared-code-masks.ts', 'slice.ts'),
 ]
 

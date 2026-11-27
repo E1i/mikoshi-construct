@@ -8,8 +8,8 @@ import { realpathSync } from 'node:fs'
 import os from 'node:os'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { appendEvent, defaultBusPath, inTransaction, openBus, recordBeat, retirePreviousGenerationBeats } from '../core/db.js'
-import { BY_CARD, EITHER_JOURNAL, events, lastPer, latest, processBeats } from '../core/events-query.js'
+import { appendEvent, defaultBusPath, inTransaction, openBus, recordBeat } from '../core/db.js'
+import { BY_CARD, events, lastPer, processBeats } from '../core/events-query.js'
 import { BOARD_ALARM, PROCESS_HEARTBEAT, SESSION_HEARTBEAT, WINDOW_HEARTBEAT } from '../core/events.js'
 import { prOf } from '../core/identifiers.js'
 import { LEASE_FOLDS } from '../core/lease.js'
@@ -19,6 +19,10 @@ import { isFullSha } from '../ports/identifier-shapes.js'
 import { CARD_VARIABLE, clientAdapter } from '../ports/session.js'
 import { projectRoot, sessionGauges } from '../window/eddies-measure.js'
 import { crossedVitals, hostDegradedCause, sampleVitals } from './host-vitals.js'
+
+export type { LastHeartbeat } from '../core/card-readings.js'
+export { lastHeartbeat } from '../core/card-readings.js'
+export { pidOfProcess, retirePreviousGeneration } from '../core/db.js'
 
 export const PR_VARIABLE = 'CONSTRUCT_PR'
 export const HEAD_VARIABLE = 'CONSTRUCT_HEAD'
@@ -92,20 +96,6 @@ export function lastProcessBeats(db: DatabaseSync): ProcessBeat[] {
   return latestOfEachProcess([...processBeats(db), ...cards, ...windowBeats(db)])
 }
 
-const PID_OF_PROCESS = /:([1-9]\d*)$/
-
-export function pidOfProcess(name: string): number | null {
-  const found = PID_OF_PROCESS.exec(name)
-  return found === null ? null : Number(found[1])
-}
-
-export function retirePreviousGeneration(db: DatabaseSync, generationStart: string, ts: string, pidGone: (pid: number) => boolean): string[] {
-  return retirePreviousGenerationBeats(db, generationStart, ts, (name) => {
-    const pid = pidOfProcess(name)
-    return pid !== null && pidGone(pid)
-  })
-}
-
 export function retiredRowsLines(prefix: string, retired: readonly string[]): string[] {
   return retired.length === 0 ? [] : [`${prefix}retired the heartbeat rows of a previous generation whose processes are gone: ${retired.join(', ')}; the board no longer counts them, and a fresh beat under the same name counts again`]
 }
@@ -149,14 +139,6 @@ export function measureSession(session: string): BeatReading {
 
 export function measureCardSession(session: string): BeatReading {
   return beatReading(os.homedir(), projectRoot(process.env), session)
-}
-
-export interface LastHeartbeat {
-  ts: string
-  pr: number | null
-  head: string | null
-  step: string | null
-  session: string | null
 }
 
 export function heartbeatEnv(lease: Pick<Lease, 'cardId' | 'pr' | 'head' | 'queue'> & Partial<Pick<Lease, 'taskKey' | 'leaseGen'>>): Record<string, string> {
@@ -203,19 +185,6 @@ export function recordHeartbeat(db: DatabaseSync, ts: string, beat: Heartbeat, m
     if (appendEvent(db, event))
       LEASE_FOLDS[SESSION_HEARTBEAT]!(db, storedByKey(db, dedupeKey))
   })
-}
-
-function textField(payload: Record<string, unknown>, key: string): string | null {
-  const value = payload[key]
-  return typeof value === 'string' ? value : null
-}
-
-export function lastHeartbeat(db: DatabaseSync, card: number): LastHeartbeat | null {
-  const row = latest(db, { types: [SESSION_HEARTBEAT], card, legacy: EITHER_JOURNAL })
-  if (row === null)
-    return null
-  const payload = row.data ?? {}
-  return { ts: row.ts, pr: row.pr, head: row.head, step: textField(payload, 'step'), session: textField(payload, 'session') }
 }
 
 export interface LeaseBeat {

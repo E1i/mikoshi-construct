@@ -1,8 +1,6 @@
-import type { BusCardStates } from '../../src/card/closed.js'
 import type { Card } from '../../src/card/grammar.js'
 import { existsSync, readFileSync } from 'node:fs'
 import { parseCard } from '../../src/card/grammar.js'
-import { cardsWithAState } from './card-readings.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from './db.js'
 import { events } from './events-query.js'
 import { CARD_STARTED } from './events.js'
@@ -120,18 +118,6 @@ export function cardStartedLines(busPath: string): StartRecord[] {
   try {
     return events(db, { types: [CARD_STARTED] }).flatMap(row =>
       row.card_id === null || row.data === null ? [] : [{ ...row.data, event: 'path' as const, task: String(row.card_id), ts: row.ts }])
-  }
-  finally {
-    db.close()
-  }
-}
-
-export function busCardStates(busPath: string): BusCardStates {
-  if (!existsSync(busPath))
-    return new Map()
-  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
-  try {
-    return new Map([...cardsWithAState(db)].map(([card, state]) => [String(card), state]))
   }
   finally {
     db.close()

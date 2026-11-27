@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { LANE_FILE } from '../../src/commands/intake/admit.js'
+import { LANE_FILE } from '../../src/card/grammar.js'
 
 export { LANE_FILE }
 export const UNKNOWN = 'unknown'
