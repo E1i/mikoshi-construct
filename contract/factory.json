@@ -6986,6 +6986,7 @@
         ],
         "functions": {
           "cardScopeOfAdmitted": "(cardId: number, text: string, creates: readonly string[]): CardScope | null",
+          "declaredTestNames": "(source: string): string[] | null",
           "grepMatchProbe": "(command: string): string | null",
           "grepRefusal": "(witness: Witness, sides: string): string",
           "namedOutsideTheCard": "(tree: string, witness: Witness, scope: CardScope | null, changed: readonly string[]): string[]",
@@ -6993,6 +6994,8 @@
           "runOnTree": "(run: TreeRun, task: TreeTask): void",
           "runOnTreeAsync": "(run: AsyncTreeRun, task: TreeTask): Promise<void>",
           "testTargetOf": "(command: string): TestTarget | null",
+          "unselectedWitnessesLine": "(unselected: readonly UnselectedWitness[]): string",
+          "unselectedWitnessesOf": "(cardBody: string, readHead: (file: string) => string | null): UnselectedWitness[]",
           "witnessesFindingNoTest": "(witnesses: readonly Witness[], onBase: readonly BaseRun[]): Witness[]"
         },
         "language": "technology",
@@ -7012,7 +7015,8 @@
           "TestTarget": "interface TestTarget { file: string; name: string | null; }",
           "Timer": "type Timer = <T>(name: string, run: () => T) => T",
           "TreeRun": "interface TreeRun extends TreeContext { shell: Shell; time: Timer; }",
-          "TreeTask": "interface TreeTask { acceptance: Witness[]; invariants: Witness[]; harnessCommand: string | null; sketchSha: string | null; changed: string[] | null; witnessesDir: string; creates: string[]; }"
+          "TreeTask": "interface TreeTask { acceptance: Witness[]; invariants: Witness[]; harnessCommand: string | null; sketchSha: string | null; changed: string[] | null; witnessesDir: string; creates: string[]; }",
+          "UnselectedWitness": "interface UnselectedWitness { id: string; test: string; file: string; declared: string[] | null; }"
         }
       },
       "scripts/ports/worktree-home.ts": {

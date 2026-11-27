@@ -3,7 +3,7 @@ import type { CardScope } from '../../src/commands/test-runner.js'
 import type { Shell, ShellResult } from './worktree.js'
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { admittedTouchesOf, isChangeWitness, unjudgedCommand } from '../../src/card/witness-fields.js'
+import { admittedTouchesOf, isChangeWitness, unjudgedCommand, witnessFieldsOf } from '../../src/card/witness-fields.js'
 import { pathsNamedBy } from '../../src/commands/intake/command-word.js'
 import { namedAbsentOutside, testRunnerOf } from '../../src/commands/test-runner.js'
 import { commandLine, GENERATED_FILES } from '../core/generated-files.js'
@@ -111,6 +111,157 @@ export function testTargetOf(command: string): TestTarget | null {
     return null
   const named = TEST_NAME.exec(command)
   return { file, name: named === null ? null : named[1] ?? named[2] ?? named[3] }
+}
+
+const SUITE_WORDS = new Set(['describe', 'suite'])
+const TEST_WORDS = new Set(['it', 'test', 'bench'])
+const TABLE_WORDS = new Set(['each', 'for'])
+const QUOTES = new Set(['\'', '"', '`'])
+const CALL_CHAIN = /[A-Z_$][\w$]*(?:\s*\.\s*[A-Z_$][\w$]*)*/iy
+const CHAIN_DOT = /\s*\.\s*/
+const IDENTIFIER_START = /[A-Z_$]/i
+const IDENTIFIER_CHAR = /[\w$.]/
+const WHITESPACE = /\s/
+const INTERPOLATION = '${'
+const ESCAPED = /\\(.)/g
+
+type Frame = string | null | undefined
+
+interface Scan {
+  frames: Frame[]
+  names: string[]
+  dynamic: boolean
+}
+
+function quotedEnd(source: string, at: number): number {
+  let index = at + 1
+  while (index < source.length && source[index] !== source[at])
+    index += source[index] === '\\' ? 2 : 1
+  return index + 1
+}
+
+function commentEnd(source: string, at: number): number | null {
+  if (source.startsWith('//', at)) {
+    const end = source.indexOf('\n', at)
+    return end === -1 ? source.length : end
+  }
+  if (source.startsWith('/*', at)) {
+    const end = source.indexOf('*/', at + 2)
+    return end === -1 ? source.length : end + 2
+  }
+  return null
+}
+
+function skipWhitespace(source: string, at: number): number {
+  let index = at
+  while (index < source.length && WHITESPACE.test(source[index]!))
+    index += 1
+  return index
+}
+
+function titleAt(source: string, at: number): string | null {
+  const start = skipWhitespace(source, at)
+  if (!QUOTES.has(source[start] ?? ''))
+    return null
+  const raw = source.slice(start + 1, quotedEnd(source, start) - 1)
+  return source[start] === '`' && raw.includes(INTERPOLATION) ? null : raw.replace(ESCAPED, '$1')
+}
+
+function suiteTitles(frames: readonly Frame[]): string[] {
+  return frames.filter((frame): frame is string => typeof frame === 'string')
+}
+
+function openCall(source: string, scan: Scan, words: string[], paren: number): void {
+  const [head] = words
+  const title = words.some(word => TABLE_WORDS.has(word)) ? null : titleAt(source, paren + 1)
+  const declares = SUITE_WORDS.has(head!) || TEST_WORDS.has(head!)
+  if (declares && title === null)
+    scan.dynamic = true
+  if (SUITE_WORDS.has(head!) && title !== null) {
+    scan.frames.push(title)
+    return
+  }
+  if (TEST_WORDS.has(head!) && title !== null)
+    scan.names.push([...suiteTitles(scan.frames), title].join(' '))
+  scan.frames.push(undefined)
+}
+
+function callAt(source: string, scan: Scan, at: number): number {
+  CALL_CHAIN.lastIndex = at
+  const chain = CALL_CHAIN.exec(source)![0]
+  const paren = skipWhitespace(source, at + chain.length)
+  if (source[paren] !== '(')
+    return at + chain.length
+  openCall(source, scan, chain.split(CHAIN_DOT), paren)
+  return paren + 1
+}
+
+function closeParen(scan: Scan): void {
+  if (scan.frames.length === 0)
+    scan.dynamic = true
+  scan.frames.pop()
+}
+
+function stepAt(source: string, scan: Scan, at: number): number {
+  const char = source[at]!
+  if (QUOTES.has(char))
+    return quotedEnd(source, at)
+  const comment = commentEnd(source, at)
+  if (comment !== null)
+    return comment
+  if (char === '\\')
+    return at + 2
+  if (IDENTIFIER_START.test(char) && !IDENTIFIER_CHAR.test(source[at - 1] ?? ''))
+    return callAt(source, scan, at)
+  if (char === '(')
+    scan.frames.push(undefined)
+  if (char === ')')
+    closeParen(scan)
+  return at + 1
+}
+
+export function declaredTestNames(source: string): string[] | null {
+  const scan: Scan = { frames: [], names: [], dynamic: false }
+  for (let at = 0; at < source.length;)
+    at = stepAt(source, scan, at)
+  return scan.dynamic || scan.frames.length > 0 ? null : scan.names
+}
+
+export interface UnselectedWitness {
+  id: string
+  test: string
+  file: string
+  declared: string[] | null
+}
+
+function oneTestFileOf(run: string): string | null {
+  if (!VITEST.test(run))
+    return null
+  const files = run.split(/\s+/).filter(token => TEST_FILE.test(token))
+  return files.length === 1 ? files[0]! : null
+}
+
+export function unselectedWitnessesOf(cardBody: string, readHead: (file: string) => string | null): UnselectedWitness[] {
+  return (witnessFieldsOf(cardBody) ?? []).flatMap((field): UnselectedWitness[] => {
+    const file = oneTestFileOf(field.run)
+    const test = field.test
+    if (file === null || test === null)
+      return []
+    const source = readHead(file)
+    if (source === null)
+      return [{ id: field.id, test, file, declared: null }]
+    const declared = declaredTestNames(source)
+    return declared === null || declared.some(name => name.includes(test)) ? [] : [{ id: field.id, test, file, declared }]
+  })
+}
+
+function unselectedLine(witness: UnselectedWitness): string {
+  const declared = witness.declared === null ? 'the file is not in the head tree' : witness.declared.length === 0 ? 'the file declares no test' : `the file declares ${witness.declared.map(name => `"${name}"`).join(', ')}`
+  return `witness ${witness.id} -t '${witness.test}' selects no test in ${witness.file}: ${declared}`
+}
+
+export function unselectedWitnessesLine(unselected: readonly UnselectedWitness[]): string {
+  return unselected.map(unselectedLine).join('; ')
 }
 
 function isNegated(witness: Pick<Witness, 'command'>): boolean {

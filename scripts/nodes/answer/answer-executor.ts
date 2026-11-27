@@ -15,7 +15,7 @@ import type { TreeOwned, TreePushPolicy } from './duties/tree.js'
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { riskOf } from '../../../src/card/risk.js'
-import { pathsOutsideTheBody } from '../../core/card-bodies.js'
+import { cardBodyText, pathsOutsideTheBody } from '../../core/card-bodies.js'
 import { answersWithdrawnByAClosedHold, holdRecheckAt, LIVE_SESSION_IN_THE_TREE, queueAgain, sessionStopOf } from '../../core/card-hold.js'
 import { closedWaitIds, downgradeWaitOpenOn, openDecisionWaitsOfCard } from '../../core/card-readings.js'
 import { appendEvent, inTransaction, liftHeldAtOpen, openBusWait } from '../../core/db.js'
@@ -35,11 +35,12 @@ import { cardTreeOf, cardTreeReading, CardTreeRefused, DERIVED_BASE, realCardTre
 import { conflictingCardOf, mainKeptInTheTree } from '../../ports/main-merge.js'
 import { prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
+import { unselectedWitnessesLine } from '../../ports/witnesses.js'
 import { admittedScopeOf, carriedTreeOf, decisionAnsweringRepeat, ownerHoldOf } from './answer-source.js'
 import { answerCommitMessage, AnswerOutsideTouches, CardTreeGone, followedEvent, liveSessionIn, PREFIX, secondsOf, unprovedFindings } from './answerer.js'
 import { CONCEPT_WIDENING_REASON } from './concept-scope.js'
 import { AnswerOutcomes, AnswerPublishing, AnswerSources, leftNoNewHead, localHead, OwnerQuestions, pendingPathsOf, strandedAnswerOf, treeDirtyOf, treeMergeOf } from './duties/index.js'
-import { carriedTreeState, ownCarriedTree, git as treeGit } from './duties/tree.js'
+import { carriedTreeState, ownCarriedTree, refuseUnselectedAtHead, git as treeGit } from './duties/tree.js'
 
 export interface AnswerParts {
   db: DatabaseSync
@@ -61,7 +62,7 @@ export interface AnswerParts {
   changedInTheTree?: (card: CardSession) => string[]
   localHead?: (card: CardSession) => string | null
   treeState?: (card: CardSession, prHead: string) => CarriedTree | null
-  ownTree?: (card: CardSession, prHead: string, policy: TreePushPolicy) => TreeOwned
+  ownTree?: (card: CardSession, prHead: string, policy: TreePushPolicy, cardBody: string | null) => TreeOwned
   pushPolicy?: (card: CardSession) => TreePushPolicy
   allowances?: (cardId: number) => readonly string[]
   twins?: AnswerTwins
@@ -199,6 +200,7 @@ export function gitTwins(db: DatabaseSync, trees: CardTreeTools): AnswerTwins {
       try {
         treeGit(card.worktree, ['add', '-A'])
         treeGit(card.worktree, ['commit', '-q', '-m', answerCommitMessage(lease)])
+        refuseUnselectedAtHead(card.worktree, cardBodyText(db, lease.cardId))
         treeGit(card.worktree, ['push', '-q', '-u', 'origin', `HEAD:refs/heads/${card.branch}`])
         return localHead(card)
       }
@@ -536,13 +538,13 @@ export class AnswerExecutor {
       return null
     let owned: TreeOwned
     try {
-      owned = (this.parts.ownTree ?? ownCarriedTree)(card, lease.head, this.parts.pushPolicy?.(card) ?? KEPT_WITHOUT_A_KNOWN_POLICY)
+      owned = (this.parts.ownTree ?? ownCarriedTree)(card, lease.head, this.parts.pushPolicy?.(card) ?? KEPT_WITHOUT_A_KNOWN_POLICY, cardBodyText(this.parts.db, lease.cardId))
     }
     catch (error) {
       console.error(`${PREFIX}card #${lease.cardId}: the returned tree is not owned: ${messageOf(error)}`)
       return null
     }
-    console.log(`${PREFIX}card #${lease.cardId}: the answer owns the returned tree ${card.worktree}: ${owned.kind} at ${owned.head}`)
+    console.log(`${PREFIX}card #${lease.cardId}: the answer owns the returned tree ${card.worktree}: ${owned.kind} at ${owned.head}${owned.kind === 'unselected' ? `; the bus pushed nothing and the answer session takes the tree: ${unselectedWitnessesLine(owned.unselected)}` : ''}`)
     if (owned.kind !== 'pushed')
       return null
     const payload = { session: card.session, worktree: card.worktree, source: CARRIED_TREE, from: lease.head, to: owned.head }
