@@ -189,11 +189,18 @@ export function backlogCards(cards: BusCard[], at: string, all: boolean): BusCar
   return all ? cards : cards.filter(card => isLive(card) || endedRecently(card, at))
 }
 
+export const QUEUE_STAGE: CardStage = 'queue'
+
+export function isQueued(card: BusCard): boolean {
+  return card.stage === QUEUE_STAGE
+}
+
 export function backlogLines(cards: BusCard[], lore: Lore, every: readonly BusCard[] = cards, waits: readonly OwnerWait[] = [], standing: (card: BusCard) => string | null = () => null): string[] {
   const row = (card: BusCard): string => lore.boardBacklogRow(cardName(card), [card.stage, standing(card)].filter(part => part !== null).join(' · '))
   const groups = taskGroups(cards, every, waits).flatMap(group => [taskGroupLine(group), ...group.slices.map(row)])
   const whole = byStage(cards.filter(card => card.parent === undefined))
-  return [...groups, ...whole.map(row)]
+  const queued = whole.filter(isQueued)
+  return [...groups, ...whole.filter(card => !isQueued(card)).map(row), ...queued.length === 0 ? [] : [lore.boardLaneLine(QUEUE_STAGE, queued.length), ...queued.map(row)]]
 }
 
 export function servicesLines(facts: BusFacts, lore: Lore): string[] {
@@ -252,7 +259,7 @@ export function hintLine(hint: Hint, lore: Lore): string {
 }
 
 export function planHint(facts: BusFacts): Hint | null {
-  return facts.goal === null && facts.cards.some(isLive) ? REGISTER_PLAN_HINT : null
+  return facts.goal === null && facts.cards.some(card => isLive(card) || (card.body && !card.closed && isQueued(card))) ? REGISTER_PLAN_HINT : null
 }
 
 export function goalLines(facts: BusFacts, lore: Lore): string[] {

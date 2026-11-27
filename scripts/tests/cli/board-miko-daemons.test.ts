@@ -63,11 +63,11 @@ function panelOf(root: string, loaded: readonly string[] = ['mcp-devkit', 'intak
 }
 
 function slotOf(html: string, daemon: string): string {
-  return new RegExp(`<li class="daemon-slot" data-daemon-slot="${daemon}"[\\s\\S]*?</li>`).exec(html)![0]
+  return new RegExp(`<li class="daemon-slot" data-daemon-slot="${daemon}"[\\s\\S]*?</ul></div></li>`).exec(html)![0]
 }
 
 function paneOf(html: string, daemon: string): string {
-  return new RegExp(`<div class="daemon-pane" data-daemon-pane="${daemon}"[\\s\\S]*?</ul></div>`).exec(html)![0]
+  return new RegExp(`<div class="daemon-pane" id="daemon-pane-${daemon}" role="tooltip" data-daemon-pane="${daemon}"[\\s\\S]*?</ul></div>`).exec(html)![0]
 }
 
 function cssValue(name: string): string {
@@ -80,9 +80,7 @@ describe('the daemons cell', () => {
     expect(html).toContain('<div class="daemons-head"><span class="daemons-title">DAEMONS</span><span class="daemons-chip">INSTALLED · 2</span></div>')
     expect(html.match(/<li class="daemon-slot"/g)).toHaveLength(2)
     expect(html.match(/<i class="slot-led"><\/i>/g)).toHaveLength(2)
-    expect(html).toContain('SLOT 01')
-    expect(html).toContain('SLOT 02')
-    expect(html).not.toContain('SLOT 03')
+    expect(html).not.toMatch(/SLOT \d/)
     expect(slotOf(html, 'BROWSER_LAB')).toContain('data-state="sleep"')
     expect(slotOf(html, 'MCP_DEVKIT')).toContain('data-state="loaded"')
     expect(slotOf(html, 'BROWSER_LAB')).toContain('<g class="sd-sketch" data-sketch="hex-iris"><path class="sd-eye"')
@@ -103,10 +101,11 @@ describe('the daemons cell', () => {
     expect(STYLE).toContain('.sd-sketch { fill: none; stroke: var(--_sketch);')
   })
 
-  it('with no hover the status pane shows the first LOADED daemon with its tag and its mutations', () => {
+  it('each card carries its own popover with its tag and its mutations, and none is open before a hover or a focus', () => {
     const html = panelOf(repository())
-    expect(paneOf(html, 'MCP_DEVKIT')).toContain('data-default data-shown')
-    expect(paneOf(html, 'BROWSER_LAB')).not.toContain('data-shown')
+    expect(html).not.toContain('data-pop')
+    expect(slotOf(html, 'MCP_DEVKIT')).toContain(paneOf(html, 'MCP_DEVKIT'))
+    expect(slotOf(html, 'BROWSER_LAB')).toContain(paneOf(html, 'BROWSER_LAB'))
     const undescribed = `<span class="pane-description" data-none>${LORE.boardDaemonPane.noDescription}</span>`
     expect(paneOf(html, 'MCP_DEVKIT')).toContain(`<span class="pane-tag">LOADED</span>${undescribed}<span class="pane-head">MUTATIONS · 0</span><ul class="pane-mutations"></ul>`)
     expect(paneOf(html, 'BROWSER_LAB')).toContain(`<span class="pane-tag">SLEEPING</span>${undescribed}<span class="pane-head">MUTATIONS · 2</span><ul class="pane-mutations"><li>ver_hands</li><li>ver_headed</li></ul>`)
@@ -215,35 +214,31 @@ function hoverPage() {
   const listeners = new Map<string, ((event: { target: StubNode }) => void)[]>()
   const slots = ['BROWSER_LAB', 'MCP_DEVKIT'].map(daemon => new StubNode({ daemonSlot: daemon }))
   const card = Object.assign(new StubNode(), { parent: slots[0]! })
-  const panes = [new StubNode({ daemonPane: 'BROWSER_LAB' }), new StubNode({ daemonPane: 'MCP_DEVKIT' }, ['data-default', 'data-shown'])]
   const document = {
     body: { dataset: { written: '2026-11-18T12:00:00.000Z', tickMs: '' } },
     getElementById: (id: string) => id === 'drill' ? new StubNode() : null,
     querySelector: () => null,
-    querySelectorAll: (selector: string) => selector === '[data-daemon-pane]' ? panes : [],
+    querySelectorAll: (selector: string) => selector === '[data-daemon-slot]' ? slots : [],
     addEventListener: (type: string, listener: (event: { target: StubNode }) => void) => listeners.set(type, [...listeners.get(type) ?? [], listener]),
   }
   const context: Record<string, unknown> = { BOARD_NAMES: { drill: 'drill', backlog: 'backlog', viewKey: 'view', round: {} }, document, localStorage: { getItem: () => null, setItem: () => {} }, location: { hash: '' }, addEventListener: () => {}, setTimeout: () => 0, Date }
   context.window = context
   vm.runInNewContext(SCRIPT, context)
-  const shown = (): string[] => panes.filter(pane => pane.hasAttribute('data-shown')).map(pane => pane.dataset.daemonPane!)
+  const shown = (): string[] => slots.filter(slot => slot.hasAttribute('data-pop')).map(slot => slot.dataset.daemonSlot!)
   const over = (target: StubNode): void => listeners.get('mouseover')!.forEach(listener => listener({ target }))
   return { card, slots, shown, over }
 }
 
-describe('the status pane on hover', () => {
-  it('hover over a card switches the pane to that daemon, and leaving the cards brings back the first LOADED one', () => {
+describe('the popover on hover', () => {
+  it('hover over a card opens the popover of that daemon, and leaving the cards closes it', () => {
     const page = hoverPage()
-    expect(page.shown()).toEqual(['MCP_DEVKIT'])
+    expect(page.shown()).toEqual([])
     page.over(page.card)
     expect(page.shown()).toEqual(['BROWSER_LAB'])
     page.over(page.slots[1]!)
     expect(page.shown()).toEqual(['MCP_DEVKIT'])
     page.over(new StubNode())
-    expect(page.shown()).toEqual(['MCP_DEVKIT'])
-    page.over(page.slots[0]!)
-    page.over(new StubNode())
-    expect(page.shown()).toEqual(['MCP_DEVKIT'])
+    expect(page.shown()).toEqual([])
   })
 })
 
@@ -306,7 +301,7 @@ describe('a daemon the window cannot run', () => {
     expect(missing).toContain('<span class="daemons-chip">INSTALLED · 1</span>')
     expect(slotOf(missing, 'BROWSER_LAB')).toContain('data-state="sleep" data-installed="false"')
     expect(paneOf(missing, 'BROWSER_LAB')).toContain('<span class="pane-tag">SLEEPING</span>')
-    expect(paneOf(missing, 'MCP_DEVKIT')).toContain('data-default data-shown')
+    expect(paneOf(missing, 'MCP_DEVKIT')).toContain('<span class="pane-tag">LOADED</span>')
     grantIn(path.join(root, SETTINGS_FILE), { sandbox: { excludedCommands: [command] } })
     expect(panelIn(root, home)).toContain('INSTALLED · 1')
     grantIn(path.join(root, SETTINGS_FILE), { permissions: { allow: [allowRule(command)] }, sandbox: { excludedCommands: [command] } })
@@ -346,20 +341,19 @@ describe('the daemon catalog reader', () => {
     expect(mikoPanel({ ...PANEL, bay: bayOf(REPOSITORY_ROOT, []) })).toContain('<span class="daemons-chip">INSTALLED · 1</span>')
   })
 
-  it('the real repository renders BROWSER_LAB as the design draws it: an SD card in a recessed bay, a LED under it, a divided status pane', () => {
+  it('the real repository renders BROWSER_LAB as the design draws it: an SD card in a recessed bay, a LED under it, a popover of its own', () => {
     const html = mikoPanel({ ...PANEL, bay: bayOf(REPOSITORY_ROOT, ['browser-lab']) })
     const slot = slotOf(html, 'BROWSER_LAB')
     expect(slot).toContain('<span class="slot-bay"><div class="sd-card">')
     expect(slot).toContain('<g class="sd-sketch" data-sketch="hex-iris"><path class="sd-eye"')
-    expect(slot).toContain('<span class="slot-foot"><i class="slot-led"></i>SLOT 01</span>')
-    expect(paneOf(html, 'BROWSER_LAB')).toContain('data-default data-shown')
+    expect(slot).toContain('<span class="slot-foot"><i class="slot-led"></i></span><div class="daemon-pane" id="daemon-pane-BROWSER_LAB" role="tooltip"')
     expect(paneOf(html, 'BROWSER_LAB')).toContain('<span class="pane-tag">LOADED</span>')
     expect(STYLE).toContain('.slot-bay { position: relative; display: flex; justify-content: center; align-items: end; box-sizing: border-box; inline-size: 116px; block-size: 138px; padding-block-end: 6px; background: #080c16; border: 1px solid #232c40;')
     expect(STYLE).toContain('.daemon-slot:hover .slot-bay, .daemon-slot:focus-visible .slot-bay { border-color: var(--daemon-on); }')
     expect(STYLE).toContain('--_glow: 0 0 6px var(--_led);')
     expect(STYLE).toContain('--_ride: -20px; --_lit: 0.75; --_glow: none; }')
     expect(STYLE).toContain('box-shadow: var(--_glow); }')
-    expect(STYLE).toContain('.daemon-status { display: grid; min-inline-size: 8rem; padding-inline-start: 14px; border-inline-start: 1px solid var(--line); }')
+    expect(STYLE).toContain('.daemon-slot[data-pop] > .daemon-pane { display: grid; }')
     expect(STYLE).toContain('.pane-mutations li::before { content: \'↳ \'; }')
   })
 

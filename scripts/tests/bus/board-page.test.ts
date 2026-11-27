@@ -13,7 +13,7 @@ import { runsFieldLine, witnessFieldsLine } from '../../../src/card/witness-fiel
 import { busReaderAt, CARD_STAGES } from '../../../src/commands/board/bus.js'
 import { planLine, RELEASE_STAGES } from '../../../src/commands/board/goal.js'
 import { busFacts, printBoard as printConstructBoard, readBoard } from '../../../src/commands/board/index.js'
-import { backlogCards } from '../../../src/commands/board/screens.js'
+import { backlogCards, QUEUE_STAGE } from '../../../src/commands/board/screens.js'
 import { WINDOW_SILENT_MS } from '../../../src/commands/liveness.js'
 import { createUi } from '../../../src/ui/console.js'
 import { BANNER, LORE } from '../../../src/ui/lore.js'
@@ -707,7 +707,8 @@ describe('board.html', () => {
     const shown = backlogCards(facts.cards, facts.at, false)
     const byStage = CARD_STAGES.map(stage => ({ stage, cards: shown.filter(card => card.stage === stage).map(card => card.id) }))
     const stages = PROGRESS_ORDER.map(stage => byStage.find(entry => entry.stage === stage)!)
-    expect(new Set(PROGRESS_ORDER)).toEqual(new Set(CARD_STAGES))
+    expect(PROGRESS_ORDER).not.toContain(QUEUE_STAGE)
+    expect(new Set([...PROGRESS_ORDER, QUEUE_STAGE])).toEqual(new Set(CARD_STAGES))
     const legend = [...flow.matchAll(/<div class="stage"( data-empty)?><i class="sw" data-stage="([^"]+)"><\/i><span class="name">([^<]+)<\/span><span class="n">(\d+)<\/span>(?:<span class="ids">(.*?)<\/span>)?<\/div>/g)]
     expect(legend.map(row => ({ stage: row[2], name: row[3], n: Number(row[4]), empty: row[1] !== undefined }))).toEqual(stages.map(entry => ({ stage: entry.stage, name: entry.stage, n: entry.cards.length, empty: entry.cards.length === 0 })))
     for (const [at, row] of legend.entries()) {
@@ -780,7 +781,9 @@ describe('board.html', () => {
     const html = pageText(busPath)
     expect(legendIds(html, 'stopped')).toEqual([871])
     expect(slotsOf(html).get('flow')).toContain('<span class="name">merged</span><span class="n">1</span>')
-    expect(legendIds(html, 'planned')).toEqual([874])
+    expect(legendIds(html, 'planned')).toEqual([])
+    expect(legendIds(html, QUEUE_STAGE)).toBeUndefined()
+    expect(html).toContain('<tr data-card="874" data-stage="queue" data-open')
     expect(html).toContain('<tr data-card="871" data-stage="stopped" data-open')
   })
 
@@ -1205,13 +1208,13 @@ describe('board.html', () => {
     const { html } = pageWithHandoff()
     const storage = new MemoryStorage()
     const before = boardWindow(html, storage)
-    before.location.hash = '#show-planned'
+    before.location.hash = '#show-queue'
     before.scroller.scrollTop = 120
     before.scroller.dispatch('scroll')
     before.click('TR', 'card-862')
-    expect(JSON.parse(storage.getItem(VIEW_KEY)!)).toEqual({ filter: '#show-planned', scroll: 120, open: 'card-862', agents: {}, folds: {}, warningsCollapsed: false })
+    expect(JSON.parse(storage.getItem(VIEW_KEY)!)).toEqual({ filter: '#show-queue', scroll: 120, open: 'card-862', agents: {}, folds: {}, warningsCollapsed: false })
     const after = boardWindow(html, storage)
-    expect(after.location.hash).toBe('#show-planned')
+    expect(after.location.hash).toBe('#show-queue')
     expect(after.scroller.scrollTop).toBe(120)
     expect(after.dialog.open).toBe(true)
     expect(after.content.innerHTML).toBe(after.templates.get('dialog-card-862'))
@@ -1438,7 +1441,7 @@ describe('board.html', () => {
     const { html } = projectedWithHandoff()
     const storage = new MemoryStorage()
     const board = boardWindow(html, storage)
-    board.location.hash = '#show-planned'
+    board.location.hash = '#show-queue'
     board.scroller.scrollTop = 120
     board.scroller.dispatch('scroll')
     board.click('TR', 'card-862')
@@ -1462,7 +1465,7 @@ describe('board.html', () => {
     expect(board.dialog.open).toBe(true)
     expect(board.content.innerHTML).toBe(opened)
     expect(board.scroller.scrollTop).toBe(120)
-    expect(board.location.hash).toBe('#show-planned')
+    expect(board.location.hash).toBe('#show-queue')
     expect(storage.getItem(VIEW_KEY)).toBe(view)
     expect(board.currentTemplates().get('dialog-card-861')).toBe(templatesOf(fresh.slots.dialogs).get('dialog-card-861'))
     expect(board.elements.get('backlog')?.prepended.map(target => target.id) ?? []).toEqual(fresh.filters.filter(id => !idsOf(html).includes(id)))

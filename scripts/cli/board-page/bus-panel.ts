@@ -1,4 +1,5 @@
 import type { BusFacts, BusPanelFacts, BusSlot } from '../../../src/commands/board/bus.js'
+import { PLAIN_LORE } from '../../../src/ui/lore.js'
 import { BUS_VERSION } from '../../core/bus-version.js'
 import { escaped } from './session-card.js'
 
@@ -33,6 +34,8 @@ const REDUCER_LAG_RED = 100
 const RATE_YELLOW = 1_000
 const RATE_RED = 100
 const NONE = '—'
+const SHORT_SHA = 7
+export const RESTART_ALLOWANCE_MS = 5 * MINUTE_MS
 const NO_PANEL: BusPanelFacts = { lastEvent: null, minutes: [], families: [], familyTotal: 0, reducerLag: null, rateRemaining: null, pulses: [], workers: [], alarm: null, recent: [] }
 
 export function ageOf(ms: number | null): string {
@@ -194,7 +197,7 @@ function header(parts: BusPanelParts, panel: BusPanelFacts, down: boolean): stri
   const snapshot = ageOf(sinceMs(parts.snapshot?.written, parts.facts.at))
   return [
     `<div class="bus-head">${emblem()}`,
-    `<span class="bus-title">${down ? 'BUS DOWN' : 'BUS LIVE'} V${BUS_VERSION}</span>`,
+    `<span class="bus-title">${down ? restartingMs(parts.facts) === null ? 'BUS DOWN' : 'BUS RESTARTING' : 'BUS LIVE'} V${BUS_VERSION}</span>`,
     `<span class="bus-pulse"><span class="pulse-dot">●</span> ${down ? 'NO PULSE' : 'PULSE'} · ${age}</span>`,
     `<span class="bus-meta">event ${event} · snapshot ${snapshot}</span></div>`,
   ].join('')
@@ -206,9 +209,24 @@ function flatlined(parts: BusPanelParts, panel: BusPanelFacts): string {
   return `<div class="bus-flatline"><span class="flatline-stamp">FLATLINED</span><span class="flatline-line">NO PULSE · NODES SILENT</span><span class="flatline-line">${escaped(line)}</span></div>`
 }
 
+export function restartingMs(facts: BusFacts): number | null {
+  const since = sinceMs(facts.restart?.at, facts.at)
+  return since === null || since > RESTART_ALLOWANCE_MS ? null : since
+}
+
+function restarting(parts: BusPanelParts, since: number): string {
+  const sha = parts.facts.restart?.sha ?? null
+  return `<div class="bus-flatline" data-restarting><span class="flatline-stamp">${escaped(PLAIN_LORE.boardBusRestarting(sha === null ? null : sha.slice(0, SHORT_SHA), ageOf(since)))}</span></div>`
+}
+
+function downBody(parts: BusPanelParts, panel: BusPanelFacts): string {
+  const since = restartingMs(parts.facts)
+  return since === null ? flatlined(parts, panel) : restarting(parts, since)
+}
+
 export function busPanel(parts: BusPanelParts): string {
   const panel = parts.facts.panel ?? NO_PANEL
   const down = busDown(parts.facts, parts.freshMs)
-  const body = down ? flatlined(parts, panel) : `<div class="bus-body">${[flowCell(panel, parts.facts.at), familiesCell(panel), healthCell(healthRows(parts, panel)), slotsCell(parts.facts.slots), recentCell(panel)].join('')}</div>`
+  const body = down ? downBody(parts, panel) : `<div class="bus-body">${[flowCell(panel, parts.facts.at), familiesCell(panel), healthCell(healthRows(parts, panel)), slotsCell(parts.facts.slots), recentCell(panel)].join('')}</div>`
   return `<div class="bus-panel bevel"${down ? ' data-down' : ''} role="region" aria-label="bus">${header(parts, panel, down)}${body}</div>`
 }

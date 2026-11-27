@@ -12,6 +12,7 @@ import { writeBus } from './bus-fixture.js'
 const SNAPSHOT = JSON.parse(readFileSync(new URL('./fixtures/bus-2026-10-19.json', import.meta.url), 'utf8')) as BusSeed & { at: string }
 const SCREEN_LINES = 60
 const NOT_IN_FLOW = ['#1068', '#170', '#951']
+const QUEUED_WITH_NO_OPEN_RELEASE = '#858'
 
 function board(all = false): string[] {
   const dir = mkdtempSync(path.join(tmpdir(), 'construct-board-snapshot-'))
@@ -35,9 +36,10 @@ describe('the board on the bus of 2026-10-19', () => {
   // eslint-disable-next-line test/prefer-lowercase-title
   it('Flow shows none of #1068, #170, #951', () => {
     const flow = flowOf(board()).join('\n')
-    expect(flow).toContain('#858')
-    for (const card of NOT_IN_FLOW)
+    expect(flow).toContain('planned (0): —')
+    for (const card of [...NOT_IN_FLOW, QUEUED_WITH_NO_OPEN_RELEASE])
       expect(flow).not.toContain(card)
+    expect(board(true)).toContainEqual(expect.stringMatching(/^queue \(\d+\)$/))
   })
 
   // eslint-disable-next-line test/prefer-lowercase-title
