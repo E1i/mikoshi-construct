@@ -53,6 +53,11 @@ const BUS_CONTRACT = [
 const SESSION_CONTRACT = [
   ...core('machine-sessions.ts', 'eddies.ts', 'journal.ts', 'tasks.ts', 'handoff-dir.ts', 'handoff-fields.ts', 'handoff-status.ts', 'chain.ts', 'places.ts', 'report.ts', 'legacy-history.ts', 'import-closure.ts', 'cadence.ts'),
   factory('intake/witness-fields-backfill.ts'),
+  ...within(factory('window'), 'eddies-measure.ts', 'handoff-check.ts'),
+  factory('nodes/launch/continuation.ts'),
+  factory('nodes/restart/chain-process.ts'),
+  factory('ports/result.ts'),
+  factory('quality/lock.ts'),
   factory('cli/slot.ts'),
   'src/commands/liveness.ts',
   ...supervisor('bg', 'heartbeat', 'liveness-sites', 'scheduler', 'stamp', 'workers'),
@@ -67,21 +72,23 @@ const INTAKE_CONTRACT = [
 ]
 
 const QUALITY_CI = tree('ci')
+const QUALITY_FOLDER = tree('quality')
 
 const QUALITY_CONTRACT = [
-  ...(MODULE_OWNS.quality ?? []).filter(glob => glob !== QUALITY_CI),
+  ...(MODULE_OWNS.quality ?? []).filter(glob => glob !== QUALITY_CI && glob !== QUALITY_FOLDER),
+  ...within(factory('quality'), 'foreign-table-sql-excepted.json', 'real-time-waits-excepted.json', 'table-owners.json', 'witness-records.ts'),
   ...within(factory('ci'), 'browser-tests-ran.mjs', 'card-automaton.ts', 'card-runs.ts', 'classify.ts', 'fast-path.ts', 'file-weights-reporter.ts', 'gate-mutations.ts', 'gate-runs.ts', 'layers.ts', 'no-match-reporter.ts', 'prepush.ts', 'sandbox-failing.jsonl', 'sandbox-failing.ts', 'sandbox-liveness.ts', 'sandbox-refusals.ts', 'sandbox-trace-child.mjs', 'sandbox-trace.config.ts', 'sandbox-trace.ts', 'select.ts', 'shard.ts', 'test-command.ts', 'test-weights.json', 'test-weights.ts', 'tree-scanners.ts', 'verdict.ts', 'vitest-report.ts', 'weights-law.ts'),
 ]
 
 const PORTS_CONTRACT = [
-  ...within(factory('ports'), 'card-grants.ts', 'ci-reading.ts', 'client/claude/adapter.ts', 'client/index.ts', 'diff.ts', 'gh.ts', 'github-status.ts', 'github.ts', 'identifier-shapes.ts', 'isolation.ts', 'main-merge.ts', 'meter.ts', 'netwatch.ts', 'process-table.ts', 'result.ts', 'review-planner.ts', 'session.ts', 'snapshot.ts', 'task-start.ts', 'tree-publish.ts', 'wide-vitest-guard.ts', 'worktree.ts'),
+  ...within(factory('ports'), 'card-grants.ts', 'ci-reading.ts', 'client/claude/adapter.ts', 'client/index.ts', 'diff.ts', 'gh.ts', 'github-status.ts', 'github.ts', 'identifier-shapes.ts', 'isolation.ts', 'main-merge.ts', 'meter.ts', 'netwatch.ts', 'process-table.ts', 'review-planner.ts', 'session.ts', 'snapshot.ts', 'task-start.ts', 'tree-publish.ts', 'wide-vitest-guard.ts', 'worktree.ts'),
   ...core('bus-contract.ts', 'process-listing.ts'),
   factory('ci/required.ts'),
   `${CI_COMMAND}/state.ts`,
   `${INTAKE_COMMAND}/command-word.ts`,
 ]
 
-const WINDOW_CONTRACT = within(factory('window'), 'board.ts', 'eddies-measure.ts', 'handoff-check.ts', 'loop.ts', 'tab.ts', 'takeover-push-release.ts', 'watch.ts', 'window-heartbeat.ts', 'window-prs.ts', 'window-request-tools.ts', 'window-requests.ts', 'window-session-end.ts', 'window-subagents.ts')
+const WINDOW_CONTRACT = within(factory('window'), 'board.ts', 'loop.ts', 'tab.ts', 'takeover-push-release.ts', 'watch.ts', 'window-heartbeat.ts', 'window-prs.ts', 'window-request-tools.ts', 'window-requests.ts', 'window-session-end.ts', 'window-subagents.ts')
 
 const UI_CONTRACT = within('src/ui', 'console.ts', 'expect-lore.ts', 'lore.ts', 'signal.ts', 'theme.ts')
 
