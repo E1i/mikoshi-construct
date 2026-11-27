@@ -84,6 +84,7 @@ export const QUESTION_OWNER = 'question.owner'
 export const RATCHET_THRESHOLD_SET = 'ratchet.threshold.set'
 export const REDUCED = 'reducer.reduced'
 export const REJECTED = 'reducer.rejected'
+export const RELEASE_RUN = 'release.run'
 export const REVIEW_DRIP = 'review.drip'
 export const REVIEW_RECORDED = 'review.recorded'
 export const REVIEW_ROUNDS_SPENT = 'review.rounds_spent'
@@ -244,6 +245,7 @@ export const EVENT_PAYLOADS = {
   [RATCHET_THRESHOLD_SET]: ['decision', 'row', 'to'],
   [REDUCED]: ['applied', 'rejected', 'through_event_id'],
   [REJECTED]: ['event_id', 'reason', 'type'],
+  [RELEASE_RUN]: ['conclusion', 'failed_step', 'run_id', 'sha', 'steps', 'verdict'],
   [REVIEW_DRIP]: ['card', 'finding', 'head', 'pr'],
   [REVIEW_RECORDED]: ['cache_r', 'cache_w', 'card_body', 'depth', 'depth_why', 'drip', 'findings', 'head', 'isolation', 'isolationGaps', 'model', 'prompt_path', 'prompt_sha', 'prompt_unstored', 'review_ms', 'reviewer_session', 'rules_version', 'since', 'tail_card', 'treeAfter', 'treeBefore', 'treeMutated', 'tree_origin', 'verdict'],
   [REVIEW_ROUNDS_SPENT]: ['findings', 'pr', 'rounds', 'state'],
