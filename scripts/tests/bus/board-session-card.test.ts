@@ -13,7 +13,7 @@ import { escaped, printBoard } from '../../cli/board-page.js'
 import { mikoPanel } from '../../cli/board-page/miko-panel.js'
 import { ROUND_COLOURS, roundColour, sessionCard, terminalOf } from '../../cli/board-page/session-card.js'
 import { BUS_VERSION } from '../../core/bus-version.js'
-import { ANSWER_STEP, CARD_STARTED, MERGE_DONE, SESSION_HEARTBEAT, TASK_LEASED, WINDOW_HEARTBEAT, WITNESS_PHASE } from '../../core/events.js'
+import { ANSWER_STEP, CARD_STARTED, MERGE_DONE, SESSION_HEARTBEAT, TASK_LEASED, WINDOW_HEARTBEAT, WITNESS_PHASE, WITNESS_RECORDED } from '../../core/events.js'
 
 const NOW = new Date('2026-10-20T08:00:00.000Z')
 const CARD = 861
@@ -241,5 +241,29 @@ describe('a sessionless node tile on the board page', () => {
     const merged = nodePageOf('merge', [nodeEvent(TASK_LEASED, 3, { queue: 'merge' }), nodeEvent(MERGE_DONE, 1, { commit: 'f'.repeat(40) })])
     expect(merged).toContain('<span class="round-step-now">merged · recorded 07:59:00</span>')
     expect(merged).toContain('RECORDED · MERGED')
+  })
+
+  it('a witness tile shows no step or outcome the bus recorded before its own lease', () => {
+    const tile = nodePageOf('witness', [
+      nodeEvent(WITNESS_PHASE, 30, { phase: 'base', witness: 'W9', task_key: 'witness:861' }),
+      nodeEvent(WITNESS_RECORDED, 29, { verdict: 'red' }),
+      nodeEvent(MERGE_DONE, 28, { commit: 'e'.repeat(40) }),
+      nodeEvent(TASK_LEASED, 6, { queue: 'witness' }),
+      nodeEvent(WITNESS_PHASE, 5, { phase: 'base', witness: 'W1', task_key: 'witness:861' }),
+    ])
+    expect(tile).toContain('<span class="round-step-now">W1 · base · 5 min</span>')
+    expect(tile).not.toContain('W9')
+    expect(tile).not.toContain('RECORDED · RED')
+  })
+
+  it('a witness tile shows the latest of two verdicts recorded after its lease', () => {
+    const tile = nodePageOf('witness', [
+      nodeEvent(TASK_LEASED, 6, { queue: 'witness' }),
+      nodeEvent(WITNESS_RECORDED, 4, { verdict: 'red' }),
+      nodeEvent(WITNESS_RECORDED, 1, { verdict: 'green' }),
+    ])
+    expect(tile).toContain('RECORDED · GREEN')
+    expect(tile).toContain('<span class="round-step-now">green · recorded 07:59:00</span>')
+    expect(tile).not.toContain('RECORDED · RED')
   })
 })
