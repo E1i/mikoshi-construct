@@ -7,6 +7,7 @@ import type { Prediction } from '../../policy/morse/rules.js'
 import type { CompositionRecord, FollowingReach, GrownDerived, RefusedDerived } from '../../policy/touch-scope.js'
 import type { GhRunner } from '../../ports/gh.js'
 import type { TreeRun } from '../../ports/git.js'
+import type { UnselectedWitness } from '../../ports/witnesses.js'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { COVERING_REASON, importersOf, layerMasksOf, runsOf, TestCoverage } from '../../../src/card/covering-tests.js'
@@ -25,6 +26,7 @@ import { COMPOSITION_ROOT, derivedGrowthLine, derivedRefusalLine, derivedVerdict
 import { ownerGlobs } from '../../policy/widening.js'
 import { changedFilesFrom } from '../../ports/diff.js'
 import { pnpmRerun, throughGitPort, treeReading } from '../../ports/git.js'
+import { unselectedWitnessesLine, unselectedWitnessesOf } from '../../ports/witnesses.js'
 
 export const REFUSAL_REASONS = {
   'stale-base': 'a',
@@ -32,6 +34,7 @@ export const REFUSAL_REASONS = {
   'no-matrix-line': 'a',
   'twin-unbuilt': 'a',
   'derived-unreproduced': 'a',
+  'witness-unselected': 'a',
   'outside-touches': 'b',
   'no-card-body': 'c',
   'card-unparsed': 'c',
@@ -105,6 +108,7 @@ export interface TreeCard {
   namedPathReason: string | null
   fullReading?: string
   cardId?: number
+  cardBody?: string
 }
 
 export function shiftTreeCard(task: ShiftTask, catalog: BusCatalog = busCheckCatalog()): TreeCard {
@@ -118,6 +122,7 @@ export function shiftTreeCard(task: ShiftTask, catalog: BusCatalog = busCheckCat
     touches: task.touches,
     runs,
     namedPathReason: CARD_PATH_REASON.exec(task.body)?.[1]?.trim() ?? null,
+    cardBody: task.body,
     ...(Number.isInteger(Number(task.id)) ? { cardId: Number(task.id) } : {}),
     ...(fullReading === undefined ? {} : { fullReading }),
   }
@@ -440,6 +445,16 @@ function openPrMatrixGap(ports: TreePrPorts, worktree: string, pr: string, repor
   return null
 }
 
+export function unselectedGap(unselected: readonly UnselectedWitness[]): Gap & { lacks: string } {
+  const line = unselectedWitnessesLine(unselected)
+  return { reason: 'witness-unselected', lacks: `witnesses that select a test in the head tree (${line})`, task: `write each witness test under the card's witness file and its title verbatim, so its -t selects it: ${line}; change neither the card's witnesses nor its body`, paths: unselected.map(witness => witness.file) }
+}
+
+function unselectedOnTheTree(card: TreeCard, worktree: string): FormatGap | null {
+  const unselected = unselectedWitnessesOf(card.cardBody ?? '', file => readOrNull(path.join(worktree, file)))
+  return unselected.length === 0 ? null : unselectedGap(unselected)
+}
+
 function lacking(branch: string, gaps: readonly FormatGap[]): TreePr {
   return { kind: 'problem', why: `the shift opened no pull request for ${branch}: it lacks ${gaps.map(gap => gap.lacks).join('; ')}`, gaps: gaps.map(({ reason, task, paths }) => ({ reason, task, paths })) }
 }
@@ -601,6 +616,9 @@ export function treePr(ports: TreePrPorts, card: TreeCard, worktree: string, rep
   try {
     if (ports.pushPolicy?.(worktree) === 'none')
       return { kind: 'kept' }
+    const unselected = unselectedOnTheTree(card, worktree)
+    if (unselected !== null)
+      return lacking(card.branch, [unselected])
     const pushed = commitAndPush(ports.git, worktree, card.branch, card.commitMessage, ports.rebuild)
     if (pushed.kind === 'clean')
       return { kind: 'clean' }

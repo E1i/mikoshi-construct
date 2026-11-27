@@ -1120,6 +1120,7 @@
     "scripts/tests/nodes/review-sandbox-norm.test.ts",
     "scripts/tests/nodes/widen-from-the-tree-question-path.test.ts",
     "scripts/tests/nodes/widen-from-the-tree.test.ts",
+    "scripts/tests/nodes/witness-title-before-push.test.ts",
     "scripts/tests/owner/answer-stop-word.test.ts",
     "scripts/tests/owner/channel.test.ts",
     "scripts/tests/owner/construct-answer.test.ts",
