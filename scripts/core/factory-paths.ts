@@ -22,6 +22,7 @@ export const FACTORY_RUNTIME = {
   busWindow: 'scripts/window/window.ts',
   knownLivenessSites: 'scripts/supervisor/liveness-sites.known.json',
   layerMap: generatedPath('layer-map'),
+  livenessJudge: 'scripts/supervisor/liveness-judge.ts',
   mikoLoopEntry: 'scripts/window/loop.ts',
   shiftBriefFinish: 'scripts/ladder/brief-finish-cli.ts',
   shiftHeader: 'scripts/nodes/launch/header.md',

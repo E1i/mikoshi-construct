@@ -25,10 +25,13 @@ import { assertHeld, completeTask, cutByRestart, failTask, releaseTask, RESTART_
 import { timeoutUnderLoadOutside } from '../../core/observations.js'
 import { answerOnAnOldCardBody, DOWNGRADE_WAIT_OPEN, latestAnswerOf, latestReleaseOf, latestWidenStopOf, LEASED, QUEUED } from '../../core/queue.js'
 import { OWNER_EVEN_UNDER_THE_DECISION } from '../../policy/decisions/read.js'
+import { allowedEntry, GATE_BUS_ROW, witnessGrowthAllowances } from '../../policy/derived-files.js'
+import { cardWitnessRunsOf } from '../../policy/policy.js'
+import { activeWindowShards, decisionsInForceAt, unspentShard } from '../../policy/shards.js'
 import { matchGlob } from '../../policy/shredder/glob.js'
 import { isRegisteredDerived, pathsIn, pathsOutside, refusedTwinAnswer } from '../../policy/touch-scope.js'
 import { ownerGlobs } from '../../policy/widening.js'
-import { cardTreeOf, cardTreeReading, CardTreeRefused, realCardTrees } from '../../ports/card-tree.js'
+import { cardTreeOf, cardTreeReading, CardTreeRefused, DERIVED_BASE, realCardTrees } from '../../ports/card-tree.js'
 import { conflictingCardOf, mainKeptInTheTree } from '../../ports/main-merge.js'
 import { prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
@@ -142,6 +145,19 @@ export function ratchetRowsAskedToGrow(question: string): string[] {
   return rows.length === 0 || !asksForGrowth(question) ? [] : rows
 }
 
+const GATE_BUS_GROWTH = new RegExp(`(?<![\\w:/.\\->])${GATE_BUS_ROW}\\s+(?:from\\s+)?(\\d+)\\s*(?:→|->|=>|⟶|\\bto\\b)\\s*(\\d+)`, 'g')
+
+function growths(question: string, pattern: RegExp): [string, string][] {
+  return [...question.matchAll(pattern)].filter(([, from, to]) => Number(to) > Number(from)).map(([, from, to]) => [from!, to!])
+}
+
+export function witnessGrowthAsked(question: string): string[] | null {
+  const bound = growths(question, GATE_BUS_GROWTH)
+  if (bound.length === 0 || growths(question, NUMERIC_GROWTH).length > bound.length)
+    return null
+  return bound.map(([from, to]) => `${GATE_BUS_ROW} (${from} → ${to})`)
+}
+
 export function ratchetGrowthLine(cardId: number, rows: readonly string[], question: string): string {
   return `card #${cardId} asks to grow the ratchet row${rows.length === 1 ? '' : 's'} ${rows.join(', ')} of contract/ratchet.json; the merge policy denies ratchet growth under every shard and every decision, so only the owner answers it and no answer round runs until this wait closes: ${question}`
 }
@@ -159,8 +175,12 @@ export interface AnswerTwins {
 }
 
 function inHead(worktree: string, file: string): boolean {
+  return inRef(worktree, 'HEAD', file)
+}
+
+function inRef(worktree: string, ref: string, file: string): boolean {
   try {
-    treeGit(worktree, ['cat-file', '-e', `HEAD:${file}`])
+    treeGit(worktree, ['cat-file', '-e', `${ref}:${file}`])
     return true
   }
   catch {
@@ -435,7 +455,8 @@ export class AnswerExecutor {
     const beforeTheSession = { lease: secondsOf(preparing - leased), tree: secondsOf(prepared - preparing) }
     this.recordSteps(lease, preparing, beforeTheSession)
     try {
-      const answered = await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh, outsideTouches: this.outsideTouchesOf(lease, widened), allowances: this.parts.allowances?.(lease.cardId) ?? [], concept: this.conceptOf(lease), findingsToProve: prove, stepped: steps => this.recordSteps(lease, preparing, steps) })
+      const allowances = [...(this.parts.allowances?.(lease.cardId) ?? []), ...this.witnessGrowth(lease, () => card.worktree)]
+      const answered = await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh, outsideTouches: this.outsideTouchesOf(lease, widened), allowances, concept: this.conceptOf(lease), findingsToProve: prove, stepped: steps => this.recordSteps(lease, preparing, steps) })
       return answered.steps === undefined ? answered : { ...answered, steps: { ...beforeTheSession, ...answered.steps } }
     }
     catch (error) {
@@ -604,8 +625,30 @@ export class AnswerExecutor {
     return { kind: 'answered', taskKey: lease.taskKey, session: answered.session, resumed: answered.resumed, head: answered.after }
   }
 
-  private ratchetGrowthAsked(lease: Lease, question: string, scope: BusEvent[]): AnswerOutcome | null {
+  private witnessGrowth(lease: Lease, worktree: () => string | null): string[] {
+    const now = this.parts.clock()
+    const underAShard = activeWindowShards(this.parts.db, now).length > 0 || unspentShard(this.parts.db, lease.cardId, lease.pr, decisionsInForceAt(this.parts.db, now)) !== null
+    const witnessRuns = underAShard ? cardWitnessRunsOf(this.parts.db, lease.cardId) : []
+    const tree = witnessRuns.length === 0 ? null : worktree()
+    if (tree === null)
+      return []
+    return witnessGrowthAllowances({ underAShard, witnessRuns, added: file => existsSync(path.join(tree, file)) && !inRef(tree, DERIVED_BASE, file) })
+  }
+
+  private rowsForTheOwner(lease: Lease, question: string): string[] {
     const rows = ratchetRowsAskedToGrow(question)
+    if (!rows.includes(GATE_BUS_ROW))
+      return rows
+    const allowances = this.witnessGrowth(lease, () => {
+      const card = this.tree(lease)
+      return card === null || 'kind' in card ? null : card.worktree
+    })
+    const asked = witnessGrowthAsked(question)
+    return asked !== null && allowances.length > 0 && asked.every(entry => allowedEntry(entry, allowances)) ? rows.filter(row => row !== GATE_BUS_ROW) : rows
+  }
+
+  private ratchetGrowthAsked(lease: Lease, question: string, scope: BusEvent[]): AnswerOutcome | null {
+    const rows = this.rowsForTheOwner(lease, question)
     if (rows.length === 0 || decisionAnsweringRepeat(this.parts.db, lease.cardId, question, this.parts.clock()) !== null)
       return null
     return this.outcomes.ownersStopOnce(lease, question, ratchetGrowthLine(lease.cardId, rows, question), rows, scope)

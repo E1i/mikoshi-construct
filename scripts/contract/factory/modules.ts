@@ -55,7 +55,7 @@ const SESSION_CONTRACT = [
   factory('intake/witness-fields-backfill.ts'),
   factory('cli/slot.ts'),
   'src/commands/liveness.ts',
-  ...supervisor('bg', 'heartbeat', 'liveness-sites', 'scheduler', 'stamp', 'supervisor', 'workers'),
+  ...supervisor('bg', 'heartbeat', 'liveness-sites', 'scheduler', 'stamp', 'workers'),
 ]
 
 const INTAKE_COMMAND = 'src/commands/intake'
@@ -87,7 +87,7 @@ const UI_CONTRACT = within('src/ui', 'console.ts', 'expect-lore.ts', 'lore.ts', 
 
 export const COMPOSITION_MODULE = factory('supervisor/composition.ts')
 
-export const COMPOSITION_ROOTS: readonly string[] = ['src/cli.ts', 'src/program.ts', factory('window/miko.ts'), factory('intake/intake.ts'), factory('supervisor/start.ts'), factory('supervisor/netwatch-root.ts'), factory('cli/task-start.ts'), COMPOSITION_MODULE]
+export const COMPOSITION_ROOTS: readonly string[] = ['src/cli.ts', 'src/program.ts', factory('window/miko.ts'), factory('intake/intake.ts'), factory('supervisor/start.ts'), factory('supervisor/run.ts'), factory('supervisor/review-bg.ts'), factory('supervisor/supervisor.ts'), factory('supervisor/reducer-thread.ts'), factory('supervisor/launchd/install.ts'), factory('supervisor/netwatch-root.ts'), factory('cli/task-start.ts'), COMPOSITION_MODULE]
 
 export const OWNS_ARE_THE_CONTRACT = 'owns'
 

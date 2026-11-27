@@ -18,7 +18,7 @@ import { HOST_DEGRADED, HOST_FAILURES } from '../../ports/host-fault.js'
 import { fixedThermal } from '../../ports/host-thermal.js'
 import { recordProcessHeartbeat, SUPERVISOR_BEAT } from '../../supervisor/heartbeat.js'
 import { sampleVitals } from '../../supervisor/host-vitals.js'
-import { LivenessJudge, SUPERVISOR_PROCESS } from '../../supervisor/supervisor.js'
+import { LivenessJudge, SUPERVISOR_PROCESS } from '../../supervisor/liveness-judge.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
 
 const benches: MergeBench[] = []
