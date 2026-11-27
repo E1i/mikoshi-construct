@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
 import { PR_OBSERVED, PR_OPENED } from '../../core/events.js'
 import { requestDecision, requestFromOwnerShell, roundLimitHeadRefusal } from '../../policy/decisions/add.js'
-import { continueFixesDecisionOf, roundLimitDecisionOf } from '../../policy/round-limit-decision.js'
+import { continueFixesDecisionOf } from '../../policy/decisions/read.js'
+import { roundLimitDecisionOf } from '../../policy/round-limit-decision.js'
 import { pendingRequests, runRequest } from '../../window/window-requests.js'
 
 const NOW = new Date('2026-11-09T10:00:00.000Z')

@@ -24,7 +24,7 @@ import { ANSWER_STEP, CARD_ANSWERED, CARD_RELEASED, OUTSIDE_TOUCHES, OWNER_WAIT_
 import { assertHeld, completeTask, cutByRestart, failTask, releaseTask, RESTART_CUT, StaleLease, waitTask } from '../../core/lease.js'
 import { timeoutUnderLoadOutside } from '../../core/observations.js'
 import { answerOnAnOldCardBody, DOWNGRADE_WAIT_OPEN, latestAnswerOf, latestReleaseOf, latestWidenStopOf, LEASED, QUEUED } from '../../core/queue.js'
-import { OWNER_EVEN_UNDER_THE_DECISION } from '../../policy/policy.js'
+import { OWNER_EVEN_UNDER_THE_DECISION } from '../../policy/decisions/read.js'
 import { matchGlob } from '../../policy/shredder/glob.js'
 import { isRegisteredDerived, pathsIn, pathsOutside, refusedTwinAnswer } from '../../policy/touch-scope.js'
 import { ownerGlobs } from '../../policy/widening.js'
