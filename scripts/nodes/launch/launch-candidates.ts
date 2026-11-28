@@ -76,16 +76,9 @@ const AMEND_SOURCE = 'amend'
 
 export type TreeReader = (worktree: string) => boolean
 
-export interface HeldSessionStop {
-  code: SessionStopCode
-  stop: number
-  paths: string[]
-}
+export interface HeldSessionStop { code: SessionStopCode, stop: number, paths: string[] }
 
-export interface WindowQuestion {
-  question: string
-  decision: string
-}
+export interface WindowQuestion { question: string, decision: string }
 
 const WINDOW_QUESTION_LINE = /^window-question:([^·\n]+)·[ \t]*(D-\d+)[ \t]*$/gm
 
@@ -165,16 +158,9 @@ interface LifeRow {
   payload: string
 }
 
-export interface LaunchableCard {
-  lane: string | null
-  contour: Contour
-}
+export interface LaunchableCard { lane: string | null, contour: Contour }
 
-export interface LaunchCandidate {
-  cardId: number
-  generation: string
-  continueIn?: string
-}
+export interface LaunchCandidate { cardId: number, generation: string, continueIn?: string }
 
 interface CardLife {
   cardId: number
@@ -311,10 +297,7 @@ function cardSet(db: DatabaseSync, read: CardRead): Set<number> {
   return new Set(read(db))
 }
 
-interface Settled {
-  merged: Set<number>
-  latestStartOrClose: Map<number, number>
-}
+interface Settled { merged: Set<number>, latestStartOrClose: Map<number, number> }
 
 function settledCards(db: DatabaseSync, merged: Set<number>): Settled {
   const latestStartOrClose = new Map(lastPer(db, BY_CARD, { types: ['path'], withCard: true, legacy: true }).map(row => [row.card_id!, row.id]))
@@ -508,11 +491,7 @@ export function unexplainedStall(line: string): boolean {
   return line.endsWith(UNEXPLAINED_HOLD)
 }
 
-export interface StartableCard {
-  cardId: number
-  admittedTs: string
-  hold: StartableHold
-}
+export interface StartableCard { cardId: number, admittedTs: string, hold: StartableHold }
 
 function openPrNumbers(db: DatabaseSync): Map<number, number> {
   return new Map(openCardPrs(db).reverse().map(row => [row.card_id!, row.pr]))
@@ -566,12 +545,7 @@ function laneHold(life: CardLife, lanes: number, busy: readonly CardHolder[], he
   return keeping === undefined ? null : { kind: 'lane', cardId: keeping.cardId, lane: life.lane }
 }
 
-export interface HeldExit {
-  cardId: number
-  startKey: string
-  session: string
-  exited: string
-}
+export interface HeldExit { cardId: number, startKey: string, session: string, exited: string }
 
 export function waitHeldAtTheExit(db: DatabaseSync, ts: string, actor: string, exit: HeldExit): boolean {
   const hold = cardHoldOf(db, exit.cardId)
@@ -626,11 +600,7 @@ function startableHold(db: DatabaseSync, life: CardLife, view: QueuedView, share
   return hold.kind === 'none' && bodyNotFoldedYet(BUS_CONTRACT, db, life.cardId) ? { kind: 'unfolded' } : hold
 }
 
-export interface LaneHeadHold {
-  lane: string
-  cardId: number
-  hold: StartableHold
-}
+export interface LaneHeadHold { lane: string, cardId: number, hold: StartableHold }
 
 function dependencyHold(life: CardLife, dropped: ReadonlySet<number>, unsatisfied: QueuedView['unsatisfied']): StartableHold | null {
   const droppedParent = life.depends.find(parent => dropped.has(parent))
