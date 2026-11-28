@@ -64,10 +64,12 @@ describe('add.ts and answer.ts take the window runner from their entry block', (
     expect(graph.imports.filter(({ from, to }) => (from === ADD || from === ANSWER) && to.startsWith('scripts/window/'))).toEqual([])
   })
 
-  it('the door carries only the window runners and the session variable, and answer.ts takes ANSWER_SOURCE from inbox', () => {
+  it('the door carries only the window runners, the session variable and the answer source, and answer.ts takes ANSWER_SOURCE from the door', () => {
     const exported = /export \{([^}]*)\}/.exec(readFileSync(path.join(REPO, DOOR), 'utf8'))![1]!.split(',').map(name => name.trim()).sort()
-    expect(exported).toEqual(['SESSION_VARIABLE', 'requestFromWindow', 'runRequest'])
-    expect(repositoryReport().graph.imports.some(({ from, to }) => from === ANSWER && to === INBOX)).toBe(true)
+    expect(exported).toEqual(['ANSWER_SOURCE', 'SESSION_VARIABLE', 'requestFromWindow', 'runRequest'])
+    const answerImports = repositoryReport().graph.imports.filter(({ from }) => from === ANSWER).map(({ to }) => to)
+    expect(answerImports).toContain(DOOR)
+    expect(answerImports).not.toContain(INBOX)
   })
 
   it.each(Object.entries(RUNNERS_OF))('%s names what it takes from the door only in its entry block', (file, names) => {
@@ -81,11 +83,13 @@ describe('add.ts and answer.ts take the window runner from their entry block', (
     }
   })
 
-  it('the decisions row into window stays the one door import, and ports, a lower layer, is no violation', () => {
-    expect(decisionsViolationsInto('window')).toEqual([`${DOOR} -> ${WINDOW_REQUESTS}`])
+  it('the door belongs to window, decisions reaches neither window nor ports, and the two entry files are composition roots', () => {
+    expect(decisionsViolationsInto('window')).toEqual([])
     expect(decisionsViolationsInto('ports')).toEqual([])
+    expect(decisionsViolationsInto('composition root')).toEqual([])
+    expect(repositoryReport().graph.imports.some(({ from, to }) => from === DOOR && to === WINDOW_REQUESTS)).toBe(true)
     const ratchet = JSON.parse(readFileSync(path.join(REPO, 'contract/ratchet.json'), 'utf8')) as Record<string, number>
-    expect([ratchet['boundary:decisions->window'], ratchet['boundary:decisions->ports']]).toEqual([1, undefined])
+    expect([ratchet['boundary:decisions->window'], ratchet['boundary:decisions->ports'], ratchet['boundary:decisions->composition-root']]).toEqual([undefined, undefined, undefined])
   })
 
   it('requestDecision carries the decision through the runner it is given, and the bus sees nothing else', () => {

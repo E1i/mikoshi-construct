@@ -133,7 +133,6 @@
     "src/commands/board/bus.ts",
     "src/commands/board/drain.ts",
     "src/commands/board/gate-runs.ts",
-    "src/commands/board/goal.ts",
     "src/commands/board/heal.ts",
     "src/commands/board/index.ts",
     "src/commands/board/items.ts",
@@ -362,7 +361,7 @@
     "scripts/policy/decisions/projection.ts",
     "scripts/policy/decisions/read.ts",
     "scripts/policy/decisions/wait-folds.ts",
-    "scripts/policy/decisions/window-door.ts",
+    "scripts/policy/decisions/writer.ts",
     "scripts/policy/live-decision.ts"
   ],
   "docs": [
@@ -777,6 +776,7 @@
     "scripts/tests/contract/bus-cut/intake-root-readers-to-intake.test.ts",
     "scripts/tests/contract/bus-cut/lease-liveness-injected.test.ts",
     "scripts/tests/contract/bus-cut/lease-task-must-wait.test.ts",
+    "scripts/tests/contract/bus-cut/netwatch-is-a-root.test.ts",
     "scripts/tests/contract/bus-cut/node-parts-cadence-heartbeat-slots.test.ts",
     "scripts/tests/contract/bus-cut/node-private-last-event-id.test.ts",
     "scripts/tests/contract/bus-cut/node-refuses-injected.test.ts",
@@ -785,8 +785,10 @@
     "scripts/tests/contract/bus-cut/pr-status-to-pr-record.test.ts",
     "scripts/tests/contract/bus-cut/project-owns-its-record-ports.test.ts",
     "scripts/tests/contract/bus-cut/reducer-takes-projections.test.ts",
+    "scripts/tests/contract/bus-cut/session-vocabulary.test.ts",
     "scripts/tests/contract/bus-cut/supervisor-roots.test.ts",
     "scripts/tests/contract/bus-cut/ui-in-the-ports-layer.test.ts",
+    "scripts/tests/contract/bus-cut/window-owns-door-goal-subagent-tick.test.ts",
     "scripts/tests/contract/bus-cut/witnesses-run-in-quality.test.ts",
     "scripts/tests/contract/bus-cut/witnesses-to-card.test.ts",
     "scripts/tests/contract/bus-gate.test.ts",
@@ -853,6 +855,7 @@
     "scripts/tests/contract/queue-contour.test.ts",
     "scripts/tests/contract/ratchet-threshold-set.test.ts",
     "scripts/tests/contract/reducer-contour.test.ts",
+    "scripts/tests/contract/session-takes-window-and-launch-files.test.ts",
     "scripts/tests/conveyor/measures.test.ts",
     "scripts/tests/core/card-decisions.test.ts",
     "scripts/tests/core/core-runs-no-git.test.ts",
@@ -1709,7 +1712,6 @@
   ],
   "node-launch": [
     "scripts/nodes/launch/body-amend.ts",
-    "scripts/nodes/launch/continuation.ts",
     "scripts/nodes/launch/header.md",
     "scripts/nodes/launch/holders.ts",
     "scripts/nodes/launch/host-gate.ts",
@@ -1737,7 +1739,6 @@
     "scripts/nodes/merge/weights-drift.ts"
   ],
   "node-restart": [
-    "scripts/nodes/restart/chain-process.ts",
     "scripts/nodes/restart/restart-executor.ts",
     "scripts/nodes/restart/restart-worker.ts",
     "scripts/nodes/restart/role-readings.ts",
@@ -1800,7 +1801,6 @@
     "scripts/ports/netwatch.ts",
     "scripts/ports/pr-status.ts",
     "scripts/ports/process-table.ts",
-    "scripts/ports/result.ts",
     "scripts/ports/review-planner.ts",
     "scripts/ports/session.ts",
     "scripts/ports/snapshot.ts",
@@ -2622,7 +2622,6 @@
     "scripts/privacy/check.ts",
     "scripts/privacy/scan.ts",
     "scripts/quality/foreign-table-sql-excepted.json",
-    "scripts/quality/lock.ts",
     "scripts/quality/real-time-waits-excepted.json",
     "scripts/quality/table-owners.json",
     "scripts/quality/witness-records.ts",
@@ -2731,6 +2730,10 @@
     "scripts/core/report.ts",
     "scripts/core/tasks.ts",
     "scripts/intake/witness-fields-backfill.ts",
+    "scripts/nodes/launch/continuation.ts",
+    "scripts/nodes/restart/chain-process.ts",
+    "scripts/ports/result.ts",
+    "scripts/quality/lock.ts",
     "scripts/supervisor/bg.ts",
     "scripts/supervisor/bus-heal.ts",
     "scripts/supervisor/bus-snapshot.ts",
@@ -2765,8 +2768,9 @@
     "scripts/supervisor/start.ts",
     "scripts/supervisor/supervisor.ts",
     "scripts/supervisor/wait-lifts.ts",
-    "scripts/supervisor/window-subagent-tick.ts",
     "scripts/supervisor/workers.ts",
+    "scripts/window/eddies-measure.ts",
+    "scripts/window/handoff-check.ts",
     "src/commands/liveness.ts"
   ],
   "templates": [
@@ -2920,13 +2924,13 @@
   ],
   "window": [
     "scripts/conveyor/measures.ts",
+    "scripts/policy/decisions/window-door.ts",
+    "scripts/supervisor/window-subagent-tick.ts",
     "scripts/window/board.ts",
     "scripts/window/card-measure.ts",
     "scripts/window/compact-start.ts",
     "scripts/window/day-archive.ts",
-    "scripts/window/eddies-measure.ts",
     "scripts/window/exit.ts",
-    "scripts/window/handoff-check.ts",
     "scripts/window/handoff-write.ts",
     "scripts/window/loop.ts",
     "scripts/window/miko.ts",
@@ -2983,6 +2987,7 @@
     "scripts/window/window-requests.ts",
     "scripts/window/window-session-end.ts",
     "scripts/window/window-subagents.ts",
-    "scripts/window/window.ts"
+    "scripts/window/window.ts",
+    "src/commands/board/goal.ts"
   ]
 }

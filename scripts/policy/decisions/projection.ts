@@ -4,10 +4,10 @@ import type { DecisionEventReads } from './index.js'
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { openBus } from '../../core/db.js'
 import { reduce } from '../../core/reducer.js'
-import { ARCHIVE_HEADER, runDecisionsAdd } from './add.js'
 import { decisionsFileOf, PREFIX, projectDecisions } from './decisions.js'
 import { busProjectsDecisions, decisionRows, expireDecisions, recordDecision, recordedNumbers, startProjectingDecisions } from './index.js'
 import { archiveOf } from './read.js'
+import { ARCHIVE_HEADER, runDecisionsAdd } from './writer.js'
 
 export type DecisionsAdder = (args: string[]) => { code: number, lines: string[] }
 

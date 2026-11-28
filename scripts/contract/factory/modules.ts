@@ -53,6 +53,11 @@ const BUS_CONTRACT = [
 const SESSION_CONTRACT = [
   ...core('machine-sessions.ts', 'eddies.ts', 'journal.ts', 'tasks.ts', 'handoff-dir.ts', 'handoff-fields.ts', 'handoff-status.ts', 'chain.ts', 'places.ts', 'report.ts', 'legacy-history.ts', 'import-closure.ts', 'cadence.ts'),
   factory('intake/witness-fields-backfill.ts'),
+  ...within(factory('window'), 'eddies-measure.ts', 'handoff-check.ts'),
+  factory('nodes/launch/continuation.ts'),
+  factory('nodes/restart/chain-process.ts'),
+  factory('ports/result.ts'),
+  factory('quality/lock.ts'),
   factory('cli/slot.ts'),
   'src/commands/liveness.ts',
   ...supervisor('bg', 'heartbeat', 'liveness-sites', 'scheduler', 'stamp', 'workers'),
@@ -67,27 +72,29 @@ const INTAKE_CONTRACT = [
 ]
 
 const QUALITY_CI = tree('ci')
+const QUALITY_FOLDER = tree('quality')
 
 const QUALITY_CONTRACT = [
-  ...(MODULE_OWNS.quality ?? []).filter(glob => glob !== QUALITY_CI),
+  ...(MODULE_OWNS.quality ?? []).filter(glob => glob !== QUALITY_CI && glob !== QUALITY_FOLDER),
+  ...within(factory('quality'), 'foreign-table-sql-excepted.json', 'real-time-waits-excepted.json', 'table-owners.json', 'witness-records.ts'),
   ...within(factory('ci'), 'browser-tests-ran.mjs', 'card-automaton.ts', 'card-runs.ts', 'classify.ts', 'fast-path.ts', 'file-weights-reporter.ts', 'gate-mutations.ts', 'gate-runs.ts', 'layers.ts', 'no-match-reporter.ts', 'prepush.ts', 'sandbox-failing.jsonl', 'sandbox-failing.ts', 'sandbox-liveness.ts', 'sandbox-refusals.ts', 'sandbox-trace-child.mjs', 'sandbox-trace.config.ts', 'sandbox-trace.ts', 'select.ts', 'shard.ts', 'test-command.ts', 'test-weights.json', 'test-weights.ts', 'tree-scanners.ts', 'verdict.ts', 'vitest-report.ts', 'weights-law.ts'),
 ]
 
 const PORTS_CONTRACT = [
-  ...within(factory('ports'), 'card-grants.ts', 'ci-reading.ts', 'client/claude/adapter.ts', 'client/index.ts', 'diff.ts', 'gh.ts', 'github-status.ts', 'github.ts', 'identifier-shapes.ts', 'isolation.ts', 'main-merge.ts', 'meter.ts', 'netwatch.ts', 'process-table.ts', 'result.ts', 'review-planner.ts', 'session.ts', 'snapshot.ts', 'task-start.ts', 'tree-publish.ts', 'wide-vitest-guard.ts', 'worktree.ts'),
+  ...within(factory('ports'), 'card-grants.ts', 'ci-reading.ts', 'client/claude/adapter.ts', 'client/index.ts', 'diff.ts', 'gh.ts', 'github-status.ts', 'github.ts', 'identifier-shapes.ts', 'isolation.ts', 'main-merge.ts', 'meter.ts', 'process-table.ts', 'review-planner.ts', 'session.ts', 'snapshot.ts', 'task-start.ts', 'tree-publish.ts', 'wide-vitest-guard.ts', 'worktree.ts'),
   ...core('bus-contract.ts', 'process-listing.ts'),
   factory('ci/required.ts'),
   `${CI_COMMAND}/state.ts`,
   `${INTAKE_COMMAND}/command-word.ts`,
 ]
 
-const WINDOW_CONTRACT = within(factory('window'), 'board.ts', 'eddies-measure.ts', 'handoff-check.ts', 'loop.ts', 'tab.ts', 'takeover-push-release.ts', 'watch.ts', 'window-heartbeat.ts', 'window-prs.ts', 'window-request-tools.ts', 'window-requests.ts', 'window-session-end.ts', 'window-subagents.ts')
+const WINDOW_CONTRACT = [...within(factory('window'), 'board.ts', 'loop.ts', 'tab.ts', 'takeover-push-release.ts', 'watch.ts', 'window-heartbeat.ts', 'window-prs.ts', 'window-request-tools.ts', 'window-requests.ts', 'window-session-end.ts', 'window-subagents.ts'), factory('policy/decisions/window-door.ts'), factory('supervisor/window-subagent-tick.ts'), 'src/commands/board/goal.ts']
 
 const UI_CONTRACT = within('src/ui', 'console.ts', 'expect-lore.ts', 'lore.ts', 'signal.ts', 'theme.ts')
 
 export const COMPOSITION_MODULE = factory('supervisor/composition.ts')
 
-export const COMPOSITION_ROOTS: readonly string[] = ['src/cli.ts', 'src/program.ts', factory('window/miko.ts'), factory('intake/intake.ts'), factory('supervisor/start.ts'), factory('supervisor/run.ts'), factory('supervisor/review-bg.ts'), factory('supervisor/supervisor.ts'), factory('supervisor/reducer-thread.ts'), factory('supervisor/launchd/install.ts'), factory('supervisor/netwatch-root.ts'), factory('cli/task-start.ts'), COMPOSITION_MODULE]
+export const COMPOSITION_ROOTS: readonly string[] = ['src/cli.ts', 'src/program.ts', factory('window/miko.ts'), factory('intake/intake.ts'), factory('supervisor/start.ts'), factory('supervisor/run.ts'), factory('supervisor/review-bg.ts'), factory('supervisor/supervisor.ts'), factory('supervisor/reducer-thread.ts'), factory('supervisor/launchd/install.ts'), factory('supervisor/netwatch-root.ts'), factory('ports/netwatch.ts'), factory('cli/task-start.ts'), factory('policy/decisions/add.ts'), factory('owner/answer.ts'), COMPOSITION_MODULE]
 
 export const OWNS_ARE_THE_CONTRACT = 'owns'
 
@@ -214,7 +221,10 @@ export function carvedOut(modules: Readonly<Record<string, ModuleSpec>>): Record
   const named = [...namedFiles(modules)]
   return Object.fromEntries(Object.entries(modules).map(([id, spec]) => {
     const taken = spec.owns.filter(isFolderGlob).flatMap(folder => named.filter(([file, holder]) => holder !== id && insideFolder(folder, file)).map(([file]) => `${CARVED_OUT}${file}`))
-    return [id, taken.length === 0 ? spec : { ...spec, owns: [...spec.owns, ...taken.sort()] }]
+    if (taken.length === 0)
+      return [id, spec]
+    const owns = [...spec.owns, ...taken.sort()]
+    return [id, { ...spec, owns, contract: spec.contract === spec.owns ? owns : spec.contract }]
   }))
 }
 

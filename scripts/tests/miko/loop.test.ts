@@ -14,7 +14,7 @@ import { WINDOW_MARK, WINDOW_VARIABLE } from '../../ports/session.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { lastProcessBeats, recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
-import { LOADED_CORE_VARIABLE, PROJECT_VARIABLE } from '../../window/eddies-measure.js'
+import { LOADED_CORE_VARIABLE, PROJECT_VARIABLE, THRESHOLDS } from '../../window/eddies-measure.js'
 import { STATE_LABELS } from '../../window/handoff-check.js'
 import { claimLoop, compoundCommandRefusal, CONTINUE_PROMPT, DOUBLE_CTRL_C_WINDOW_MS, DOUBLE_CTRL_C_WINDOW_VARIABLE, doubleCtrlCWatcher, doubleCtrlCWindowOf, exitRequestFile, HANGUPS, liveLoop, loopProcess, MIKO_HANDOFF_NAME, mikoHandoff, once, PAUSE_MS, pauseUntilCtrlC, PREFIX, recordLoopEnded, requestEndsSession, requesterOf, runMikoLoop, runSession, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight, sessionScript, takeExitRequest } from '../../window/loop.js'
 import { CLAUDE_VARIABLE, claudeCommand, DEFAULT_CLAUDE } from '../client/claude-window.js'
@@ -590,7 +590,7 @@ function roleWithTheOwner(file: string): void {
   const at = (ms: number): string => new Date(Date.parse('2026-10-20T10:00:00.000Z') + ms).toISOString()
   observeRoleStop(db, at(0), 'worker:miko:7', { role: 'miko', handoff: '/handoff/miko.md', status: 'CONTINUE', reason: 'context', raised: false })
   reduce(db, 'pending', busProjections())
-  roleToOwner(db, at(10), 'worker:restart:w')
+  roleToOwner(db, at(10), 'worker:restart:w', THRESHOLDS)
   db.close()
 }
 

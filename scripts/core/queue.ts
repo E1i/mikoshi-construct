@@ -78,59 +78,28 @@ export function cardBodyShaOf(card: string): string {
   return `(${latestBodyAdmission(card, `json_extract(intake.payload, '$.bodySha')`)})`
 }
 
-const UNDER_A_PR_BODY = ':pr-body-'
-const LIVE_STATES: readonly string[] = [QUEUED, LEASED]
+export const UNDER_A_PR_BODY = ':pr-body-'
+export const LIVE_STATES: readonly string[] = [QUEUED, LEASED]
 
-interface ReviewTaskRow extends TaskRow {
+export interface ReviewTaskRow extends TaskRow {
   state: string
   event_id: number
 }
 
-function reviewTasks(db: DatabaseSync): ReviewTaskRow[] {
+export function reviewTasks(db: DatabaseSync): ReviewTaskRow[] {
   return db.prepare(`SELECT task_key, queue, card_id, pr, head, state, event_id FROM tasks WHERE queue = 'review' ORDER BY task_key`).all() as unknown as ReviewTaskRow[]
 }
 
-function onTheHead(task: { pr: number | null, head: string | null }, pr: { pr: number, head: string | null }): boolean {
+export function onTheHead(task: { pr: number | null, head: string | null }, pr: { pr: number, head: string | null }): boolean {
   return task.pr === pr.pr && task.head !== null && task.head === pr.head
 }
 
-function inPrOrder<Pr extends { pr: number }>(prs: readonly Pr[]): Pr[] {
+export function inPrOrder<Pr extends { pr: number }>(prs: readonly Pr[]): Pr[] {
   return [...prs].sort((left, right) => left.pr - right.pr)
 }
 
-function withTheCardBody<Row extends { card_id: number }>(db: DatabaseSync, row: Row): Row & { card_body: string | null } {
+export function withTheCardBody<Row extends { card_id: number }>(db: DatabaseSync, row: Row): Row & { card_body: string | null } {
   return { ...row, card_body: cardBodyShaOfCard(db, row.card_id) }
-}
-
-function reviewCandidateRows(db: DatabaseSync, prs: readonly CandidatePr[]): Candidate[] {
-  const reviews = reviewTasks(db)
-  return inPrOrder(prs).flatMap((pr) => {
-    const onIt = reviews.filter(task => onTheHead(task, pr))
-    const reviewedUnderAnInput = pr.body_sha !== null && onIt.some(task => task.task_key.includes(UNDER_A_PR_BODY))
-    const due = pr.verdict_on_head === null || ((pr.verdict_on_head === 'changes' || pr.verdict_on_head === 'pass') && reviewedUnderAnInput)
-    const plainReview = onIt.some(task => task.state !== SUPERSEDED && !task.task_key.includes(UNDER_A_PR_BODY))
-    return pr.state === 'open' && pr.ci === 'green' && pr.card_id !== null && pr.head !== null && due && !plainReview ? [withTheCardBody(db, { pr: pr.pr, card_id: pr.card_id, head: pr.head, body_sha: pr.body_sha })] : []
-  })
-}
-
-function reviewsOnTheHeadUnderABody(db: DatabaseSync, prs: readonly ReviewedPr[], admits: (task: ReviewTaskRow, pr: ReviewedPr) => boolean): (ReviewRow & { event_id: number })[] {
-  const known = new Map(prs.map(pr => [pr.pr, pr]))
-  return reviewTasks(db).flatMap((task) => {
-    const pr = task.pr === null ? undefined : known.get(task.pr)
-    if (pr === undefined || pr.body_sha === null || !onTheHead(task, pr) || !task.task_key.includes(UNDER_A_PR_BODY) || !admits(task, pr))
-      return []
-    return [withTheCardBody(db, { task_key: task.task_key, queue: task.queue, card_id: task.card_id, pr: task.pr, head: task.head, event_id: task.event_id, body_sha: pr.body_sha })]
-  })
-}
-
-function supersededReviewsOnTheCurrentHead(db: DatabaseSync, prs: readonly ReviewedPr[]): SupersededReviewRow[] {
-  const live = new Set(reviewTasks(db).filter(task => LIVE_STATES.includes(task.state)).map(task => task.pr))
-  const due = (task: ReviewTaskRow, pr: ReviewedPr): boolean => task.state === SUPERSEDED && pr.state === 'open' && pr.ci === 'green' && (pr.verdict_on_head === null || pr.verdict_on_head === 'changes') && !live.has(task.pr)
-  return reviewsOnTheHeadUnderABody(db, prs, due).map(({ event_id, ...row }) => ({ ...row, failure: Number(event_id) }))
-}
-
-function reviewsOfAnOldInputRows(db: DatabaseSync, prs: readonly ReviewedPr[]): ReviewRow[] {
-  return reviewsOnTheHeadUnderABody(db, prs, task => LIVE_STATES.includes(task.state)).map(({ event_id: _event, ...row }) => row)
 }
 
 const ANSWER_TASK_COLUMNS = 'task_key, queue, card_id, pr, head, state'
@@ -292,7 +261,7 @@ export const QUESTION_OPEN = 'owner_question_open'
 const VERIFICATIONS = `SELECT pr, card_id, max(json_type(payload, '$.sharedBy') = 'text') AS shared FROM events
   WHERE type = '${CARD_VERIFIED}' AND legacy = 0 AND card_id IS NOT NULL AND pr IS NOT NULL GROUP BY pr, card_id ORDER BY pr, card_id`
 
-function closeCandidateRows(db: DatabaseSync, prs: readonly CandidatePr[]): Candidate[] {
+export function closeCandidateRows(db: DatabaseSync, prs: readonly CandidatePr[]): Candidate[] {
   const merged = new Map(prs.filter(pr => pr.state === 'merged' && pr.card_id !== null && pr.head !== null).map(pr => [pr.pr, pr]))
   const closed = new Set((db.prepare(`SELECT card_id FROM events WHERE type = '${CARD_CLOSED}' AND card_id IS NOT NULL`).all() as { card_id: number }[]).map(row => Number(row.card_id)))
   return (db.prepare(VERIFICATIONS).all() as { pr: number, card_id: number, shared: number }[]).flatMap((row) => {
@@ -386,13 +355,6 @@ export interface RequeueRow extends TaskRow {
   fault?: boolean
 }
 
-interface ReviewRow extends TaskRow {
-  body_sha: string
-  card_body: unknown
-}
-
-type SupersededReviewRow = ReviewRow & RequeueRow
-
 export interface QueuedTask extends TaskIdentity {
   stop?: number
   cardBody?: string
@@ -470,16 +432,6 @@ export function openCandidates(db: DatabaseSync, ts: string, queue: Queue, rows:
     const prBody = queue === 'merge' && typeof row.body_sha === 'string' && BODY_SHA.test(row.body_sha) ? row.body_sha : undefined
     return { queue, cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined, stop: row.stop ?? undefined, input, cardBody, base, prBody, decision: cardDecisionKeyOf(queue, row.card_id, () => rules.decisionsAt(db, ts)) }
   })
-}
-
-export function reviewCandidates(db: DatabaseSync, ts: string, rules: CandidateRules): QueuedTask[] {
-  const reviewed = rules.reviewedUnderTheCardDecision(db, ts)
-  const prs = rules.prs(db)
-  return [...openCandidates(db, ts, 'review', reviewCandidateRows(db, prs), rules), ...openCandidates(db, ts, 'review', mergeCandidateRows(db, prs, rules.mergedCards(db)).filter(row => !reviewed(row)), rules)]
-}
-
-export function closeCandidates(db: DatabaseSync, ts: string, rules: CandidateRules): QueuedTask[] {
-  return openCandidates(db, ts, 'close', closeCandidateRows(db, rules.prs(db)), rules)
 }
 
 export interface Derived {
@@ -718,10 +670,6 @@ export function cardBodyShaOfCard(db: DatabaseSync, cardId: number): string | nu
   return cardBodyAdmissionOf(db, cardId)?.bodySha ?? null
 }
 
-export function reviewsOfAnOldInput(db: DatabaseSync, prs: readonly ReviewedPr[]): TaskRow[] {
-  return reviewsOfAnOldInputRows(db, prs).filter(row => !underCurrentInput(row))
-}
-
 function keyedOnAnOldCardBody(key: string, row: Pick<Candidate, 'card_body'>): boolean {
   const current = answerCardBodyOf(row)
   return current !== undefined && cardBodyIn(key) !== current
@@ -742,23 +690,6 @@ export function answerOnAnOldCardBody(db: DatabaseSync, task: { taskKey: string,
 
 export function supersededAnswerWithinItsLease(db: DatabaseSync, cardId: number, ts: string): boolean {
   return db.prepare(A_SUPERSEDED_ANSWER_WITHIN_ITS_LEASE).get(cardId, ts) !== undefined
-}
-
-export function reviewKeysOfAnOldInput(db: DatabaseSync, prs: readonly ReviewedPr[]): string[] {
-  return reviewsOfAnOldInput(db, prs).map(row => row.task_key)
-}
-
-export function reviewsOfTheCurrentInputAgain(db: DatabaseSync, prs: readonly ReviewedPr[]): RequeueRow[] {
-  return supersededReviewsOnTheCurrentHead(db, prs).filter(underCurrentInput)
-}
-
-export function reviewKeysOfTheCurrentInputAgain(db: DatabaseSync, prs: readonly ReviewedPr[]): string[] {
-  return reviewsOfTheCurrentInputAgain(db, prs).map(row => row.task_key)
-}
-
-function underCurrentInput(row: ReviewRow): boolean {
-  const current: QueuedTask = { queue: 'review', cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined, input: reviewInputOf(row.body_sha, row.card_body) }
-  return current.input === undefined || keyOf(current) === row.task_key
 }
 
 function mayBeRequeued(db: DatabaseSync, ts: string, row: RequeueRow, mayRequeue: MayRequeue): boolean {

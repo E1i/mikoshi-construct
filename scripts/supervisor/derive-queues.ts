@@ -2,16 +2,16 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { CardOfStop } from '../core/card-readings.js'
 import type { EventRow } from '../core/events-query.js'
 import type { BoundDecision } from '../core/identifiers.js'
-import type { CandidateRules, Derived, MayRequeue, QuestionAnswered, QueuedTask, QueueSource, RequeueRow, TaskRow } from '../core/queue.js'
+import type { Candidate, CandidatePr, CandidateRules, Derived, MayRequeue, QuestionAnswered, QueuedTask, QueueSource, RequeueRow, ReviewedPr, ReviewTaskRow, TaskRow } from '../core/queue.js'
 import type { TaskRow as StoredTask } from '../core/tasks-query.js'
 import { isBackfill } from '../core/backfill-source.js'
 import { cardsAmong, openWaitEventsByCard, standingStopOf, waitStatesAmong } from '../core/card-readings.js'
 import { appendEvent, inTransaction, OPEN_WAIT, openOwnerWait } from '../core/db.js'
 import { byId, EITHER_JOURNAL, events, latest } from '../core/events-query.js'
 import { BOARD_ALARM, CARD_ADMITTED, CARD_ANSWERED, CARD_CLOSED, CARD_STARTED, CARD_STOPPED, CARD_VERIFIED, CARD_WAITING, declaredPart, MERGE_DONE, OWNER_WAIT_OPENED, POLICY_DENIED, PR_CLOSED, PR_OPENED, QUESTION_AGENT, QUESTION_OWNER, REVIEW_ROUNDS_SPENT, ROUND_MUTATIONS_PARKED, TASK_FAILED, TASK_REQUEUED, TASK_WITHDRAWN, WITNESS_DOWNGRADE } from '../core/events.js'
-import { tasksTheHeadOrTheCardDecisionSupersedes } from '../core/identifiers.js'
+import { reviewInputOf, tasksTheHeadOrTheCardDecisionSupersedes } from '../core/identifiers.js'
 import { ADMIT_COMMAND } from '../core/owner-commands.js'
-import { answersOfAnOldCardBody, COMPLETED, deriveQueues, DOWNGRADE_WAIT_OPEN, FAILURES_TO_STOP, FAULT, identityOfRow, keyOf, LAUNCH_STOP_WITH_NO_PULL_REQUEST, LEASED, openCandidates, QUEUE_ACTOR, QUEUED, reviewsOfAnOldInput, reviewsOfTheCurrentInputAgain, STOPPED, SUPERSEDED, supersedeTask, WITHDRAWN, withdrawTask } from '../core/queue.js'
+import { answersOfAnOldCardBody, closeCandidateRows, COMPLETED, deriveQueues, DOWNGRADE_WAIT_OPEN, FAILURES_TO_STOP, FAULT, identityOfRow, inPrOrder, keyOf, LAUNCH_STOP_WITH_NO_PULL_REQUEST, LEASED, LIVE_STATES, mergeCandidateRows, openCandidates, QUEUE_ACTOR, QUEUED, onTheHead as reviewOnTheHead, reviewTasks, STOPPED, SUPERSEDED, supersedeTask, UNDER_A_PR_BODY, WITHDRAWN, withdrawTask, withTheCardBody } from '../core/queue.js'
 import * as tasks from '../core/tasks-query.js'
 
 export const LIFTED_ADMISSION = 'lifted'
@@ -28,6 +28,75 @@ const KEYED_ON_THE_HEAD = new Set(['merge', 'update'])
 const STILL_NEEDED_AFTER_A_MERGE = new Set(['merge', 'close', 'witness'])
 const CARD_TURNS = [CARD_STOPPED, CARD_ANSWERED, CARD_STARTED]
 const JSON_TRUE: readonly unknown[] = [1, true]
+
+interface ReviewRow extends TaskRow {
+  body_sha: string
+  card_body: unknown
+}
+
+type SupersededReviewRow = ReviewRow & RequeueRow
+
+function reviewCandidateRows(db: DatabaseSync, prs: readonly CandidatePr[]): Candidate[] {
+  const reviews = reviewTasks(db)
+  return inPrOrder(prs).flatMap((pr) => {
+    const onIt = reviews.filter(task => reviewOnTheHead(task, pr))
+    const reviewedUnderAnInput = pr.body_sha !== null && onIt.some(task => task.task_key.includes(UNDER_A_PR_BODY))
+    const due = pr.verdict_on_head === null || ((pr.verdict_on_head === 'changes' || pr.verdict_on_head === 'pass') && reviewedUnderAnInput)
+    const plainReview = onIt.some(task => task.state !== SUPERSEDED && !task.task_key.includes(UNDER_A_PR_BODY))
+    return pr.state === 'open' && pr.ci === 'green' && pr.card_id !== null && pr.head !== null && due && !plainReview ? [withTheCardBody(db, { pr: pr.pr, card_id: pr.card_id, head: pr.head, body_sha: pr.body_sha })] : []
+  })
+}
+
+function reviewsOnTheHeadUnderABody(db: DatabaseSync, prs: readonly ReviewedPr[], admits: (task: ReviewTaskRow, pr: ReviewedPr) => boolean): (ReviewRow & { event_id: number })[] {
+  const known = new Map(prs.map(pr => [pr.pr, pr]))
+  return reviewTasks(db).flatMap((task) => {
+    const pr = task.pr === null ? undefined : known.get(task.pr)
+    if (pr === undefined || pr.body_sha === null || !reviewOnTheHead(task, pr) || !task.task_key.includes(UNDER_A_PR_BODY) || !admits(task, pr))
+      return []
+    return [withTheCardBody(db, { task_key: task.task_key, queue: task.queue, card_id: task.card_id, pr: task.pr, head: task.head, event_id: task.event_id, body_sha: pr.body_sha })]
+  })
+}
+
+function supersededReviewsOnTheCurrentHead(db: DatabaseSync, prs: readonly ReviewedPr[]): SupersededReviewRow[] {
+  const live = new Set(reviewTasks(db).filter(task => LIVE_STATES.includes(task.state)).map(task => task.pr))
+  const due = (task: ReviewTaskRow, pr: ReviewedPr): boolean => task.state === SUPERSEDED && pr.state === 'open' && pr.ci === 'green' && (pr.verdict_on_head === null || pr.verdict_on_head === 'changes') && !live.has(task.pr)
+  return reviewsOnTheHeadUnderABody(db, prs, due).map(({ event_id, ...row }) => ({ ...row, failure: Number(event_id) }))
+}
+
+function liveReviewsUnderABody(db: DatabaseSync, prs: readonly ReviewedPr[]): ReviewRow[] {
+  return reviewsOnTheHeadUnderABody(db, prs, task => LIVE_STATES.includes(task.state)).map(({ event_id: _event, ...row }) => row)
+}
+
+export function reviewCandidates(db: DatabaseSync, ts: string, rules: CandidateRules): QueuedTask[] {
+  const reviewed = rules.reviewedUnderTheCardDecision(db, ts)
+  const prs = rules.prs(db)
+  return [...openCandidates(db, ts, 'review', reviewCandidateRows(db, prs), rules), ...openCandidates(db, ts, 'review', mergeCandidateRows(db, prs, rules.mergedCards(db)).filter(row => !reviewed(row)), rules)]
+}
+
+export function closeCandidates(db: DatabaseSync, ts: string, rules: CandidateRules): QueuedTask[] {
+  return openCandidates(db, ts, 'close', closeCandidateRows(db, rules.prs(db)), rules)
+}
+
+function underCurrentInput(row: ReviewRow): boolean {
+  const current: QueuedTask = { queue: 'review', cardId: row.card_id, pr: row.pr ?? undefined, head: row.head ?? undefined, input: reviewInputOf(row.body_sha, row.card_body) }
+  return current.input === undefined || keyOf(current) === row.task_key
+}
+
+export function reviewsOfAnOldInput(db: DatabaseSync, prs: readonly ReviewedPr[]): TaskRow[] {
+  return liveReviewsUnderABody(db, prs).filter(row => !underCurrentInput(row))
+}
+
+export function reviewKeysOfAnOldInput(db: DatabaseSync, prs: readonly ReviewedPr[]): string[] {
+  return reviewsOfAnOldInput(db, prs).map(row => row.task_key)
+}
+
+export function reviewsOfTheCurrentInputAgain(db: DatabaseSync, prs: readonly ReviewedPr[]): RequeueRow[] {
+  return supersededReviewsOnTheCurrentHead(db, prs).filter(underCurrentInput)
+}
+
+export function reviewKeysOfTheCurrentInputAgain(db: DatabaseSync, prs: readonly ReviewedPr[]): string[] {
+  return reviewsOfTheCurrentInputAgain(db, prs).map(row => row.task_key)
+}
 
 export interface QueuePr {
   pr: number

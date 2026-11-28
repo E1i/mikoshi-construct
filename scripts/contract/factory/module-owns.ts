@@ -284,6 +284,12 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/core/import-closure.ts`,
     `${FACTORY_ROOT}/core/cadence.ts`,
     `${FACTORY_ROOT}/intake/witness-fields-backfill.ts`,
+    `${FACTORY_ROOT}/window/eddies-measure.ts`,
+    `${FACTORY_ROOT}/window/handoff-check.ts`,
+    `${FACTORY_ROOT}/nodes/launch/continuation.ts`,
+    `${FACTORY_ROOT}/nodes/restart/chain-process.ts`,
+    `${FACTORY_ROOT}/ports/result.ts`,
+    `${FACTORY_ROOT}/quality/lock.ts`,
     `${FACTORY_ROOT}/cli/slot.ts`,
     'src/commands/liveness.ts',
     `${FACTORY_ROOT}/supervisor/**`,
@@ -294,5 +300,8 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
   'window': [
     `${FACTORY_ROOT}/window/**`,
     `${FACTORY_ROOT}/conveyor/**`,
+    `${FACTORY_ROOT}/policy/decisions/window-door.ts`,
+    `${FACTORY_ROOT}/supervisor/window-subagent-tick.ts`,
+    'src/commands/board/goal.ts',
   ],
 }
