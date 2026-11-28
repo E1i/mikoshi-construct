@@ -1,5 +1,0 @@
----
-'mikoshi-construct': patch
----
-
-Internal: a new module `ladder`, ranked last in the domain layer, takes `scripts/ladder/`, `scripts/done/`, `scripts/core/journal.ts` and `scripts/nodes/update/review-carry.ts` from `cost` and `session`. `cost` keeps `src/commands/cost/`, and `scripts/ladder/ladder-starter.ts` goes to `node-launch`. The bus history (`busHistory`, `ghostLines`, `ghostLinesText`, `GhostLine`, `JournalEvent`) moves into a new bus file, `scripts/core/bus-history.ts`, and `scripts/core/legacy-history.ts` moves from session into the bus contract. The ratchet rows `boundary:cost->node-launch`, `cost->node-update`, `node-launch->cost` and `node-update->cost` are removed, and `session->cost` (6 → 2), `release->cost` (2 → 1), `decisions->session` (2 → 1) and `ports->session` (2 → 1) fall. `scripts/contract/contours.ts` stays in `factory-contract`: that module exists to own it, and moving it would leave `factory-contract` with no source file, which the generated ownership check refuses; what `factory-contract` becomes is a later card's decision. Behaviour is unchanged.

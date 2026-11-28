@@ -1,5 +1,0 @@
----
-'mikoshi-construct': patch
----
-
-The environment every role runs in now comes from the product, not from the owner's user settings. `init` and `sync --apply` write into `.claude/settings.json` a sandbox (`~/.construct/<repo>`, the repository's `.git` and the package-manager stores writable; the owner channel, `.git/hooks` and `.git/config` not; the GitHub hosts and `registry.npmjs.org` reachable) and a read rule for the factory home, so a consumer window started with `--setting-sources project,local` reads its handoff, runs `miko watch --once` and commits in a branch without `~/.claude/settings.json`. A card session gets, through its `--settings`, the git data of its own tree (`<repo>/.git/worktrees/<id>` and the shared `objects`, `refs` and `logs`), so it commits in a tree whose git data lives in the main checkout. `sync --apply` takes the dead relative `node scripts/construct/browser-lab.mjs *` entry out of the excluded commands, the daemon skill calls the lab only at its installed absolute path, and `doctor --factory` gains `role-environment` and `browser-lab-roles`, which name the role whose first step, or whose browser lab, its environment refuses.
