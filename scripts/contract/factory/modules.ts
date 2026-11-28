@@ -46,12 +46,12 @@ const core = (...names: string[]): string[] => within(factory('core'), ...names)
 const supervisor = (...names: string[]): string[] => within(factory('supervisor'), ...names.map(name => `${name}.ts`))
 
 const BUS_CONTRACT = [
-  ...core('db.ts', 'sqlite.ts', 'queue.ts', 'dependency-wait.ts', 'lease.ts', 'node.ts', 'stored.ts', 'bus-readings.ts', 'bus-version.ts', 'reducer.ts', 'every.ts', 'watermark.ts', 'events-query.ts', 'tasks-query.ts', 'entry.ts', 'observations.ts', 'task-must-wait.ts', 'bus-adapter.ts', 'identifiers.ts'),
+  ...core('db.ts', 'sqlite.ts', 'queue.ts', 'dependency-wait.ts', 'lease.ts', 'node.ts', 'stored.ts', 'bus-readings.ts', 'bus-version.ts', 'reducer.ts', 'every.ts', 'watermark.ts', 'events-query.ts', 'tasks-query.ts', 'entry.ts', 'observations.ts', 'task-must-wait.ts', 'bus-adapter.ts', 'identifiers.ts', 'legacy-history.ts', 'bus-history.ts'),
   ...within(factory('ports'), 'bus-read.ts', 'worktree-home.ts'),
 ]
 
 const SESSION_CONTRACT = [
-  ...core('machine-sessions.ts', 'eddies.ts', 'journal.ts', 'tasks.ts', 'handoff-dir.ts', 'handoff-fields.ts', 'handoff-status.ts', 'chain.ts', 'places.ts', 'report.ts', 'legacy-history.ts', 'import-closure.ts', 'cadence.ts'),
+  ...core('machine-sessions.ts', 'eddies.ts', 'tasks.ts', 'handoff-dir.ts', 'handoff-fields.ts', 'handoff-status.ts', 'chain.ts', 'places.ts', 'report.ts', 'import-closure.ts', 'cadence.ts'),
   factory('intake/witness-fields-backfill.ts'),
   ...within(factory('window'), 'eddies-measure.ts', 'handoff-check.ts'),
   factory('nodes/launch/continuation.ts'),
@@ -114,7 +114,7 @@ const NODES = ['node-answer', 'node-close', 'node-launch', 'node-merge', 'node-r
 const LAYERS: readonly Layer[] = [
   { modules: ['layout', 'command-registry', 'ui', 'ports-adapters', 'ports'], ordered: true },
   { modules: ['events', 'bus'], ordered: true },
-  { modules: ['card-model', 'card-record', 'project', 'plan', 'order', 'decisions', 'session', 'model', 'quality', 'intake', 'rules', 'pr-record', 'factory-contract'], ordered: true },
+  { modules: ['card-model', 'card-record', 'project', 'plan', 'order', 'decisions', 'session', 'model', 'quality', 'intake', 'rules', 'pr-record', 'factory-contract', 'ladder'], ordered: true },
   { modules: NODES, ordered: false },
   { modules: ['cli', 'atlas', 'release', 'cost', 'window', 'board'], ordered: true },
 ]
@@ -171,6 +171,7 @@ export const DRAWN: Readonly<Record<string, DrawnModule>> = {
   'quality': decidedWith('quality', QUALITY_CONTRACT),
   'intake': decidedWith('intake', INTAKE_CONTRACT),
   'cost': decided('cost'),
+  'ladder': decided('ladder'),
   'ports': decidedWith('ports', PORTS_CONTRACT),
   'window': decidedWith('window', WINDOW_CONTRACT),
   'board': decided('board'),

@@ -27,6 +27,8 @@
     "scripts/core/rejection.ts",
     "scripts/core/bus-adapter.ts",
     "scripts/core/identifiers.ts",
+    "scripts/core/legacy-history.ts",
+    "scripts/core/bus-history.ts",
     "scripts/ports/bus-read.ts",
     "scripts/ports/worktree-home.ts"
   ],

@@ -18,8 +18,8 @@ const LINT_MS = 120_000
 const OWNER_OF: Record<string, string> = {
   'src/commands/cost/bus.ts': 'cost',
   'src/commands/cost/ledger.ts': 'cost',
-  'scripts/ladder/ledger.ts': 'cost',
-  'scripts/core/journal.ts': 'session',
+  'scripts/ladder/ledger.ts': 'ladder',
+  'scripts/core/journal.ts': 'ladder',
 }
 const FILES = Object.keys(OWNER_OF)
 

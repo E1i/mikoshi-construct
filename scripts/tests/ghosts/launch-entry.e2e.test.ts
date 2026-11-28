@@ -3,8 +3,8 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SIGNAL_FIELDS } from '../../../src/ui/signal.js'
+import { ghostLines } from '../../core/bus-history.js'
 import { BUS_DB_VARIABLE } from '../../core/db.js'
-import { ghostLines } from '../../core/journal.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const WORLD = path.join(REPO_ROOT, 'scripts/tests/ghosts/fixtures/world.sh')

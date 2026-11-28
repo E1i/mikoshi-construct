@@ -1,6 +1,6 @@
 import type { Card } from '../../src/card/grammar.js'
+import type { JournalEvent } from '../core/bus-history.js'
 import type { CardBodyReader } from '../intake/parking-reads.js'
-import type { JournalEvent } from './approval.js'
 import type { Expect } from './expect.js'
 import type { Preflight } from './preflight.js'
 import type { Sketch } from './sketch.js'
