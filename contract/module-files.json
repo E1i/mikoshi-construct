@@ -1571,6 +1571,7 @@
     "declarations/may-use/atlas.json",
     "declarations/may-use/card.json",
     "declarations/may-use/cli.json",
+    "declarations/may-use/client-record.json",
     "declarations/may-use/commands.json",
     "declarations/may-use/detect.json",
     "declarations/may-use/failure.json",
@@ -1808,6 +1809,7 @@
     "scripts/ports/tree-publish.ts",
     "scripts/ports/wide-vitest-guard.ts",
     "scripts/ports/worktree.ts",
+    "src/client-record.ts",
     "src/commands/ci/state.ts",
     "src/commands/intake/command-word.ts"
   ],

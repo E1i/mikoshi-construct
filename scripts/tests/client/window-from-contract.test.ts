@@ -1,4 +1,4 @@
-import type { ClientRecord } from '../../../src/manifest.js'
+import type { ClientRecord } from '../../../src/client-record.js'
 import type { Invocation, Refusal, SessionSpec, WindowCommand } from '../../ports/client/contract.js'
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
