@@ -628,6 +628,7 @@
     "scripts/tests/bus/update-conflict.test.ts",
     "scripts/tests/bus/update-detection.ts",
     "scripts/tests/bus/update-live.test.ts",
+    "scripts/tests/bus/update-measures-growth-before-merging-main.test.ts",
     "scripts/tests/bus/update-node.test.ts",
     "scripts/tests/bus/update-queue.test.ts",
     "scripts/tests/bus/verdict-rules-version.test.ts",
