@@ -137,6 +137,8 @@ const BOARD_ICON = { id: 'board-icon', calm: `data:image/svg+xml,${encodeURIComp
 const MINUTE_MS = 60_000
 export const BOARD_DATA_FILE = 'board-data.js'
 const BOARD_DATA_PREFIX = 'window.BOARD = '
+const BOARD_STAMP_PREFIX = 'window.BOARD_STAMP = '
+const SNAPSHOT_PREFIXES = [BOARD_DATA_PREFIX, BOARD_STAMP_PREFIX]
 const FORMAT_FLAGS: readonly (readonly [string, BoardFormat])[] = [['--json', 'json'], ['--html', 'html']]
 const PLAN_FLAG = '--plan'
 const ALL_FLAG = '--all'
@@ -861,9 +863,10 @@ export interface BoardSnapshot {
 export function readSnapshot(file: string): BoardSnapshot | null {
   try {
     const text = readFileSync(file, 'utf8')
-    if (!text.startsWith(BOARD_DATA_PREFIX))
+    const prefix = SNAPSHOT_PREFIXES.find(known => text.startsWith(known))
+    if (prefix === undefined)
       return null
-    const data = JSON.parse(text.slice(BOARD_DATA_PREFIX.length)) as Partial<BoardData> | null
+    const data = JSON.parse(text.slice(prefix.length)) as Partial<BoardData> | null
     if (typeof data?.written !== 'string')
       return null
     return { written: data.written, tickMs: positive(data.tickMs), pulse: typeof data.pulse === 'string' ? data.pulse : null, waits: Array.isArray(data.waits) ? data.waits : [] }
@@ -871,6 +874,10 @@ export function readSnapshot(file: string): BoardSnapshot | null {
   catch {
     return null
   }
+}
+
+function snapshotFileOf(dir: string, stamp = path.join(dir, BOARD_STAMP_FILE)): string {
+  return existsSync(stamp) ? stamp : path.join(dir, BOARD_DATA_FILE)
 }
 
 export interface BusDown {
@@ -1015,7 +1022,7 @@ function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: 
     handoff: readHandoff(handoffFile),
     repository: readRepositoryUrl(),
     tickMs,
-    snapshot: readSnapshot(path.join(path.dirname(busPath), BOARD_DATA_FILE)),
+    snapshot: readSnapshot(snapshotFileOf(path.dirname(busPath))),
     held: ownerHoldsOf(db),
   }
 }
@@ -1063,7 +1070,7 @@ export function printBoard(busPath: string, now: Date, write: (text: string) => 
     text = boardText(busPath, now, handoffFile, format, eddiesFile, liveOnly)
   }
   catch (error) {
-    const down = busDownOf(now, error instanceof Error ? error.message.split('\n')[0]! : String(error), path.join(path.dirname(busPath), BOARD_DATA_FILE), readHandoff(handoffFile))
+    const down = busDownOf(now, error instanceof Error ? error.message.split('\n')[0]! : String(error), snapshotFileOf(path.dirname(busPath)), readHandoff(handoffFile))
     write({ html: renderBusDown, json: busDownJson, text: busDownText }[format](down))
     return 1
   }
@@ -1125,7 +1132,7 @@ export function boardProjection(db: DatabaseSync, busPath: string, tickMs: numbe
   const [dir, file, dataFile] = [path.dirname(busPath), path.join(path.dirname(busPath), BOARD_FILE), path.join(path.dirname(busPath), BOARD_DATA_FILE)]
   let shell = existsSync(file) ? readFileSync(file, 'utf8') : null
   const [cursor, cards, sections] = [new BuildCursor(db), new CardCache<CardDetail>(), new SectionWriter(dir, { write: (to, text) => writeBoardPage(to, text, files), remove: files.remove, list: files.list })]
-  let stamp: Pick<BoardData, 'tickMs' | 'filters' | 'alarms' | 'hashes'> = { tickMs, filters: [], alarms: [], hashes: {} }
+  let stamp: Omit<BoardData, 'written' | 'slots'> = { tickMs, pulse: null, waits: [], filters: [], alarms: [], hashes: {} }
   return {
     file,
     dataFile,
@@ -1144,10 +1151,10 @@ export function boardProjection(db: DatabaseSync, busPath: string, tickMs: numbe
           if (next !== shell)
             writeBoardPage(file, shell = next, files)
           cards.keep(page.details, made)
-          stamp = { tickMs, filters: data.filters, alarms: data.alarms, hashes }
+          stamp = { tickMs, pulse: data.pulse, waits: data.waits, filters: data.filters, alarms: data.alarms, hashes }
         }
         cursor.built(plan, now.getTime())
-        writeBoardPage(path.join(dir, BOARD_STAMP_FILE), `window.BOARD_STAMP = ${JSON.stringify({ written: now.toISOString(), ...stamp })}\n`, files)
+        writeBoardPage(path.join(dir, BOARD_STAMP_FILE), `${BOARD_STAMP_PREFIX}${JSON.stringify({ written: now.toISOString(), ...stamp })}\n`, files)
         written()
       }
       catch (error) {

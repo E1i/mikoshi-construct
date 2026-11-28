@@ -1,15 +1,15 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BoardFiles } from '../../cli/board-page.js'
 import { Buffer } from 'node:buffer'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import vm from 'node:vm'
 import { afterEach, describe, expect, it } from 'vitest'
-import { boardProjection } from '../../cli/board-page.js'
-import { BOARD_STAMP_FILE, CardCache, SECTION_FILE_PREFIX, sectionFileOf } from '../../cli/board-page/sections.js'
+import { boardProjection, DISK_FILES, printBoard } from '../../cli/board-page.js'
+import { BOARD_STAMP_FILE, CARD_BUILD_EVENT_LIMIT, CardCache, SECTION_FILE_PREFIX, sectionFileOf } from '../../cli/board-page/sections.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { CARD_ADMITTED } from '../../core/events.js'
+import { BUS_PULSE, CARD_ADMITTED } from '../../core/events.js'
 
 const NOW = new Date('2026-11-28T12:00:00.000Z')
 const TICK_MS = 10_000
@@ -21,6 +21,9 @@ const DROPPED_STATE = 'dropped'
 const EDITED_PROSE = 'prose edited behind the bus'
 const BOOKKEEPING = 'reducer.reduced'
 const LINKED_PR = 77
+const QUIET_TICKS = 5
+const SNAPSHOT_GREEN = 'data-node="snapshot" data-health="green"'
+const SNAPSHOT_META = `snapshot ${TICK_MS / 1000}s</span>`
 const roots: string[] = []
 
 afterEach(() => {
@@ -79,10 +82,22 @@ function at(ms: number): Date {
   return new Date(NOW.getTime() + ms)
 }
 
+function bookkeeping(db: DatabaseSync, ms: number, pr: number | null = null, key = `${BOOKKEEPING}:${ms}`): void {
+  appendEvent(db, { ts: at(ms).toISOString(), type: BOOKKEEPING, actor: 'reducer', cardId: null, pr, head: null, dedupeKey: key, payload: {}, legacy: false })
+}
+
 function stampOf(text: string): { written: string, hashes: Record<string, string> } {
   const window: { BOARD_STAMP?: { written: string, hashes: Record<string, string> } } = {}
   vm.runInNewContext(text, { window })
   return window.BOARD_STAMP!
+}
+
+function sectionHtmlOf(text: string): string {
+  let html = ''
+  vm.runInNewContext(text, { window: { BOARD_SECTION: (_name: string, _hash: string, shown: string) => {
+    html = shown
+  } } })
+  return html
 }
 
 describe('the board projects only what changed', () => {
@@ -172,20 +187,67 @@ describe('the board projects only what changed', () => {
     const dialog = sectionFileOf(dir, `dialog-card-${CARDS[0]}`)
     projection.project(NOW)
     db.prepare('UPDATE card_bodies SET text = text || ? WHERE card_id = ?').run(`\n${EDITED_PROSE}\n`, CARDS[0])
-    const bookkeeping = (ms: number, pr: number | null): void => {
-      appendEvent(db, { ts: at(ms).toISOString(), type: BOOKKEEPING, actor: 'reducer', cardId: null, pr, head: null, dedupeKey: `${BOOKKEEPING}:${ms}`, payload: {}, legacy: false })
-    }
-    bookkeeping(TICK_MS - 1, null)
+    bookkeeping(db, TICK_MS - 1)
     const before = files.renamed.length
     projection.project(at(TICK_MS))
     expect(files.renamed.slice(before)).not.toContain(dialog)
     expect(files.texts.get(dialog)).not.toContain(EDITED_PROSE)
     expect(files.writesOf(projection.dataFile)).toBe(1)
-    bookkeeping(2 * TICK_MS - 1, LINKED_PR)
+    bookkeeping(db, 2 * TICK_MS - 1, LINKED_PR)
     projection.project(at(2 * TICK_MS))
     expect(files.texts.get(dialog)).toContain(EDITED_PROSE)
     expect(files.writesOf(projection.dataFile)).toBe(2)
     db.close()
+  })
+
+  it('as many new events as the card-build limit build the cards, and one more builds the whole board', () => {
+    const { busPath, db } = seededBus()
+    const files = new MemoryFiles()
+    const projection = boardProjection(db, busPath, TICK_MS, files, path.join(path.dirname(busPath), 'handoff.md'))
+    projection.project(NOW)
+    const burst = (ms: number, count: number): void => {
+      for (let event = 0; event < count; event += 1)
+        bookkeeping(db, ms, null, `${BOOKKEEPING}:${ms}:${event}`)
+    }
+    burst(TICK_MS - 1, CARD_BUILD_EVENT_LIMIT)
+    projection.project(at(TICK_MS))
+    expect(files.writesOf(projection.dataFile)).toBe(1)
+    burst(2 * TICK_MS - 1, CARD_BUILD_EVENT_LIMIT + 1)
+    projection.project(at(2 * TICK_MS))
+    expect(files.writesOf(projection.dataFile)).toBe(2)
+    db.close()
+  })
+
+  it('a board projected every tick with one pulse event a tick reads its snapshot as fresh between full builds', () => {
+    const { busPath, db } = seededBus()
+    const dir = path.dirname(busPath)
+    const projection = boardProjection(db, busPath, TICK_MS, DISK_FILES, path.join(dir, 'handoff.md'))
+    projection.project(NOW)
+    for (let tick = 1; tick <= QUIET_TICKS; tick += 1) {
+      const ms = tick * TICK_MS - 1
+      appendEvent(db, { ts: at(ms).toISOString(), type: BUS_PULSE, actor: 'netwatch', cardId: null, pr: null, head: null, dedupeKey: `${BUS_PULSE}:${ms}`, payload: {}, legacy: false })
+      projection.project(at(tick * TICK_MS))
+      const services = sectionHtmlOf(readFileSync(sectionFileOf(dir, 'services'), 'utf8'))
+      expect(services, `tick ${tick}`).toContain(SNAPSHOT_GREEN)
+      expect(services, `tick ${tick}`).toContain(SNAPSHOT_META)
+    }
+    expect(stampOf(readFileSync(path.join(dir, BOARD_STAMP_FILE), 'utf8')).written).toBe(at(QUIET_TICKS * TICK_MS).toISOString())
+    db.close()
+    writeFileSync(busPath, 'not a database')
+    let text = ''
+    expect(printBoard(busPath, at((QUIET_TICKS + 1) * TICK_MS), (chunk) => {
+      text += chunk
+    }, path.join(dir, 'handoff.md'), 'json')).toBe(1)
+    expect(JSON.parse(text)).toMatchObject({ stoppedAt: at(QUIET_TICKS * TICK_MS - 1).toISOString(), snapshot: { written: at(QUIET_TICKS * TICK_MS).toISOString(), stale: false } })
+  })
+
+  it('a cached dialog is rebuilt when the board\'s card list changes, even for an untouched card', () => {
+    const cache = new CardCache<string>()
+    const untouched = { kind: 'cards' as const, cursor: 0, touched: new Set<number>() }
+    cache.keep(new Map(CARDS.map(card => [card, `detail ${card}`])), new Map(CARDS.map(card => [card, `dialog ${card}`])))
+    expect(cache.dialogOf(untouched, CARDS)(CARDS[0]!)).toBe(`dialog ${CARDS[0]}`)
+    expect(cache.dialogOf(untouched, [...CARDS, ADDED])(CARDS[0]!)).toBeUndefined()
+    expect(cache.dialogOf(untouched, CARDS.slice(1))(CARDS[1]!)).toBeUndefined()
   })
 
   it('the planned stall lines are reused only across a build that touched no card', () => {

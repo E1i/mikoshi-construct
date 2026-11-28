@@ -98,7 +98,8 @@ function page(written: string) {
   const at = (iso: string): void => {
     now = Date.parse(iso)
   }
-  return { appended, timeouts, slot, deliver, section, document, at, live: document.getElementById('bus-live')! }
+  const carrying = (id: string): StubElement[] => root.all().filter(node => node.id === id)
+  return { appended, timeouts, slot, deliver, section, document, at, carrying, live: document.getElementById('bus-live')! }
 }
 
 function markLive(root: StubElement): void {
@@ -181,5 +182,29 @@ describe('the board page fetches only what changed', () => {
     board.timeouts.at(-1)!()
     board.deliver('BOARD_STAMP', { written: THIRD, tickMs: TICK_MS, filters: [], alarms: [], hashes: { kv: 'k1', rows: 'r1' } })
     expect(board.appended).toHaveLength(fetched + 1)
+  })
+
+  it('a section that leaves the stamp and comes back with the same hash is fetched again', () => {
+    const board = page('')
+    board.deliver('BOARD', WHOLE)
+    board.timeouts.at(-1)!()
+    board.deliver('BOARD_STAMP', { written: SECOND, tickMs: TICK_MS, filters: [], alarms: [], hashes: { kv: 'k1', rows: 'r1' } })
+    expect(board.appended).toHaveLength(2)
+    board.timeouts.at(-1)!()
+    board.deliver('BOARD_STAMP', { written: THIRD, tickMs: TICK_MS, filters: [], alarms: [], hashes: WHOLE.hashes })
+    expect(board.appended.at(-1)!.src).toBe(`${SECTION_FILE_PREFIX}dialog-card-7.js?h=c1`)
+    board.section(board.appended.at(-1)!, 'dialog-card-7', 'c1', 'card seven, back')
+    expect(board.document.getElementById('dialog-card-7')!.innerHTML).toBe('card seven, back')
+  })
+
+  it('a dialog changed twice replaces its template, so one element alone carries its id', () => {
+    const board = page('')
+    board.deliver('BOARD', WHOLE)
+    for (const [written, hash] of [[SECOND, 'c2'], [THIRD, 'c3']] as const) {
+      board.timeouts.at(-1)!()
+      board.deliver('BOARD_STAMP', { written, tickMs: TICK_MS, filters: [], alarms: [], hashes: { ...WHOLE.hashes, 'dialog-card-7': hash } })
+      board.section(board.appended.at(-1)!, 'dialog-card-7', hash, `card seven ${hash}`)
+    }
+    expect(board.carrying('dialog-card-7').map(node => node.innerHTML)).toEqual(['card seven c3'])
   })
 })

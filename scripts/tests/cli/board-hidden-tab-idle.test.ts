@@ -45,7 +45,8 @@ function hiddenPage(written: string) {
     querySelectorAll: () => [],
     addEventListener: (type: string, listener: () => void) => listeners.set(type, [...listeners.get(type) ?? [], listener]),
   }
-  const context: Record<string, unknown> = { BOARD_NAMES: NAMES, document, localStorage: { getItem: () => null, setItem: () => {} }, location: { hash: '' }, addEventListener: () => {}, setTimeout: (run: () => void, ms: number) => timeouts.push({ run, at: now + ms }), Date: { now: () => now, parse: Date.parse } }
+  const windowListeners = new Map<string, (() => void)[]>()
+  const context: Record<string, unknown> = { BOARD_NAMES: NAMES, document, localStorage: { getItem: () => null, setItem: () => {} }, location: { hash: '' }, addEventListener: (type: string, listener: () => void) => windowListeners.set(type, [...windowListeners.get(type) ?? [], listener]), setTimeout: (run: () => void, ms: number) => timeouts.push({ run, at: now + ms }), Date: { now: () => now, parse: Date.parse } }
   context.window = context
   vm.createContext(context)
   vm.runInContext(SCRIPT, context)
@@ -58,11 +59,15 @@ function hiddenPage(written: string) {
     document.visibilityState = 'visible'
     listeners.get('visibilitychange')?.forEach(listener => listener())
   }
+  const focus = (): void => {
+    document.visibilityState = 'visible'
+    windowListeners.get('focus')?.forEach(listener => listener())
+  }
   const deliver = (board: unknown): void => {
     context.BOARD = board
     appended.at(-1)!.onload!()
   }
-  return { appended, timeouts, elapse, show, deliver, slot: () => slots.get('slot-kv')!.innerHTML }
+  return { appended, timeouts, elapse, show, focus, deliver, slot: () => slots.get('slot-kv')!.innerHTML }
 }
 
 describe('a hidden board tab is idle', () => {
@@ -81,6 +86,15 @@ describe('a hidden board tab is idle', () => {
     expect(board.timeouts).toHaveLength(1)
     board.show()
     expect(board.appended).toHaveLength(1)
+  })
+
+  it('a hidden page resumes on a window focus event that comes without a visibilitychange', () => {
+    const board = hiddenPage(WRITTEN)
+    for (let period = 0; period < PERIODS; period += 1)
+      board.elapse(TICK_MS)
+    expect(board.appended).toHaveLength(0)
+    board.focus()
+    expect(board.appended.map(script => script.src)).toEqual([expect.stringMatching(new RegExp(`^${BOARD_DATA_FILE.replace('.', '\\.')}\\?t=`))])
   })
 
   it('a shell page opened in a hidden tab fetches nothing until it is shown', () => {
