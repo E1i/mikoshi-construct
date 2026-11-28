@@ -194,7 +194,7 @@ export interface StalledSessionPorts {
   lines?: Readonly<Record<SupervisedQueue, number>>
   prefix?: string
   pulseOf?: PulseOf
-  trees?: ProcessTable
+  trees: ProcessTable
 }
 
 export function lastProgress(leasedAt: string, beats: readonly LeaseBeat[], pushed: string | null): string {
@@ -335,7 +335,7 @@ export class StalledSessions {
     this.save = ports.save ?? saveCardTreeIn(db)
     this.prefix = ports.prefix ?? ''
     this.pulseOf = ports.pulseOf ?? pulseIn(new OsProcessTable())
-    this.undriven = new UndrivenSessions(db, ports.trees ?? new OsProcessTable(), this.prefix)
+    this.undriven = new UndrivenSessions(db, ports.trees, this.prefix)
   }
 
   step(): string[] {

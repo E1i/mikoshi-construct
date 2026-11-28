@@ -13,8 +13,11 @@ import { BOARD_ALARM, CARD_SESSION_ENDED, CARD_STARTED, PR_OPENED, SESSION_HEART
 import { leaseQueued } from '../../core/lease.js'
 import { keyOf, queueTask } from '../../core/queue.js'
 import { REVIEW_CEILING_MS } from '../../nodes/review/reviewer.js'
+import { InMemoryProcessTable } from '../../ports/process-table.js'
 import { cardTransitions } from '../../supervisor/composition.js'
 import { NO_PROGRESS_LINES, StalledSessions } from '../../supervisor/stalled-sessions.js'
+
+const UNREAD_TREES = new InMemoryProcessTable({ cwds: { kind: 'unreadable', why: 'this test reads no card tree' } })
 
 const LEASED_AT = Date.parse('2026-11-09T08:00:00.000Z')
 const SESSION = 'session-under-watch'
@@ -55,7 +58,7 @@ interface Watch {
 function stopping(db: DatabaseSync, life: SessionLife, spend: BudgetLine | null = null, pulse: string | null = null): Watch {
   let now = at(0)
   const stopped: string[] = []
-  const watch = new StalledSessions(db, () => now, { cards: cardTransitions(), lifeOf: () => life, stop: session => stopped.push(session), spendOf: () => spend, pulseOf: () => pulse })
+  const watch = new StalledSessions(db, () => now, { cards: cardTransitions(), trees: UNREAD_TREES, lifeOf: () => life, stop: session => stopped.push(session), spendOf: () => spend, pulseOf: () => pulse })
   return {
     stopped,
     sweepAt: (minutes) => {
@@ -146,7 +149,7 @@ describe('the silent card and answer sessions', () => {
     const { db, lease } = busWith(LAUNCH)
     let asked = 0
     let now = at(0)
-    const watch = new StalledSessions(db, () => now, { cards: cardTransitions(), lifeOf: () => {
+    const watch = new StalledSessions(db, () => now, { cards: cardTransitions(), trees: UNREAD_TREES, lifeOf: () => {
       asked += 1
       return 'dead'
     }, pulseOf: () => null })
@@ -180,7 +183,7 @@ describe('the silent card and answer sessions', () => {
     beat(db, lease, 1, 1000)
     const stopped: string[] = []
     let now = at(2)
-    const watch = new StalledSessions(db, () => now, { cards: cardTransitions(), lifeOf: () => 'live', stop: session => stopped.push(session), pulseOf: () => null })
+    const watch = new StalledSessions(db, () => now, { cards: cardTransitions(), trees: UNREAD_TREES, lifeOf: () => 'live', stop: session => stopped.push(session), pulseOf: () => null })
 
     expect(watch.step()).toEqual([expect.stringContaining('spent 44 against the Eddies limit 40')])
     expect(stopped).toEqual([SESSION])
@@ -206,7 +209,7 @@ describe('the silent card and answer sessions', () => {
     beat(db, lease, 1, 1000)
     const atStop: { session: string, dirty: string, saved: string }[] = []
     const spend: BudgetLine = { event: 'budget-stop', level: 'session-spend', spent: 41.5, limit: 40, tool: null, at: at(2).toISOString(), session: SESSION }
-    const watch = new StalledSessions(db, () => at(2), { cards: cardTransitions(), lifeOf: () => 'live', spendOf: () => spend, pulseOf: () => null, stop: session => atStop.push({ session, dirty: git('status', '--porcelain'), saved: git('show', 'HEAD:kept.md') + git('show', 'HEAD:new.md') }) })
+    const watch = new StalledSessions(db, () => at(2), { cards: cardTransitions(), trees: UNREAD_TREES, lifeOf: () => 'live', spendOf: () => spend, pulseOf: () => null, stop: session => atStop.push({ session, dirty: git('status', '--porcelain'), saved: git('show', 'HEAD:kept.md') + git('show', 'HEAD:new.md') }) })
 
     expect(watch.step()).toEqual([expect.stringContaining('was committed on its branch')])
     expect(atStop).toEqual([{ session: SESSION, dirty: '', saved: 'the session wrote thisand this' }])

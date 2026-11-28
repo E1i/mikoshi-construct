@@ -29,6 +29,8 @@ import { NO_PROGRESS_LINES, StalledSessions } from '../../supervisor/stalled-ses
 import { claudeClient } from '../client/claude-client.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
+const UNREAD_TREES = new InMemoryProcessTable({ cwds: { kind: 'unreadable', why: 'this test reads no card tree' } })
+
 const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
 const roomy: DiskReader = () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES })
 const SILENT_MINUTES = 25
@@ -125,7 +127,7 @@ describe('a live session is warned on silence or over time and only the owner st
     const reviewLine = NO_PROGRESS_LINES.review
     let now = 0
     const stopped: string[] = []
-    const watch = new StalledSessions(db, () => new Date(now), { cards: cardTransitions(), lifeOf: () => 'live', stop: session => stopped.push(session), spendOf: () => null, pulseOf: () => '4100', overTime: { check: () => [] } })
+    const watch = new StalledSessions(db, () => new Date(now), { cards: cardTransitions(), trees: UNREAD_TREES, lifeOf: () => 'live', stop: session => stopped.push(session), spendOf: () => null, pulseOf: () => '4100', overTime: { check: () => [] } })
     const beatReview = (leased: Lease, at: number): void => {
       appendEvent(db, { ts: new Date(at).toISOString(), type: SESSION_HEARTBEAT, actor: leased.actor, cardId: leased.cardId, pr: leased.pr, head: leased.head, dedupeKey: `${SESSION_HEARTBEAT}:${leased.taskKey}:${leased.leaseGen}:${at}`, payload: { task_key: leased.taskKey, lease_gen: leased.leaseGen, session: 'review-session', context: 1000 }, legacy: false })
     }

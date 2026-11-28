@@ -15,6 +15,8 @@ import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { NO_PROGRESS_LINES, pulseIn, StalledSessions, transcriptMoved } from '../../supervisor/stalled-sessions.js'
 
+const UNREAD_TREES = new InMemoryProcessTable({ cwds: { kind: 'unreadable', why: 'this test reads no card tree' } })
+
 const LEASED_AT = Date.parse('2026-11-10T08:00:00.000Z')
 const SESSION = 'review-under-watch'
 const REVIEW: QueuedTask = { queue: 'review', cardId: 1787, pr: 1527, head: 'c'.repeat(40) }
@@ -56,7 +58,7 @@ interface Watch {
 function watching(db: DatabaseSync, pulseAt: (minutes: number) => string | null): Watch {
   let minutesNow = 0
   const stopped: string[] = []
-  const watch = new StalledSessions(db, () => at(minutesNow), { cards: cardTransitions(), lifeOf: () => 'live', stop: session => stopped.push(session), spendOf: () => null, pulseOf: () => pulseAt(minutesNow) })
+  const watch = new StalledSessions(db, () => at(minutesNow), { cards: cardTransitions(), trees: UNREAD_TREES, lifeOf: () => 'live', stop: session => stopped.push(session), spendOf: () => null, pulseOf: () => pulseAt(minutesNow) })
   return {
     stopped,
     sweepAt: (minutes) => {
