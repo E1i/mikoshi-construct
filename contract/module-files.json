@@ -464,6 +464,7 @@
     "scripts/tests/bus/drain-old-sha.test.ts",
     "scripts/tests/bus/eddiesline.test.ts",
     "scripts/tests/bus/eddiesline150.test.ts",
+    "scripts/tests/bus/empty-answer-rounds-never-count.test.ts",
     "scripts/tests/bus/executor.test.ts",
     "scripts/tests/bus/fault-stop-dirty-tree-every-node.test.ts",
     "scripts/tests/bus/fault-stop-dirty-tree.test.ts",
