@@ -14,6 +14,7 @@ const OLD_MAIN = 'a'.repeat(40)
 const NEW_MAIN = 'b'.repeat(40)
 const TYPE_ONLY_MODULE = 'scripts/core/shape-of-a-row.ts'
 const VALUE_MODULE = 'scripts/core/value-of-a-row.ts'
+const BARREL_MODULE = 'scripts/core/row-barrel.ts'
 const ANSWER_PID = 4100
 const MERGE_PID = 4200
 
@@ -51,12 +52,21 @@ const mergeSource = [
   'export const merged = (row: Row): Row => row',
 ].join('\n')
 
-function advanceTouching(changed: string): { supervisor: BusSupervisor, stopped: number[], started: string[], advance: () => void } {
+const barrelAnswerSource = `import { valueOf } from '${importFrom(FACTORY_WORKERS.answer, BARREL_MODULE)}'\nexport const answered = (id: number): string => valueOf({ id })\n`
+
+const barrelSource = [
+  'export type Row = { id: number }',
+  `export { valueOf } from '${importFrom(BARREL_MODULE, VALUE_MODULE)}'`,
+  '',
+].join('\n')
+
+function advanceTouching(changed: string, answerEntry: string = answerSource): { supervisor: BusSupervisor, stopped: number[], started: string[], advance: () => void } {
   const root = checkoutWith({
-    [FACTORY_WORKERS.answer]: answerSource,
+    [FACTORY_WORKERS.answer]: answerEntry,
     [FACTORY_WORKERS.merge]: mergeSource,
     [TYPE_ONLY_MODULE]: 'export interface Row { id: number }\n',
     [VALUE_MODULE]: 'export const valueOf = (row: { id: number }): string => String(row.id)\n',
+    [BARREL_MODULE]: barrelSource,
   })
   const { answer, merge } = workerLaunches(reviewLaunch(() => []))
   const nodes: DetachedLaunch[] = [answer!, merge!]
@@ -121,6 +131,18 @@ describe('a main advance restarts only the nodes whose running code it changed',
 
     const { answer } = workerLaunches(reviewLaunch(() => []))
     expect(lines.join('\n')).toContain(`a change to the code of ${answer!.script}; restarting only those on ${NEW_MAIN}`)
+    expect(stopped).toEqual([ANSWER_PID])
+    expect(started).toEqual([launchName(answer!)])
+  })
+
+  it('a type alias followed by a value re-export keeps the re-export in the closure, so a change to the re-exported module restarts the node that imports the barrel', async () => {
+    const { supervisor, stopped, started, advance } = advanceTouching(VALUE_MODULE, barrelAnswerSource)
+    expect(await supervisor.step()).toEqual([])
+    advance()
+
+    await supervisor.step()
+
+    const { answer } = workerLaunches(reviewLaunch(() => []))
     expect(stopped).toEqual([ANSWER_PID])
     expect(started).toEqual([launchName(answer!)])
   })

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 const SOURCE_MODULE = /\.ts$/
 const BUILT_MODULE = '.js'
 const SOURCE_LOADER: readonly string[] = Object.freeze(['--import', 'tsx'])
-const TYPE_ONLY_IMPORT = /\b(?:import|export)\s+type\s[^'"]*?\sfrom\s*'[^']+'/g
+const TYPE_ONLY_IMPORT = /^[ \t]*(?:import|export)[ \t]+type[ \t]+(?:\{[^}]*\}|\*[ \t]+as[ \t]+\w+|\w+)\s+from\s*'[^']+'/gm
 
 export const CHECKOUT_BUILD_DIR = 'dist'
 export const BUILT_FROM_FILE = 'built-from'

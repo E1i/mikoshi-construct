@@ -8,10 +8,14 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buildOf, BUILT_FROM_FILE, CHECKOUT_BUILD_DIR } from '../../core/built-entry.js'
+import { openBus } from '../../core/db.js'
 import { FACTORY_WORKERS } from '../../core/factory-paths.js'
-import { GENERATION_VARIABLE, UNHANDED } from '../../core/node.js'
-import { builtStart, checkoutBuildOf, installedPackage, isRunningCheckout, startDetached } from '../../supervisor/bg.js'
-import { reviewLaunch } from '../../supervisor/composition.js'
+import { GENERATION_VARIABLE, nodeProcess, UNHANDED } from '../../core/node.js'
+import { builtStart, checkoutBuildOf, installedPackage, isRunningCheckout, pnpmBuild, startDetached } from '../../supervisor/bg.js'
+import { REVIEW_WORKER_MARKERS, reviewLaunch } from '../../supervisor/composition.js'
+import { recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
+import { recordedWorker } from '../../supervisor/recorded-worker.js'
+import { builtStarts } from '../../supervisor/supervisor.js'
 import { workerLaunches } from '../../supervisor/workers.js'
 
 const HEAD = 'c'.repeat(40)
@@ -42,6 +46,7 @@ vi.mock('node:child_process', async (actual) => {
 })
 
 afterEach(() => {
+  spawned.splice(0)
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true })
 })
@@ -155,5 +160,55 @@ describe('a bus node starts from the built entry of its checkout', () => {
     expect(installedPackage(builtModule, built => isRunningCheckout(built, root))).toBeNull()
     expect(installedPackage(builtModule, () => false)).toBe(`${root}/`)
     expect(isRunningCheckout(root, tmpdir())).toBe(false)
+  })
+
+  it('a built package run from its own root with no .git is an installed package, not a checkout', () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'node-built-package-')))
+    roots.push(root)
+    const builtModule = `file://${path.join(root, CHECKOUT_BUILD_DIR, 'scripts', 'supervisor', 'bg.js')}`
+    expect(isRunningCheckout(root, root)).toBe(false)
+    expect(installedPackage(builtModule, built => isRunningCheckout(built, root))).toBe(`${root}/`)
+  })
+
+  it('the build runner reports a failed pnpm build as failed and a passing one as built', () => {
+    const failing = scratchCheckout()
+    writeFileSync(path.join(failing, 'package.json'), JSON.stringify({ scripts: { build: 'exit 3' } }))
+    expect(pnpmBuild(failing).ok).toBe(false)
+    expect(buildOf(failing, HEAD)).toBeNull()
+    const passing = scratchCheckout()
+    writeFileSync(path.join(passing, 'package.json'), JSON.stringify({ scripts: { build: 'exit 0' } }))
+    expect(pnpmBuild(passing).ok).toBe(true)
+  })
+
+  it('the supervisor starts its nodes, relaunches itself and bus:bg starts its processes through the checkout build', () => {
+    const root = scratchCheckout()
+    const { run, runs } = countedBuild()
+    const starts = builtStarts(checkoutBuildOf(root, null, run))
+    const refused: DetachedLaunch = { ...answerLaunch(), preflight: () => ['refused before any spawn'] }
+    const env = { [GENERATION_VARIABLE]: HEAD }
+
+    const node = starts.node(refused, path.join(root, 'bus'), env, () => [])
+    expect(node.stdout.join('\n')).toContain(`built the factory once for ${HEAD}`)
+    expect(node.stderr.join('\n')).toContain('refused before any spawn')
+    expect(buildOf(root, HEAD)).toBe(root)
+
+    const supervisor = starts.supervisor(refused, path.join(root, 'bus'), { [GENERATION_VARIABLE]: NEXT_HEAD }, () => [])
+    expect(supervisor.stdout.join('\n')).toContain(`built the factory once for ${NEXT_HEAD}`)
+    expect(runs).toEqual([root, root])
+    expect(spawned).toEqual([])
+  })
+
+  it('a recorded review worker running from its built dist entry is found as that worker', () => {
+    const root = scratchCheckout()
+    const busPath = path.join(root, 'bus.db')
+    const db = openBus(busPath)
+    const nowMs = Date.parse('2026-11-28T08:00:00Z')
+    recordProcessHeartbeat(db, new Date(nowMs).toISOString(), nodeProcess('review'))
+    db.close()
+    const file = path.join(root, 'review.pid')
+    const pid = process.pid + 100_000
+    writeFileSync(file, `${pid}\n`)
+    const listed = { pid, args: `node ${path.join(root, CHECKOUT_BUILD_DIR, FACTORY_WORKERS.review.replace(/\.ts$/, '.js'))} --on` }
+    expect(recordedWorker({ file, node: nodeProcess('review'), markers: REVIEW_WORKER_MARKERS, bus: busPath }, () => [listed], () => true, nowMs)).toEqual(listed)
   })
 })
