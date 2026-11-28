@@ -1,15 +1,12 @@
-export const JOURNAL_HISTORY_ENDS = '2026-10-12T17:04:00.000Z'
+import { writtenBeforeHistoryEnds } from '../../scripts/core/events.js'
+
+export { JOURNAL_HISTORY_ENDS, writtenBeforeHistoryEnds } from '../../scripts/core/events.js'
 
 export const ENDED_IN_BUS: ReadonlySet<string> = new Set(['merged', 'closed'])
 
 export type BusCardStates = ReadonlyMap<string, string>
 
 export interface JournalEntry { event?: unknown, task?: unknown, verification?: unknown, report?: unknown, pr?: unknown, ts?: unknown }
-
-export function writtenBeforeHistoryEnds(entry: JournalEntry): boolean {
-  const writtenAt = typeof entry.ts === 'string' ? Date.parse(entry.ts) : Number.NaN
-  return Number.isNaN(writtenAt) || writtenAt < Date.parse(JOURNAL_HISTORY_ENDS)
-}
 
 function historyOf(journal: string | null, bus: BusCardStates | undefined): JournalEntry[] {
   const counted = bus === undefined ? () => true : writtenBeforeHistoryEnds

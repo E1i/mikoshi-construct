@@ -5375,15 +5375,15 @@
         "types": {}
       },
       "src/card/closed.ts": {
-        "constants": [
-          "JOURNAL_HISTORY_ENDS"
-        ],
+        "constants": [],
         "functions": {
           "closedFromBus": "(legacyHistory: readonly JournalEntry[], bus: BusCardStates): Map<string, string>",
-          "mergedFromBus": "(legacyHistory: readonly JournalEntry[], bus: BusCardStates): Set<string>",
-          "writtenBeforeHistoryEnds": "(entry: JournalEntry): boolean"
+          "mergedFromBus": "(legacyHistory: readonly JournalEntry[], bus: BusCardStates): Set<string>"
         },
-        "reexports": [],
+        "reexports": [
+          "JOURNAL_HISTORY_ENDS",
+          "writtenBeforeHistoryEnds"
+        ],
         "types": {
           "BusCardStates": "type BusCardStates = ReadonlyMap<string, string>",
           "JournalEntry": "interface JournalEntry { event?: unknown; task?: unknown; verification?: unknown; report?: unknown; pr?: unknown; ts?: unknown; }"

@@ -161,6 +161,13 @@ export const CARD_WAITS = {
 
 export type WaitKind = keyof typeof CARD_WAITS
 
+export const JOURNAL_HISTORY_ENDS = '2026-10-12T17:04:00.000Z'
+
+export function writtenBeforeHistoryEnds(entry: { ts?: unknown }): boolean {
+  const writtenAt = typeof entry.ts === 'string' ? Date.parse(entry.ts) : Number.NaN
+  return Number.isNaN(writtenAt) || writtenAt < Date.parse(JOURNAL_HISTORY_ENDS)
+}
+
 export const EVENT_PAYLOADS = {
   [ANSWER_STEP]: ['seconds', 'step'],
   [ARTIFACT_KEPT]: ['by', 'parked', 'path'],

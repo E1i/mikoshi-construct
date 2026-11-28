@@ -143,20 +143,6 @@
   },
   {
     "type": "dependency",
-    "from": "scripts/core/legacy-history.ts",
-    "to": "src/card/closed.ts",
-    "unresolvedTo": "../../src/card/closed.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "core-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "scripts/core/places.ts",
     "to": "scripts/nodes/launch/continuation.ts",
     "unresolvedTo": "../nodes/launch/continuation.js",
