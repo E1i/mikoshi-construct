@@ -1,9 +1,10 @@
+import type { DatabaseSync } from 'node:sqlite'
 import type { CardEnd, CardTurn } from '../../../scripts/core/card-readings.js'
 import { existsSync } from 'node:fs'
-import { DatabaseSync } from 'node:sqlite'
 import { cardEnds, cardTurnsOf, legacyLinePayloads } from '../../../scripts/core/card-readings.js'
 import { CARD_ANSWERED, CARD_STARTED, PR_CLOSED } from '../../../scripts/core/events.js'
 import { prsByCard } from '../../../scripts/core/merge-event.js'
+import { withReadOnlyDatabase } from '../../../scripts/core/sqlite.js'
 import { parseCard } from '../../card/grammar.js'
 import { projectKey } from './source.js'
 
@@ -88,7 +89,7 @@ export function readBusTasks(busPath: string): BusTask[] {
   if (!existsSync(busPath))
     return []
   try {
-    return withReadOnlyBus(busPath, (db) => {
+    return withReadOnlyDatabase(busPath, (db) => {
       const spend = spendByCard(cardTurnsOf(db, SPEND_TURNS))
       return endedCards(db).flatMap((row) => {
         const task = taskOf(row, spend.get(row.card_id) ?? [])
@@ -105,7 +106,7 @@ export function readLegacyLines<Line>(busPath: string): Line[] {
   if (!existsSync(busPath))
     return []
   try {
-    return withReadOnlyBus(busPath, db => legacyLinePayloads(db).flatMap((text) => {
+    return withReadOnlyDatabase(busPath, db => legacyLinePayloads(db).flatMap((text) => {
       const payload = payloadOf(text)
       return Object.keys(payload).length === 0 ? [] : [payload as Line]
     }))
@@ -117,12 +118,4 @@ export function readLegacyLines<Line>(busPath: string): Line[] {
 
 export type BusDb = DatabaseSync
 
-export function withReadOnlyBus<T>(busPath: string, read: (db: BusDb) => T): T {
-  const db = new DatabaseSync(busPath, { readOnly: true })
-  try {
-    return read(db)
-  }
-  finally {
-    db.close()
-  }
-}
+export { withReadOnlyDatabase as withReadOnlyBus }

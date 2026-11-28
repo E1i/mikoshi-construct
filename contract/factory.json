@@ -3846,7 +3846,18 @@
       "cost": {
         "concepts": [],
         "contract": [
-          "src/commands/cost/**"
+          "src/commands/cost/**",
+          "!src/commands/cost/bus.ts",
+          "!src/commands/cost/cheap.ts",
+          "!src/commands/cost/claude-code.ts",
+          "!src/commands/cost/expect.ts",
+          "!src/commands/cost/ledger.ts",
+          "!src/commands/cost/sample.ts",
+          "!src/commands/cost/source.ts",
+          "!src/commands/cost/step-cache.ts",
+          "!src/commands/cost/steps.ts",
+          "!src/commands/cost/turns.ts",
+          "!src/commands/cost/usage.ts"
         ],
         "may_use": [
           "layout",
@@ -3883,7 +3894,18 @@
           "release"
         ],
         "owns": [
-          "src/commands/cost/**"
+          "src/commands/cost/**",
+          "!src/commands/cost/bus.ts",
+          "!src/commands/cost/cheap.ts",
+          "!src/commands/cost/claude-code.ts",
+          "!src/commands/cost/expect.ts",
+          "!src/commands/cost/ledger.ts",
+          "!src/commands/cost/sample.ts",
+          "!src/commands/cost/source.ts",
+          "!src/commands/cost/step-cache.ts",
+          "!src/commands/cost/steps.ts",
+          "!src/commands/cost/turns.ts",
+          "!src/commands/cost/usage.ts"
         ],
         "status": "decided"
       },
@@ -4035,6 +4057,18 @@
           "scripts/done/**",
           "scripts/core/journal.ts",
           "scripts/nodes/update/review-carry.ts",
+          "src/commands/cost/bus.ts",
+          "src/commands/cost/cheap.ts",
+          "src/commands/cost/claude-code.ts",
+          "src/commands/cost/expect.ts",
+          "src/commands/cost/ledger.ts",
+          "src/commands/cost/sample.ts",
+          "src/commands/cost/source.ts",
+          "src/commands/cost/step-cache.ts",
+          "src/commands/cost/steps.ts",
+          "src/commands/cost/turns.ts",
+          "src/commands/cost/usage.ts",
+          "src/commands/run-record.ts",
           "!scripts/ladder/ladder-starter.ts"
         ],
         "may_use": [
@@ -4064,6 +4098,18 @@
           "scripts/done/**",
           "scripts/core/journal.ts",
           "scripts/nodes/update/review-carry.ts",
+          "src/commands/cost/bus.ts",
+          "src/commands/cost/cheap.ts",
+          "src/commands/cost/claude-code.ts",
+          "src/commands/cost/expect.ts",
+          "src/commands/cost/ledger.ts",
+          "src/commands/cost/sample.ts",
+          "src/commands/cost/source.ts",
+          "src/commands/cost/step-cache.ts",
+          "src/commands/cost/steps.ts",
+          "src/commands/cost/turns.ts",
+          "src/commands/cost/usage.ts",
+          "src/commands/run-record.ts",
           "!scripts/ladder/ladder-starter.ts"
         ],
         "status": "decided"
@@ -4771,8 +4817,7 @@
         "contract": [
           "scripts/release/**",
           "scripts/release-notes/**",
-          "scripts/docs/**",
-          "src/commands/run-record.ts"
+          "scripts/docs/**"
         ],
         "may_use": [
           "layout",
@@ -4810,8 +4855,7 @@
         "owns": [
           "scripts/release/**",
           "scripts/release-notes/**",
-          "scripts/docs/**",
-          "src/commands/run-record.ts"
+          "scripts/docs/**"
         ],
         "status": "decided"
       },
@@ -5666,40 +5710,33 @@
         "constants": [],
         "functions": {
           "countsTowardSteps": "(entry: LedgerEntry, effort: string | undefined): boolean",
-          "formatTokens": "(tokens: number): string"
+          "expectFor": "(input: ExpectInput, lore: Lore): ExpectResult",
+          "formatContour": "(steps: StepExpect[], roles: RoleBand[], lore: Lore): string",
+          "formatRoleExpect": "(expected: RoleBand, lore: Lore): string",
+          "formatStepExpect": "(expected: StepExpect, lore: Lore): string",
+          "formatTokens": "(tokens: number): string",
+          "readLedgerEntries": "(ledger: SampleSource, notes: string[], lore: Lore): LedgerEntry[]",
+          "stepExpects": "(entries: LedgerEntry[], runSteps: Map<string, RunStep[]>, effort: string, implement: ImplementSubsample | null = null): StepExpect[]"
         },
         "reexports": [],
         "types": {
-          "RoleMinutes": "type RoleMinutes = { kind: 'median'; minutes: number; } | { kind: 'not recorded'; undated: number; runs: number; }"
+          "ExpectInput": "interface ExpectInput { ledgers: SampleSource[]; effort?: string; taskClass?: string; runsOfClass?: Set<string> | null; missing?: string | null; extraSources?: string[]; classNotes?: string[]; runSteps?: Map<string, RunStep[]>; implement?: (entries: LedgerEntry[]) => { sample: ImplementSubsample; notes: string[]; } | null; roles?: RoleBand[]; }",
+          "ImplementSubsample": "interface ImplementSubsample { subsample: Subsample; runs: Set<string>; }",
+          "RoleBand": "interface RoleBand { role: string; band: Band; minutes: RoleMinutes; missing: string | null; }",
+          "RoleMinutes": "type RoleMinutes = { kind: 'median'; minutes: number; } | { kind: 'not recorded'; undated: number; runs: number; }",
+          "SampleRow": "interface SampleRow { run: string; effort: string; tokens: number; minutes: number; }",
+          "SampleSource": "interface SampleSource { source: string; lines: string[] | null; }",
+          "StepExpect": "type StepExpect = { kind: 'forecast'; step: Step; effort: string; tokens: number; p25: number; p75: number; minutes: number; n: number; subsample?: Subsample; } | { kind: 'none'; step: Step; effort: string; n: number; subsample?: Subsample; }",
+          "Subsample": "type Subsample = 'sketch' | 'no sketch'"
         }
       },
       "src/commands/cost/index.ts": {
         "constants": [],
-        "functions": {
-          "stepsOfRepository": "(root: string, runs: string[], warnings: string[], lore: Lore, source: CostSource | null): Map<string, RunStep[]>"
-        },
+        "functions": {},
         "reexports": [
           "COST_EXIT",
           "CheapForecast",
-          "CostSource",
-          "ExpectInput",
-          "ImplementSubsample",
-          "MINIMUM_SAMPLE",
-          "RoleBand",
-          "RunStep",
-          "SampleRow",
-          "SampleSource",
-          "StepExpect",
-          "Subsample",
-          "expectFor",
-          "formatContour",
-          "formatRoleExpect",
-          "formatStepExpect",
-          "formatTokens",
-          "projectKey",
-          "readLedgerEntries",
-          "recordingSource",
-          "stepExpects"
+          "projectKey"
         ],
         "types": {}
       },
@@ -5718,6 +5755,7 @@
       },
       "src/commands/cost/sample.ts": {
         "constants": [
+          "MINIMUM_SAMPLE",
           "RECENT_RUNS"
         ],
         "functions": {
@@ -5727,6 +5765,17 @@
         "reexports": [],
         "types": {
           "Band": "type Band = { kind: 'band'; median: number; p25: number; p75: number; n: number; } | { kind: 'none'; n: number; }"
+        }
+      },
+      "src/commands/cost/source.ts": {
+        "constants": [],
+        "functions": {
+          "recordingSource": "(projectsDir?: string): CostSource",
+          "stepsOfRepository": "(root: string, runs: string[], warnings: string[], lore: Lore, source: CostSource | null): Map<string, RunStep[]>"
+        },
+        "reexports": [],
+        "types": {
+          "CostSource": "interface CostSource { runtime: Runtime; readable: () => boolean; read: (cwd: string, ledgerRuns: string[]) => CostReading; steps: (run: string) => RunDecomposition | null; }"
         }
       },
       "src/commands/cost/step-cache.ts": {
@@ -6308,6 +6357,7 @@
           "cardIsolationCommand": "(client: string): string[]",
           "cardLineOfConfig": "(config: Record<string, unknown>, size: string | undefined): CardLine | null",
           "claudeAdapterWith": "<Settings extends object>(source: ShiftSettingsSource<Settings>): ClientAdapter",
+          "claudeProjectsDir": "(): string",
           "clientHome": "(env: NodeJS.ProcessEnv): string",
           "clientLastSteps": "(env: NodeJS.ProcessEnv, worktree: string, session: string): string[] | null",
           "clientTranscript": "(env: NodeJS.ProcessEnv, worktree: string, session: string): string | null",
@@ -6321,6 +6371,7 @@
           "measuredSubagents": "(root: string, transcript: string): MeasuredSubagent[]",
           "ownerMessagesOf": "(transcript: string): number",
           "parseSessionJournal": "(text: string, worktree: string): CommandJournal",
+          "projectKey": "(cwd: string): string",
           "rawUsageIn": "(stdoutPath: string): unknown | null",
           "spendBasis": "(): string",
           "startContextOf": "(transcript: string, marker: string): StartContext",

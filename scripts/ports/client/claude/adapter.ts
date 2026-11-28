@@ -54,6 +54,14 @@ const OFFERED_MODELS = ['fable', 'opus', 'sonnet', 'haiku', 'claude-fable-5-1', 
 const OFFERED_EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
 const AUTO_MODEL: ModelChoice = 'auto'
 
+export function projectKey(cwd: string): string {
+  return cwd.replace(/[/.]/g, '-')
+}
+
+export function claudeProjectsDir(): string {
+  return path.join(os.homedir(), '.claude', 'projects')
+}
+
 function models(): ModelOffer[] {
   return OFFERED_MODELS.map(id => ({ id, efforts: [...OFFERED_EFFORTS], contextWindow: null, recommendedFor: [] }))
 }

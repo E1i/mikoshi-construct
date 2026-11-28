@@ -1,5 +1,5 @@
 import type { StepExpect } from './expect-sample.js'
-import { MINIMUM_SAMPLE } from '../../src/commands/cost/index.js'
+import { MINIMUM_SAMPLE } from '../../src/commands/cost/sample.js'
 import { formatStepExpect, formatTokens } from './expect-sample.js'
 
 export type Expect

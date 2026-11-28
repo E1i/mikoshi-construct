@@ -5,7 +5,19 @@
     "scripts/ladder/",
     "scripts/done/",
     "scripts/core/journal.ts",
-    "scripts/nodes/update/review-carry.ts"
+    "scripts/nodes/update/review-carry.ts",
+    "src/commands/cost/bus.ts",
+    "src/commands/cost/cheap.ts",
+    "src/commands/cost/claude-code.ts",
+    "src/commands/cost/expect.ts",
+    "src/commands/cost/ledger.ts",
+    "src/commands/cost/sample.ts",
+    "src/commands/cost/source.ts",
+    "src/commands/cost/step-cache.ts",
+    "src/commands/cost/steps.ts",
+    "src/commands/cost/turns.ts",
+    "src/commands/cost/usage.ts",
+    "src/commands/run-record.ts"
   ],
   "exclude": [],
   "shared": []

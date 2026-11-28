@@ -2,8 +2,8 @@ import type { CostReading, CostSource, Runtime } from './source.js'
 import type { RunDecomposition, StepAgent } from './steps.js'
 import type { Usage, WorkflowRun } from './usage.js'
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
-import { homedir } from 'node:os'
 import path from 'node:path'
+import { claudeProjectsDir, projectKey } from '../../../scripts/ports/client/claude/adapter.js'
 import { stepsOf } from './steps.js'
 import { add, emptyUsage, tokensWithoutCacheReads } from './usage.js'
 
@@ -22,13 +22,7 @@ interface SessionLine {
   }
 }
 
-export function projectKey(cwd: string): string {
-  return cwd.replace(/[/.]/g, '-')
-}
-
-export function claudeProjectsDir(): string {
-  return path.join(homedir(), '.claude', 'projects')
-}
+export { claudeProjectsDir, projectKey }
 
 export interface AgentRecord {
   usage: Usage

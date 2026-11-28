@@ -26,3 +26,13 @@ const sqlite = loadSqlite()
 export function openDatabase(file: string, options: DatabaseSyncOptions = {}): DatabaseSync {
   return new sqlite.DatabaseSync(file, options)
 }
+
+export function withReadOnlyDatabase<T>(file: string, read: (db: DatabaseSync) => T): T {
+  const db = openDatabase(file, { readOnly: true })
+  try {
+    return read(db)
+  }
+  finally {
+    db.close()
+  }
+}
