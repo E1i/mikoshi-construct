@@ -4,7 +4,7 @@ import { existsSync, realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseParkingFile } from '../../src/card/parking.js'
-import { CARD_BODIES } from '../core/card-bodies.js'
+import { admittedCardRow, CARD_BODIES } from '../core/card-bodies.js'
 import { lastHeartbeat } from '../core/card-readings.js'
 import { BUSY_TIMEOUT_MS, defaultBusPath } from '../core/db.js'
 import { ADMIT_COMMAND, pnpmCommand } from '../core/owner-commands.js'
@@ -16,11 +16,6 @@ export const PREFIX = '[card] '
 export const USAGE = `usage: ${pnpmCommand('card', '<N>', `(--contract <${CONTRACTS.join('|')}> | --md | --chain)`)}`
 
 const CARD_NUMBER = /^#?([1-9]\d*)$/
-const BODY_OF_CARD = `
-  SELECT body.admission_event_id, body.text, body.text_sha, body.lane, cards.state
-  FROM ${CARD_BODIES} body LEFT JOIN cards ON cards.card_id = body.card_id
-  WHERE body.card_id = ?
-`
 
 export interface CardDeps {
   bus: string
@@ -29,8 +24,6 @@ export interface CardDeps {
 }
 
 type Request = { kind: 'contract', card: number, contract: Contract } | { kind: 'md', card: number } | { kind: 'chain', card: number }
-
-interface BodyRow { admission_event_id: number, text: string, text_sha: string, lane: string | null, state: string | null }
 
 function requestOf(args: string[]): Request | string {
   const [number, flag, contract, ...rest] = args
@@ -64,8 +57,8 @@ function readBodies<T>(bus: string, read: (db: DatabaseSync) => T | null): T | n
 
 function bodyOf(bus: string, card: number): CardBody | null {
   return readBodies(bus, (db) => {
-    const row = db.prepare(BODY_OF_CARD).get(card) as BodyRow | undefined
-    return row === undefined ? null : { admissionEventId: row.admission_event_id, text: row.text, textSha: row.text_sha, lane: row.lane, state: row.state, lastHeartbeat: lastHeartbeat(db, card) }
+    const row = admittedCardRow(db, card)
+    return row === null ? null : { admissionEventId: row.admission_event_id, text: row.text, textSha: row.text_sha, lane: row.lane, state: row.state, lastHeartbeat: lastHeartbeat(db, card) }
   })
 }
 

@@ -13,7 +13,7 @@ import { OWNER_EVEN_UNDER_THE_DECISION } from './decisions/read.js'
 import { allowedEntry, witnessGrowthAllowances } from './derived-files.js'
 import { matchGlob } from './shredder/glob.js'
 import { readOwnerMergeKinds } from './shredder/reader.js'
-import { createdPaths } from './touch-scope.js'
+import { createdPaths, DERIVED_REGISTRY, isRegisteredDerived } from './touch-scope.js'
 
 export const OWNER_MERGES = 'architecture/owner-merges.md'
 export const VERSION_BRANCH = /^changeset-release\//
@@ -382,6 +382,12 @@ function ratchetGrows(facts: MergeFacts): MergeVerdict | null {
     return denied('ratchet_grows', `GitHub gives no patch for ${RATCHET_RECORD}, so whether it grows is unknown, and it stays the owner's`)
   const growth = ratchetGrowthIn(patch, witnessGrowthOf(facts))
   return growth === undefined ? null : denied('ratchet_grows', `the diff of ${RATCHET_RECORD} ${growth}: its growth stays the owner's under every shard and every decision`)
+}
+
+const measuredAgainstMain = (file: string): boolean => file === RATCHET_RECORD || file.startsWith(`${DERIVED_REGISTRY.moduleDeclarations}/`)
+
+export function mainAdvanceToUpdateFirst(files: readonly string[], mainSince: readonly string[]): string[] {
+  return files.some(file => isRegisteredDerived(file) || measuredAgainstMain(file)) ? mainSince.filter(measuredAgainstMain) : []
 }
 
 const KNOWN_VIOLATIONS_RECORD = GENERATED_FILES.knownViolations.path
