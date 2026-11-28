@@ -10,11 +10,12 @@ import type { CardFields } from '../intake/card-contract.js'
 import type { WitnessRecordOnHead, WitnessTable } from '../intake/witness-fields-backfill.js'
 import type { RoundKind, RoundSample } from '../supervisor/expected-time.js'
 import type { RunsGroup, RunsReading } from './board-page/runs-html.js'
+import type { DialogPart } from './board-page/sections.js'
 import type { AgentWords, EddiesLimits, EventSlices, Gauges, SessionView } from './board-page/session-card.js'
 import type { BoardWarning, SessionContext } from './board-warnings.js'
 import type { CardChain } from './card-chain.js'
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -34,7 +35,6 @@ import { builtEntry } from '../core/built-entry.js'
 import { staleLine } from '../core/bus-readings.js'
 import { linkedPrs } from '../core/card-readings.js'
 import { BOARD_STALE_TICKS, BOARD_TIMER_PERIOD_MS, BUSY_TIMEOUT_MS, defaultBusPath, openBoardBeatWriter, recordBoardBeat } from '../core/db.js'
-import { lastEventId } from '../core/events-query.js'
 import { CARD_HELD, CARD_RELEASED, TASK_LEASED } from '../core/events.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { statusLineOf } from '../core/handoff-status.js'
@@ -57,6 +57,7 @@ import { busFresh, busPanel, pulseAgeMs } from './board-page/bus-panel.js'
 import { BOARD_HISTORY_FILE, cappedCell, cappedReferences, FILTER_ATTRIBUTE, filterId, filterRule, LIVE_FILTER, liveCardsOf, ownerHolds, uiReading, warningsStrip } from './board-page/live-cards.js'
 import { mikoBay, mikoPanel } from './board-page/miko-panel.js'
 import { LAYER_ENTRY, runsHtml, TOUCHED_TESTS } from './board-page/runs-html.js'
+import { BOARD_STAMP_FILE, BuildCursor, CardCache, SECTION_FILE_PREFIX, SectionWriter } from './board-page/sections.js'
 import { agentsLine, CARD_TASK, compact, eddiesBar, escaped, modelLabel, NO_SESSION_VIEW, nodeViewOf, percent, ROUND_COLOURS, ROUND_LABELS, sessionCard, SESSIONLESS_ROLES, STEPPED_ROLE, stepsAfter, terminalOf } from './board-page/session-card.js'
 import { boardWarnings, MainUpToDate, openPrCountOf, openPrLimitOf, plannedStallLines, savingOff, stalePassCountOf, stallLines } from './board-warnings.js'
 import { cardChain } from './card-chain.js'
@@ -72,9 +73,10 @@ export interface BoardFiles {
   write: (file: string, text: string) => void
   rename: (from: string, to: string) => void
   remove?: (file: string) => void
+  list?: (dir: string) => string[]
 }
 
-export const DISK_FILES: BoardFiles = { write: (file, text) => writeFileSync(file, text), rename: renameSync, remove: file => rmSync(file, { force: true }) }
+export const DISK_FILES: BoardFiles = { write: (file, text) => writeFileSync(file, text), rename: renameSync, remove: file => rmSync(file, { force: true }), list: dir => readdirSync(dir) }
 
 export { escaped }
 export type { EddiesLimits, Gauges, RunsGroup, RunsReading }
@@ -134,9 +136,6 @@ const BOARD_ICON = { id: 'board-icon', calm: `data:image/svg+xml,${encodeURIComp
 const MINUTE_MS = 60_000
 export const BOARD_DATA_FILE = 'board-data.js'
 const BOARD_DATA_PREFIX = 'window.BOARD = '
-export const BOARD_STAMP_FILE = 'board-stamp.js'
-export const SECTION_FILE_PREFIX = 'board-section-'
-const SECTION_HASH_DIGITS = 16
 const FORMAT_FLAGS: readonly (readonly [string, BoardFormat])[] = [['--json', 'json'], ['--html', 'html']]
 const PLAN_FLAG = '--plan'
 const ALL_FLAG = '--all'
@@ -247,12 +246,15 @@ export function runsReadingOf(touches: readonly string[], named: readonly string
   return { full: null, groups: touched.length === 0 ? groups : [...groups, { name: TOUCHED_TESTS, files: touched, derived: true }], paths: reading.paths }
 }
 
-function cardDetails(db: DatabaseSync, facts: BusFacts): Map<number, CardDetail> {
+function cardDetails(db: DatabaseSync, facts: BusFacts, kept: (card: number) => CardDetail | undefined): Map<number, CardDetail> {
   const prs = linkedPrs(db)
   const backfill = recordedWitnessFieldsBackfill(db)
   const catalog: CheckCatalog = { testLayers: catalogLayersByTest(db), moduleLayers: catalogModuleLayers(db) }
   const map = readLayerMap()
-  return new Map(facts.cards.map((card) => {
+  return new Map(facts.cards.map((card): [number, CardDetail] => {
+    const reused = kept(card.id)
+    if (reused !== undefined)
+      return [card.id, reused]
     const contract = cardContract(db, card.id)
     const pr = prs.get(card.id) ?? null
     const witnessTable = witnessTableOf(db, contract, pr, number => headOf(db, number), backfill)
@@ -781,12 +783,10 @@ const SCRIPT_NAMES_GLOBAL = 'window.BOARD_NAMES'
 const SCRIPT_NAMES = { drill: DRILL, drillContent: DRILL_CONTENT, backlogScroll: BACKLOG_SCROLL, viewKey: VIEW_KEY, dialogPrefix: DIALOG_PREFIX, handoffDialog: HANDOFF_DIALOG, decisionsDialog: DECISIONS_DIALOG, busLive: BUS_LIVE, offlineReading: OFFLINE_READING, pulse: PULSE_ELEMENT_ID, titlePrefix: `${constructCommand('board')} · `, slotPrefix: SLOT_PREFIX, backlog: BACKLOG, filterAttribute: FILTER_ATTRIBUTE, icon: BOARD_ICON, staleTicks: STALE_TICKS, staleReading: STALE_READING, dataFile: BOARD_DATA_FILE, stampFile: BOARD_STAMP_FILE, sectionPrefix: SECTION_FILE_PREFIX, refreshIn: REFRESH_IN, round: { ...ROUND_COLOURS, ...ROUND_LABELS } }
 const SCRIPT = `\n${SCRIPT_NAMES_GLOBAL} = ${JSON.stringify(SCRIPT_NAMES)};\n${readFileSync(PAGE_SCRIPT, 'utf8')}`
 
-type DialogPart = readonly [string, string]
-
-function dialogParts(page: BoardPage): DialogPart[] {
+function dialogParts(page: BoardPage, kept: (card: number) => string | undefined = () => undefined, made = new Map<number, string>()): DialogPart[] {
   const cards = page.facts.cards.flatMap((card): DialogPart[] => {
     const detail = page.details.get(card.id)
-    return detail === undefined ? [] : [[cardDialog(card.id), cardDialogHtml(card, detail, page)]]
+    return detail === undefined ? [] : [[cardDialog(card.id), made.set(card.id, kept(card.id) ?? cardDialogHtml(card, detail, page)).get(card.id)!]]
   })
   return [[HANDOFF_DIALOG, handoffDialogHtml(page)], [DECISIONS_DIALOG, decisionsDialogHtml(page)], ...cards]
 }
@@ -981,7 +981,7 @@ function contextWarnings(contexts: readonly SessionContext[], limits: EddiesLimi
   return contexts.flatMap(session => boardWarnings({ ...quiet, ...(session.who === WINDOW_ROLE ? limits : cardLineOf(limits, session.who, facts)), contexts: [session] }))
 }
 
-function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: string, tickMs: number | null, main: MainUpToDate, eddiesFile: string = EDDIES_FILE, live = false): BoardPage {
+function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: string, tickMs: number | null, main: MainUpToDate, eddiesFile: string = EDDIES_FILE, live = false, kept: (card: number) => CardDetail | undefined = () => undefined, planned: (compute: () => string[]) => string[] = compute => compute()): BoardPage {
   const all = busFacts(db, now)
   const facts = live ? { ...all, cards: liveCardsOf(all.cards, all.at) } : all
   const liveness = factoryLiveness(busPath, now.getTime()).state
@@ -1003,12 +1003,12 @@ function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: 
         openPrs: openPrCountOf(db),
         openPrLimit: openPrLimitOf(process.env),
         ownerWaits: facts.waits.length,
-        stalls: [...stallLines(db, facts.pulse, now), ...plannedStallLines(db, now)],
+        stalls: [...stallLines(db, facts.pulse, now), ...planned(() => plannedStallLines(db, now))],
         savingOff: savingOff(process.env, main),
         stalePasses: stalePassCountOf(db),
       }),
     ],
-    details: cardDetails(db, facts),
+    details: cardDetails(db, facts, kept),
     sessions: sessionViewsOf(db, facts),
     decisions: currentDecisions(db),
     handoff: readHandoff(handoffFile),
@@ -1117,48 +1117,37 @@ export function runBoardCli(busPath: string = defaultBusPath(), args: readonly s
 
 export interface BoardProjection { file: string, dataFile: string, project: (now: Date) => void }
 
-export function sectionFileOf(dir: string, name: string): string {
-  return path.join(dir, `${SECTION_FILE_PREFIX}${name}.js`)
-}
-
 function sectionsOf(data: BoardData, dialogs: readonly DialogPart[]): Map<string, string> {
   return new Map([...Object.entries(data.slots).filter(([name]) => name !== 'dialogs'), ...dialogs.map(([dialog, html]): [string, string] => [`${DIALOG_PREFIX}${dialog}`, html])])
-}
-
-function writeSections(dir: string, sections: ReadonlyMap<string, string>, held: Map<string, string>, files: BoardFiles): Record<string, string> {
-  const hashes = new Map([...sections].map(([name, html]) => [name, createHash('sha256').update(html).digest('hex').slice(0, SECTION_HASH_DIGITS)]))
-  for (const [name, html] of [...sections].filter(([name]) => held.get(name) !== hashes.get(name)))
-    writeBoardPage(sectionFileOf(dir, name), `window.BOARD_SECTION(${JSON.stringify(name)}, ${JSON.stringify(hashes.get(name))}, ${JSON.stringify(html)})\n`, files)
-  for (const name of [...held.keys()].filter(name => !sections.has(name)))
-    files.remove?.(sectionFileOf(dir, name))
-  held.clear()
-  hashes.forEach((hash, name) => held.set(name, hash))
-  return Object.fromEntries(hashes)
 }
 
 export function boardProjection(db: DatabaseSync, busPath: string, tickMs: number, files: BoardFiles = DISK_FILES, handoffFile: string = HANDOFF_FILE, main: MainUpToDate = mainUpToDateOfThisRepository(), written: () => void = () => {}): BoardProjection {
   const [dir, file, dataFile] = [path.dirname(busPath), path.join(path.dirname(busPath), BOARD_FILE), path.join(path.dirname(busPath), BOARD_DATA_FILE)]
   let shell = existsSync(file) ? readFileSync(file, 'utf8') : null
-  const held = new Map<string, string>()
-  let built: { cursor: number, at: number, stamp: Pick<BoardData, 'tickMs' | 'filters' | 'alarms' | 'hashes'> } | null = null
+  const [cursor, cards, sections] = [new BuildCursor(db), new CardCache<CardDetail>(), new SectionWriter(dir, { write: (to, text) => writeBoardPage(to, text, files), remove: files.remove, list: files.list })]
+  let stamp: Pick<BoardData, 'tickMs' | 'filters' | 'alarms' | 'hashes'> = { tickMs, filters: [], alarms: [], hashes: {} }
   return {
     file,
     dataFile,
     project: (now) => {
       try {
-        const cursor = lastEventId(db)
-        if (built === null || built.cursor !== cursor || now.getTime() - built.at >= MINUTE_MS) {
-          const page = boardPageOf(db, busPath, now, handoffFile, tickMs, main, EDDIES_FILE, true)
-          const dialogs = dialogParts(page)
+        const plan = cursor.plan(now.getTime())
+        if (plan.kind !== 'none') {
+          const page = boardPageOf(db, busPath, now, handoffFile, tickMs, main, EDDIES_FILE, true, cards.detailOf(plan), cards.stallsOf(plan))
+          const made = new Map<number, string>()
+          const dialogs = dialogParts(page, cards.dialogOf(plan, [...page.details.keys()]), made)
           const data = boardData(page, dialogs)
-          const hashes = writeSections(dir, sectionsOf(data, dialogs), held, files)
-          writeBoardPage(dataFile, boardDataScript({ ...data, hashes }), files)
+          const hashes = sections.write(sectionsOf(data, dialogs))
+          if (plan.kind === 'full')
+            writeBoardPage(dataFile, boardDataScript({ ...data, hashes }), files)
           const next = renderShell(page.version, tickMs)
           if (next !== shell)
             writeBoardPage(file, shell = next, files)
-          built = { cursor, at: now.getTime(), stamp: { tickMs, filters: data.filters, alarms: data.alarms, hashes } }
+          cards.keep(page.details, made)
+          stamp = { tickMs, filters: data.filters, alarms: data.alarms, hashes }
         }
-        writeBoardPage(path.join(dir, BOARD_STAMP_FILE), `window.BOARD_STAMP = ${JSON.stringify({ written: now.toISOString(), ...built.stamp })}\n`, files)
+        cursor.built(plan, now.getTime())
+        writeBoardPage(path.join(dir, BOARD_STAMP_FILE), `window.BOARD_STAMP = ${JSON.stringify({ written: now.toISOString(), ...stamp })}\n`, files)
         written()
       }
       catch (error) {

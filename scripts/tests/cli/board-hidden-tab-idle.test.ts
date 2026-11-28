@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import vm from 'node:vm'
 import { describe, expect, it } from 'vitest'
-import { BOARD_DATA_FILE, BOARD_STAMP_FILE, SECTION_FILE_PREFIX } from '../../cli/board-page.js'
+import { BOARD_DATA_FILE } from '../../cli/board-page.js'
+import { BOARD_STAMP_FILE, SECTION_FILE_PREFIX } from '../../cli/board-page/sections.js'
 
 const SCRIPT = readFileSync(path.resolve(import.meta.dirname, '../../cli/board-page/script.js'), 'utf8')
 const TICK_MS = 10_000

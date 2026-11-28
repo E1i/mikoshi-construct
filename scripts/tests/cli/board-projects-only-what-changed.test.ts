@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import vm from 'node:vm'
 import { afterEach, describe, expect, it } from 'vitest'
-import { BOARD_STAMP_FILE, boardProjection, SECTION_FILE_PREFIX, sectionFileOf } from '../../cli/board-page.js'
+import { boardProjection } from '../../cli/board-page.js'
+import { BOARD_STAMP_FILE, CardCache, SECTION_FILE_PREFIX, sectionFileOf } from '../../cli/board-page/sections.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED } from '../../core/events.js'
 
@@ -15,6 +16,11 @@ const TICK_MS = 10_000
 const MINUTE_MS = 60_000
 const CARDS = [4100, 4101, 4102]
 const ADDED = 4103
+const LEFT_WHILE_DOWN = 3999
+const DROPPED_STATE = 'dropped'
+const EDITED_PROSE = 'prose edited behind the bus'
+const BOOKKEEPING = 'reducer.reduced'
+const LINKED_PR = 77
 const roots: string[] = []
 
 afterEach(() => {
@@ -39,6 +45,8 @@ class MemoryFiles implements BoardFiles {
   remove = (file: string): void => {
     this.texts.delete(file)
   }
+
+  list = (dir: string): string[] => [...this.texts.keys()].filter(file => path.dirname(file) === dir).map(file => path.basename(file))
 
   writesOf(file: string): number {
     return this.renamed.filter(name => name === file).length
@@ -91,12 +99,13 @@ describe('the board projects only what changed', () => {
     expect(files.renamed.slice(firstWrites)).toEqual([stampFile])
     expect(stampOf(files.texts.get(stampFile)!).written).toBe(at(TICK_MS).toISOString())
 
+    db.prepare('UPDATE card_bodies SET text = text || ? WHERE card_id = ?').run(`\n${EDITED_PROSE}\n`, CARDS[0])
     admit(db, ADDED)
     const beforeEvent = files.renamed.length
     projection.project(at(2 * TICK_MS))
     const rewritten = new Set(files.renamed.slice(beforeEvent))
     const dir = path.dirname(busPath)
-    expect(files.writesOf(projection.dataFile)).toBe(2)
+    expect(files.writesOf(projection.dataFile)).toBe(1)
     expect(rewritten).toContain(sectionFileOf(dir, `dialog-card-${ADDED}`))
     const untouched = [...CARDS.map(card => `dialog-card-${card}`), 'dialog-handoff', 'dialog-decisions'].map(name => sectionFileOf(dir, name))
     for (const file of untouched) {
@@ -106,6 +115,40 @@ describe('the board projects only what changed', () => {
     const changedBytes = [...rewritten].filter(file => files.sections().has(file)).reduce((sum, file) => sum + Buffer.byteLength(files.texts.get(file)!), 0)
     expect(changedBytes).toBeLessThan(Buffer.byteLength(files.texts.get(projection.dataFile)!))
     expect(Object.keys(stampOf(files.texts.get(stampFile)!).hashes)).toContain(`dialog-card-${ADDED}`)
+    expect(files.texts.get(sectionFileOf(dir, `dialog-card-${CARDS[0]}`))).not.toContain(EDITED_PROSE)
+    projection.project(at(MINUTE_MS))
+    expect(files.texts.get(sectionFileOf(dir, `dialog-card-${CARDS[0]}`))).toContain(EDITED_PROSE)
+    expect(files.writesOf(projection.dataFile)).toBe(2)
+    db.close()
+  })
+
+  it('a card that leaves the board takes its section file with it', () => {
+    const { busPath, db } = seededBus()
+    const files = new MemoryFiles()
+    const projection = boardProjection(db, busPath, TICK_MS, files, path.join(path.dirname(busPath), 'handoff.md'))
+    const gone = sectionFileOf(path.dirname(busPath), `dialog-card-${CARDS[2]}`)
+    projection.project(NOW)
+    expect(files.texts.has(gone)).toBe(true)
+    db.prepare('UPDATE cards SET state = ? WHERE card_id = ?').run(DROPPED_STATE, CARDS[2])
+    appendEvent(db, { ts: at(TICK_MS).toISOString(), type: CARD_ADMITTED, actor: 'policy', cardId: CARDS[2], pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${CARDS[2]}:leaves`, payload: {}, legacy: false })
+    projection.project(at(TICK_MS))
+    expect(files.texts.has(gone)).toBe(false)
+    expect(Object.keys(stampOf(files.texts.get(path.join(path.dirname(busPath), BOARD_STAMP_FILE))!).hashes)).not.toContain(`dialog-card-${CARDS[2]}`)
+    db.close()
+  })
+
+  it('a projection started after a restart removes the section files of cards that left the board while it was down', () => {
+    const { busPath, db } = seededBus()
+    const dir = path.dirname(busPath)
+    const files = new MemoryFiles()
+    const leftOver = sectionFileOf(dir, `dialog-card-${LEFT_WHILE_DOWN}`)
+    const other = path.join(dir, 'bus.db')
+    files.write(leftOver, 'window.BOARD_SECTION("left", "0", "")\n')
+    files.write(other, 'kept')
+    boardProjection(db, busPath, TICK_MS, files, path.join(dir, 'handoff.md')).project(NOW)
+    expect(files.texts.has(leftOver)).toBe(false)
+    expect(files.texts.get(other)).toBe('kept')
+    expect(files.texts.has(sectionFileOf(dir, `dialog-card-${CARDS[0]}`))).toBe(true)
     db.close()
   })
 
@@ -119,5 +162,40 @@ describe('the board projects only what changed', () => {
     projection.project(at(MINUTE_MS))
     expect(files.writesOf(projection.dataFile)).toBe(2)
     db.close()
+  })
+
+  it('an event that names neither a card nor a PR rebuilds no card section, and one that names a PR builds the whole board', () => {
+    const { busPath, db } = seededBus()
+    const dir = path.dirname(busPath)
+    const files = new MemoryFiles()
+    const projection = boardProjection(db, busPath, TICK_MS, files, path.join(dir, 'handoff.md'))
+    const dialog = sectionFileOf(dir, `dialog-card-${CARDS[0]}`)
+    projection.project(NOW)
+    db.prepare('UPDATE card_bodies SET text = text || ? WHERE card_id = ?').run(`\n${EDITED_PROSE}\n`, CARDS[0])
+    const bookkeeping = (ms: number, pr: number | null): void => {
+      appendEvent(db, { ts: at(ms).toISOString(), type: BOOKKEEPING, actor: 'reducer', cardId: null, pr, head: null, dedupeKey: `${BOOKKEEPING}:${ms}`, payload: {}, legacy: false })
+    }
+    bookkeeping(TICK_MS - 1, null)
+    const before = files.renamed.length
+    projection.project(at(TICK_MS))
+    expect(files.renamed.slice(before)).not.toContain(dialog)
+    expect(files.texts.get(dialog)).not.toContain(EDITED_PROSE)
+    expect(files.writesOf(projection.dataFile)).toBe(1)
+    bookkeeping(2 * TICK_MS - 1, LINKED_PR)
+    projection.project(at(2 * TICK_MS))
+    expect(files.texts.get(dialog)).toContain(EDITED_PROSE)
+    expect(files.writesOf(projection.dataFile)).toBe(2)
+    db.close()
+  })
+
+  it('the planned stall lines are reused only across a build that touched no card', () => {
+    const cache = new CardCache<never>()
+    let computed = 0
+    const compute = (): string[] => [`line ${computed += 1}`]
+    const plan = (kind: 'cards' | 'full', touched: number[]) => ({ kind, cursor: 0, touched: new Set(touched) })
+    expect(cache.stallsOf(plan('full', []))(compute)).toEqual(['line 1'])
+    expect(cache.stallsOf(plan('cards', []))(compute)).toEqual(['line 1'])
+    expect(cache.stallsOf(plan('cards', [CARDS[0]!]))(compute)).toEqual(['line 2'])
+    expect(cache.stallsOf(plan('full', []))(compute)).toEqual(['line 3'])
   })
 })

@@ -544,14 +544,24 @@
     else
       restore()
   }
+  let liveReading = null
   const markOld = () => {
-    if (!(period > 0 && Date.now() - Date.parse(written) > names.staleTicks * period))
-      return
     const live = document.getElementById(names.busLive)
-    if (live) {
-      live.setAttribute('data-stale', '')
-      live.textContent = names.staleReading
+    const old = period > 0 && Date.now() - Date.parse(written) > names.staleTicks * period
+    if (!live)
+      return
+    if (!old) {
+      if (liveReading !== null && live.textContent === names.staleReading) {
+        live.removeAttribute('data-stale')
+        live.textContent = liveReading
+      }
+      liveReading = null
+      return
     }
+    if (live.textContent !== names.staleReading)
+      liveReading = live.hasAttribute && live.hasAttribute('data-stale') ? null : live.textContent
+    live.setAttribute('data-stale', '')
+    live.textContent = names.staleReading
   }
   const receive = (board) => {
     if (!readable(board)) {

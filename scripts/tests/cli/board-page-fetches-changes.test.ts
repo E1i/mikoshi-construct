@@ -3,19 +3,24 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import vm from 'node:vm'
 import { describe, expect, it } from 'vitest'
-import { BOARD_DATA_FILE, BOARD_STAMP_FILE, SECTION_FILE_PREFIX } from '../../cli/board-page.js'
+import { BOARD_DATA_FILE } from '../../cli/board-page.js'
+import { BOARD_STAMP_FILE, SECTION_FILE_PREFIX } from '../../cli/board-page/sections.js'
 
 const SCRIPT = readFileSync(path.resolve(import.meta.dirname, '../../cli/board-page/script.js'), 'utf8')
 const TICK_MS = 10_000
 const FIRST = '2026-11-28T12:00:00.000Z'
 const SECOND = '2026-11-28T12:00:10.000Z'
 const THIRD = '2026-11-28T12:00:20.000Z'
+const QUIET_BUILD_AGE_MS = 50_000
+const LIVE_READING = 'bus live'
 const NAMES = { drill: 'drill', drillContent: 'drill-content', backlogScroll: 'backlog-scroll', viewKey: 'board:view', dialogPrefix: 'dialog-', handoffDialog: 'handoff', decisionsDialog: 'decisions', busLive: 'bus-live', offlineReading: 'offline', pulse: 'pulse', titlePrefix: 'board · ', slotPrefix: 'slot-', backlog: 'backlog', staleTicks: 2, staleReading: 'stale', dataFile: BOARD_DATA_FILE, stampFile: BOARD_STAMP_FILE, sectionPrefix: SECTION_FILE_PREFIX, refreshIn: 'refresh-in', round: {}, filterAttribute: 'data-filter' }
 
 class StubElement {
   id = ''
   innerHTML = ''
+  textContent = ''
   src = ''
+  readonly attributes = new Map<string, string>()
   parentNode: StubElement | null = null
   readonly children: StubElement[] = []
   readonly dataset: Record<string, string> = {}
@@ -25,8 +30,18 @@ class StubElement {
   constructor(readonly tagName: string) {}
 
   addEventListener(): void {}
-  setAttribute(): void {}
-  removeAttribute(): void {}
+  setAttribute(name: string, value: string): void {
+    this.attributes.set(name, value)
+  }
+
+  removeAttribute(name: string): void {
+    this.attributes.delete(name)
+  }
+
+  hasAttribute(name: string): boolean {
+    return this.attributes.has(name)
+  }
+
   appendChild(child: StubElement): StubElement {
     child.parentNode = this
     this.children.push(child)
@@ -49,10 +64,12 @@ class StubElement {
 
 function page(written: string) {
   const root = new StubElement('BODY')
-  for (const id of ['drill', 'drill-content', 'slot-kv', 'slot-rows', 'slot-dialogs']) {
+  for (const id of ['drill', 'drill-content', 'slot-kv', 'slot-rows', 'slot-dialogs', 'bus-live']) {
     const node = root.appendChild(new StubElement('DIV'))
     node.id = id
   }
+  markLive(root)
+  let now = Date.parse(written || FIRST)
   const appended: StubElement[] = []
   const timeouts: (() => void)[] = []
   const document = {
@@ -65,7 +82,7 @@ function page(written: string) {
     querySelectorAll: () => [],
     addEventListener: () => {},
   }
-  const context: Record<string, unknown> = { BOARD_NAMES: NAMES, document, localStorage: { getItem: () => null, setItem: () => {} }, location: { hash: '' }, addEventListener: () => {}, setTimeout: (run: () => void) => timeouts.push(run), Date: { now: () => Date.parse(written || FIRST), parse: Date.parse } }
+  const context: Record<string, unknown> = { BOARD_NAMES: NAMES, document, localStorage: { getItem: () => null, setItem: () => {} }, location: { hash: '' }, addEventListener: () => {}, setTimeout: (run: () => void) => timeouts.push(run), Date: { now: () => now, parse: Date.parse } }
   context.window = context
   vm.createContext(context)
   vm.runInContext(SCRIPT, context)
@@ -78,7 +95,14 @@ function page(written: string) {
     (context.BOARD_SECTION as (name: string, hash: string, html: string) => void)(name, hash, html)
     script.onload!()
   }
-  return { appended, timeouts, slot, deliver, section, document }
+  const at = (iso: string): void => {
+    now = Date.parse(iso)
+  }
+  return { appended, timeouts, slot, deliver, section, document, at, live: document.getElementById('bus-live')! }
+}
+
+function markLive(root: StubElement): void {
+  root.all().find(node => node.id === 'bus-live')!.textContent = LIVE_READING
 }
 
 const WHOLE = { written: FIRST, tickMs: TICK_MS, slots: { kv: 'kv one', rows: 'rows one', dialogs: `<template id="dialog-card-7">${'card seven '.repeat(10_000)}</template>` }, filters: [], alarms: [], hashes: { 'kv': 'k1', 'rows': 'r1', 'dialog-card-7': 'c1' } }
@@ -127,5 +151,35 @@ describe('the board page fetches only what changed', () => {
     board.appended.at(-1)!.onerror!()
     board.timeouts.at(-1)!()
     expect(board.appended.at(-1)!.src.startsWith(`${BOARD_DATA_FILE}?t=`)).toBe(true)
+  })
+
+  it('a full load built on a quiet bus reads STALE only until a fresh stamp confirms the board current', () => {
+    const board = page('')
+    board.at(new Date(Date.parse(FIRST) + QUIET_BUILD_AGE_MS).toISOString())
+    board.deliver('BOARD', WHOLE)
+    expect(board.live.textContent).toBe(NAMES.staleReading)
+    expect(board.live.hasAttribute('data-stale')).toBe(true)
+    board.timeouts.at(-1)!()
+    board.deliver('BOARD_STAMP', { written: new Date(Date.parse(FIRST) + QUIET_BUILD_AGE_MS).toISOString(), tickMs: TICK_MS, filters: [], alarms: [], hashes: WHOLE.hashes })
+    expect(board.appended).toHaveLength(2)
+    expect(board.live.textContent).toBe(LIVE_READING)
+    expect(board.live.hasAttribute('data-stale')).toBe(false)
+  })
+
+  it('a section that only left the stamp removes its dialog template from the page', () => {
+    const board = page('')
+    board.deliver('BOARD', WHOLE)
+    board.timeouts.at(-1)!()
+    board.deliver('BOARD_STAMP', { written: SECOND, tickMs: TICK_MS, filters: [], alarms: [], hashes: { ...WHOLE.hashes, 'dialog-card-7': 'c2' } })
+    board.section(board.appended.at(-1)!, 'dialog-card-7', 'c2', 'card seven')
+    expect(board.document.getElementById('dialog-card-7')).not.toBeNull()
+    board.timeouts.at(-1)!()
+    board.deliver('BOARD_STAMP', { written: THIRD, tickMs: TICK_MS, filters: [], alarms: [], hashes: { kv: 'k1', rows: 'r1' } })
+    expect(board.document.getElementById('dialog-card-7')).toBeNull()
+    expect(board.slot('rows')).toBe('rows one')
+    const fetched = board.appended.length
+    board.timeouts.at(-1)!()
+    board.deliver('BOARD_STAMP', { written: THIRD, tickMs: TICK_MS, filters: [], alarms: [], hashes: { kv: 'k1', rows: 'r1' } })
+    expect(board.appended).toHaveLength(fetched + 1)
   })
 })
