@@ -727,7 +727,7 @@ describe('the answer queue', () => {
     bench.close()
   })
 
-  it('an answer that leaves no new head is set again, and the one at the round limit opens an owner wait instead of a board.alarm', async () => {
+  it('an answer that leaves no new head is set again, never counts toward the round limit, and only the failure cap stops it with a board.alarm and no owner wait', async () => {
     const bench = answerBench()
     bench.tools.heads = Array.from({ length: 2 * REVIEW_ROUNDS }, () => sha('a'))
     bench.started(1160)
@@ -741,11 +741,10 @@ describe('the answer queue', () => {
       bench.tick()
       expect(taskState(bench.db, key)).toMatchObject({ state: 'queued', failures: failure })
     }
-    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'stopped', taskKey: key, reason: QUESTION_OWNER })
+    expect(await bench.answer(bench.leaseAnswer()!)).toMatchObject({ kind: 'denied', taskKey: key, denial: { reason: 'left_nothing' }, next: 'stopped' })
 
-    expect(taskState(bench.db, key).state).toBe('completed')
-    expect(eventsOf(bench.db, BOARD_ALARM)).toEqual([])
-    expect(ownerInbox(bench.db).map(line => line.card_id)).toEqual([1160])
+    expect(eventsOf(bench.db, BOARD_ALARM)).toEqual([expect.objectContaining({ reason: 'fault', failures: FAILURES_TO_STOP })])
+    expect(ownerInbox(bench.db)).toEqual([])
     bench.tick()
     expect(bench.leaseAnswer()).toBeNull()
     const live = projectionDump(bench.db)
