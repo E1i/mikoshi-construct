@@ -1,10 +1,12 @@
+import type { BuildRun } from '../core/built-entry.js'
 import type { ProcessTable } from '../ports/process-table.js'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { buildOf, CheckoutBuild } from '../core/built-entry.js'
 import { BUS_DB_VARIABLE, GH_ACCOUNT_VARIABLE } from '../core/bus-path.js'
 import { openBus } from '../core/db.js'
 import { FACTORY_RUNTIME } from '../core/factory-paths.js'
@@ -65,8 +67,26 @@ export const BUS_RUN_LAUNCH: DetachedLaunch = {
   log: SHADOW_LOG,
 }
 
-export function installedPackage(moduleUrl: string = import.meta.url): string | null {
-  return moduleUrl.endsWith(BUILT_MODULE) ? fileURLToPath(new URL('../../../', moduleUrl)) : null
+const GIT_ENTRY = '.git'
+
+function realOrResolved(dir: string): string {
+  try {
+    return realpathSync(dir)
+  }
+  catch {
+    return path.resolve(dir)
+  }
+}
+
+export function isRunningCheckout(root: string, cwd: string = process.cwd()): boolean {
+  return existsSync(path.join(root, GIT_ENTRY)) && realOrResolved(root) === realOrResolved(cwd)
+}
+
+export function installedPackage(moduleUrl: string = import.meta.url, checkout: (root: string) => boolean = isRunningCheckout): string | null {
+  if (!moduleUrl.endsWith(BUILT_MODULE))
+    return null
+  const root = fileURLToPath(new URL('../../../', moduleUrl))
+  return checkout(root) ? null : root
 }
 
 export function builtEntryOf(root: string, script: string): string {
@@ -118,6 +138,7 @@ export function recordSpawned(env: NodeJS.ProcessEnv, script: string, handed: No
 export interface StartOptions {
   argv?: readonly string[]
   table?: ProcessTable
+  checkout?: string
 }
 
 export function launchArgv(launch: DetachedLaunch = BUS_RUN_LAUNCH, installed: string | null = installedPackage(), bus?: string, env: NodeJS.ProcessEnv = {}): string[] {
@@ -273,11 +294,11 @@ export function startDetached(launch: DetachedLaunch, busDir: string, env: NodeJ
     const problems = launch.preflight?.() ?? []
     if (problems.length > 0)
       return { stdout: [], stderr: [`${prefix}refused to start ${script}:`, ...problems.map(problem => `  ${problem}`)], exitCode: 1 }
-    const argv = options.argv ?? launchArgv(launch, installedPackage(), thisBus(env), env)
+    const handed = handedIdentity(env)
+    const argv = options.argv ?? launchArgv(launch, installedPackage() ?? buildOf(options.checkout ?? process.cwd(), handed[GENERATION_VARIABLE]), thisBus(env), env)
     const [command, ...args] = argv
     const fd = openSync(log, 'a')
     try {
-      const handed = handedIdentity(env)
       const child = spawn(command!, args, { detached: true, stdio: ['ignore', fd, fd], env: { ...env, [STAMP_ENV]: '1', ...handed } })
       child.on('error', () => {})
       child.unref()
@@ -295,6 +316,31 @@ export function startDetached(launch: DetachedLaunch, busDir: string, env: NodeJ
   }
   finally {
     rmSync(lock, { force: true })
+  }
+}
+
+export type Starter = (launch: DetachedLaunch, busDir: string, env: NodeJS.ProcessEnv, processes: ProcessList) => BgResult
+
+export const BUILD_SCRIPT = 'build'
+export const BUILD_TIMEOUT_MS = 5 * 60_000
+
+export const pnpmBuild: BuildRun = (root) => {
+  const run = spawnSync('pnpm', ['--silent', BUILD_SCRIPT], { cwd: root, encoding: 'utf8', timeout: BUILD_TIMEOUT_MS })
+  return { ok: run.status === 0, output: `${run.stdout ?? ''}${run.stderr ?? ''}${run.error?.message ?? ''}` }
+}
+
+export function checkoutBuildOf(checkout: string = process.cwd(), installed: string | null = installedPackage(), run: BuildRun = pnpmBuild): CheckoutBuild | null {
+  return installed === null ? new CheckoutBuild(checkout, run, PREFIX) : null
+}
+
+export function builtStart(start: Starter, build: CheckoutBuild | null): Starter {
+  if (build === null)
+    return start
+  return (launch, busDir, env, processes) => {
+    const generation = env[GENERATION_VARIABLE]
+    const built = build.ensure(generation === UNHANDED ? undefined : generation)
+    const started = start(launch, busDir, env, processes)
+    return { ...started, stdout: [...built, ...started.stdout] }
   }
 }
 
