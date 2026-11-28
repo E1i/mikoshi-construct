@@ -8,7 +8,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { appendEvent } from '../../core/db.js'
-import { BOARD_ALARM, CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_OPENED, QUESTION_OWNER } from '../../core/events.js'
+import { BOARD_ALARM, CARD_ADMITTED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OWNER_WAIT_OPENED } from '../../core/events.js'
 import { REVIEW_ROUNDS } from '../../core/identifiers.js'
 import { leaseNext } from '../../core/lease.js'
 import { all as pullRequests } from '../../core/pr-readings.js'
@@ -85,51 +85,36 @@ describe('an answer that ends with no new commit, no owner question and a clean 
     expect(card.lease()).not.toBeNull()
   })
 
-  it('past the round limit, with the owner deciding between empty rounds, a faulted answer opens an owner wait with its cause', async () => {
-    const card = cardWhoseAnswerLeavesNothing()
-
-    const outcomes = []
-    for (let attempt = 1; attempt <= REVIEW_ROUNDS; attempt++) {
-      outcomes.push(await card.executor.answer(card.lease()!))
-      card.decide()
-    }
-
-    expect(outcomes.map(outcome => outcome.kind)).toEqual([...Array.from({ length: REVIEW_ROUNDS - 1 }).fill('denied'), 'stopped'])
-    expect(outcomes.at(-1)).toMatchObject({ kind: 'stopped', reason: QUESTION_OWNER, detail: expect.stringContaining('review round limit') as unknown })
-    expect(eventsOf(card.made.db, CARD_STOPPED).map(each => each.reason)).toEqual(['question.agent', QUESTION_OWNER])
-    expect(eventsOf(card.made.db, OWNER_WAIT_OPENED)).toEqual([expect.objectContaining({ card: CARD, text: expect.stringContaining(`${SESSION} left`) as unknown })])
-    expect(answerTask(card.made).state).toBe('completed')
-    expect(card.lease()).toBeNull()
-  })
-
   it('an empty answer after a failure of another kind counts only the empty answers in a row', async () => {
     const card = cardWhoseAnswerLeavesNothing(['dirty', 'empty'])
 
     expect(await card.executor.answer(card.lease()!)).toMatchObject({ kind: 'denied', denial: { reason: 'answer_failed' } })
-    expect(await card.executor.answer(card.lease()!)).toMatchObject({ kind: 'denied', denial: { reason: 'left_nothing', detail: expect.stringContaining(`empty answer 1 of the review round limit ${REVIEW_ROUNDS}`) as unknown }, next: 'queued' })
+    expect(await card.executor.answer(card.lease()!)).toMatchObject({ kind: 'denied', denial: { reason: 'left_nothing', detail: expect.stringContaining(`empty answer 1 in a row, which the review round limit ${REVIEW_ROUNDS} does not count and which opens no owner wait`) as unknown }, next: 'queued' })
   })
 
-  it('the count of empty answers starts again after a failure of another kind', async () => {
+  it('the count of empty answers starts again after a failure of another kind, and empty answers still count toward the failure limit', async () => {
     const card = cardWhoseAnswerLeavesNothing(['empty', 'dirty', 'empty'])
 
-    expect(await card.executor.answer(card.lease()!)).toMatchObject({ kind: 'denied', denial: { reason: 'left_nothing', detail: expect.stringContaining(`empty answer 1 of the review round limit ${REVIEW_ROUNDS}`) as unknown } })
+    expect(await card.executor.answer(card.lease()!)).toMatchObject({ kind: 'denied', denial: { reason: 'left_nothing', detail: expect.stringContaining(`empty answer 1 in a row, which the review round limit ${REVIEW_ROUNDS} does not count and which opens no owner wait`) as unknown } })
     card.decide()
     expect(await card.executor.answer(card.lease()!)).toMatchObject({ kind: 'denied', denial: { reason: 'answer_failed' } })
     const last = await card.executor.answer(card.lease()!)
 
-    expect(last).toMatchObject({ kind: 'stopped', reason: QUESTION_OWNER, detail: expect.stringContaining(`1 empty answers in a row and ${FAILURES_TO_STOP} failures in a row of any kind`) as unknown })
+    expect(last).toMatchObject({ kind: 'denied', denial: { reason: 'left_nothing', detail: expect.stringContaining('empty answer 1 in a row') as unknown }, next: 'stopped' })
+    expect(eventsOf(card.made.db, OWNER_WAIT_OPENED)).toEqual([])
   })
 
-  it('an empty answer that would be the task\'s last failure opens the owner wait naming both counts, not a bare fault', async () => {
+  it('an empty answer that is the task\'s last failure stops it at the failure limit with a fault and a board.alarm, opening no owner wait', async () => {
     const card = cardWhoseAnswerLeavesNothing([...Array.from({ length: FAILURES_TO_STOP - 1 }).fill('dirty') as AnswerEnd[], 'empty'])
 
     for (let failure = 1; failure < FAILURES_TO_STOP; failure++)
       expect(await card.executor.answer(card.lease()!)).toMatchObject({ kind: 'denied', denial: { reason: 'answer_failed' } })
     const last = await card.executor.answer(card.lease()!)
 
-    expect(last).toMatchObject({ kind: 'stopped', reason: QUESTION_OWNER, detail: expect.stringContaining(`1 empty answers in a row and ${FAILURES_TO_STOP} failures in a row of any kind`) as unknown })
-    expect(eventsOf(card.made.db, OWNER_WAIT_OPENED)).toHaveLength(1)
-    expect(eventsOf(card.made.db, BOARD_ALARM)).toEqual([])
+    expect(last).toMatchObject({ kind: 'denied', denial: { reason: 'left_nothing' }, next: 'stopped' })
+    expect(eventsOf(card.made.db, CARD_STOPPED).map(each => each.reason)).toEqual(['question.agent', 'fault'])
+    expect(eventsOf(card.made.db, OWNER_WAIT_OPENED)).toEqual([])
+    expect(eventsOf(card.made.db, BOARD_ALARM)).toEqual([expect.objectContaining({ reason: 'fault', failures: FAILURES_TO_STOP })])
   })
 
   it('failures of another kind still stop the task with a fault and a board.alarm at the failure limit', async () => {
