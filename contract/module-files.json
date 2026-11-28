@@ -1573,6 +1573,7 @@
     "declarations/may-use/atlas.json",
     "declarations/may-use/card.json",
     "declarations/may-use/cli.json",
+    "declarations/may-use/client-record.json",
     "declarations/may-use/commands.json",
     "declarations/may-use/detect.json",
     "declarations/may-use/failure.json",
@@ -1810,6 +1811,7 @@
     "scripts/ports/tree-publish.ts",
     "scripts/ports/wide-vitest-guard.ts",
     "scripts/ports/worktree.ts",
+    "src/client-record.ts",
     "src/commands/ci/state.ts",
     "src/commands/intake/command-word.ts"
   ],
@@ -1953,6 +1955,7 @@
     "tests/contract/cli-module-holds-the-commands.test.ts",
     "tests/contract/client-adapter-built-at-roots.test.ts",
     "tests/contract/client-port-receives-the-manifest.test.ts",
+    "tests/contract/client-record-module.test.ts",
     "tests/contract/concept-owner-export.test.ts",
     "tests/contract/contours-ledger.test.ts",
     "tests/contract/contract-files.test.ts",

@@ -10,6 +10,7 @@
     "src/cli.ts": [
       "program"
     ],
+    "src/client-record.ts": [],
     "src/commands": [
       "card",
       "detect",
@@ -28,6 +29,7 @@
     ],
     "src/known-flags.ts": [],
     "src/manifest.ts": [
+      "client-record",
       "detect",
       "materialize",
       "presets",

@@ -4436,6 +4436,7 @@
           "scripts/core/bus-contract.ts",
           "scripts/core/process-listing.ts",
           "scripts/ci/required.ts",
+          "src/client-record.ts",
           "src/commands/ci/state.ts",
           "src/commands/intake/command-word.ts"
         ],
@@ -4452,6 +4453,7 @@
           "scripts/core/bus-contract.ts",
           "scripts/core/process-listing.ts",
           "scripts/ci/required.ts",
+          "src/client-record.ts",
           "src/commands/ci/state.ts",
           "src/commands/intake/command-word.ts",
           "!scripts/ports/bus-read.ts",
@@ -5404,6 +5406,17 @@
           "WitnessField": "interface WitnessField { id: string; run: string; test: string | null; head: WitnessExpectation; base: WitnessExpectation; proves: string; }"
         }
       },
+      "src/client-record.ts": {
+        "constants": [
+          "CLIENT_ROLES"
+        ],
+        "functions": {
+          "clientIdFor": "(record: ClientRecord | undefined, role: ClientRole): string | null",
+          "clientModelOf": "(record: ClientRecord | undefined): string"
+        },
+        "reexports": [],
+        "types": {}
+      },
       "src/commands/attach/daemon-commands.ts": {
         "constants": [
           "DAEMON_KEY",
@@ -5962,14 +5975,11 @@
       },
       "src/manifest.ts": {
         "constants": [
-          "CLIENT_ROLES",
           "DEFAULT_LANES",
           "DISCOVERY_MARKERS",
           "MANIFEST_FILE"
         ],
         "functions": {
-          "clientIdFor": "(record: ClientRecord | undefined, role: ClientRole): string | null",
-          "clientModelOf": "(record: ClientRecord | undefined): string",
           "isLaneCount": "(value: unknown): value is number",
           "readManifest": "(root: string): Manifest | null",
           "readMilestones": "(root: string): string[] | undefined",

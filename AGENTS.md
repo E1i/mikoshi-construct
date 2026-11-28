@@ -134,24 +134,24 @@ here. Before proposing an architecture, answer the questions and name the catego
 - *Dependency policy.*
   <!-- construct:discover:dependency-policy -->
   Inside `src/`, dependencies point one way, and `ALLOWED_INTERNAL_IMPORTS` in `eslint.config.mjs` is
-  the declaration: `detect` (facts only), `card`, `known-flags` and `record-ahead` import no other
+  the declaration: `detect` (facts only), `card`, `client-record`, `known-flags` and `record-ahead` import no other
   module, and only the two readers of a versioned record and `failure` import `record-ahead`;
   `presets` imports `detect`; `model` `detect`, `presets`, `record-ahead`; `atlas` `detect`, `model`,
-  `ui`; `materialize` and `ui` `presets`; `manifest` `detect`, `materialize`, `presets`,
+  `ui`; `materialize` and `ui` `presets`; `manifest` `client-record`, `detect`, `materialize`, `presets`,
   `record-ahead`; `sync` `manifest`, `materialize`, `presets`; `failure` `record-ahead`, `ui`;
   `commands` `card`, `detect`, `manifest`, `materialize`, `model`, `presets`, `sync`, `ui`, `version`;
   `program` `atlas`, `commands`, `detect`, `failure`, `known-flags`, `presets`, `ui`, `version`; `cli`
   only `program`. Three further blocks narrow it. `doctorReadsThroughOneReader` forbids `readFileSync`
   and `readdirSync` anywhere under `src/commands/doctor/` except `readings.ts`, so every read of an
   inspected repository goes through one reader that reports a path it could not read. `spawnPolicy` forbids importing `node:child_process` under `src/`, and
-  forbids `import()`, `require`, `require.*`, `node:module` and `createRequire` outright, so the CLI
+  `import()`, `require`, `require.*`, `node:module` and `createRequire` outright, so the CLI
   spawns only `pnpm --version` and two `git` reads and runs only the code it ships; it also forbids reading `manifest.files`
   directly, because that branch is the frozen `init` record and `recordedShas()` is what overlays the
   `sync` one. `theRecordItselfMayReadBothHalves` restores the second of those for `src/manifest.ts`,
-  which is the module that owns both branches.
+  the module that owns both branches.
 
   `src/detect/package-manager.ts` and `git.ts` carry the spawns, and their own block gives each the whole `spawnPolicy` set minus the `node:child_process` selector — never an `ignores`,
-  because ESLint's `ignores` removes the whole config object rather than one selector from it.
+  because ESLint's `ignores` drops the whole config object, not one selector.
   Code loading, `createRequire` and the antfu base restrictions stay forbidden in both, as
   `tests/dependency-policy.test.ts` proves per form.
 
