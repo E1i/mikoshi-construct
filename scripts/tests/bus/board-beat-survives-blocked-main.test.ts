@@ -5,6 +5,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { Worker } from 'node:worker_threads'
 import { afterEach, describe, expect, it } from 'vitest'
+import { BOARD_STAMP_FILE } from '../../cli/board-page/sections.js'
 import { BOARD_STALE_TICKS, BOARD_TIMER_PERIOD_MS, lastBoardBeat, openBus } from '../../core/db.js'
 import { startBoardThread } from '../../supervisor/run.js'
 import { boardStaleOf } from '../../window/watch.js'
@@ -62,7 +63,7 @@ describe('the board beat with the bus:run thread blocked', () => {
       blockedAt = Date.now()
       blockThisThreadFor(BLOCKED_MS)
       now = Date.now()
-      writtenMs = statSync(board.dataFile).mtimeMs
+      writtenMs = statSync(path.join(path.dirname(board.dataFile), BOARD_STAMP_FILE)).mtimeMs
       beat = lastBoardBeat(db)
     }
     finally {

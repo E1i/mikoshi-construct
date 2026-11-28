@@ -1473,7 +1473,9 @@ describe('board.html', () => {
   })
 
   it('two polls in a row with the same written leave the DOM untouched', () => {
-    const { html, data } = projectedWithHandoff()
+    const wholeOnly = (text: string): string => `window.BOARD = ${JSON.stringify({ ...boardOf(text), hashes: undefined })}\n`
+    const { html, data: projected } = projectedWithHandoff()
+    const data = wholeOnly(projected)
     const board = boardWindow(html, new MemoryStorage())
     board.click('TR', 'card-862')
     const opened = board.content.innerHTML
@@ -1493,7 +1495,7 @@ describe('board.html', () => {
     expect(board.content.innerHTML).toBe(opened)
     expect(board.dialog.open).toBe(true)
     expect(board.elements.get('bus-live')?.attributes.has('data-stale') ?? false).toBe(false)
-    const { data: later } = projectedWithHandoff(LATER)
+    const later = wholeOnly(projectedWithHandoff(LATER).data)
     board.tick(later)
     expect(writes().every((count, at) => count === before[at]! + 1)).toBe(true)
     board.tick(later)

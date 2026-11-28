@@ -2279,11 +2279,9 @@
           "scripts/cli/board-page.ts",
           "scripts/window/board.ts"
         ],
-        "owner": "scripts/cli/board-page.ts",
+        "owner": "scripts/window/board.ts",
         "source": "owner",
-        "writers": [
-          "scripts/cli/board-page.ts"
-        ]
+        "writers": []
       },
       "~/.construct/browser-lab/bin/browser-lab.mjs": {
         "derived": false,

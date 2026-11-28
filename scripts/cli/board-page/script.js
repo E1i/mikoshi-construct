@@ -544,14 +544,24 @@
     else
       restore()
   }
+  let liveReading = null
   const markOld = () => {
-    if (!(period > 0 && Date.now() - Date.parse(written) > names.staleTicks * period))
-      return
     const live = document.getElementById(names.busLive)
-    if (live) {
-      live.setAttribute('data-stale', '')
-      live.textContent = names.staleReading
+    const old = period > 0 && Date.now() - Date.parse(written) > names.staleTicks * period
+    if (!live)
+      return
+    if (!old) {
+      if (liveReading !== null && live.textContent === names.staleReading) {
+        live.removeAttribute('data-stale')
+        live.textContent = liveReading
+      }
+      liveReading = null
+      return
     }
+    if (live.textContent !== names.staleReading)
+      liveReading = live.hasAttribute && live.hasAttribute('data-stale') ? null : live.textContent
+    live.setAttribute('data-stale', '')
+    live.textContent = names.staleReading
   }
   const receive = (board) => {
     if (!readable(board)) {
@@ -567,28 +577,130 @@
     markOld()
   }
   markOld()
+  let held = null
+  let idle = false
+  const hidden = () => document.visibilityState === 'hidden'
+  const load = (src, done) => {
+    const script = document.createElement('script')
+    script.onload = () => {
+      script.remove()
+      done(true)
+    }
+    script.onerror = () => {
+      script.remove()
+      done(false)
+    }
+    script.src = src
+    document.head.appendChild(script)
+  }
+  const fetchWhole = (settled) => {
+    window.BOARD = undefined
+    load(`${names.dataFile}?t=${Date.now()}`, (ok) => {
+      const board = window.BOARD
+      if (ok && readable(board))
+        held = board.hashes !== null && typeof board.hashes === 'object' ? { ...board.hashes } : null
+      if (ok)
+        receive(board)
+      else
+        stale()
+      settled()
+    })
+  }
+  const placeDialog = (id, html) => {
+    const holder = document.getElementById(`${names.slotPrefix}dialogs`)
+    if (!holder)
+      return
+    const node = document.createElement('template')
+    node.id = id
+    node.innerHTML = html
+    const was = document.getElementById(id)
+    if (was && was.parentNode === holder)
+      holder.replaceChild(node, was)
+    else
+      holder.appendChild(node)
+  }
+  const applyChanges = (stamp, got, gone) => {
+    const slots = {}
+    Object.keys(got).forEach((name) => {
+      if (typeof got[name].html !== 'string')
+        return
+      held[name] = got[name].hash
+      if (name.startsWith(names.dialogPrefix))
+        placeDialog(name, got[name].html)
+      else
+        slots[name] = got[name].html
+    })
+    gone.forEach((name) => {
+      delete held[name]
+      const node = name.startsWith(names.dialogPrefix) ? document.getElementById(name) : null
+      if (node)
+        node.remove()
+    })
+    apply({ written: stamp.written, slots, filters: stamp.filters, alarms: stamp.alarms })
+  }
+  const readableStamp = stamp => stamp !== null && typeof stamp === 'object' && typeof stamp.written === 'string' && stamp.hashes !== null && typeof stamp.hashes === 'object' && Array.isArray(stamp.filters)
+  const fetchChanges = (settled) => {
+    window.BOARD_STAMP = undefined
+    load(`${names.stampFile}?t=${Date.now()}`, (ok) => {
+      const stamp = window.BOARD_STAMP
+      if (!ok || !readableStamp(stamp)) {
+        held = null
+        stale()
+        settled()
+        return
+      }
+      if (typeof stamp.tickMs === 'number' && stamp.tickMs > 0)
+        period = stamp.tickMs
+      written = stamp.written
+      const changed = Object.keys(stamp.hashes).filter(name => held[name] !== stamp.hashes[name])
+      const gone = Object.keys(held).filter(name => !Object.hasOwn(stamp.hashes, name))
+      const got = {}
+      let left = changed.length
+      const finish = () => {
+        if (changed.length > 0 || gone.length > 0)
+          applyChanges(stamp, got, gone)
+        markOld()
+        settled()
+      }
+      window.BOARD_SECTION = (name, hash, html) => {
+        got[name] = { hash, html }
+      }
+      if (left === 0)
+        finish()
+      changed.forEach(name => load(`${names.sectionPrefix}${name}.js?h=${stamp.hashes[name]}`, () => {
+        left -= 1
+        if (left === 0)
+          finish()
+      }))
+    })
+  }
   function update() {
     if (loading)
       return
+    if (hidden()) {
+      idle = true
+      due = null
+      return
+    }
     loading = true
-    window.BOARD = undefined
-    const script = document.createElement('script')
     const settled = () => {
-      script.remove()
       loading = false
       schedule()
     }
-    script.onload = () => {
-      receive(window.BOARD)
-      settled()
-    }
-    script.onerror = () => {
-      stale()
-      settled()
-    }
-    script.src = `${names.dataFile}?t=${Date.now()}`
-    document.head.appendChild(script)
+    if (held !== null && names.stampFile)
+      fetchChanges(settled)
+    else
+      fetchWhole(settled)
   }
+  const resume = () => {
+    if (!idle || hidden())
+      return
+    idle = false
+    pending += 1
+    update()
+  }
+  document.addEventListener('visibilitychange', resume)
+  addEventListener('focus', resume)
   const delayFromWritten = () => {
     const left = Date.parse(written) + period + WRITE_SLACK_MS - Date.now()
     return left > 0 && left <= period ? left : period

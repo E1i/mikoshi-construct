@@ -139,7 +139,7 @@ describe('the board carries only live cards and the last day of merges', () => {
     projection.project(NOW)
     projection.project(new Date(NOW.getTime() + TICK_MS))
     expect(files.renamed.filter(file => file === projection.file)).toHaveLength(1)
-    expect(files.renamed.filter(file => file === projection.dataFile)).toHaveLength(2)
+    expect(files.renamed.filter(file => file === projection.dataFile)).toHaveLength(1)
     const shell = files.texts.get(projection.file)!
     expect(shell).toBe(renderShell(currentVersion(), TICK_MS))
     expect(shell).toContain('<body data-written="" ')
