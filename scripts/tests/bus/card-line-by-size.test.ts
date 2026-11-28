@@ -15,6 +15,7 @@ import { realStarterPorts } from '../../nodes/launch/launch-root.js'
 import { COMPACT_WINDOW_VARIABLE } from '../../ports/client/claude/adapter.js'
 import { CARD_SIZE_VARIABLE, cardSessionOverlay, cardSizeIn, sessionEnv } from '../../ports/session.js'
 import { PROJECT_VARIABLE, realExitReadings } from '../../window/eddies-measure.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const HOOK = path.resolve(import.meta.dirname, '../../../templates/ai/claude/scripts/construct/eddies.mjs')
 const UNKNOWN_SIZE_LINE = 120_000
@@ -71,7 +72,7 @@ function hookOn(root: string, session: string, context: number, size: string | n
 }
 
 function warnOf(root: string, size: string | null): unknown {
-  return realExitReadings({ CONSTRUCT_CARD: '1', ...(size === null ? {} : { [CARD_SIZE_VARIABLE]: size }) }, root, root, path.join(root, 'bus.db')).contextWarn
+  return realExitReadings(claudeClient, { CONSTRUCT_CARD: '1', ...(size === null ? {} : { [CARD_SIZE_VARIABLE]: size }) }, root, root, path.join(root, 'bus.db')).contextWarn
 }
 
 function cardLine(id: number, size: string): string {
@@ -132,14 +133,14 @@ describe('the line follows the size of the card', () => {
 
   it('the source of the line names the size it was read for', () => {
     const root = treeWithLimits()
-    const source = (size: string | null): unknown => realExitReadings({ CONSTRUCT_CARD: '1', ...(size === null ? {} : { [CARD_SIZE_VARIABLE]: size }) }, root, root, path.join(root, 'bus.db')).contextWarnSource
+    const source = (size: string | null): unknown => realExitReadings(claudeClient, { CONSTRUCT_CARD: '1', ...(size === null ? {} : { [CARD_SIZE_VARIABLE]: size }) }, root, root, path.join(root, 'bus.db')).contextWarnSource
     expect(source('L')).toBe('.claude/eddies.json cardContextLineBySize.L')
     expect(source(null)).toBe('.claude/eddies.json cardContextLine')
   })
 
   it('the coordinating window ignores a size in its environment', () => {
     const root = treeWithLimits()
-    expect(realExitReadings({ [CARD_SIZE_VARIABLE]: 'L' }, root, root, path.join(root, 'bus.db')).contextWarn).toBe(LIMITS.contextLimit * LIMITS.warnRatio)
+    expect(realExitReadings(claudeClient, { [CARD_SIZE_VARIABLE]: 'L' }, root, root, path.join(root, 'bus.db')).contextWarn).toBe(LIMITS.contextLimit * LIMITS.warnRatio)
   })
 })
 
@@ -148,7 +149,7 @@ describe('compaction of a card session', () => {
     const root = treeWithLimits()
     const overlay = cardSessionOverlay(root, {}, 'L')
     expect(Number(overlay[COMPACT_WINDOW_VARIABLE])).toBeGreaterThan(L_LINE)
-    expect(sessionEnv({}, 1, overlay)).toMatchObject({ [CARD_SIZE_VARIABLE]: 'L', [COMPACT_WINDOW_VARIABLE]: overlay[COMPACT_WINDOW_VARIABLE] })
+    expect(sessionEnv(claudeClient, {}, 1, overlay)).toMatchObject({ [CARD_SIZE_VARIABLE]: 'L', [COMPACT_WINDOW_VARIABLE]: overlay[COMPACT_WINDOW_VARIABLE] })
   })
 
   it('a card session whose line is under the window keeps the window it has', () => {
@@ -196,14 +197,14 @@ describe('the session carries the size of its card', () => {
 
   it('a launch session carries it and a card with no readable size does not', () => {
     const root = treeWithLimits()
-    const ports = realStarterPorts(root, {}, '', () => 'u', id => id === 1 ? cardLine(1, 'L') : null, () => [], null, path.join(root, 'bus.db'))
+    const ports = realStarterPorts(claudeClient, root, {}, '', () => 'u', id => id === 1 ? cardLine(1, 'L') : null, () => [], null, path.join(root, 'bus.db'))
     expect(ports.envOf(1)).toMatchObject({ [CARD_SIZE_VARIABLE]: 'L', CONSTRUCT_CARD: '1' })
     expect(Number(ports.envOf(1)[COMPACT_WINDOW_VARIABLE])).toBeGreaterThan(L_LINE)
     expect(ports.envOf(2)).not.toHaveProperty(CARD_SIZE_VARIABLE)
   })
 
   it('an inherited size never reaches a card session of another card', () => {
-    expect(sessionEnv({ [CARD_SIZE_VARIABLE]: 'L' } as NodeJS.ProcessEnv, 1)).not.toHaveProperty(CARD_SIZE_VARIABLE)
+    expect(sessionEnv(claudeClient, { [CARD_SIZE_VARIABLE]: 'L' } as NodeJS.ProcessEnv, 1)).not.toHaveProperty(CARD_SIZE_VARIABLE)
   })
 
   it('an answer session carries it, and its context warn is read for that size', async () => {
@@ -212,6 +213,7 @@ describe('the session carries the size of its card', () => {
     const asked: (string | null)[] = []
     const seen: NodeJS.ProcessEnv[] = []
     const answerer = claudeAnswerer(path.join(root, 'answers'), {
+      client: claudeClient,
       cardText: () => cardLine(7, 'L'),
       available: () => true,
       remoteHead: () => 'a'.repeat(40),

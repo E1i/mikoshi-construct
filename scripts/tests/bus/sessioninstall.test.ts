@@ -18,6 +18,7 @@ import { realStarterPorts } from '../../nodes/launch/launch-root.js'
 import { lacksItsPackages, PREPARE_TREE, prepareTree } from '../../ports/prepare-tree.js'
 import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { claudeClient } from '../client/claude-client.js'
 import { sha } from './github-fake.js'
 import { mergeBench } from './merge-bench.js'
 
@@ -59,7 +60,7 @@ describe('the launch worker', () => {
     const tree = treeIn(dir, true)
     const spawn = sessionSpawn(tree, dir)
     const prepared: Array<{ tree: string, sessionLogged: boolean }> = []
-    const ports = realStarterPorts(dir, {}, '', () => 'u', () => null, () => [], null, path.join(dir, 'bus.db'), each => prepared.push({ tree: each, sessionLogged: existsSync(spawn.log) }))
+    const ports = realStarterPorts(claudeClient, dir, {}, '', () => 'u', () => null, () => [], null, path.join(dir, 'bus.db'), each => prepared.push({ tree: each, sessionLogged: existsSync(spawn.log) }))
 
     ports.spawnDetached(spawn)
 
@@ -72,7 +73,7 @@ describe('the launch worker', () => {
     const tree = treeIn(dir, true)
     const spawn = sessionSpawn(tree, dir)
     const said = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const ports = realStarterPorts(dir, {}, '', () => 'u', () => null, () => [], null, path.join(dir, 'bus.db'), () => {
+    const ports = realStarterPorts(claudeClient, dir, {}, '', () => 'u', () => null, () => [], null, path.join(dir, 'bus.db'), () => {
       throw new Error('ERR_PNPM_OUTDATED_LOCKFILE')
     })
 
@@ -124,7 +125,7 @@ describe('the launch worker', () => {
     const dir = root()
     const tree = treeIn(dir, false)
     const prepared: string[] = []
-    const ports = realStarterPorts(dir, {}, '', () => 'u', () => null, () => [], null, path.join(dir, 'bus.db'), each => prepared.push(each))
+    const ports = realStarterPorts(claudeClient, dir, {}, '', () => 'u', () => null, () => [], null, path.join(dir, 'bus.db'), each => prepared.push(each))
 
     ports.spawnDetached(sessionSpawn(tree, dir))
 

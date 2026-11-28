@@ -1,6 +1,7 @@
 import type { BusEvent } from '../core/db.js'
 import type { JournalEntry, RangeDiffOutcome } from '../core/journal.js'
 import type { StartedTree, Task } from '../core/tasks.js'
+import type { ClientAdapter } from '../ports/client/contract.js'
 import type { SpawnSessionParams } from '../ports/session.js'
 import type { StepExpect } from './expect-sample.js'
 import type { Expect } from './expect.js'
@@ -14,9 +15,11 @@ import { fileURLToPath } from 'node:url'
 import { appendEvent, defaultBusPath, openBus } from '../core/db.js'
 import { CARD_FELL } from '../core/events.js'
 import { recordGhostLine, taskLine } from '../core/journal.js'
+import { claudeAdapterWith } from '../ports/client/claude/adapter.js'
 import { processGit } from '../ports/git.js'
 import { readResultFields } from '../ports/result.js'
 import { sessionEnv, spawnSession } from '../ports/session.js'
+import { settingsFlag, shiftSettings } from '../ports/shift-settings.js'
 import { writeAgreedText } from './agreed.js'
 import { tiedArgsSha256 } from './args-chain.js'
 import { runInstall } from './install.js'
@@ -62,14 +65,14 @@ export function git(repo: string, args: string[]): string {
 export const FALL_KINDS = ['base-red', 'ladder-not-done', 'review-hole', 'handoff-without-pr', 'hash-recounted'] as const
 export type FallKind = typeof FALL_KINDS[number]
 
-export function sessionParams(task: PreparedTask): SpawnSessionParams {
+export function sessionParams(client: ClientAdapter, task: PreparedTask): SpawnSessionParams {
   return {
     cwd: task.worktree,
     sessionId: task.sessionId,
     prompt: task.approvedText,
     stdoutPath: task.reportPath,
     stderrPath: task.stderrPath,
-    env: sessionEnv(process.env, task.card.id),
+    env: sessionEnv(client, process.env, task.card.id),
   }
 }
 
@@ -165,7 +168,7 @@ async function closeOut(ctx: TaskContext, task: PreparedTask, start: string, out
   writeGhostRow(defaultBusPath(), task.card.id, task.id, freeRow({ id: task.id, worktree: task.worktree, headSha, start, end, outcome }), `${FALL_ACTOR_PREFIX}${task.sessionId}`)
 }
 
-async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOutcome> {
+async function launchTask(client: ClientAdapter, ctx: TaskContext, task: PreparedTask): Promise<TaskOutcome> {
   const start = rowTimestamp()
 
   prepareTree(ctx, task)
@@ -181,7 +184,7 @@ async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOut
     sessionId: task.sessionId,
   }), `${FALL_ACTOR_PREFIX}${task.sessionId}`)
 
-  const runs = runSourceOf(task.worktree, task.card.id, sessionEnv(process.env, task.card.id))
+  const runs = runSourceOf(task.worktree, task.card.id, sessionEnv(client, process.env, task.card.id))
   const runsMark = ladderRunMark(runs)
   const installLogPath = path.join(ctx.out, `ghost-${task.id}.install.log`)
   const matrixRow = lookupMatrixRow(ctx.matrixPath, task.id)
@@ -213,7 +216,7 @@ async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOut
 
   let code: number
   try {
-    code = await spawnSession(sessionParams(task))
+    code = await spawnSession(client, sessionParams(client, task))
   }
   catch (error) {
     const message = errorMessage(error)
@@ -223,7 +226,7 @@ async function launchTask(ctx: TaskContext, task: PreparedTask): Promise<TaskOut
 
   const ladder = readLadderOutcome(runs, runsMark)
   const carryFailure = carryIntoMainLedger(runs.runsPath, ctx.repo)
-  const resultFields = readResultFields(task.reportPath)
+  const resultFields = readResultFields(client, task.reportPath)
   const outcome = sessionOutcome(code, ladder.status, task.reportPath, task.sessionId)
   await closeOut(ctx, task, start, outcome, {
     task: task.id,
@@ -297,9 +300,9 @@ export function spawnSupervisor(payloadPath: string, logPath: string): Promise<n
   })
 }
 
-async function supervise(payloadPath: string): Promise<boolean> {
+async function supervise(client: ClientAdapter, payloadPath: string): Promise<boolean> {
   const { ctx, tasks } = JSON.parse(readFileSync(payloadPath, 'utf8')) as SupervisorPayload
-  const outcomes = await Promise.all(tasks.map(task => launchTask(ctx, task)))
+  const outcomes = await Promise.all(tasks.map(task => launchTask(client, ctx, task)))
   writeFileSync(resultPathOf(payloadPath), `${JSON.stringify(outcomes)}\n`)
   return outcomes.every(outcome => outcome.ok)
 }
@@ -311,6 +314,6 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === SUPERVISE
     process.exitCode = 1
   }
   else {
-    process.exitCode = await supervise(payloadPath) ? 0 : 1
+    process.exitCode = await supervise(claudeAdapterWith({ shiftSettings, settingsFlag }), payloadPath) ? 0 : 1
   }
 }

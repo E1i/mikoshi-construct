@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { ClientAdapter } from '../../ports/client/contract.js'
 import type { ReportCollection } from './report-collect.js'
 import type { OwnerWaitOpener, Refusal, RefusalReason, TreeCard, TreePr, TreePrPorts } from './tree-pr.js'
 import { spawnSync } from 'node:child_process'
@@ -15,10 +16,12 @@ import { treeReportPath } from '../../core/places.js'
 import { pushPolicyOf } from '../../core/push-policy.js'
 import { openDatabase } from '../../core/sqlite.js'
 import { cardContract } from '../../intake/card-contract.js'
+import { claudeAdapterWith } from '../../ports/client/claude/adapter.js'
 import { launchPolicy } from '../../ports/client/role-policy.js'
 import { execGh, stdoutOrThrow } from '../../ports/gh.js'
 import { pnpmRerun, processGit } from '../../ports/git.js'
 import { clientInvocation, sessionEnv } from '../../ports/session.js'
+import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
 import { cardSessionOf } from '../answer/answer-source.js'
 import { reachedContextLine } from './continuation.js'
 import { busAllowances, busClosedWaitTexts } from './launch-root.js'
@@ -148,7 +151,7 @@ export function busLastRefusal(busPath: string): TreePrCliPorts['lastRefusal'] {
   }
 }
 
-export function claudeResume(busPath: string, binary?: string, ceilingMs = RETURN_CEILING_MINUTES * 60_000): TreePrCliPorts['resume'] {
+export function claudeResume(client: ClientAdapter, busPath: string, binary?: string, ceilingMs = RETURN_CEILING_MINUTES * 60_000): TreePrCliPorts['resume'] {
   return (cardId, worktree, prompt) => {
     if (!existsSync(busPath))
       return false
@@ -164,8 +167,8 @@ export function claudeResume(busPath: string, binary?: string, ceilingMs = RETUR
     }
     if (session === undefined)
       return false
-    const invocation = clientInvocation({ kind: 'resume', role: 'launch', session, cwd: worktree, prompt, addDirs: [], pick: { model: null }, policy: launchPolicy(readShiftGate(worktree).prepush, cardToolsOf(`${cardId}.md`, cardText)) })
-    const run = spawnSync(binary ?? invocation.command, invocation.args, { cwd: worktree, env: { ...sessionEnv(process.env, cardId), ...invocation.env }, stdio: ['ignore', 'inherit', 'inherit'], timeout: ceilingMs, killSignal: 'SIGKILL' })
+    const invocation = clientInvocation(client, { kind: 'resume', role: 'launch', session, cwd: worktree, prompt, addDirs: [], pick: { model: null }, policy: launchPolicy(readShiftGate(worktree).prepush, cardToolsOf(`${cardId}.md`, cardText)) })
+    const run = spawnSync(binary ?? invocation.command, invocation.args, { cwd: worktree, env: { ...sessionEnv(client, process.env, cardId), ...invocation.env }, stdio: ['ignore', 'inherit', 'inherit'], timeout: ceilingMs, killSignal: 'SIGKILL' })
     return run.error === undefined && run.status === 0
   }
 }
@@ -218,24 +221,26 @@ function busOwnerWait(bus: PrOpenedBus): OwnerWaitOpener {
   }
 }
 
-const REAL_PORTS: TreePrCliPorts = {
-  git: REAL_GIT,
-  rebuild: pnpmRerun,
-  ownerWait: busOwnerWait(REAL_BUS),
-  allowances: busAllowances(REAL_BUS.busPath),
-  closedWaitTexts: busClosedWaitTexts(REAL_BUS.busPath),
-  gh: stdoutOrThrow(execGh),
-  pushPolicy: worktree => pushPolicyOf(REAL_GIT, worktree),
-  card: busCardText(REAL_BUS.busPath),
-  opened: busPrOpened(REAL_BUS),
-  followed: busTouchesFollowed(REAL_BUS),
-  stopped: busCardStopped(REAL_BUS),
-  waited: busCardWaited(REAL_BUS),
-  lastRefusal: busLastRefusal(REAL_BUS.busPath),
-  returned: busCardReturned(REAL_BUS),
-  resume: claudeResume(REAL_BUS.busPath),
-  collect: collectReport,
-  atContextLine: busAtContextLine(REAL_BUS.busPath),
+function realPorts(client: ClientAdapter): TreePrCliPorts {
+  return {
+    git: REAL_GIT,
+    rebuild: pnpmRerun,
+    ownerWait: busOwnerWait(REAL_BUS),
+    allowances: busAllowances(REAL_BUS.busPath),
+    closedWaitTexts: busClosedWaitTexts(REAL_BUS.busPath),
+    gh: stdoutOrThrow(execGh),
+    pushPolicy: worktree => pushPolicyOf(REAL_GIT, worktree),
+    card: busCardText(REAL_BUS.busPath),
+    opened: busPrOpened(REAL_BUS),
+    followed: busTouchesFollowed(REAL_BUS),
+    stopped: busCardStopped(REAL_BUS),
+    waited: busCardWaited(REAL_BUS),
+    lastRefusal: busLastRefusal(REAL_BUS.busPath),
+    returned: busCardReturned(REAL_BUS),
+    resume: claudeResume(client, REAL_BUS.busPath),
+    collect: collectReport,
+    atContextLine: busAtContextLine(REAL_BUS.busPath),
+  }
 }
 
 function cardIdOf(word: string): number | null {
@@ -250,7 +255,7 @@ function outcomeLine(cardId: number, outcome: Exclude<TreePr, { kind: 'problem' 
   return `${PREFIX}card #${cardId}: nothing to commit or push`
 }
 
-export function runTreePr(argv: string[], ports: TreePrCliPorts = REAL_PORTS, out: (line: string) => void = line => process.stdout.write(`${line}\n`)): number {
+export function runTreePr(argv: string[], ports: TreePrCliPorts, out: (line: string) => void = line => process.stdout.write(`${line}\n`)): number {
   const [cardWord, worktree, report] = argv
   const cardId = cardWord === undefined ? null : cardIdOf(cardWord)
   if (cardId === null || worktree === undefined) {
@@ -347,4 +352,4 @@ function settleTree(cardId: number, card: TreeCard, places: TreePlaces, ports: T
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
-  process.exitCode = runTreePr(process.argv.slice(2))
+  process.exitCode = runTreePr(process.argv.slice(2), realPorts(claudeAdapterWith({ shiftSettings, settingsFlag })))

@@ -4,11 +4,12 @@ import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import { headlessInvocation, PREPARE_ENV_KEYS, reviewModelOf, sessionEnv, spawnSession, WINDOW_MARK, WINDOW_VARIABLE, withoutCard } from '../../ports/session.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const HEADLESS_FLAGS = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto', '--permission-prompts', 'none', '--strict-mcp-config', '--session-id']
 
 function headlessArgv(session: string, prompt: string, addDirs: string[] = [], model: string | undefined = undefined): string[] {
-  return headlessInvocation({ session, prompt, addDirs, pick: { model: model ?? null } }).args
+  return headlessInvocation(claudeClient, { session, prompt, addDirs, pick: { model: model ?? null } }).args
 }
 
 function stubBinDir(script: string): string {
@@ -46,11 +47,11 @@ describe('the review model of CONSTRUCT_REVIEW_MODEL', () => {
 
 describe('sessionEnv', () => {
   it('sets no idle ceiling on top of the given environment', () => {
-    expect(sessionEnv({ PATH: '/bin' })).toEqual({ PATH: '/bin', CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '0', NO_COLOR: '1' })
+    expect(sessionEnv(claudeClient, { PATH: '/bin' })).toEqual({ PATH: '/bin', CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '0', NO_COLOR: '1' })
   })
 
   it('a variable outside the list does not reach a card session', () => {
-    const env = sessionEnv({ PATH: '/bin', OTHER: '1', AWS_SECRET_ACCESS_KEY: 'secret-shaped' }, 1572)
+    const env = sessionEnv(claudeClient, { PATH: '/bin', OTHER: '1', AWS_SECRET_ACCESS_KEY: 'secret-shaped' }, 1572)
     expect(env).not.toHaveProperty('OTHER')
     expect(env).not.toHaveProperty('AWS_SECRET_ACCESS_KEY')
     expect(env).toEqual({ PATH: '/bin', CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '0', NO_COLOR: '1', CONSTRUCT_CARD: '1572' })
@@ -61,7 +62,7 @@ describe('sessionEnv', () => {
     const outside = ['OTHER', 'GITHUB_TOKEN', 'NODE_OPTIONS', 'SSH_AUTH_SOCK', 'CONSTRUCT', 'XCLAUDE_KEY', 'LC', 'MIKO_WINDOW', 'FORCE_COLOR', 'CLICOLOR_FORCE', 'CONSTRUCT_BUS_DB']
     const base = Object.fromEntries([...listed, ...outside, 'NO_COLOR'].map(name => [name, 'from-the-bus']))
 
-    const env = sessionEnv(base, 1572)
+    const env = sessionEnv(claudeClient, base, 1572)
 
     const added = ['NO_COLOR', 'CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS', 'CONSTRUCT_CARD']
     expect(Object.keys(env).sort()).toEqual([...listed, ...added].sort())
@@ -70,11 +71,11 @@ describe('sessionEnv', () => {
   })
 
   it('a session started without a card takes the same list', async () => {
-    expect(sessionEnv({ PATH: '/bin', OTHER: '1' })).not.toHaveProperty('OTHER')
+    expect(sessionEnv(claudeClient, { PATH: '/bin', OTHER: '1' })).not.toHaveProperty('OTHER')
 
     const bin = stubBinDir('test -z "$OTHER" && test -n "$CONSTRUCT_MARK"')
     const work = mkdtempSync(path.join(tmpdir(), 'ghosts-session-list-'))
-    const code = await spawnSession({
+    const code = await spawnSession(claudeClient, {
       cwd: work,
       sessionId: 'sess-list',
       prompt: 'review it',
@@ -87,19 +88,19 @@ describe('sessionEnv', () => {
   })
 
   it('names the card in the session environment', () => {
-    expect(sessionEnv({ PATH: '/bin' }, 629)).toEqual({ PATH: '/bin', CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '0', NO_COLOR: '1', CONSTRUCT_CARD: '629' })
+    expect(sessionEnv(claudeClient, { PATH: '/bin' }, 629)).toEqual({ PATH: '/bin', CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '0', NO_COLOR: '1', CONSTRUCT_CARD: '629' })
   })
 
   it('a card session starts without CONSTRUCT_BUS_DB, so it does not inherit the bus that launched it', () => {
     const launcher = { PATH: '/bin', CONSTRUCT_BUS_DB: path.join(tmpdir(), 'launcher-bus', 'bus.db') }
-    expect(sessionEnv(launcher, 1295)).not.toHaveProperty('CONSTRUCT_BUS_DB')
-    expect(sessionEnv(launcher)).toHaveProperty('CONSTRUCT_BUS_DB', launcher.CONSTRUCT_BUS_DB)
+    expect(sessionEnv(claudeClient, launcher, 1295)).not.toHaveProperty('CONSTRUCT_BUS_DB')
+    expect(sessionEnv(claudeClient, launcher)).toHaveProperty('CONSTRUCT_BUS_DB', launcher.CONSTRUCT_BUS_DB)
   })
 })
 
 describe('sessionEnv witness environment', () => {
   it('witness environment: removes FORCE_COLOR and sets NO_COLOR=1', () => {
-    const env = sessionEnv({ PATH: '/bin', FORCE_COLOR: '1', CLICOLOR_FORCE: '1', NO_COLOR: '0' })
+    const env = sessionEnv(claudeClient, { PATH: '/bin', FORCE_COLOR: '1', CLICOLOR_FORCE: '1', NO_COLOR: '0' })
     expect(env).not.toHaveProperty('FORCE_COLOR')
     expect(env).not.toHaveProperty('CLICOLOR_FORCE')
     expect(env.NO_COLOR).toBe('1')
@@ -112,7 +113,7 @@ describe('spawnSession', () => {
     const work = mkdtempSync(path.join(tmpdir(), 'ghosts-session-model-'))
     const argvFile = path.join(work, 'argv')
 
-    const code = await spawnSession({
+    const code = await spawnSession(claudeClient, {
       cwd: work,
       sessionId: 'sess-1',
       prompt: 'review it',
@@ -135,7 +136,7 @@ describe('spawnSession', () => {
     const stdoutFile = path.join(work, 'out.jsonl')
     const stderrFile = path.join(work, 'out.stderr')
 
-    const code = await spawnSession({
+    const code = await spawnSession(claudeClient, {
       cwd: work,
       sessionId: 'sess-1',
       prompt: '/implement do it',
@@ -155,7 +156,7 @@ describe('spawnSession', () => {
     const bin = stubBinDir('exit 3')
     const work = mkdtempSync(path.join(tmpdir(), 'ghosts-session-work-'))
 
-    const code = await spawnSession({
+    const code = await spawnSession(claudeClient, {
       cwd: work,
       sessionId: 'sess-2',
       prompt: '/implement do it',

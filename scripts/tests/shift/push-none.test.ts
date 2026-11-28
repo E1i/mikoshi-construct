@@ -21,6 +21,7 @@ import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from '../bus/github-fake.js'
 import { benchOverlaps, liveBench, mainMovesPastEveryPr, mergeBench } from '../bus/merge-bench.js'
 import { detectUpdate } from '../bus/update-detection.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const CARD = {
   branch: 'feat/x',
@@ -86,6 +87,7 @@ describe('push policy none', () => {
     mkdirSync(worktree)
     const publishes: string[] = []
     const answerer = claudeAnswerer(path.join(root, 'answers'), {
+      client: claudeClient,
       cardText: () => null,
       available: () => true,
       remoteHead: () => null,

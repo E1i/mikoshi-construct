@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { GitHubPost } from '../core/pr-status.js'
+import type { ClientAdapter } from '../ports/client/contract.js'
 import type { GitHub } from '../ports/github.js'
 import type { Poll } from '../ports/netwatch.js'
 import type { BgResult, ProcessList } from './bg.js'
@@ -23,7 +24,7 @@ import { realRequestTools } from '../window/window-request-tools.js'
 import { WindowRequests } from '../window/window-requests.js'
 import { alive, BUS_RUN_MARKERS, instancesOf, processBeatsOn, psList, RUN_SCRIPT } from './bg.js'
 import { closeWaitsOfEndedCards } from './card-waits.js'
-import { busContract, busProjections, cardTransitions, composeBus, deadEndParts, DECISION_EVENT_READS, deriveQueuesOfTheBus, gateRunSpoolPlaces, openComposedBus, PR_HISTORY, recordOwnStart, requiredCheckAt, windowRequestBus } from './composition.js'
+import { busContract, busProjections, cardTransitions, clientAdapterOfTheBus, composeBus, deadEndParts, DECISION_EVENT_READS, deriveQueuesOfTheBus, gateRunSpoolPlaces, openComposedBus, PR_HISTORY, recordOwnStart, requiredCheckAt, windowRequestBus } from './composition.js'
 import { DeadEnds } from './dead-ends.js'
 import { GateRunSpool } from './gate-run-spool.js'
 import { sessionLifeIn } from './recorded-worker.js'
@@ -256,6 +257,10 @@ export function composeReducerPass(db: DatabaseSync, busPath: string, clock: () 
 
 export type ReducerPlacement = 'inline' | 'own-thread'
 
+export function busProcessTable(client: Pick<ClientAdapter, 'processes'>): OsProcessTable {
+  return new OsProcessTable(client.processes)
+}
+
 export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub, post: GitHubPost, clock: () => Date, home: string, spools: () => string[] = () => [], placement: ReducerPlacement = 'inline'): ComposedTick {
   const reducer = placement === 'inline' ? composeReducerPass(db, busPath, clock, home, process.cwd(), process.env, console.log, 0) : null
   const statuses = (): void => {
@@ -269,8 +274,8 @@ export function composeBusTick(db: DatabaseSync, busPath: string, gitHub: GitHub
       console.log(statusFailureLine(error))
     }
   }
-  const table = new OsProcessTable()
-  const silent = new StalledSessions(db, clock, { cards: cardTransitions(), lifeOf: sessionLifeIn(table), prefix: PREFIX })
+  const table = busProcessTable(clientAdapterOfTheBus())
+  const silent = new StalledSessions(db, clock, { cards: cardTransitions(), lifeOf: sessionLifeIn(table), prefix: PREFIX, trees: table })
   const stalled = (): void => {
     for (const line of silent.step())
       console.log(line)

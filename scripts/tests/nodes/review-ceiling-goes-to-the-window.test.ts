@@ -17,10 +17,11 @@ import { REVIEW_FAILED, windowRouteLine } from '../../nodes/review/review-execut
 import { ReviewWorker } from '../../nodes/review/review-worker.js'
 import { claudeReviewer, osDescendants, REVIEW_CEILING, ReviewFailed, reviewPrompt, ReviewTrees, VERDICT_ENDS_LINE, WITNESS_RUNS_LINE } from '../../nodes/review/reviewer.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
-import { clientCommand, spawnSession } from '../../ports/session.js'
+import { clientCommand, sessionSpawner } from '../../ports/session.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { cardBody, sha } from '../bus/github-fake.js'
 import { eventsOf, liveBench } from '../bus/merge-bench.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const PR = 1586
 const CARD = PR + 100
@@ -77,7 +78,7 @@ function ungated(descendants: SessionDescendants): ReviewStart {
 
 function reviewerOver(spawn: (params: SpawnSessionParams) => Promise<number>, descendants: SessionDescendants = osDescendants(new InMemoryProcessTable({}))): Reviewer {
   const trees = new ReviewTrees(temporary('review-ceiling-repo-'), temporary('review-ceiling-trees-'), { git: () => {}, worktrees: () => [], ...cleanTree })
-  return claudeReviewer(trees, spawn, () => {}, 60_000, () => null, ungated(descendants))
+  return claudeReviewer(claudeClient, trees, spawn, () => {}, 60_000, () => null, ungated(descendants))
 }
 
 function leasesOf(bench: MergeBench): number {
@@ -87,7 +88,7 @@ function leasesOf(bench: MergeBench): number {
 
 function stubClient(script: string): string {
   const dir = temporary('review-ceiling-bin-')
-  const client = path.join(dir, clientCommand())
+  const client = path.join(dir, clientCommand(claudeClient))
   writeFileSync(client, `#!/usr/bin/env bash\n${script}\n`)
   chmodSync(client, 0o755)
   return dir
@@ -110,7 +111,7 @@ function writtenTable(pids: string): ProcessTable {
       return { readable: true, rows: [] }
     const [root, background, session] = readFileSync(pids, 'utf8').trim().split(' ')
     const rows: ProcessRow[] = [
-      { pid: Number(root), ppid: 1, pgid: Number(root), started: 'root', command: `${clientCommand()} ${session}` },
+      { pid: Number(root), ppid: 1, pgid: Number(root), started: 'root', command: `${clientCommand(claudeClient)} ${session}` },
       { pid: Number(background), ppid: Number(root), pgid: Number(root), started: 'background', command: 'sleep 30' },
     ]
     return { readable: true, rows: rows.filter(row => alive(row.pid)) }
@@ -139,7 +140,7 @@ describe('a review ended at its ceiling goes to the window', () => {
       'sleep 1.5',
     ].join('\n'))}:${process.env.PATH}`)
     const signalled: [number, NodeJS.Signals][] = []
-    const { bench, worker } = benchWith(reviewerOver(spawnSession, { ...osDescendants(writtenTable(pids)), sampleMs: 50, end: (pid, signal) => signalled.push([pid, signal]) }))
+    const { bench, worker } = benchWith(reviewerOver(sessionSpawner(claudeClient), { ...osDescendants(writtenTable(pids)), sampleMs: 50, end: (pid, signal) => signalled.push([pid, signal]) }))
     const started = Date.now()
 
     expect(await worker.step()).toMatchObject({ kind: 'recorded', verdict: 'changes' })

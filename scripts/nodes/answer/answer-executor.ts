@@ -37,7 +37,7 @@ import { prepareBeforeSession, prepareTree } from '../../ports/prepare-tree.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { unselectedWitnessesLine } from '../../ports/witnesses.js'
 import { admittedScopeOf, carriedTreeOf, decisionAnsweringRepeat, ownerHoldOf } from './answer-source.js'
-import { answerCommitMessage, AnswerOutsideTouches, CardTreeGone, followedEvent, liveSessionIn, PREFIX, secondsOf, unprovedFindings } from './answerer.js'
+import { answerCommitMessage, AnswerOutsideTouches, CardTreeGone, followedEvent, PREFIX, secondsOf, unprovedFindings } from './answerer.js'
 import { CONCEPT_WIDENING_REASON } from './concept-scope.js'
 import { AnswerOutcomes, AnswerPublishing, AnswerSources, leftNoNewHead, localHead, OwnerQuestions, pendingPathsOf, strandedAnswerOf, treeDirtyOf, treeMergeOf } from './duties/index.js'
 import { carriedTreeState, ownCarriedTree, refuseUnselectedInTree, git as treeGit, WitnessUnselected } from './duties/tree.js'
@@ -55,7 +55,7 @@ export interface AnswerParts {
   isolation?: IsolationReader
   prompts?: string
   dirty?: (card: CardSession) => boolean
-  liveSession?: (card: CardSession) => string | null
+  liveSession: (card: CardSession) => string | null
   prepare?: TreePreparer
   publishing?: TreePublishing
   mergeMain?: (tree: string) => MergeMain
@@ -325,7 +325,7 @@ export class AnswerExecutor {
       admission = admittedScopeOf(this.parts.db, lease.cardId)?.admission ?? null
       if (admission !== null)
         this.treesByAdmission.set(admission, card)
-      const live = (this.parts.liveSession ?? liveSessionIn)(card)
+      const live = this.parts.liveSession(card)
       if (live !== null)
         return this.outcomes.waitingForTheSupersededSession(lease) ?? this.waitingForTheLiveSession(lease, live)
       if (source !== null)
@@ -365,7 +365,7 @@ export class AnswerExecutor {
       return this.outcomes.denied(lease, { kind: 'technical', reason: 'no_card_tree', detail: `card #${lease.cardId} was answered at ${stranded.to} with no pull request, and has no tree to publish it from` })
     if ('kind' in card)
       return this.outcomes.denied(lease, card)
-    const live = (this.parts.liveSession ?? liveSessionIn)(card)
+    const live = this.parts.liveSession(card)
     if (live !== null)
       return this.waitingForTheLiveSession(lease, live)
     if (this.dirty(card))
@@ -534,7 +534,7 @@ export class AnswerExecutor {
     if (lease.head === null || carriedTreeOf(this.parts.db, lease.cardId) === null)
       return null
     const card = this.tree(lease)
-    if (card === null || 'kind' in card || (this.parts.liveSession ?? liveSessionIn)(card) !== null)
+    if (card === null || 'kind' in card || this.parts.liveSession(card) !== null)
       return null
     let owned: TreeOwned
     try {

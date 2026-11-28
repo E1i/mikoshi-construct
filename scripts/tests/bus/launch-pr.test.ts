@@ -15,6 +15,7 @@ import { killQuietly, psPgid, shellWord, ShiftCardStarter, spawnDetached } from 
 import { renderPrompt } from '../../nodes/launch/prompt.js'
 import { sessionEnv } from '../../ports/session.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { claudeClient } from '../client/claude-client.js'
 import { waitFor } from '../wait-for.js'
 
 const ARRIVAL_GUARD_MS = 25_000
@@ -111,6 +112,7 @@ function launchWorld(claudeExit: number, report = claudeExit === 0 ? 'result: do
   const starter = new ShiftCardStarter(
     { launchDir, claude, treePr },
     {
+      client: claudeClient,
       read: busCardBodies(busPath),
       cut: () => worktree,
       base: tree => git(tree, ['rev-parse', 'HEAD']).trim(),
@@ -122,7 +124,7 @@ function launchWorld(claudeExit: number, report = claudeExit === 0 ? 'result: do
       pgidOf: psPgid,
       kill: killQuietly,
       uuid: () => `session-${CARD_ID}`,
-      envOf: id => sessionEnv(env, id),
+      envOf: id => sessionEnv(claudeClient, env, id),
       prompt: (task, at) => renderPrompt('card {{card}} in {{worktree}}, report {{report}}\n\n', task, at),
       changedPaths: () => [],
       readReport: () => null,

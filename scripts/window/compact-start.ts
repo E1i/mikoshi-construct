@@ -1,9 +1,12 @@
+import type { SessionOwner } from './window-heartbeat.js'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defaultBusPath } from '../core/db.js'
 import { MIKO_WATCH_COMMAND } from '../core/owner-commands.js'
+import { claudeAdapterWith } from '../ports/client/claude/adapter.js'
+import { settingsFlag, shiftSettings } from '../ports/shift-settings.js'
 import { sessionHandoffOf } from './handoff-write.js'
 import { repositoryContinuePrompt } from './loop.js'
 import { cardTreeHomes, tabWindowIn, tabWindowOf } from './tab.js'
@@ -21,22 +24,22 @@ export function sourceOf(input: string): string | null {
   }
 }
 
-export function compactContextOf(source: string | null, env: NodeJS.ProcessEnv, handoffExists: (file: string) => boolean, dir: string = process.cwd()): string | null {
+export function compactContextOf(client: SessionOwner, source: string | null, env: NodeJS.ProcessEnv, handoffExists: (file: string) => boolean, dir: string = process.cwd()): string | null {
   if (source !== COMPACT_SOURCE)
     return null
   const handoff = sessionHandoffOf(env, os.homedir(), dir)
-  return tabWindowOf(env) !== null && handoff !== null && handoffExists(handoff) ? repositoryContinuePrompt(dir, handoff) : null
+  return tabWindowOf(client, env) !== null && handoff !== null && handoffExists(handoff) ? repositoryContinuePrompt(dir, handoff) : null
 }
 
-export function startContextOf(source: string | null, env: NodeJS.ProcessEnv, handoffExists: (file: string) => boolean, dir: string, treeHomes: readonly string[]): string | null {
-  if (tabWindowIn(env, dir, treeHomes) === null)
+export function startContextOf(client: SessionOwner, source: string | null, env: NodeJS.ProcessEnv, handoffExists: (file: string) => boolean, dir: string, treeHomes: readonly string[]): string | null {
+  if (tabWindowIn(client, env, dir, treeHomes) === null)
     return null
-  return [compactContextOf(source, env, handoffExists, dir), WAKE_UP].filter(line => line !== null).join('\n\n')
+  return [compactContextOf(client, source, env, handoffExists, dir), WAKE_UP].filter(line => line !== null).join('\n\n')
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const treeHomes = cardTreeHomes(process.env, defaultBusPath())
-  const context = startContextOf(sourceOf(readFileSync(0, 'utf8')), process.env, existsSync, process.cwd(), treeHomes)
+  const context = startContextOf(claudeAdapterWith({ shiftSettings, settingsFlag }), sourceOf(readFileSync(0, 'utf8')), process.env, existsSync, process.cwd(), treeHomes)
   if (context !== null)
     process.stdout.write(context)
 }

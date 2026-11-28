@@ -13,6 +13,7 @@ import { keyOf, queueTask } from '../../core/queue.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { claudeReviewer, missedCeilingAlarmLine, osDescendants, realReviewStart, REVIEW_AT_CEILING, REVIEW_CEILING_MS, ReviewTrees } from '../../nodes/review/reviewer.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
+import { claudeClient } from '../client/claude-client.js'
 import { eventsOf } from './merge-bench.js'
 
 const PASS = '{"verdict":"pass","findings":[]}'
@@ -63,7 +64,7 @@ async function reviewRunningPastTheCeiling(busPath: string, lease: Lease, atTheC
     return 0
   }
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-  return claudeReviewer(new ReviewTrees('/repo', dir, tools), spawn, () => {}, REVIEW_CEILING_MS * 2, () => null, productionWiring(busPath))(lease, fullReview('plan'))
+  return claudeReviewer(claudeClient, new ReviewTrees('/repo', dir, tools), spawn, () => {}, REVIEW_CEILING_MS * 2, () => null, productionWiring(busPath))(lease, fullReview('plan'))
 }
 
 describe('the review ceiling as production wires it', () => {

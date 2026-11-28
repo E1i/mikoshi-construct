@@ -20,6 +20,7 @@ import { answerPrompt } from '../../nodes/answer/duties/index.js'
 import { recordDecision } from '../../policy/decisions/index.js'
 import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { claudeClient } from '../client/claude-client.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -69,6 +70,7 @@ function startedCard(): Bench {
     const lease = leaseNext(made.db, pullRequests(made.db), ts(), 'answer', 'worker:answer:worker-1')!
     let prompt = ''
     const answerer = claudeAnswerer(answers, {
+      client: claudeClient,
       cardText: () => null,
       available: () => true,
       remoteHead: () => sha('a'),

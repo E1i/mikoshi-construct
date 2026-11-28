@@ -20,6 +20,7 @@ import { SESSION_BASH_CAP, TSX_PIPE_DIRECTORY } from '../../ports/shift-settings
 import { WIDE_VITEST_HOOKS, WIDE_VITEST_RULE } from '../../ports/wide-vitest-guard.js'
 import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { claudeClient } from '../client/claude-client.js'
 import { ranTheGreenGate } from './gate-stream.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -84,6 +85,7 @@ async function answerAt(context: number, cardTools?: AnswererTools['cardTools'],
     writeFileSync(handoff, spend.handoff)
   }
   const answerer = claudeAnswerer(path.join(root, 'answers'), {
+    client: claudeClient,
     cardText: () => CARD_BODY,
     ...(cardTools === undefined ? {} : { cardTools }),
     available: () => true,
@@ -195,7 +197,7 @@ describe('the answerer', () => {
     mkdirSync(path.join(worktree, '.construct'), { recursive: true })
     const stop = (session: string, level: string): string => JSON.stringify({ event: 'budget-stop', level, spent: 44, limit: 40, tool: null, at: '2026-11-16T08:00:00.000Z', session_id: session })
     writeFileSync(path.join(worktree, '.construct', 'eddies.jsonl'), `${[stop(CARD_SESSION, 'session-spend'), stop('another-session', 'session-spend'), stop('context-session', 'context')].join('\n')}\n`)
-    const overspent = realAnswererTools(path.join(root, 'bus.db')).overspent!
+    const overspent = realAnswererTools(claudeClient, path.join(root, 'bus.db')).overspent!
 
     expect(['card-session-1207', 'context-session', 'unknown-session'].map(session => overspent({ session, worktree, branch: 'feat/card-1207' }))).toEqual([true, false, false])
   })
@@ -254,7 +256,7 @@ describe('the answer path publishes on a fresh base', () => {
     git(upstream, ['push', '-q', 'origin', 'main'])
     writeFileSync(path.join(worktree, 'a.md'), 'the answer\n')
 
-    realAnswererTools(path.join(root, 'bus.db')).publish({ session: CARD_SESSION, worktree, branch: 'feat/card-1207' }, 'answer for #1207')
+    realAnswererTools(claudeClient, path.join(root, 'bus.db')).publish({ session: CARD_SESSION, worktree, branch: 'feat/card-1207' }, 'answer for #1207')
 
     const fresh = git(upstream, ['rev-parse', 'main']).trim()
     expect({ onFreshBase: git(worktree, ['merge-base', fresh, 'origin/feat/card-1207']).trim() === fresh, merges: git(worktree, ['rev-list', '--merges', '--count', `${fresh}..origin/feat/card-1207`]).trim() }).toEqual({ onFreshBase: true, merges: '1' })
@@ -289,7 +291,7 @@ describe('the answer path publishes on a fresh base', () => {
 
     const publish = (): unknown => {
       try {
-        realAnswererTools(path.join(root, 'bus.db')).publish({ session: CARD_SESSION, worktree, branch: 'feat/card-1207' }, 'answer for #1207')
+        realAnswererTools(claudeClient, path.join(root, 'bus.db')).publish({ session: CARD_SESSION, worktree, branch: 'feat/card-1207' }, 'answer for #1207')
         return null
       }
       catch (error) {
@@ -307,6 +309,7 @@ describe('the answer path publishes on a fresh base', () => {
       const runs: AnswerRun[] = []
       const conflicts = [['a.md'], left]
       const answerer = claudeAnswerer(path.join(root, 'answers'), {
+        client: claudeClient,
         cardText: () => CARD_BODY,
         available: () => true,
         remoteHead: () => 'a'.repeat(40),
@@ -344,6 +347,7 @@ describe('the answer path publishes on a fresh base', () => {
     const question = 'origin/main rewrote the gate this card changes; keep which?'
     const published: number[] = []
     const answerer = claudeAnswerer(dir, {
+      client: claudeClient,
       cardText: () => CARD_BODY,
       available: () => true,
       remoteHead: () => 'a'.repeat(40),
@@ -404,6 +408,7 @@ describe('the steps of an answer round on the bus', () => {
     const seconds = (count: number): void => made.clock.advance(count * 1_000)
     const dir = path.join(trees, 'answers')
     const answerer = claudeAnswerer(dir, {
+      client: claudeClient,
       cardText: () => null,
       available: () => true,
       remoteHead: () => sha('a'),

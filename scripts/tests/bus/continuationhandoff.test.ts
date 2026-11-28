@@ -19,10 +19,10 @@ import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { transcriptFile } from '../../nodes/launch/session-journal.js'
 import { reportClosingOf } from '../../nodes/launch/tree-pr.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
-import { clientAdapter } from '../../ports/session.js'
 import { nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { HANDOFF_LIMIT } from '../../window/handoff-check.js'
+import { claudeClient } from '../client/claude-client.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
 const benches: MergeBench[] = []
@@ -235,7 +235,7 @@ describe('the handoff the bus builds', () => {
 
     const file = path.join(tempRoot(), 'report.md')
     writeFileSync(file, built)
-    const { readReport } = realStarterPorts('/repo', {}, '', () => 'uuid')
+    const { readReport } = realStarterPorts(claudeClient, '/repo', {}, '', () => 'uuid')
     expect(pathTokens(readReport(file) ?? '').has(touched)).toBe(false)
   })
 
@@ -264,7 +264,7 @@ function stepsRead(transcript: string): string[] | null {
   mkdirSync(path.dirname(file), { recursive: true })
   writeFileSync(file, transcript)
   vi.stubEnv('CLAUDE_CONFIG_DIR', home)
-  const { lastSteps } = clientAdapter().reading({ session: 'stepped-session', cwd: '/tree', stdoutPath: null, stderrPath: null, exitCode: null })
+  const { lastSteps } = claudeClient.reading({ session: 'stepped-session', cwd: '/tree', stdoutPath: null, stderrPath: null, exitCode: null })
   vi.unstubAllEnvs()
   return lastSteps
 }

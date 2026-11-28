@@ -21,6 +21,7 @@ import { LaunchNode } from '../../nodes/launch/launch-worker.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { claudeClient } from '../client/claude-client.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench, taskState } from './merge-bench.js'
 
@@ -53,7 +54,7 @@ function liveSession(made: MergeBench, root: string): { node: LaunchNode, spawne
   const spawned: unknown[] = []
   const live = new Set<string>()
   let sessions = 0
-  const real = realStarterPorts(root, {}, 'Shift task {{task}}\n\n', () => 'unused', id => cardBodyText(made.db, id))
+  const real = realStarterPorts(claudeClient, root, {}, 'Shift task {{task}}\n\n', () => 'unused', id => cardBodyText(made.db, id))
   const ports: StarterPorts = {
     ...real,
     cut: () => `/trees/mc-${CARD}`,

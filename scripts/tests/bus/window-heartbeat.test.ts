@@ -11,6 +11,7 @@ import { CARD_VARIABLE, EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_MARK, W
 import { LOADED_CORE_VARIABLE, NO_TRANSCRIPT, sessionGauges } from '../../window/eddies-measure.js'
 import { productionDeps } from '../../window/watch.js'
 import { lookAtWindow, recordWindowHeartbeat, WINDOW_BEAT_MS, windowBeat, windowOf, windowSessionOf } from '../../window/window-heartbeat.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const START = Date.parse('2026-10-20T10:00:00.000Z')
 const roots: string[] = []
@@ -73,26 +74,26 @@ describe('the window heartbeat', () => {
     vi.stubEnv(EXIT_REQUEST_VARIABLE, undefined)
     vi.stubEnv(CARD_VARIABLE, '')
     const file = busFile()
-    productionDeps(root, file).beat()
+    productionDeps(root, file, claudeClient).beat()
     const db = openBus(file)
     const row = db.prepare('SELECT actor, payload FROM events WHERE type = ?').get(WINDOW_HEARTBEAT) as { actor: string, payload: string }
     db.close()
     expect(row.actor).toBe(`${WINDOW_ACTOR}tab-1`)
     expect(JSON.parse(row.payload)).toMatchObject({ session: 'tab-1', mode: 'tab' })
-    expect(windowOf({ CLAUDE_CODE_SESSION_ID: 'tab-1', CONSTRUCT_CARD: '1265' })).toBeNull()
+    expect(windowOf(claudeClient, { CLAUDE_CODE_SESSION_ID: 'tab-1', CONSTRUCT_CARD: '1265' })).toBeNull()
   })
 
   it('a window is a session the loop marked and no card: an unmarked session, a card session, a missing session and a session id with a colon beat nothing', () => {
     const marked = { [WINDOW_VARIABLE]: WINDOW_MARK }
-    expect(windowSessionOf({ ...marked, CLAUDE_CODE_SESSION_ID: 'abc-1' })).toBe('abc-1')
-    expect(windowSessionOf({ ...marked, CLAUDE_CODE_SESSION_ID: 'abc-1', CONSTRUCT_CARD: '' })).toBe('abc-1')
-    expect(windowSessionOf({ CLAUDE_CODE_SESSION_ID: 'abc-1' })).toBeNull()
-    expect(windowSessionOf({ [WINDOW_VARIABLE]: '', CLAUDE_CODE_SESSION_ID: 'abc-1' })).toBeNull()
-    expect(windowSessionOf({ ...marked, CLAUDE_CODE_SESSION_ID: 'abc-1', CONSTRUCT_CARD: '1137' })).toBeNull()
-    expect(windowSessionOf(marked)).toBeNull()
-    expect(windowSessionOf({ ...marked, CLAUDE_CODE_SESSION_ID: 'a:b' })).toBeNull()
-    expect(windowSessionOf({ [LOOP_PID_VARIABLE]: '4242', CLAUDE_CODE_SESSION_ID: 'abc-1' })).toBe('abc-1')
-    expect(windowSessionOf({ [EXIT_REQUEST_VARIABLE]: '/h/miko-exit.4242.request', CLAUDE_CODE_SESSION_ID: 'abc-1' })).toBe('abc-1')
+    expect(windowSessionOf(claudeClient, { ...marked, CLAUDE_CODE_SESSION_ID: 'abc-1' })).toBe('abc-1')
+    expect(windowSessionOf(claudeClient, { ...marked, CLAUDE_CODE_SESSION_ID: 'abc-1', CONSTRUCT_CARD: '' })).toBe('abc-1')
+    expect(windowSessionOf(claudeClient, { CLAUDE_CODE_SESSION_ID: 'abc-1' })).toBeNull()
+    expect(windowSessionOf(claudeClient, { [WINDOW_VARIABLE]: '', CLAUDE_CODE_SESSION_ID: 'abc-1' })).toBeNull()
+    expect(windowSessionOf(claudeClient, { ...marked, CLAUDE_CODE_SESSION_ID: 'abc-1', CONSTRUCT_CARD: '1137' })).toBeNull()
+    expect(windowSessionOf(claudeClient, marked)).toBeNull()
+    expect(windowSessionOf(claudeClient, { ...marked, CLAUDE_CODE_SESSION_ID: 'a:b' })).toBeNull()
+    expect(windowSessionOf(claudeClient, { [LOOP_PID_VARIABLE]: '4242', CLAUDE_CODE_SESSION_ID: 'abc-1' })).toBe('abc-1')
+    expect(windowSessionOf(claudeClient, { [EXIT_REQUEST_VARIABLE]: '/h/miko-exit.4242.request', CLAUDE_CODE_SESSION_ID: 'abc-1' })).toBe('abc-1')
   })
 
   it('a beat is a window sign: written once per ts under the window actor of its session', () => {
@@ -210,7 +211,7 @@ describe('the window heartbeat', () => {
     vi.stubEnv(CARD_VARIABLE, '')
     vi.stubEnv(LOADED_CORE_VARIABLE, '7')
     const file = busFile()
-    productionDeps(root, file).beat()
+    productionDeps(root, file, claudeClient).beat()
     const db = openBus(file)
     const row = db.prepare('SELECT actor, payload FROM events WHERE type = ?').get(WINDOW_HEARTBEAT) as { actor: string, payload: string }
     db.close()

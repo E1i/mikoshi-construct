@@ -23,10 +23,13 @@ import { claudeReviewer, osDescendants, raiseCeilingAlarm, REVIEW_AT_CEILING, re
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
 import { cardTransitions } from '../../supervisor/composition.js'
-import { recordHeartbeat } from '../../supervisor/heartbeat.js'
+import { measureCardSession, recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { NO_PROGRESS_LINES, StalledSessions } from '../../supervisor/stalled-sessions.js'
+import { claudeClient } from '../client/claude-client.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
+
+const UNREAD_TREES = new InMemoryProcessTable({ cwds: { kind: 'unreadable', why: 'this test reads no card tree' } })
 
 const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
 const roomy: DiskReader = () => ({ bavail: 1, bsize: DISK_FLOOR_BYTES })
@@ -63,7 +66,7 @@ function runningLaunch(cardId: number) {
   bench.tick()
   const node = new LaunchNode({ silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, session: 'w1', mode: 'live', env: {}, processes, disk: roomy, isolation: sandboxed })
   const beat = (): void => {
-    recordHeartbeat(bench.db, bench.clock.now().toISOString(), { card: cardId, pr: null, head: null, step: 'PostToolUse', session: `s-${cardId}`, lease: null })
+    recordHeartbeat(bench.db, bench.clock.now().toISOString(), { card: cardId, pr: null, head: null, step: 'PostToolUse', session: `s-${cardId}`, lease: null }, measureCardSession(claudeClient))
   }
   const ownerStops = (): void => {
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: COMMAND_EXECUTED, actor: 'owner', cardId, pr: null, head: null, dedupeKey: `${COMMAND_EXECUTED}:owner-stop:${cardId}`, payload: { command: ownerMoveCommand('stop', cardId) }, legacy: false })
@@ -124,7 +127,7 @@ describe('a live session is warned on silence or over time and only the owner st
     const reviewLine = NO_PROGRESS_LINES.review
     let now = 0
     const stopped: string[] = []
-    const watch = new StalledSessions(db, () => new Date(now), { cards: cardTransitions(), lifeOf: () => 'live', stop: session => stopped.push(session), spendOf: () => null, pulseOf: () => '4100', overTime: { check: () => [] } })
+    const watch = new StalledSessions(db, () => new Date(now), { cards: cardTransitions(), trees: UNREAD_TREES, lifeOf: () => 'live', stop: session => stopped.push(session), spendOf: () => null, pulseOf: () => '4100', overTime: { check: () => [] } })
     const beatReview = (leased: Lease, at: number): void => {
       appendEvent(db, { ts: new Date(at).toISOString(), type: SESSION_HEARTBEAT, actor: leased.actor, cardId: leased.cardId, pr: leased.pr, head: leased.head, dedupeKey: `${SESSION_HEARTBEAT}:${leased.taskKey}:${leased.leaseGen}:${at}`, payload: { task_key: leased.taskKey, lease_gen: leased.leaseGen, session: 'review-session', context: 1000 }, legacy: false })
     }
@@ -159,7 +162,7 @@ describe('a live session is warned on silence or over time and only the owner st
       writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
       return 0
     }
-    const review = await claudeReviewer(new ReviewTrees('/repo', dir, tools), pastTheCeiling, () => {}, 60_000, () => null, {
+    const review = await claudeReviewer(claudeClient, new ReviewTrees('/repo', dir, tools), pastTheCeiling, () => {}, 60_000, () => null, {
       gate: { start: async () => true, release: () => {} },
       keep: () => true,
       joinWorkers: () => 1,

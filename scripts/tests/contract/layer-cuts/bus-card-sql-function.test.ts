@@ -64,7 +64,7 @@ describe('the bus opens the database and the card owner registers its own SQL fu
   it('the answer node registers card_blocks on the bare bus its worker opened', () => {
     const db = openBus(busFile())
     opened.push(db)
-    const run: AnswerRun = { busPath: ':memory:', answerer: async () => Promise.reject(new Error('no answer runs here')), ownerMerges: () => '', cardText: () => null, session: 'worker-1', pause: async () => {}, isolation: () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }) }
+    const run: AnswerRun = { liveSession: () => null, busPath: ':memory:', answerer: async () => Promise.reject(new Error('no answer runs here')), ownerMerges: () => '', cardText: () => null, session: 'worker-1', pause: async () => {}, isolation: () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }) }
     answerNodeOf(run, db, 'shadow')
     expect(JSON.parse(String(blocksOf(db, CARD_LINE)))).toEqual([2114, 2115])
   })

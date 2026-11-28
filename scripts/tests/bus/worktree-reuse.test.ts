@@ -22,6 +22,7 @@ import { gitCardTrees } from '../../ports/card-tree.js'
 import { cutTree, FREE_TREE_CAPACITY, FREE_TREES, pnpmInstall } from '../../ports/worktree.js'
 import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { claudeClient } from '../client/claude-client.js'
 import { detectClose } from './close-detection.js'
 import { cardVerified, eventsOf, mergeBench } from './merge-bench.js'
 
@@ -313,6 +314,7 @@ describe('a requeued card relaunched on the tree it holds', () => {
     const bodies: string[] = []
     const text = parkingFileText({ card: `#${FIRST} card-${FIRST} [implement/netwatch/S/cheap/auto] · depends — · blocks —`, branch: `feat/card-${FIRST}`, touches: ['src/**'], continue: 'auto', who: 'shift', body: 'Do the card.' })
     const ports: StarterPorts = {
+      client: claudeClient,
       read: () => text,
       cut: () => {
         throw new Error('a card relaunched on its held tree is not cut again')

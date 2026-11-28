@@ -36,17 +36,17 @@ import { busCardBodies } from '../../intake/parking-reads.js'
 import { OWNER_MERGES } from '../../policy/policy.js'
 import { loadedCodeSha } from '../../ports/git.js'
 import { realIsolationReader } from '../../ports/isolation.js'
+import { clientCwdsOf } from '../../ports/process-table.js'
 import { promptsDirOf } from '../../ports/prompt-store.js'
-import { clientAdapter } from '../../ports/session.js'
 import { CARD_SESSION_SANDBOX } from '../../ports/shift-settings.js'
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { launchDirOf, restoreReport, savedReportOf, treeHoldsACommit, treePrOfThisBuild, treePrPublisher } from '../../ports/tree-publish.js'
-import { answerParts, cardAllowances, composeBus, nodeLiveness, nodeSupply } from '../../supervisor/composition.js'
+import { answerParts, cardAllowances, clientAdapterOfTheBus, composeBus, nodeLiveness, nodeSupply } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { answerCandidates } from './answer-candidates.js'
 import { AnswerExecutor } from './answer-executor.js'
 import { answerSourceOf } from './answer-source.js'
-import { claudeAnswerer, PREFIX, realAnswererTools } from './answerer.js'
+import { claudeAnswerer, liveSessionIn, PREFIX, realAnswererTools } from './answerer.js'
 
 const ANSWERS_DIR = path.join(defaultBusDir(), 'answers')
 
@@ -117,6 +117,7 @@ export interface AnswerNodeParts {
   prompts?: string
   publishing?: TreePublishing
   pushPolicy?: AnswerParts['pushPolicy']
+  liveSession: AnswerParts['liveSession']
   allowances?: AnswerParts['allowances']
 }
 
@@ -244,11 +245,12 @@ export interface AnswerRun {
   isolation: IsolationReader
   publishing?: TreePublishing
   pushPolicy?: AnswerParts['pushPolicy']
+  liveSession: AnswerParts['liveSession']
 }
 
 export function answerNodeOf(run: AnswerRun, bus: DatabaseSync, mode: DetectionMode): AnswerNode {
   const db = composeBus(bus)
-  return new AnswerNode({ ...nodeLiveness(), db, answerer: run.answerer, ownerMerges: run.ownerMerges, cardText: run.cardText, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, prompts: promptsDirOf(run.busPath), publishing: run.publishing, pushPolicy: run.pushPolicy, allowances: cardAllowances(db) })
+  return new AnswerNode({ ...nodeLiveness(), db, answerer: run.answerer, ownerMerges: run.ownerMerges, cardText: run.cardText, clock: () => new Date(), session: run.session, mode, env: process.env, isolation: run.isolation, prompts: promptsDirOf(run.busPath), publishing: run.publishing, pushPolicy: run.pushPolicy, liveSession: run.liveSession, allowances: cardAllowances(db) })
 }
 
 export async function runAnswerWorker(argv: string[], run: AnswerRun): Promise<number> {
@@ -258,16 +260,19 @@ export async function runAnswerWorker(argv: string[], run: AnswerRun): Promise<n
 async function main(): Promise<number> {
   const cwd = process.cwd()
   const busPath = defaultBusPath()
-  const tools = realAnswererTools(busPath)
+  const client = clientAdapterOfTheBus()
+  const tools = realAnswererTools(client, busPath)
+  const cwds = clientCwdsOf(client.processes)
   return runAnswerWorker(process.argv.slice(2), {
     busPath,
     answerer: claudeAnswerer(ANSWERS_DIR, { ...tools, cardTools: (cardId, cardBody) => cardToolsOf(`${cardId}.md`, cardBody) }),
     pushPolicy: tools.pushPolicy,
+    liveSession: card => liveSessionIn(card, cwds),
     ownerMerges: () => readFileSync(path.join(cwd, OWNER_MERGES), 'utf8'),
     cardText: busCardBodies(busPath),
     session: randomUUID(),
     pause: sleep,
-    isolation: realIsolationReader(process.env, cwd, clientAdapter().processes.isolationCommand(), { sandbox: CARD_SESSION_SANDBOX }),
+    isolation: realIsolationReader(process.env, cwd, client.processes.isolationCommand(), { sandbox: CARD_SESSION_SANDBOX }),
     publishing: treePublishing(treePrOfThisBuild(cwd), launchDirOf(os.homedir(), busPath), process.env),
   })
 }

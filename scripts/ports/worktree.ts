@@ -5,7 +5,6 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { processGit } from './git.js'
-import { OsProcessTable } from './process-table.js'
 import { witnessEnv } from './session.js'
 
 export const TECHNOLOGY_WORDS = ['git', 'pnpm', 'shell'] as const
@@ -133,7 +132,7 @@ function realOrAsWritten(where: string): string {
   return existsSync(where) ? realpathSync(where) : where
 }
 
-export function liveSessionHolds(tree: string, cwds: () => ProcessCwds = () => new OsProcessTable().clientCwds()): boolean {
+export function liveSessionHolds(tree: string, cwds: () => ProcessCwds): boolean {
   const read = cwds()
   if (read.kind === 'unreadable')
     return true
@@ -429,7 +428,7 @@ function heldTreeKept(deps: TreeDeps, repo: string, worktree: string, branch: st
     const ahead = commitsOverMain(deps.git, worktree)
     if (ahead > 0)
       return `${branch} carries ${ahead} commit(s) over origin/main`
-    if ((deps.holds ?? liveSessionHolds)(worktree))
+    if (deps.holds?.(worktree) ?? true)
       return 'a live session works in it'
     deps.git(repo, ['worktree', 'remove', '--force', worktree])
     deps.git(repo, ['branch', '-D', branch])

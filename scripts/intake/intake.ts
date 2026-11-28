@@ -4,6 +4,7 @@ import type { LadderRunPort } from '../../src/commands/run-record.js'
 import type { BusPorts } from '../../src/program.js'
 import type { RecomputeFigures, RecomputeLedger, TableOrder } from '../nodes/merge/weights-drift.js'
 import type { GitHub } from '../ports/github.js'
+import type { SessionOwner } from '../window/window-heartbeat.js'
 import { existsSync, realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -29,7 +30,8 @@ import { latestGitHubNumber } from '../nodes/review/pr-close.js'
 import { BusDecisions } from '../policy/decisions/index.js'
 import { activeWindowShards } from '../policy/shards.js'
 import { ANY, BusRead } from '../ports/bus-read.js'
-import { clientAdapter } from '../ports/session.js'
+import { claudeAdapterWith } from '../ports/client/claude/adapter.js'
+import { settingsFlag, shiftSettings } from '../ports/shift-settings.js'
 import { tabWindowOf } from '../window/tab.js'
 import { windowSessionOf } from '../window/window-heartbeat.js'
 import { INTAKE_ACTOR_PREFIX } from './admissions.js'
@@ -208,8 +210,8 @@ function intakeBusPath(): string | null {
   }
 }
 
-export function windowShardOfRun(db: DatabaseSync, env: NodeJS.ProcessEnv, now: Date): string | null {
-  if (windowSessionOf(env) === null && tabWindowOf(env) === null)
+export function windowShardOfRun(client: SessionOwner, db: DatabaseSync, env: NodeJS.ProcessEnv, now: Date): string | null {
+  if (windowSessionOf(client, env) === null && tabWindowOf(client, env) === null)
     return null
   return activeWindowShards(db, now)[0]?.id ?? null
 }
@@ -237,11 +239,12 @@ export async function intakeMain(argv: readonly string[]): Promise<void> {
   if (busPath === null)
     return
   const db = openBus(busPath)
+  const client = claudeAdapterWith({ shiftSettings, settingsFlag })
   try {
-    const shard = windowShardOfRun(db, process.env, new Date())
+    const shard = windowShardOfRun(client, db, process.env, new Date())
     if (shard !== null)
       process.env[WINDOW_SHARD_VARIABLE] = shard
-    await runBusIntake(db, argv, clientAdapter().ownSession(process.env) ?? undefined, process.cwd())
+    await runBusIntake(db, argv, client.ownSession(process.env) ?? undefined, process.cwd())
   }
   finally {
     db.close()

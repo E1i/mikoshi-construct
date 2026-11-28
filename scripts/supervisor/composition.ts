@@ -23,6 +23,7 @@ import type { UpdateSourceParts } from '../nodes/update/update-candidates.js'
 import type { DerivedHolds, ThresholdSet } from '../nodes/update/update-executor.js'
 import type { WitnessParts } from '../nodes/witness/witness-candidates.js'
 import type { DecisionEventReads, InForceDecision } from '../policy/decisions/index.js'
+import type { ClientAdapter } from '../ports/client/contract.js'
 import type { GitHub } from '../ports/github.js'
 import type { PrHistory } from '../ports/netwatch.js'
 import type { PlanParts } from '../window/plan-folds.js'
@@ -89,7 +90,9 @@ import { cardAllowancesIn, derivedHoldOf } from '../policy/touch-scope.js'
 import { ANY, BusRead } from '../ports/bus-read.js'
 import { cardTreeReading } from '../ports/card-tree.js'
 import { GhCiRuns } from '../ports/ci-reading.js'
+import { claudeAdapterWith } from '../ports/client/claude/adapter.js'
 import { isFullSha } from '../ports/identifier-shapes.js'
+import { settingsFlag, shiftSettings } from '../ports/shift-settings.js'
 import { requiredCheckOf } from '../ports/snapshot.js'
 import { launchDirOf } from '../ports/tree-publish.js'
 import { cardTreeRoots } from '../ports/worktree-home.js'
@@ -222,8 +225,16 @@ export function withSlots(kind: NodeKind, env: NodeJS.ProcessEnv, slots: number)
   return { ...env, [slotsVariable(kind)]: String(slots) }
 }
 
-export function cardSessionPulse(busPath: string, clock: () => Date, measure: CardSessionMeasure = measureCardSession): (lease: Lease, session: string) => string {
+export function clientAdapterOfTheBus(): ClientAdapter {
+  return claudeAdapterWith({ shiftSettings, settingsFlag })
+}
+
+export function cardSessionPulse(busPath: string, clock: () => Date, measure: CardSessionMeasure): (lease: Lease, session: string) => string {
   return busSessionPulse(busPath, clock, measure)
+}
+
+export function cardSessionMeasure(client: ClientAdapter): CardSessionMeasure {
+  return measureCardSession(client)
 }
 
 export function launchSessionEnv(cardId: number): Record<string, string> {

@@ -10,6 +10,7 @@ import { handoffLadderSteps, realStarterPorts } from '../../nodes/launch/launch-
 import { cardTree, cardTreeRoots, DEFAULT_WORKTREE_HOME, WORKTREE_HOME_VARIABLE } from '../../ports/worktree-home.js'
 import { busProjections, DECISION_EVENT_READS } from '../../supervisor/composition.js'
 import { realRequestTools } from '../../window/window-request-tools.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const roots: string[] = []
 
@@ -92,7 +93,7 @@ describe('card trees per bus', () => {
     mkdirSync(repo)
     writeFileSync(path.join(repo, 'package.json'), JSON.stringify({ scripts: { 'task:start': 'node -e 0' } }))
     const bus = path.join(root, '.construct', 'a--one', 'bus.db')
-    const ports = realStarterPorts(repo, { ...process.env, [WORKTREE_HOME_VARIABLE]: '' }, '', () => 'u', () => null, () => [], null, bus)
+    const ports = realStarterPorts(claudeClient, repo, { ...process.env, [WORKTREE_HOME_VARIABLE]: '' }, '', () => 'u', () => null, () => [], null, bus)
     const task = { card: { id: 987654, line: '#987654 x' }, branch: 'feat/x' } as ShiftTask
     expect(ports.cut(task)).toBe(path.join(busDirOf(bus), 'worktrees', '987654'))
   })

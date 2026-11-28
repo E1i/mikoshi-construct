@@ -16,6 +16,7 @@ import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer, gateDecisionOf, gateRunOutcome } from '../../nodes/answer/answerer.js'
 import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { claudeClient } from '../client/claude-client.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -76,6 +77,7 @@ async function roundWith(results: readonly GateResult[], dirty = true): Promise<
   let published = 0
   const heads = [sha('a'), sha('a')]
   const answerer = claudeAnswerer(path.join(trees, 'answers'), {
+    client: claudeClient,
     cardText: () => null,
     available: () => true,
     remoteHead: () => heads.shift() ?? sha('a'),

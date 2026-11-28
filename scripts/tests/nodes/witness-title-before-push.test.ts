@@ -12,6 +12,7 @@ import { claudeAnswerer } from '../../nodes/answer/answerer.js'
 import { ownCarriedTree, unselectedInTree, WitnessUnselected } from '../../nodes/answer/duties/tree.js'
 import { refusalOf, treePr } from '../../nodes/launch/tree-pr.js'
 import { declaredTestNames, unselectedWitnessesOf } from '../../ports/witnesses.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const WITNESS_FILE = 'scripts/tests/nodes/card.test.ts'
 const CARD_TITLE = 'the card names this test'
@@ -110,6 +111,7 @@ function sessionAnswer(tree: string, onResume: () => void = () => {}): SessionAn
   const published: string[] = []
   const prompts: string[] = []
   const answerer = claudeAnswerer(path.join(path.dirname(tree), 'answers'), {
+    client: claudeClient,
     cardText: () => cardBody(CARD_TITLE),
     available: () => true,
     remoteHead: () => null,

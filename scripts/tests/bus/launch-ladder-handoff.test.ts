@@ -20,6 +20,7 @@ import { LaunchNode, WITHDRAWN_TO_CHEAP } from '../../nodes/launch/launch-worker
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { claudeClient } from '../client/claude-client.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
 const CARD_ID = 1399
@@ -110,7 +111,7 @@ describe('launch writes the ladder brief through the per-repo handoff resolver',
     const env = repoHandoffEnv({}, repo, home)
     const steps = repoLadderSteps(repo, env, path.join(root, 'bus.db'), home)
     const task = { card: CARD, touches: [] } as unknown as Parameters<typeof steps.brief>[0]
-    const sessionEnv = realStarterPorts(repo, env, '', () => 'u', () => null, () => [], null, path.join(root, 'bus.db')).envOf(CARD_ID)
+    const sessionEnv = realStarterPorts(claudeClient, repo, env, '', () => 'u', () => null, () => [], null, path.join(root, 'bus.db')).envOf(CARD_ID)
     expect(sessionEnv[HANDOFF_DIR_VARIABLE]).toBe(path.join(repoHome(home, repoIdOf(repo)), HANDOFF_DIR))
     expect(sessionEnv[HANDOFF_DIR_VARIABLE]).toBe(path.dirname(steps.brief(task)))
   })

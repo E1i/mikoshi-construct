@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from '../core/db.js'
 import type { EventRow } from '../core/events-query.js'
 import type { HolderStart, Lease } from '../core/lease.js'
+import type { ClientAdapter } from '../ports/client/contract.js'
 import type { SessionGauges } from '../window/eddies-measure.js'
 import type { HostVitals } from './host-vitals.js'
 import { realpathSync } from 'node:fs'
@@ -14,9 +15,11 @@ import { BOARD_ALARM, PROCESS_HEARTBEAT, PROCESS_JUDGED, SESSION_HEARTBEAT, WIND
 import { prOf } from '../core/identifiers.js'
 import { LEASE_FOLDS } from '../core/lease.js'
 import { storedByKey } from '../core/stored.js'
+import { claudeAdapterWith } from '../ports/client/claude/adapter.js'
 import { HOST_DEGRADED, hostAlarmKey, hostDegradedLine } from '../ports/host-fault.js'
 import { isFullSha } from '../ports/identifier-shapes.js'
-import { CARD_VARIABLE, clientAdapter } from '../ports/session.js'
+import { CARD_VARIABLE } from '../ports/session.js'
+import { settingsFlag, shiftSettings } from '../ports/shift-settings.js'
 import { projectRoot, sessionGauges } from '../window/eddies-measure.js'
 import { crossedVitals, hostDegradedCause, sampleVitals } from './host-vitals.js'
 
@@ -138,9 +141,9 @@ export type BeatReading = SessionGauges & { start_context?: number | null, read_
 
 export type SessionMeasure = (session: string) => BeatReading
 
-function budgetReading(root: string, session: string): BeatReading {
+function budgetReading(client: ClientAdapter, root: string, session: string): BeatReading {
   try {
-    const budget = clientAdapter().readBudget({ session, cwd: root, stdoutPath: null })
+    const budget = client.readBudget({ session, cwd: root, stdoutPath: null })
     return { start_context: budget.startContext, read_before_edit: budget.readBeforeEdit }
   }
   catch {
@@ -148,17 +151,17 @@ function budgetReading(root: string, session: string): BeatReading {
   }
 }
 
-function beatReading(home: string, root: string, session: string): BeatReading {
+function beatReading(client: ClientAdapter, home: string, root: string, session: string): BeatReading {
   const gauges = sessionGauges(home, root, session)
-  return gauges.reason === undefined ? { ...gauges, ...budgetReading(root, session) } : gauges
+  return gauges.reason === undefined ? { ...gauges, ...budgetReading(client, root, session) } : gauges
 }
 
 export function measureSession(session: string): BeatReading {
   return sessionGauges(os.homedir(), projectRoot(process.env), session)
 }
 
-export function measureCardSession(session: string): BeatReading {
-  return beatReading(os.homedir(), projectRoot(process.env), session)
+export function measureCardSession(client: ClientAdapter): SessionMeasure {
+  return session => beatReading(client, os.homedir(), projectRoot(process.env), session)
 }
 
 export function heartbeatEnv(lease: Pick<Lease, 'cardId' | 'pr' | 'head' | 'queue'> & Partial<Pick<Lease, 'taskKey' | 'leaseGen'>>): Record<string, string> {
@@ -197,7 +200,7 @@ export function leaseHeartbeat(lease: Lease, session: string): Heartbeat {
   return { card: lease.cardId, pr: lease.pr, head: lease.head, step: lease.queue, session, lease: lease.leaseGen > 0 ? { taskKey: lease.taskKey, leaseGen: lease.leaseGen } : null }
 }
 
-export function recordHeartbeat(db: DatabaseSync, ts: string, beat: Heartbeat, measure: SessionMeasure = measureCardSession): void {
+export function recordHeartbeat(db: DatabaseSync, ts: string, beat: Heartbeat, measure: SessionMeasure): void {
   const gauges = measure(beat.session)
   const dedupeKey = `${SESSION_HEARTBEAT}:${beat.card}:${beat.session}:${ts}`
   const event: BusEvent = { ts, type: SESSION_HEARTBEAT, actor: `worker:session:${beat.session}`, cardId: beat.card, pr: beat.pr, head: beat.head, dedupeKey, payload: JSON.stringify({ step: beat.step, session: beat.session, ...(beat.lease === null ? {} : { task_key: beat.lease.taskKey, lease_gen: beat.lease.leaseGen }), start_context: null, read_before_edit: null, ...gauges }), legacy: false }
@@ -221,7 +224,7 @@ export function beatsOfLease(db: DatabaseSync, lease: HeldLease): LeaseBeat[] {
   return heartbeatsOfLease(db, lease).map(row => ({ ts: row.ts, session: (row.data?.session ?? null) as string | null, context: (row.data?.context ?? null) as number | null }))
 }
 
-export function busSessionPulse(busPath: string, clock: () => Date, measure: SessionMeasure = measureCardSession): (lease: Lease, session: string) => string {
+export function busSessionPulse(busPath: string, clock: () => Date, measure: SessionMeasure): (lease: Lease, session: string) => string {
   return (lease, session) => {
     const ts = clock().toISOString()
     const db = openBus(busPath)
@@ -235,13 +238,13 @@ export function busSessionPulse(busPath: string, clock: () => Date, measure: Ses
   }
 }
 
-export function runHeartbeat(env: NodeJS.ProcessEnv, session: string | undefined, bus: string, now: () => Date, home = os.homedir(), root = process.cwd()): number {
+export function runHeartbeat(client: ClientAdapter, env: NodeJS.ProcessEnv, session: string | undefined, bus: string, now: () => Date, home = os.homedir(), root = process.cwd()): number {
   const beat = heartbeatOf(env, session)
   if (beat === null)
     return 0
   const db = openBus(bus)
   try {
-    recordHeartbeat(db, now().toISOString(), beat, session => beatReading(home, root, session))
+    recordHeartbeat(db, now().toISOString(), beat, session => beatReading(client, home, root, session))
   }
   finally {
     db.close()
@@ -250,4 +253,4 @@ export function runHeartbeat(env: NodeJS.ProcessEnv, session: string | undefined
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
-  process.exitCode = runHeartbeat(process.env, process.argv[2], defaultBusPath(), () => new Date())
+  process.exitCode = runHeartbeat(claudeAdapterWith({ shiftSettings, settingsFlag }), process.env, process.argv[2], defaultBusPath(), () => new Date())

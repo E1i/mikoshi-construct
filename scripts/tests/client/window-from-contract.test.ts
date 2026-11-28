@@ -8,12 +8,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MANIFEST_FILE, MANIFEST_VERSION } from '../../../src/manifest.js'
 import { WINDOW_COMMAND_VARIABLE, windowCommand } from '../../ports/client/claude/adapter.js'
 import { codexAdapter, WINDOW_CENSUS_GAPS } from '../../ports/client/codex/adapter.js'
-import { clientAdapter } from '../../ports/session.js'
-import { CLAUDE_VARIABLE, claudeCommand, clientConfigIn, DEFAULT_CLAUDE, windowCommandIn } from '../../window/loop.js'
+import { clientConfigIn, windowCommandIn } from '../../window/loop.js'
+import { claudeClient } from './claude-client.js'
+import { CLAUDE_VARIABLE, claudeCommand, DEFAULT_CLAUDE } from './claude-window.js'
 
 const LOOP_SOURCE = path.join(import.meta.dirname, '..', '..', 'window', 'loop.ts')
 const ADAPTER_FILE = /\/ports\/client\/[^/]+\/adapter\.js$/
 const CLIENT_INDEX = '../ports/client/index.js'
+const ADAPTER_BUILDER = 'claudeAdapterWith'
 const CENSUS_ROWS_THE_PROBE_FOUND_MISSING = [8, 9, 15, 16, 18]
 const EXIT_MARK = 'process.exit '
 
@@ -36,6 +38,10 @@ function importsOf(source: string): string[] {
   return [...source.matchAll(/^import\s[^'"]*['"]([^'"]+)['"]/gm)].map(match => match[1]!)
 }
 
+function namesImportedFrom(source: string, file: RegExp): string[] {
+  return [...source.matchAll(/^import \{([^}]*)\} from ['"]([^'"]+)['"]/gm)].filter(match => file.test(match[2]!)).flatMap(match => match[1]!.split(',').map(name => name.trim()).filter(name => name !== ''))
+}
+
 function opened(window: WindowCommand | Refusal): WindowCommand {
   if ('kind' in window)
     throw new Error(window.reason)
@@ -47,23 +53,24 @@ function windowSpec(): SessionSpec {
 }
 
 function windowInvocation(): Invocation {
-  const result = clientAdapter().invocation(windowSpec())
+  const result = claudeClient.invocation(windowSpec())
   if ('kind' in result)
     throw new Error(result.reason)
   return result
 }
 
 describe('the window takes its command from the client contract', () => {
-  it('loop takes the window command from the adapter client.roles.window names and imports no adapter file', () => {
-    const imports = importsOf(readFileSync(LOOP_SOURCE, 'utf8'))
-    expect(imports.filter(specifier => ADAPTER_FILE.test(specifier))).toEqual([])
+  it('loop takes the window command from the adapter client.roles.window names and takes nothing from an adapter file but the builder of the adapter its root hands down', () => {
+    const source = readFileSync(LOOP_SOURCE, 'utf8')
+    const imports = importsOf(source)
+    expect(namesImportedFrom(source, ADAPTER_FILE)).toEqual([ADAPTER_BUILDER])
     expect(imports).toContain(CLIENT_INDEX)
 
-    expect(windowCommandIn(repositoryWith({ roles: { window: codexAdapter.id } }))).toEqual(codexAdapter.window())
-    expect(opened(windowCommandIn(repositoryWith({ id: codexAdapter.id, roles: { window: clientAdapter().id } }))).command).toBe(opened(clientAdapter().window()).command)
-    expect(windowCommandIn(repositoryWith({ id: codexAdapter.id }))).toEqual(codexAdapter.window())
-    expect(opened(windowCommandIn(repositoryWith(null))).command).toBe(opened(clientAdapter().window()).command)
-    expect(windowCommandIn(repositoryWith({ roles: { window: 'no-such-client' } }))).toEqual({ kind: 'refused', reason: expect.stringContaining('no client adapter for id "no-such-client"') })
+    expect(windowCommandIn(claudeClient, repositoryWith({ roles: { window: codexAdapter.id } }))).toEqual(codexAdapter.window())
+    expect(opened(windowCommandIn(claudeClient, repositoryWith({ id: codexAdapter.id, roles: { window: claudeClient.id } }))).command).toBe(opened(claudeClient.window()).command)
+    expect(windowCommandIn(claudeClient, repositoryWith({ id: codexAdapter.id }))).toEqual(codexAdapter.window())
+    expect(opened(windowCommandIn(claudeClient, repositoryWith(null))).command).toBe(opened(claudeClient.window()).command)
+    expect(windowCommandIn(claudeClient, repositoryWith({ roles: { window: 'no-such-client' } }))).toEqual({ kind: 'refused', reason: expect.stringContaining('no client adapter for id "no-such-client"') })
   })
 
   it('the root reader hands the port the model construct.json records, and auto when it records none', () => {
@@ -75,8 +82,8 @@ describe('the window takes its command from the client contract', () => {
   it('an unreadable construct.json refuses the window and names the record, never falling back to the default client', () => {
     const root = repositoryWith(null)
     writeFileSync(path.join(root, MANIFEST_FILE), '{ "manifestVersion": ')
-    expect(() => windowCommandIn(root)).not.toThrow()
-    expect(windowCommandIn(root)).toEqual({ kind: 'refused', reason: expect.stringContaining(`the client record of ${root} is unreadable: `) })
+    expect(() => windowCommandIn(claudeClient, root)).not.toThrow()
+    expect(windowCommandIn(claudeClient, root)).toEqual({ kind: 'refused', reason: expect.stringContaining(`the client record of ${root} is unreadable: `) })
   })
 
   it('the loop entrypoint refuses a compound window command under the variable its client names, not the claude default', async () => {
@@ -115,7 +122,7 @@ describe('the window takes its command from the client contract', () => {
   })
 
   it('the claude adapter gives the window command of today', () => {
-    const window = opened(clientAdapter().window())
+    const window = opened(claudeClient.window())
     const invocation = windowInvocation()
     expect(window.command({})).toBe([invocation.command, ...invocation.args].join(' '))
     expect(window.command).toBe(windowCommand)

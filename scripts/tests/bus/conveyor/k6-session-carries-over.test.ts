@@ -15,6 +15,7 @@ import { cardSessionOf } from '../../../nodes/answer/answer-source.js'
 import { claudeAnswerer } from '../../../nodes/answer/answerer.js'
 import { cardTransitions } from '../../../supervisor/composition.js'
 import { SILENT_MS } from '../../../supervisor/liveness-sites.js'
+import { claudeClient } from '../../client/claude-client.js'
 import { sha } from '../github-fake.js'
 import { eventsOf, mergeBench, taskState } from '../merge-bench.js'
 
@@ -89,6 +90,7 @@ describe('scenario 08: the session carries over between rounds', () => {
     const heads = [sha('b'), sha('c')]
     const cardTrees: CardTreeTools = { home: card.trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
     const answerer = claudeAnswerer(path.join(card.trees, 'answers'), {
+      client: claudeClient,
       cardText: () => null,
       available: () => true,
       remoteHead: () => heads.shift() ?? null,
@@ -102,7 +104,7 @@ describe('scenario 08: the session carries over between rounds', () => {
       context: session => contexts.get(session) ?? null,
       contextWarn: () => CONTEXT_WARN,
     })
-    const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: card.made.db, answerer, ownerMerges: () => readFileSync('architecture/owner-merges.md', 'utf8'), clock: card.made.clock.now, trees: cardTrees })
+    const executor = new AnswerExecutor({ liveSession: () => null, cards: cardTransitions(), silentMs: SILENT_MS, db: card.made.db, answerer, ownerMerges: () => readFileSync('architecture/owner-merges.md', 'utf8'), clock: card.made.clock.now, trees: cardTrees })
 
     expect(await executor.answer(lease)).toMatchObject({ kind: 'answered', session: ANSWER_SESSION, resumed: true, head: sha('c') })
     expect(ranIn).toEqual([ANSWER_SESSION])

@@ -5,6 +5,7 @@ import type { DetectionMode, NodeDeclaration, Scope } from '../../core/node.js'
 import type { QueuedTask } from '../../core/queue.js'
 import type { ReadSet } from '../../core/report.js'
 import type { StoredEvent } from '../../core/stored.js'
+import type { ClientAdapter } from '../../ports/client/contract.js'
 import type { GhCallOptions, GhPort } from '../../ports/gh.js'
 import type { StatusPublisher } from '../../ports/github-status.js'
 import type { GitHub } from '../../ports/github.js'
@@ -49,8 +50,8 @@ import { cardIdOfDescription, isFullSha, prBodySha } from '../../ports/identifie
 import { realIsolationReader } from '../../ports/isolation.js'
 import { promptsDirOf } from '../../ports/prompt-store.js'
 import { plannerProcess, REVIEW_PLAN_FLAG } from '../../ports/review-planner.js'
-import { clientAdapter, spawnReviewSession } from '../../ports/session.js'
-import { busProjections, cardSessionPulse, cardStatesOfTheBus, cardTransitions, nodeLiveness, nodeSupply, planOfCard, pullRequests, requiredCheckAt, reviewCandidatesOfTheBus, withSlots } from '../../supervisor/composition.js'
+import { reviewSessionSpawner } from '../../ports/session.js'
+import { busProjections, cardSessionMeasure, cardSessionPulse, cardStatesOfTheBus, cardTransitions, clientAdapterOfTheBus, nodeLiveness, nodeSupply, planOfCard, pullRequests, requiredCheckAt, reviewCandidatesOfTheBus, withSlots } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { busUnstartedTails, gitReviewPlanner } from './depth-sources.js'
 import { recordForeignDivergences } from './divergence-alarm.js'
@@ -478,26 +479,27 @@ export function reviewBeatLine(lease: Lease, session: string, ts: string): strin
   return `${PREFIX}${lease.taskKey}: reviewer session ${session} is working, heartbeat at ${ts}`
 }
 
-export function busReviewPulse(busPath: string, clock: () => Date, say: (line: string) => void = console.log, measure?: CardSessionMeasure): SessionPulse {
+export function busReviewPulse(busPath: string, clock: () => Date, say: (line: string) => void, measure: CardSessionMeasure): SessionPulse {
   const pulse = cardSessionPulse(busPath, clock, measure)
   return (lease, session) => say(reviewBeatLine(lease, session, pulse(lease, session)))
 }
 
-export function reviewIsolationCommand(): string[] {
-  return clientAdapter().processes.isolationCommand()
+export function reviewIsolationCommand(client: ClientAdapter): string[] {
+  return client.processes.isolationCommand()
 }
 
 async function main(): Promise<number> {
   const cwd = process.cwd()
   const argv = process.argv.slice(2)
   const busPath = defaultBusPath()
+  const client = clientAdapterOfTheBus()
   stampLogOutput()
   const trees = new ReviewTrees(cwd, reviewsDir(BUS_DIR, reviewMode(argv)), sparingLiveLeases(busPath))
   return runReview(argv, {
     busPath,
     gitHub: ghApi(cwd),
     publish: ghStatusPublisher(cwd),
-    reviewer: claudeReviewer(trees, spawnReviewSession, busReviewPulse(busPath, () => new Date()), REVIEW_BEAT_MS, gitHubPrBody(ghApi(cwd))),
+    reviewer: claudeReviewer(client, trees, reviewSessionSpawner(client), busReviewPulse(busPath, () => new Date(), console.log, cardSessionMeasure(client)), REVIEW_BEAT_MS, gitHubPrBody(ghApi(cwd))),
     plan: busReviewPlanner(cwd, busPath),
     planLater: childReviewPlanner(cwd),
     session: randomUUID(),
@@ -505,7 +507,7 @@ async function main(): Promise<number> {
     pause: sleep,
     clearLeftovers: () => trees.clearLeftovers(),
     notePr: ghNotePr(cwd, PROCESS_GH_PORT, () => pushPolicyOf(readThroughPort, cwd)),
-    isolation: realIsolationReader(process.env, cwd, reviewIsolationCommand()),
+    isolation: realIsolationReader(process.env, cwd, reviewIsolationCommand(client)),
     keepDryRun: keepDryRun(trees.dir),
     recut: db => new RoundLimitRecutter({ db, gitHub: ghApi(cwd), post: ghApiPost(cwd), patch: ghApiPatch(cwd), clock: () => new Date(), cardStates: () => cardStatesOfTheBus(db), closedWaits: () => closedWaitIds(db), planOfCard, pushPolicy: () => pushPolicyOf(readThroughPort, cwd) }),
     tail: db => new BusTailIntake({ db, gitHub: ghApi(cwd), clock: () => new Date(), cardStates: () => cardStatesOfTheBus(db), unstartedTails: busUnstartedTails(db) }),

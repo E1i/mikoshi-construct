@@ -10,6 +10,7 @@ import { RELEASES_IN_A_ROW } from '../../window/release-loop.js'
 import { ONCE_STORE, OnceStore } from '../../window/watch-store.js'
 import { BOARD_STALE, CATCHUP_LAG, caughtUpLine, deliverOnce, FACTORY_DOWN, FACTORY_DOWN_MS, FACTORY_START, productionDeps, selectOnce, tick, watchState } from '../../window/watch.js'
 import { LOOP_PROCESS } from '../../window/window-heartbeat.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const OUTSIDE_TOUCHES = 'outside-touches'
 const CARD = 1903
@@ -58,7 +59,7 @@ function complete(bus: Bus, task = TASK): void {
 }
 
 function depsOf(bus: Bus, emitted: string[] = []): WatchDeps {
-  return { ...productionDeps(bus.dir, bus.file), beat: () => {}, emit: async (line) => {
+  return { ...productionDeps(bus.dir, bus.file, claudeClient), beat: () => {}, emit: async (line) => {
     emitted.push(line)
   } }
 }
@@ -222,7 +223,7 @@ describe('miko:watch wakes the window on a board timer that stopped beating', ()
 })
 
 function signalsOf(bus: Bus): (now: number) => readonly { kind: string }[] {
-  const signals = productionDeps(bus.dir, bus.file).signals
+  const signals = productionDeps(bus.dir, bus.file, claudeClient).signals
   if (signals === undefined)
     throw new Error('productionDeps reads no signals')
   return signals

@@ -16,12 +16,13 @@ import { claudeAnswerer, ownerQuestionPath, realAnswererTools } from '../../node
 import { cardCommand, launchArgv, shellWord, ShiftCardStarter } from '../../nodes/launch/launch-starter.js'
 import { claudeResume } from '../../nodes/launch/tree-pr-cli.js'
 import { WINDOW_RESUME_REFUSAL } from '../../ports/client/claude/adapter.js'
-import { clientAdapter, clientInvocation, sessionEnv, spawnReviewSession } from '../../ports/session.js'
+import { clientInvocation, reviewSessionSpawner, sessionEnv } from '../../ports/session.js'
 import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
+import { claudeClient } from './claude-client.js'
 
 const client = vi.hoisted(() => ({ binary: '', specs: [] as SessionSpec[] }))
 
-const THE_ADAPTER: ClientAdapter = clientAdapter()
+const THE_ADAPTER: ClientAdapter = claudeClient
 const ADAPTER_INVOCATION = THE_ADAPTER.invocation.bind(THE_ADAPTER)
 
 function markedInvocations(): void {
@@ -116,6 +117,7 @@ function throughShell(spot: Spot, run: DetachedSpawn): void {
 function starterPorts(spot: Spot, spawned: DetachedSpawn[]): StarterPorts {
   const body = parkingFileText({ card: CARD_LINE, branch: 'feat/a-card', touches: ['scripts/x.ts'], continue: 'stop', who: 'shift', body: 'unused' })
   return {
+    client: claudeClient,
     read: () => body,
     cut: () => spot.root,
     base: () => 'b'.repeat(40),
@@ -131,7 +133,7 @@ function starterPorts(spot: Spot, spawned: DetachedSpawn[]): StarterPorts {
 }
 
 async function review(spot: Spot): Promise<Spawned> {
-  const code = await spawnReviewSession({ cwd: spot.root, sessionId: SESSION, prompt: PROMPT, stdoutPath: path.join(spot.root, 'out'), stderrPath: path.join(spot.root, 'err'), addDirs: [ADD_DIR], model: MODEL })
+  const code = await reviewSessionSpawner(claudeClient)({ cwd: spot.root, sessionId: SESSION, prompt: PROMPT, stdoutPath: path.join(spot.root, 'out'), stderrPath: path.join(spot.root, 'err'), addDirs: [ADD_DIR], model: MODEL })
   expect(code).toBe(0)
   return { specs: startedSpecs(), args: ['--settings', JSON.stringify(USER_INSTRUCTIONS_OFF), '--add-dir', ADD_DIR, '--model', MODEL, ...CARD_TOOLS, ...HEADLESS_FLAGS, '--session-id', SESSION, PROMPT], stdin: '' }
 }
@@ -140,8 +142,9 @@ function answerOf(kind: 'start' | 'resume'): (spot: Spot) => Promise<Spawned> {
   return async (spot) => {
     const dir = path.join(spot.root, 'answers')
     const runs: AnswerRun[] = []
-    const spawnReally = realAnswererTools(path.join(spot.root, 'bus.db')).spawn
+    const spawnReally = realAnswererTools(claudeClient, path.join(spot.root, 'bus.db')).spawn
     const answerer = claudeAnswerer(dir, {
+      client: claudeClient,
       cardText: () => 'the card',
       available: () => kind === 'resume',
       remoteHead: () => null,
@@ -192,7 +195,7 @@ async function resume(spot: Spot): Promise<Spawned> {
   const db = openBus(busPath)
   appendEvent(db, { ts: '2026-11-05T00:00:00.000Z', type: 'card.started', actor: 'worker:launch:1', cardId: CARD, pr: null, head: null, dedupeKey: `start:${CARD}`, payload: { session: SESSION, worktree: spot.root, branch: 'feat/a-card' }, legacy: false })
   db.close()
-  expect(claudeResume(busPath)(CARD, spot.root, PROMPT)).toBe(true)
+  expect(claudeResume(claudeClient, busPath)(CARD, spot.root, PROMPT)).toBe(true)
   return { specs: startedSpecs(), args: [...CARD_FLAGS, ...cardSettings(spot), ...CARD_TOOLS, '--strict-mcp-config', '-p', '--resume', SESSION, PROMPT], stdin: '' }
 }
 
@@ -231,11 +234,11 @@ it('the client binary literal is gone from the spawn files', () => {
 
 it('the env of a session carries what the adapter asks for', () => {
   aSpot()
-  expect(sessionEnv({ PATH: '/bin' })).toEqual({ PATH: '/bin', NO_COLOR: '1', CLIENT_MARK: 'from-the-adapter', CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '0' })
+  expect(sessionEnv(claudeClient, { PATH: '/bin' })).toEqual({ PATH: '/bin', NO_COLOR: '1', CLIENT_MARK: 'from-the-adapter', CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '0' })
 })
 
 it('a refused invocation throws the reason of the adapter and spawns nothing', () => {
   const spot = aSpot()
-  expect(() => clientInvocation({ kind: 'resume', role: 'window', session: SESSION, cwd: spot.root, prompt: PROMPT, addDirs: [], pick: { model: null }, policy: { profile: 'client-default', gateCommands: [], writePaths: [], mcpOff: false } })).toThrow(WINDOW_RESUME_REFUSAL)
+  expect(() => clientInvocation(claudeClient, { kind: 'resume', role: 'window', session: SESSION, cwd: spot.root, prompt: PROMPT, addDirs: [], pick: { model: null }, policy: { profile: 'client-default', gateCommands: [], writePaths: [], mcpOff: false } })).toThrow(WINDOW_RESUME_REFUSAL)
   expect(existsSync(path.join(spot.root, 'argv'))).toBe(false)
 })

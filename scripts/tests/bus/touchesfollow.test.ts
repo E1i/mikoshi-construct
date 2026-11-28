@@ -13,6 +13,7 @@ import { AnswerOutsideTouches, claudeAnswerer, followedEvent } from '../../nodes
 import { runTreePr } from '../../nodes/launch/tree-pr-cli.js'
 import { touchesFollowed, treePr } from '../../nodes/launch/tree-pr.js'
 import { followsTouches, neverFollows, pathsOutside, rootCopyOf } from '../../policy/touch-scope.js'
+import { claudeClient } from '../client/claude-client.js'
 import { ranTheGreenGate } from './gate-stream.js'
 
 vi.mock('../../ports/git.js', async (importOriginal) => {
@@ -113,6 +114,7 @@ function answerChanging(changed: string[], touches: string[], answerCase: Answer
     outsideTouches: paths => pathsOutside(touches, answerCase.runs ?? [], paths),
   }
   const answerer = claudeAnswerer(path.join(path.dirname(worktree), 'answers'), {
+    client: claudeClient,
     cardText: () => cardBody(touches, answerCase.runs),
     available: () => true,
     remoteHead: () => heads.shift() ?? null,

@@ -10,11 +10,11 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { readShiftGate } from '../../src/manifest.js'
-import { clientHome, transcriptFile } from '../ports/client/claude/adapter.js'
+import { claudeAdapterWith, clientHome, transcriptFile } from '../ports/client/claude/adapter.js'
 import { codexAdapter } from '../ports/client/codex/adapter.js'
 import { answerPolicy, launchPolicy } from '../ports/client/role-policy.js'
 import { PROCESS_GH_PORT } from '../ports/gh.js'
-import { clientAdapter } from '../ports/session.js'
+import { settingsFlag, shiftSettings } from '../ports/shift-settings.js'
 import { shellWord } from '../ports/tree-publish.js'
 import { SMOKE_STATUS_CONTEXT } from './version-pr-guard.js'
 
@@ -300,8 +300,8 @@ export interface AdapterSessionParts {
 export class AdapterRoleSession implements RoleSession {
   private readonly parts: AdapterSessionParts
 
-  constructor(treeOf: (role: SmokeRole) => string, parts: Partial<Omit<AdapterSessionParts, 'treeOf'>> = {}) {
-    this.parts = { treeOf, policyOf: productPolicyOf, invocationOf: spec => clientAdapter().invocation(spec), spawn: spawnInvocation, transcriptOf: sessionTranscript, sessionId: randomUUID, ...parts }
+  constructor(treeOf: (role: SmokeRole) => string, parts: Pick<AdapterSessionParts, 'invocationOf'> & Partial<Omit<AdapterSessionParts, 'treeOf' | 'invocationOf'>>) {
+    this.parts = { treeOf, policyOf: productPolicyOf, spawn: spawnInvocation, transcriptOf: sessionTranscript, sessionId: randomUUID, ...parts }
   }
 
   run(role: SmokeRole, steps: SmokeStep[]): StepRecord[] {
@@ -386,8 +386,9 @@ function main(): void {
     throw new Error('usage: consumer-smoke --head <version PR head sha> --repo <owner/name> --scratch-repo <owner/name> --remote <scratch git url> --browser-lab <installed absolute path> [--url <page>] [--out <file>] [--no-status]')
   const root = mkdtempSync(path.join(tmpdir(), 'consumer-smoke-'))
   const treeOf = prepareConsumer(head, { root, remote, construct: values.construct, preset: values.preset })
+  const claude = claudeAdapterWith({ shiftSettings, settingsFlag })
   const plan = smokePlan({ head, browserLab, url: values.url, ghRepo: scratchRepo, secondClient: secondClientStep(codexAdapter, treeOf) })
-  const run = runSmoke(head, plan, new AdapterRoleSession(treeOf))
+  const run = runSmoke(head, plan, new AdapterRoleSession(treeOf, { invocationOf: spec => claude.invocation(spec) }))
   const out = values.out ?? path.join(root, 'consumer-smoke.json')
   writeFileSync(out, `${JSON.stringify(run, null, 2)}\n`)
   const write = run.verdict.passed ? console.log : console.error

@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Lease } from '../../core/lease.js'
 import type { MachineGate } from '../../core/machine-sessions.js'
-import type { SessionReading } from '../../ports/client/contract.js'
+import type { ClientAdapter, SessionReading } from '../../ports/client/contract.js'
 import type { GitCommand } from '../../ports/git.js'
 import type { ProcessRow, ProcessTable } from '../../ports/process-table.js'
 import type { SessionInput } from '../../ports/prompt-store.js'
@@ -23,7 +23,7 @@ import { busWriteAt, ChildLog } from '../../core/node.js'
 import { processGit, syncThroughPort } from '../../ports/git.js'
 import { prepareTree } from '../../ports/prepare-tree.js'
 import { OsProcessTable, identityOf as rowIdentityOf } from '../../ports/process-table.js'
-import { reviewModelOf, spawnSession, streamReading, withoutCard } from '../../ports/session.js'
+import { reviewModelOf, sessionSpawner, streamReading, withoutCard } from '../../ports/session.js'
 import { FREE_TREE_CAPACITY, FREE_TREES, gitIn, parkTree, takeFreeTree } from '../../ports/worktree.js'
 import { isAlive, joinReviewTree, leaveReviewTree, WORKER_LIMIT_VARIABLE } from '../../quality/lock.js'
 
@@ -671,8 +671,8 @@ export function realReviewStart(busPath: string = defaultBusPath()): ReviewStart
   return { gate: machineGate(busNameOf(busPath), 'review', { machine: machineSessions(isAlive) }), keep: renewedWhileHeld(busPath), joinWorkers: joinReviewTree, leaveWorkers: leaveReviewTree, descendants: osDescendants(), children: new ChildLog(busWriteAt(busPath), pid => rowIdentityOf(new OsProcessTable().snapshot(), pid), () => new Date(), process.env), atCeiling: (lease, session) => busWriteAt(busPath)(db => raiseCeilingAlarm(db, new Date().toISOString(), lease, session)) }
 }
 
-export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionParams) => Promise<number> = spawnSession, pulse: SessionPulse = () => {}, beatMs = REVIEW_BEAT_MS, prBodyOf: PrBodyOf = NO_PR_BODY, start: ReviewStart = realReviewStart()): Reviewer {
-  const review = reviewerOfTree(trees, spawn, pulse, beatMs, prBodyOf, start)
+export function claudeReviewer(client: ClientAdapter, trees: ReviewTrees, spawn: (params: SpawnSessionParams) => Promise<number> = sessionSpawner(client), pulse: SessionPulse = () => {}, beatMs = REVIEW_BEAT_MS, prBodyOf: PrBodyOf = NO_PR_BODY, start: ReviewStart = realReviewStart()): Reviewer {
+  const review = reviewerOfTree(client, trees, spawn, pulse, beatMs, prBodyOf, start)
   return async (lease, plan, card = null, proven = [], decisions = []) => {
     if (!await start.gate.start(lease.cardId, () => start.keep(lease)))
       throw new Error(`the review task ${lease.taskKey} was superseded or withdrawn while it waited for a session on this machine`)
@@ -685,7 +685,7 @@ export function claudeReviewer(trees: ReviewTrees, spawn: (params: SpawnSessionP
   }
 }
 
-function reviewerOfTree(trees: ReviewTrees, spawn: (params: SpawnSessionParams) => Promise<number>, pulse: SessionPulse, beatMs: number, prBodyOf: PrBodyOf, start: ReviewStart): Reviewer {
+function reviewerOfTree(client: ClientAdapter, trees: ReviewTrees, spawn: (params: SpawnSessionParams) => Promise<number>, pulse: SessionPulse, beatMs: number, prBodyOf: PrBodyOf, start: ReviewStart): Reviewer {
   return async (lease, plan, card = null, proven = [], decisions = []) => {
     const session = randomUUID()
     const { tree, verdictPath, ...params } = reviewSession(trees.repo, trees.dir, session, lease, plan, process.env, card, lease.pr === null ? null : prBodyOf(lease.pr), proven, decisions)
@@ -718,7 +718,7 @@ function reviewerOfTree(trees: ReviewTrees, spawn: (params: SpawnSessionParams) 
       const review = await beatingWhileGrowing(verdictOfTheSession(underTheBudget, verdictPath, session, start.verdictPollMs ?? VERDICT_POLL_MS), params.stdoutPath, () => pulse(lease, session), beatMs, error => console.error(missedBeatLine(session, error)))
       const after = trees.state(tree)
       const mutated = mutatedPaths(before, after)
-      const reading = streamReading(params.stdoutPath)
+      const reading = streamReading(client, params.stdoutPath)
       if (mutated.length > 0 && !readingExplainsMutation(reading))
         throw new Error(`the review tree ${tree} changed outside the review session ${session}, whose transcript has no command that writes: ${mutated.slice(0, 5).join(', ')}${mutated.length > 5 ? `, and ${mutated.length - 5} more` : ''}; a node fault, not a changes verdict`)
       const model = reading.model ?? undefined

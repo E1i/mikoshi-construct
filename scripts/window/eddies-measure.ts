@@ -1,10 +1,11 @@
 import type { TranscriptCounters as Counters, MeasuredSubagent } from '../ports/client/claude/adapter.js'
+import type { ClientAdapter } from '../ports/client/contract.js'
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { eventsSince } from '../core/events-query.js'
 import { openDatabase } from '../core/sqlite.js'
 import { cardLineOfConfig, EDDIES_CONFIG_FILE, eddiesConfigIn, findTranscript, measuredSession, measuredSpent, measuredSubagents, spendBasis, transcriptContext, transcriptCounters, transcriptModel } from '../ports/client/claude/adapter.js'
-import { CARD_SIZE_VARIABLE, CARD_VARIABLE, clientAdapter } from '../ports/session.js'
+import { CARD_SIZE_VARIABLE, CARD_VARIABLE } from '../ports/session.js'
 
 export const THRESHOLDS = ['context', 'spend'] as const
 export type StopReason = typeof THRESHOLDS[number] | 'done' | 'core'
@@ -184,9 +185,9 @@ function budgetWarnedOf(root: string, session: string): Reading<boolean> {
   return attempt(() => existsSync(journal) && journalLinesOf(readFileSync(journal, 'utf8')).some(line => line.event === BUDGET_WARN_EVENT && line.level === SESSION_CONTEXT_LEVEL && line.session_id === session))
 }
 
-export function realExitReadings(env: NodeJS.ProcessEnv, home: string, root: string, busPath: string): ExitReadings {
+export function realExitReadings(client: Pick<ClientAdapter, 'ownSession'>, env: NodeJS.ProcessEnv, home: string, root: string, busPath: string): ExitReadings {
   const limits = { ...limitsOf(root, env), ...coreReadings(env, root) }
-  const session = clientAdapter().ownSession(env)
+  const session = client.ownSession(env)
   if (session === null || !PLAIN_ID.test(session))
     return { ...UNREAD, ...limits }
   const budgetWarned = budgetWarnedOf(root, session)

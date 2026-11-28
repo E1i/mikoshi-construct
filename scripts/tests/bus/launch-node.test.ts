@@ -48,9 +48,10 @@ import { cardDecisionCommand } from '../../policy/shards.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { WORKTREE_HOME_VARIABLE } from '../../ports/worktree-home.js'
 import { busProjections, cardTransitions, nodeSupply } from '../../supervisor/composition.js'
-import { recordHeartbeat } from '../../supervisor/heartbeat.js'
+import { measureCardSession, recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
+import { claudeClient } from '../client/claude-client.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench, taskState } from './merge-bench.js'
 import { detectReview } from './review-detection.js'
@@ -972,7 +973,7 @@ describe('the launch node', () => {
     const live = new Set<string>()
     let sessions = 0
     const bodyOf = (id: number): string | null => cardBodyText(made.db, id)
-    const real = realStarterPorts(root, {}, 'Shift task {{task}}\n\n', () => 'unused', bodyOf)
+    const real = realStarterPorts(claudeClient, root, {}, 'Shift task {{task}}\n\n', () => 'unused', bodyOf)
     const ports: StarterPorts = {
       ...real,
       cut: () => `/trees/mc-${cardId}`,
@@ -1224,7 +1225,7 @@ describe('the launch node', () => {
   }
 
   function beat(made: MergeBench, cardId: number): void {
-    recordHeartbeat(made.db, made.clock.now().toISOString(), { card: cardId, pr: null, head: null, step: 'PostToolUse', session: `s-${cardId}`, lease: null })
+    recordHeartbeat(made.db, made.clock.now().toISOString(), { card: cardId, pr: null, head: null, step: 'PostToolUse', session: `s-${cardId}`, lease: null }, measureCardSession(claudeClient))
   }
 
   it('a card.started with no pull request and no heartbeat for 20 minutes is warned once and keeps running', async () => {
@@ -1375,6 +1376,7 @@ function ladderWorld(made: MergeBench, handoffState: { brief: string, approved: 
   }
   const spawned: DetachedSpawn[] = []
   const ports: StarterPorts = {
+    client: claudeClient,
     read: cardId => cardId === LADDER_CARD ? readFileSync(path.join(parking, 'lane-x', `${cardId}.md`), 'utf8') : null,
     cut: () => {
       mkdirSync(tree, { recursive: true })
@@ -1623,7 +1625,7 @@ describe('where a launched session works', () => {
     execFileSync('git', ['-C', tree, 'init', '-q'])
     execFileSync('git', ['-C', tree, 'remote', 'add', 'origin', 'git@github.com:o/r.git'])
     execFileSync('git', ['-C', tree, 'remote', 'add', 'upstream', 'ssh://git@github.com/o/u.git'])
-    const env = { ...process.env, ...realStarterPorts(tree, {}, '', () => 'u').envOf(1114) }
+    const env = { ...process.env, ...realStarterPorts(claudeClient, tree, {}, '', () => 'u').envOf(1114) }
     const url = (remote: string, ...args: string[]): string => execFileSync('git', ['-C', tree, 'remote', 'get-url', ...args, remote], { encoding: 'utf8', env }).trim()
 
     expect({ fetch: url('origin'), push: url('origin', '--push') }).toEqual({ fetch: 'https://github.com/o/r.git', push: 'https://github.com/o/r.git' })
@@ -1719,6 +1721,7 @@ describe('what a launched session left behind', () => {
     const spawned: DetachedSpawn[] = []
     const cuts: string[] = []
     const ports: StarterPorts = {
+      client: claudeClient,
       read: cardId => cardId === 1123 ? cardText : null,
       cut: (task) => {
         cuts.push(task.branch)

@@ -19,6 +19,7 @@ import { ENTRYPOINT_VARIABLE, HEADLESS_ENTRYPOINT } from '../../window/tab.js'
 import { lastWindowBeat, LIVE_WATCH, NO_LIVE_WATCH, NOT_A_WINDOW, ownCardHasNoPr, ownCardWithoutPr, realTurnWatchDeps, runTurnWatch, TAB_CONTINUE, TAB_STOPS, watchIsLive } from '../../window/turn-watch.js'
 import { ONCE_STORE, OnceStore } from '../../window/watch-store.js'
 import { recordWindowHeartbeat, WINDOW_BEAT_MS } from '../../window/window-heartbeat.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const TURN_WATCH = path.join(REPO_ROOT, 'scripts', 'window', 'turn-watch.ts')
@@ -225,7 +226,7 @@ describe('a window turn ends only while a miko:watch holds the cursor and beats 
 describe('the loop window waits on a watch, a tab window on the STATUS of its handoff', () => {
   function hook(env: NodeJS.ProcessEnv): { code: number, lines: string[] } {
     const lines: string[] = []
-    const code = runTurnWatch({ ...realTurnWatchDeps(env, tmpdir()), lastBeat: () => null, watchRunning: () => false, ownCard: () => null, now: () => NOW, err: line => lines.push(line) })
+    const code = runTurnWatch({ ...realTurnWatchDeps(claudeClient, env, tmpdir()), lastBeat: () => null, watchRunning: () => false, ownCard: () => null, now: () => NOW, err: line => lines.push(line) })
     return { code, lines }
   }
 

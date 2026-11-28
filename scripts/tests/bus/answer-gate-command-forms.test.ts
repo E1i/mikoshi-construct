@@ -17,6 +17,7 @@ import { claudeAnswerer, gateInShellLine, IN_THE_BACKGROUND, RoundTimer } from '
 import { gateLine } from '../../nodes/answer/duties/index.js'
 import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { claudeClient } from '../client/claude-client.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -84,6 +85,7 @@ async function roundWith(runs: readonly GateRun[]): Promise<{ outcome: AnswerOut
   const lease = (): Lease => leaseNext(made.db, pullRequests(made.db), ts, 'answer', 'worker:answer:worker-1')!
   let published = 0
   const answerer = claudeAnswerer(path.join(trees, 'answers'), {
+    client: claudeClient,
     cardText: () => null,
     available: () => true,
     remoteHead: () => published === 0 ? sha('a') : sha('e'),

@@ -21,6 +21,7 @@ import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { STARTER_ACTOR } from '../../window/window-prs.js'
 import { requestFromWindow, requestOf, TAKEOVER_AFTER_MINUTES, WindowRequests } from '../../window/window-requests.js'
+import { claudeClient } from '../client/claude-client.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -122,6 +123,7 @@ function answerExecutor({ made, trees }: Card): AnswerExecutor {
   const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
   let head = sha('a')
   const answerer = claudeAnswerer(path.join(trees, 'answers'), {
+    client: claudeClient,
     cardText: () => null,
     available: () => true,
     remoteHead: () => head,

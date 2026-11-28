@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { refusedOwnerQuestionIn } from '../../nodes/answer/answerer.js'
 import { clientLastSteps, hasClientTranscript, transcriptFile } from '../../ports/client/claude/adapter.js'
 import { readResultFields } from '../../ports/result.js'
-import { clientAdapter, streamReading } from '../../ports/session.js'
+import { streamReading } from '../../ports/session.js'
+import { claudeClient } from './claude-client.js'
 
 const TREE = '/tree'
 const SESSION = 'recorded-session'
@@ -47,13 +48,13 @@ function aTranscript(...lines: string[]): void {
 }
 
 function transcriptReading(): ReturnType<typeof streamReading> {
-  return clientAdapter().reading({ session: SESSION, cwd: TREE, stdoutPath: null, stderrPath: null, exitCode: null })
+  return claudeClient.reading({ session: SESSION, cwd: TREE, stdoutPath: null, stderrPath: null, exitCode: null })
 }
 
 describe('a stream reading', () => {
   it('recorded real streams give the same values through the reading', () => {
     const stream = aStream(RECORDED_INIT, RECORDED_READ, RECORDED_BASH, RECORDED_EDIT, RECORDED_RESULT)
-    const reading = streamReading(stream)
+    const reading = streamReading(claudeClient, stream)
 
     expect(reading.end).toBe('completed')
     expect(reading.failure).toBeNull()
@@ -67,33 +68,33 @@ describe('a stream reading', () => {
       { kind: 'exec', command: 'git -C /tree status --short', path: null },
       { kind: 'write', command: null, path: '/tree/src/a.ts' },
     ])
-    expect(readResultFields(stream)).toMatchObject({ resultLine: 'present', total_cost_usd: 1.2936034, num_turns: 26, duration_ms: null, usage: { input_tokens: 52, cache_read_input_tokens: 1831537 } })
+    expect(readResultFields(claudeClient, stream)).toMatchObject({ resultLine: 'present', total_cost_usd: 1.2936034, num_turns: 26, duration_ms: null, usage: { input_tokens: 52, cache_read_input_tokens: 1831537 } })
 
     const refused = aStream(RECORDED_INIT, RECORDED_DENIAL)
-    expect(streamReading(refused).denials).toEqual([{ tool: 'Edit', path: '/tree/.claude/settings.json', command: null, text: 'The owner must allow this edit.' }])
-    expect(refusedOwnerQuestionIn(refused, '/tree/.claude/settings.json')).toBe('The owner must allow this edit.')
-    expect(refusedOwnerQuestionIn(refused, '/tree/other.json')).toBeNull()
+    expect(streamReading(claudeClient, refused).denials).toEqual([{ tool: 'Edit', path: '/tree/.claude/settings.json', command: null, text: 'The owner must allow this edit.' }])
+    expect(refusedOwnerQuestionIn(claudeClient, refused, '/tree/.claude/settings.json')).toBe('The owner must allow this edit.')
+    expect(refusedOwnerQuestionIn(claudeClient, refused, '/tree/other.json')).toBeNull()
 
     const byCommand = aStream('{"type":"result","result":"Ask the owner.","permission_denials":[{"tool_input":{"command":"tee /tree/q.md"}}]}')
-    expect(refusedOwnerQuestionIn(byCommand, '/tree/q.md')).toBe('Ask the owner.')
+    expect(refusedOwnerQuestionIn(claudeClient, byCommand, '/tree/q.md')).toBe('Ask the owner.')
   })
 
   it('a denied file aims at the owner question only by its whole path, and a command by holding it', () => {
     const denied = (input: object): string => aStream(JSON.stringify({ type: 'result', result: 'Ask the owner.', permission_denials: [{ tool_name: 'Edit', tool_input: input }] }))
 
-    expect(refusedOwnerQuestionIn(denied({ file_path: '/tree/q.md.bak', content: 'not the question' }), '/tree/q.md')).toBeNull()
-    expect(refusedOwnerQuestionIn(denied({ file_path: '/tree/q.md', content: 'the question' }), '/tree/q.md')).toBe('the question')
-    expect(refusedOwnerQuestionIn(denied({ file_path: '/tree/other.md', command: 'tee /tree/q.md' }), '/tree/q.md')).toBe('Ask the owner.')
+    expect(refusedOwnerQuestionIn(claudeClient, denied({ file_path: '/tree/q.md.bak', content: 'not the question' }), '/tree/q.md')).toBeNull()
+    expect(refusedOwnerQuestionIn(claudeClient, denied({ file_path: '/tree/q.md', content: 'the question' }), '/tree/q.md')).toBe('the question')
+    expect(refusedOwnerQuestionIn(claudeClient, denied({ file_path: '/tree/other.md', command: 'tee /tree/q.md' }), '/tree/q.md')).toBe('Ask the owner.')
   })
 
   it('what a stream does not report reads null and never zero', () => {
-    const bare = streamReading(aStream('{"type":"result","is_error":false}'))
+    const bare = streamReading(claudeClient, aStream('{"type":"result","is_error":false}'))
     expect(bare).toMatchObject({ end: 'completed', usage: null, costUsd: null, turns: null, durationMs: null, model: null, contextTokens: null, lastSteps: null, journal: 'unreadable' })
 
-    const partial = streamReading(aStream('{"type":"result","usage":{"output_tokens":5}}'))
+    const partial = streamReading(claudeClient, aStream('{"type":"result","usage":{"output_tokens":5}}'))
     expect(partial.usage).toEqual({ input: null, cached: null, cacheWrite: null, output: 5, reasoning: null })
 
-    const absent = streamReading(path.join(aRoot(), 'none.jsonl'))
+    const absent = streamReading(claudeClient, path.join(aRoot(), 'none.jsonl'))
     expect(absent).toMatchObject({ end: 'missing', failure: null, usage: null, costUsd: null, turns: null, denials: [], toolUses: [] })
 
     aTranscript('{"type":"assistant","timestamp":"2026-11-05T00:00:00.000Z","message":{"role":"assistant","usage":{},"content":[]}}')
@@ -101,13 +102,13 @@ describe('a stream reading', () => {
   })
 
   it('a result marked as an error reads failed with its text, and no result reads missing', () => {
-    expect(streamReading(aStream('{"type":"result","is_error":true,"subtype":"error_during_execution","result":"the turn broke"}'))).toMatchObject({ end: 'failed', failure: 'the turn broke' })
-    expect(streamReading(aStream('{"type":"result","is_error":true,"subtype":"error_max_turns"}'))).toMatchObject({ end: 'failed', failure: 'error_max_turns' })
-    expect(streamReading(aStream(RECORDED_INIT, 'not json'))).toMatchObject({ end: 'missing', model: 'claude-opus-5-5' })
+    expect(streamReading(claudeClient, aStream('{"type":"result","is_error":true,"subtype":"error_during_execution","result":"the turn broke"}'))).toMatchObject({ end: 'failed', failure: 'the turn broke' })
+    expect(streamReading(claudeClient, aStream('{"type":"result","is_error":true,"subtype":"error_max_turns"}'))).toMatchObject({ end: 'failed', failure: 'error_max_turns' })
+    expect(streamReading(claudeClient, aStream(RECORDED_INIT, 'not json'))).toMatchObject({ end: 'missing', model: 'claude-opus-5-5' })
   })
 
   it('a nonzero exit with no stream line reads failed with stderr, and an exit with a stream reads by the stream', () => {
-    const place = (stdoutPath: string, stderrPath: string | null, exitCode: number | null): ReturnType<typeof streamReading> => clientAdapter().reading({ session: '', cwd: '', stdoutPath, stderrPath, exitCode })
+    const place = (stdoutPath: string, stderrPath: string | null, exitCode: number | null): ReturnType<typeof streamReading> => claudeClient.reading({ session: '', cwd: '', stdoutPath, stderrPath, exitCode })
     const stderr = path.join(aRoot(), 'err')
     writeFileSync(stderr, 'the binary would not start\n')
 
@@ -121,19 +122,19 @@ describe('a stream reading', () => {
   it('the session of the client is the one the place names, else the one its stream reports, else null', () => {
     const stream = aStream(RECORDED_INIT, RECORDED_RESULT)
 
-    expect(clientAdapter().reading({ session: SESSION, cwd: TREE, stdoutPath: aStream('{"type":"result"}'), stderrPath: null, exitCode: null }).clientSession).toBe(SESSION)
-    expect(streamReading(stream).clientSession).toBe('recorded-session')
-    expect(streamReading(aStream('{"type":"result"}')).clientSession).toBeNull()
+    expect(claudeClient.reading({ session: SESSION, cwd: TREE, stdoutPath: aStream('{"type":"result"}'), stderrPath: null, exitCode: null }).clientSession).toBe(SESSION)
+    expect(streamReading(claudeClient, stream).clientSession).toBe('recorded-session')
+    expect(streamReading(claudeClient, aStream('{"type":"result"}')).clientSession).toBeNull()
   })
 
   it('the model is the model of the init event, whatever a hook line before it names', () => {
     const stream = aStream('{"type":"system","subtype":"hook_started","model":"not-this-one"}', 'not json', RECORDED_INIT)
-    expect(streamReading(stream).model).toBe('claude-opus-5-5')
+    expect(streamReading(claudeClient, stream).model).toBe('claude-opus-5-5')
   })
 
   it('the span of a stream is its timestamps, read null with fewer than two', () => {
-    expect(streamReading(aStream('{"timestamp":"2026-11-05T00:00:00.000Z"}', '{"timestamp":"2026-11-05T00:00:02.500Z"}')).durationMs).toBe(2500)
-    expect(streamReading(aStream('{"timestamp":"2026-11-05T00:00:00.000Z"}')).durationMs).toBeNull()
+    expect(streamReading(claudeClient, aStream('{"timestamp":"2026-11-05T00:00:00.000Z"}', '{"timestamp":"2026-11-05T00:00:02.500Z"}')).durationMs).toBe(2500)
+    expect(streamReading(claudeClient, aStream('{"timestamp":"2026-11-05T00:00:00.000Z"}')).durationMs).toBeNull()
   })
 })
 

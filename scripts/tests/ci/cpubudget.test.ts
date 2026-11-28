@@ -11,6 +11,7 @@ import { printBoard } from '../../cli/board-page.js'
 import { fullReview } from '../../nodes/review/review-depth.js'
 import { claudeReviewer, ReviewTrees } from '../../nodes/review/reviewer.js'
 import { budgetDirs, heavyStep, HELD_VARIABLE, joinSession, leaveSession, LOCK_DIR_VARIABLE, LOG_FILE, queueDir, registerRun, runGrant, WORKER_LIMIT_VARIABLE, workerBudget } from '../../quality/lock.js'
+import { claudeClient } from '../client/claude-client.js'
 import { busWithCardStarted } from '../ghosts/card-started-bus.js'
 
 const HEAD = 'a'.repeat(40)
@@ -137,7 +138,7 @@ describe('one worker budget for the machine', () => {
     const left: string[] = []
     const spawned: (string | undefined)[] = []
     const trees = new ReviewTrees('/repo', dir, { git: () => {}, worktrees: () => [], prepare: () => {}, state: () => ({ head: HEAD, status: [] }) })
-    const review = claudeReviewer(trees, async (params) => {
+    const review = claudeReviewer(claudeClient, trees, async (params) => {
       expect(left).toEqual([])
       spawned.push(params.env?.[WORKER_LIMIT_VARIABLE])
       writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')

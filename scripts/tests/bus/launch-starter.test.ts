@@ -14,6 +14,7 @@ import { busCardSessions } from '../../nodes/launch/launch-root.js'
 import { launchArgv, launchEnv, ShiftCardStarter } from '../../nodes/launch/launch-starter.js'
 import { importsReorderedOnly, sessionResult } from '../../nodes/launch/session-journal.js'
 import { HTTPS_ORIGIN_ENV } from '../../ports/tree-publish.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const NO_FILE_CONFIG_ENV = { GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1' }
 
@@ -112,6 +113,7 @@ const CARD_TEXT = parkingFileText({ card: `#${CARD} card-${CARD} [implement/netw
 function heldTree(changed: string[], overrides: Partial<StarterPorts> = {}): { start: () => CardStart, startQueued: () => CardStart, spawned: string[] } {
   const spawned: string[] = []
   const ports: StarterPorts = {
+    client: claudeClient,
     read: cardId => cardId === CARD ? CARD_TEXT : null,
     cut: () => {
       throw new Error('a held tree is never cut')

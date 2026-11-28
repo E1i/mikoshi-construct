@@ -9,11 +9,12 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { selectRun } from '../../scripts/ci/layers.js'
 import { scansATree } from '../../scripts/ci/tree-scanners.js'
 import { conceptsSection, generateFactory, renderFactory } from '../../scripts/contract/factory.js'
-import { AXES, CONCEPTS } from '../../scripts/contract/factory/concepts.js'
+import { AXES, CLIENT_LIVENESS_CONCEPT, CONCEPTS, withClientDetectors } from '../../scripts/contract/factory/concepts.js'
 import { lawsSection, withLaws } from '../../scripts/contract/factory/laws.js'
 import { findSites, overlapsSection } from '../../scripts/contract/factory/overlaps.js'
 import { parsedFiles } from '../../scripts/contract/factory/walk.js'
 import { BUS_VERSION } from '../../scripts/core/bus-version.js'
+import { claudeClient } from '../../scripts/tests/client/claude-client.js'
 import { SCANNED_TREES } from '../../src/card/covering-tests.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
@@ -59,7 +60,7 @@ const SITES_OF_THE_RECONNAISSANCE: Record<string, readonly string[]> = {
 let generatedFactory: FactoryWithLaws | undefined
 
 function generated(): FactoryWithLaws {
-  generatedFactory ??= withLaws(generateFactory())
+  generatedFactory ??= withLaws(generateFactory({ id: claudeClient.id, isClient: claudeClient.processes.isClient }))
   return generatedFactory
 }
 
@@ -230,8 +231,10 @@ describe('contract/factory.json', () => {
   it('reads the client process name from the adapter, so the literal stays in the adapter', () => {
     const concepts = readFileSync(path.join(REPO_ROOT, 'scripts', 'contract', 'factory', 'concepts.ts'), 'utf8')
 
-    expect(concepts).toContain('clientAdapter().processes')
-    expect(CONCEPTS.find(concept => concept.id === 'live-session')!.detectors.length).toBeGreaterThan(0)
+    expect(concepts).not.toContain('ports/session.js')
+    const plain = CONCEPTS.find(concept => concept.id === CLIENT_LIVENESS_CONCEPT)!
+    const withClient = withClientDetectors(CONCEPTS, claudeClient.processes.isClient).find(concept => concept.id === CLIENT_LIVENESS_CONCEPT)!
+    expect(withClient.detectors.length).toBe(plain.detectors.length + 1)
   })
 
   it('the committed overlaps hold each file with a count and no line number, and contract:overlaps prints as many file:line sites as that count', () => {

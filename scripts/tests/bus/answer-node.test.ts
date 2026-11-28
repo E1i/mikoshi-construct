@@ -37,6 +37,7 @@ import { cardDecisionCommand, DECISIONS_SCOPE, OWNERS_UNDER_ANY_SHARD, VERSION_P
 import { answerParts, busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { busSessionPulse, lastHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { claudeClient } from '../client/claude-client.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench, taskState } from './merge-bench.js'
 
@@ -92,7 +93,7 @@ function bench(): MergeBench {
 }
 
 function nodeOf(made: MergeBench, mode: DetectionMode = 'shadow'): ProbedAnswerNode {
-  const parts: AnswerNodeParts = { silentMs: SILENT_MS, db: made.db, answerer: async () => {
+  const parts: AnswerNodeParts = { liveSession: () => null, silentMs: SILENT_MS, db: made.db, answerer: async () => {
     throw new Error('the probe answers nothing')
   }, ownerMerges: () => '', clock: made.clock.now, session: 'node-1', cardText: () => null, mode, env: {} }
   return new ProbedAnswerNode(parts)
@@ -193,7 +194,7 @@ function askingAnswerer(question: string): Answerer {
 async function askedUnderShard(made: MergeBench, question: string, isolation?: IsolationReader, shard: ShardIssue | null = LIVE_DECISIONS, shardDecider: ShardDecider = () => WINDOW_DECISION, answerer: Answerer = askingAnswerer(question)): Promise<AnswerOutcome> {
   const { trees, lease } = questionUnderShard(made, made.clock.now(), shard)
   const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
-  const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, isolation, shardDecider })
+  const executor = new AnswerExecutor({ liveSession: () => null, cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, isolation, shardDecider })
   return executor.answer(lease())
 }
 
@@ -537,6 +538,7 @@ describe('the answer node', () => {
       const published: string[] = []
       const answers = path.join(trees, 'answers')
       const answerer = claudeAnswerer(answers, {
+        client: claudeClient,
         cardText: () => null,
         available: () => true,
         remoteHead: () => sha('a'),
@@ -548,7 +550,7 @@ describe('the answer node', () => {
         newSession: () => 'new-session-1',
         publish: card => published.push(card.branch),
       })
-      const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
+      const executor = new AnswerExecutor({ liveSession: () => null, cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
 
       expect(await executor.answer(lease()), tool).toMatchObject({ kind: 'stopped', reason: 'question.owner', detail: OWNER_QUESTION })
       expect(eventsOf(made.db, CARD_STOPPED).map(each => each.reason), tool).toEqual(['question.agent', 'question.owner'])
@@ -562,6 +564,7 @@ describe('the answer node', () => {
     const answers = path.join(trees, 'answers')
     const seen: (LastHeartbeat | null)[] = []
     const answerer = claudeAnswerer(answers, {
+      client: claudeClient,
       cardText: () => null,
       available: () => true,
       remoteHead: () => sha('a'),
@@ -588,7 +591,7 @@ describe('the answer node', () => {
       made.clock.advance(7.5 * 60_000)
       return { session: 'card-session-1', resumed: true, before: sha('a'), after: sha('e'), owner: null, tokens: 48_200 }
     }
-    const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
+    const executor = new AnswerExecutor({ liveSession: () => null, cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
     expect(await executor.answer(lease())).toMatchObject({ kind: 'answered', head: sha('e') })
     expect(eventsOf(made.db, CARD_ANSWERED)).toEqual([{ session: 'card-session-1', worktree: path.join(trees, 'mc-905'), resumed: true, source: 'question', from: sha('a'), to: sha('e'), minutes: 7.5, tokens: 48_200 }])
   })
@@ -607,6 +610,7 @@ describe('the answer node', () => {
     const heads = [sha('a'), sha('e')]
     let allowed: unknown = null
     const answerer = claudeAnswerer(path.join(trees, 'answers'), {
+      client: claudeClient,
       cardText: () => null,
       available: () => true,
       remoteHead: () => heads.shift() ?? null,
@@ -653,6 +657,7 @@ describe('the answer node', () => {
     const runs: string[][] = []
     const heads = [sha('a'), sha('a'), sha('a'), sha('e')]
     const answerer = claudeAnswerer(path.join(trees, 'answers'), {
+      client: claudeClient,
       cardText: () => null,
       available: () => true,
       remoteHead: () => heads.shift() ?? null,
@@ -669,7 +674,7 @@ describe('the answer node', () => {
       contextWarn: () => 200_000,
       diff: () => 'diff --git a/x b/x',
     })
-    const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
+    const executor = new AnswerExecutor({ liveSession: () => null, cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
 
     expect(await executor.answer(lease())).toMatchObject({ kind: 'answered', session: 'new-session-1', resumed: false, head: sha('e') })
     expect(runs.map(argv => argv.includes('--resume'))).toEqual([true, false])
@@ -686,7 +691,7 @@ describe('the answer node', () => {
       requests.push(request)
       return { session: request.fresh === true ? 'new-session-1' : 'card-session-1', resumed: request.fresh !== true, atContextWarn: true, before: sha('a'), after: sha('a'), owner: null }
     }
-    const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
+    const executor = new AnswerExecutor({ liveSession: () => null, cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
 
     expect(await executor.answer(lease())).toMatchObject({ kind: 'stopped', reason: 'fault', detail: expect.stringContaining('continuation-limit') })
     expect(requests.map(request => request.fresh)).toEqual([false, ...Array.from({ length: MAX_RESTARTS }).fill(true)])
@@ -702,7 +707,7 @@ describe('the answer node', () => {
       given = answerPrompt(request, cardBody, windowGateRule(request.card, OWN_GATE, '/answers/card-session-1.1.owner.txt'))
       return { session: 'card-session-1', resumed: true, before: sha('a'), after: sha('e'), owner: null, input: { prompt: given, cardBody } }
     }
-    const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, prompts: path.join(trees, 'prompts') })
+    const executor = new AnswerExecutor({ liveSession: () => null, cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, prompts: path.join(trees, 'prompts') })
 
     expect(await executor.answer(lease())).toMatchObject({ kind: 'answered', head: sha('e') })
     const [answered] = eventsOf(made.db, CARD_ANSWERED) as { prompt_sha: string, prompt_path: string, card_body_sha: string, input?: unknown }[]
@@ -721,7 +726,7 @@ describe('the answer node', () => {
     const blocker = path.join(trees, 'a-file')
     writeFileSync(blocker, '')
     const answerer = async (): Promise<Answered & { input: AnswerInput }> => ({ session: 'card-session-1', resumed: true, before: sha('a'), after: sha('e'), owner: null, input: { prompt: 'the answer prompt', cardBody: 'the card body' } })
-    const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, prompts: path.join(blocker, 'prompts') })
+    const executor = new AnswerExecutor({ liveSession: () => null, cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, prompts: path.join(blocker, 'prompts') })
 
     expect(await executor.answer(lease())).toMatchObject({ kind: 'answered', head: sha('e') })
     const [answered] = eventsOf(made.db, CARD_ANSWERED)
@@ -734,7 +739,7 @@ describe('the answer node', () => {
     const { trees, lease } = questionUnderShard(made, made.clock.now(), null)
     const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
     const answerer: Answerer = async () => ({ session: 'card-session-1', resumed: true, before: sha('a'), after: sha('e'), owner: null })
-    const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
+    const executor = new AnswerExecutor({ liveSession: () => null, cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
     expect(await executor.answer(lease())).toMatchObject({ kind: 'answered', head: sha('e') })
     expect(eventsOf(made.db, CARD_ANSWERED)).toEqual([{ session: 'card-session-1', worktree: path.join(trees, 'mc-905'), resumed: true, source: 'question', from: sha('a'), to: sha('e') }])
   })
@@ -827,7 +832,7 @@ describe('the answer node', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     questionUnderShard(made, made.clock.now(), LIVE_DECISIONS)
     const isolation = vi.fn(PARTIAL)
-    const run: AnswerRun = { busPath: ':memory:', answerer: askingAnswerer(OWNER_QUESTION), ownerMerges: () => OWNER_MERGES, cardText: () => null, session: 'worker-1', pause: async () => {}, isolation }
+    const run: AnswerRun = { liveSession: () => null, busPath: ':memory:', answerer: askingAnswerer(OWNER_QUESTION), ownerMerges: () => OWNER_MERGES, cardText: () => null, session: 'worker-1', pause: async () => {}, isolation }
     await once(answerNodeOf(run, made.db, 'shadow'))
     expect(isolation).toHaveBeenCalled()
     expect(eventsOf(made.db, SHARD_DECIDED)).toEqual([])
@@ -868,7 +873,7 @@ describe('the answer node', () => {
       const answerer = vi.fn<Answerer>(async () => {
         throw new Error('a card that is not the bus\'s is never answered')
       })
-      const node = new AnswerNode({ silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, session: 'node-1', cardText: () => null, mode: 'live', env: {} })
+      const node = new AnswerNode({ liveSession: () => null, silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, session: 'node-1', cardText: () => null, mode: 'live', env: {} })
       await once(node)
       await once(node)
 

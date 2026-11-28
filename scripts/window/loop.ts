@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { Status } from '../core/handoff-status.js'
-import type { Role } from '../ports/client/contract.js'
+import type { ClientAdapter, Refusal, Role, WindowCommand } from '../ports/client/contract.js'
 import type { ClientConfig } from '../ports/client/index.js'
 import type { WindowMode } from '../ports/session.js'
 import type { ProcessRow } from './exit.js'
@@ -18,9 +18,11 @@ import { PROCESS_ENDED, PROCESS_HEARTBEAT, PROCESS_REFUSED } from '../core/event
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { statusOfFile } from '../core/handoff-status.js'
 import { HANDOFF_WRITE_COMMAND, MIKO_COMMAND, MIKO_EXIT_COMMAND, MIKO_WATCH_COMMAND } from '../core/owner-commands.js'
+import { claudeAdapterWith } from '../ports/client/claude/adapter.js'
 import { ClientPort } from '../ports/client/index.js'
 import { OsProcessTable } from '../ports/process-table.js'
-import { clientAdapter, EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE } from '../ports/session.js'
+import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, WINDOW_MARK, WINDOW_VARIABLE } from '../ports/session.js'
+import { settingsFlag, shiftSettings } from '../ports/shift-settings.js'
 import { recordProcessHeartbeat } from '../supervisor/heartbeat.js'
 import { beatsLive, SILENT_MS } from '../supervisor/liveness-sites.js'
 import { coreVersionIn, LOADED_CORE_VARIABLE, UNKNOWN } from './eddies-measure.js'
@@ -37,16 +39,17 @@ export function clientConfigIn(root: string, role: Role): ClientConfig {
   return { id: recordedRole === undefined ? record?.id ?? null : clientIdFor(record, recordedRole), model: clientModelOf(record) }
 }
 
-const CLIENT_PORT = new ClientPort(clientAdapter(), clientConfigIn)
-
-export function windowCommandIn(root: string): ReturnType<ClientPort['windowCommandIn']> {
-  return CLIENT_PORT.windowCommandIn(root)
+export function clientPortOf(client: ClientAdapter): ClientPort {
+  return new ClientPort(client, clientConfigIn)
 }
 
-const DEFAULT_WINDOW = CLIENT_PORT.defaultWindowCommand()
-export const CLAUDE_VARIABLE = DEFAULT_WINDOW.variable
-export const DEFAULT_CLAUDE = DEFAULT_WINDOW.command({})
-export const claudeCommand = DEFAULT_WINDOW.command
+export function windowCommandIn(client: ClientAdapter, root: string): WindowCommand | Refusal {
+  return clientPortOf(client).windowCommandIn(root)
+}
+
+export function defaultWindowOf(client: ClientAdapter): WindowCommand {
+  return clientPortOf(client).defaultWindowCommand()
+}
 export const MIKO_HANDOFF_NAME = 'miko.md'
 export interface WindowCommands {
   write: string
@@ -219,7 +222,7 @@ export function sessionScript(command: string): string {
   return SHELL_SYNTAX.test(command) ? `${command} "$@"` : `exec env ${command} "$@"`
 }
 
-export function compoundCommandRefusal(command: string, variable: string = CLAUDE_VARIABLE): string | null {
+export function compoundCommandRefusal(command: string, variable: string): string | null {
   return SHELL_SYNTAX.test(command) ? `${PREFIX}${variable} contains shell syntax (${command}): an exit request could not end the claude it starts; name one command` : null
 }
 
@@ -402,7 +405,7 @@ export function endOnHangup(ended: () => void, exit: (code: number) => void): vo
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const window = windowCommandIn(process.cwd())
+  const window = windowCommandIn(claudeAdapterWith({ shiftSettings, settingsFlag }), process.cwd())
   if ('kind' in window) {
     console.error(`${PREFIX}${window.reason}`)
     process.exit(1)

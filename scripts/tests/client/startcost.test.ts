@@ -8,9 +8,10 @@ import { PROCESS_TABLE_COMMAND } from '../../../src/commands/attach/settings.js'
 import { openBus } from '../../core/db.js'
 import { windowCommand } from '../../ports/client/claude/adapter.js'
 import { runtimeIsolation } from '../../ports/isolation.js'
-import { clientAdapter, clientInvocation } from '../../ports/session.js'
+import { clientInvocation } from '../../ports/session.js'
 import { CARD_SESSION_SANDBOX } from '../../ports/shift-settings.js'
 import { recordHeartbeat, runHeartbeat } from '../../supervisor/heartbeat.js'
+import { claudeClient } from './claude-client.js'
 
 const SESSION = '11111111-2222-3333-4444-555555555555'
 const PROMPT = 'the prompt'
@@ -63,7 +64,7 @@ describe('the invocation of a card session', () => {
     for (const role of CARD_ROLES) {
       for (const kind of ['start', 'resume'] as const) {
         for (const policy of [SANDBOXED, CLIENT_DEFAULT]) {
-          const invocation = clientInvocation(specOf({ role, kind, policy }))
+          const invocation = clientInvocation(claudeClient, specOf({ role, kind, policy }))
           const { args } = invocation
           const label = `${role} ${kind} ${policy.profile}`
           expect(args[args.indexOf('--tools') + 1], label).toBe(SIX_TOOLS)
@@ -80,36 +81,36 @@ describe('the invocation of a card session', () => {
   })
 
   it('a client-default card session gains a settings flag holding only the two keys', () => {
-    const invocation = clientInvocation(specOf({ role: 'review', policy: CLIENT_DEFAULT }))
+    const invocation = clientInvocation(claudeClient, specOf({ role: 'review', policy: CLIENT_DEFAULT }))
     expect(settingsOf(invocation)).toEqual({ autoMemoryEnabled: false, claudeMdExcludes: [USER_INSTRUCTIONS] })
     expect(invocation.args).not.toContain('--setting-sources')
   })
 
   it('a sandboxed card session keeps its sandbox settings and no setting source is narrowed', () => {
     for (const role of CARD_ROLES) {
-      const { args } = clientInvocation(specOf({ role }))
+      const { args } = clientInvocation(claudeClient, specOf({ role }))
       expect(args[args.indexOf('--setting-sources') + 1], role).toBe('project,local')
-      expect(settingsOf(clientInvocation(specOf({ role }))).sandbox, role).toEqual({ ...CARD_SESSION_SANDBOX, excludedCommands: [PROCESS_TABLE_COMMAND] })
+      expect(settingsOf(clientInvocation(claudeClient, specOf({ role }))).sandbox, role).toEqual({ ...CARD_SESSION_SANDBOX, excludedCommands: [PROCESS_TABLE_COMMAND] })
     }
-    expect(clientInvocation(specOf({ role: 'review', policy: CLIENT_DEFAULT })).args).not.toContain('--setting-sources')
+    expect(clientInvocation(claudeClient, specOf({ role: 'review', policy: CLIENT_DEFAULT })).args).not.toContain('--setting-sources')
   })
 
   it('a window invocation is the window command and a tools line widens only that card', () => {
-    const window = clientInvocation(specOf({ role: 'window', policy: CLIENT_DEFAULT, prompt: '' }))
+    const window = clientInvocation(claudeClient, specOf({ role: 'window', policy: CLIENT_DEFAULT, prompt: '' }))
     expect(window.args).toEqual(windowCommand({}).split(' ').slice(1))
     expect(window.args).not.toContain('--tools')
 
-    const plain = clientInvocation(specOf({ role: 'launch' })).args
+    const plain = clientInvocation(claudeClient, specOf({ role: 'launch' })).args
     expect(plain[plain.indexOf('--tools') + 1]).toBe(SIX_TOOLS)
 
-    const web = clientInvocation(specOf({ role: 'launch', policy: { ...SANDBOXED, tools: ['web'] } })).args
+    const web = clientInvocation(claudeClient, specOf({ role: 'launch', policy: { ...SANDBOXED, tools: ['web'] } })).args
     expect(web[web.indexOf('--tools') + 1]).toBe(`${SIX_TOOLS},WebFetch,WebSearch`)
     expect(web).toContain('--disable-slash-commands')
 
-    const agents = clientInvocation(specOf({ role: 'answer', policy: { ...SANDBOXED, tools: ['agents'] } })).args
+    const agents = clientInvocation(claudeClient, specOf({ role: 'answer', policy: { ...SANDBOXED, tools: ['agents'] } })).args
     expect(agents[agents.indexOf('--tools') + 1]).toBe(`${SIX_TOOLS},Agent`)
 
-    const skills = clientInvocation(specOf({ role: 'launch', policy: { ...SANDBOXED, tools: ['skills'] } })).args
+    const skills = clientInvocation(claudeClient, specOf({ role: 'launch', policy: { ...SANDBOXED, tools: ['skills'] } })).args
     expect(skills[skills.indexOf('--tools') + 1]).toBe(`${SIX_TOOLS},Skill`)
     expect(skills).not.toContain('--disable-slash-commands')
     expect(skills[skills.indexOf('--tools') + 2]).toMatch(/^--/)
@@ -117,18 +118,18 @@ describe('the invocation of a card session', () => {
 
   it('a ladder session and a Ghost keep every tool, their slash commands and the user instructions', () => {
     for (const role of ['ladder', 'ghost'] as const) {
-      const invocation = clientInvocation(specOf({ role, policy: CLIENT_DEFAULT }))
+      const invocation = clientInvocation(claudeClient, specOf({ role, policy: CLIENT_DEFAULT }))
       expect(invocation.args, role).not.toContain('--tools')
       expect(invocation.args, role).not.toContain('--disable-slash-commands')
       expect(invocation.args, role).not.toContain('--settings')
     }
-    const gated = settingsOf(clientInvocation(specOf({ role: 'ladder', kind: 'resume' })))
+    const gated = settingsOf(clientInvocation(claudeClient, specOf({ role: 'ladder', kind: 'resume' })))
     expect(gated).not.toHaveProperty('claudeMdExcludes')
     expect(gated).not.toHaveProperty('autoMemoryEnabled')
   })
 
   it('the isolation command of the review and answer workers names no settings flag, so the reader does not refuse them', () => {
-    const command = clientAdapter().processes.isolationCommand()
+    const command = claudeClient.processes.isolationCommand()
     expect(command.join(' ')).not.toContain('--settings')
     const facts = { managed: null, flag: null, local: null, project: null, user: { sandbox: { enabled: true } }, platform: 'darwin', sandboxExec: true, bwrap: false, socat: false, command }
     expect(runtimeIsolation(facts).level).not.toBe('none')
@@ -156,13 +157,13 @@ describe('the heartbeat of a card session', () => {
 
   function budgetIn(home: string): ReadBudget {
     vi.stubEnv('HOME', home)
-    return clientAdapter().readBudget({ session: SESSION, cwd: '/tree', stdoutPath: null })
+    return claudeClient.readBudget({ session: SESSION, cwd: '/tree', stdoutPath: null })
   }
 
   function payloadOf(home: string): Record<string, unknown> {
     vi.stubEnv('HOME', home)
     const file = path.join(aRoot(), 'bus.db')
-    expect(runHeartbeat(ENV, SESSION, file, () => new Date('2026-11-05T00:00:00.000Z'), home, home)).toBe(0)
+    expect(runHeartbeat(claudeClient, ENV, SESSION, file, () => new Date('2026-11-05T00:00:00.000Z'), home, home)).toBe(0)
     const db = openBus(file)
     try {
       const row = db.prepare(`SELECT payload FROM events WHERE type = 'session.heartbeat'`).get() as { payload: string }

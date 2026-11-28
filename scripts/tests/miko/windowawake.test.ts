@@ -10,6 +10,7 @@ import { MIKO_HANDOFF_NAME, TAB_MODE } from '../../window/loop.js'
 import { LIVE_WATCH, NO_LIVE_WATCH, OWNER_QUESTION_WAITS, realTurnWatchDeps, runTurnWatch } from '../../window/turn-watch.js'
 import { ONCE_STORE, OnceStore } from '../../window/watch-store.js'
 import { WINDOW_BEAT_MS } from '../../window/window-heartbeat.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const NOW = Date.parse('2026-11-03T03:00:00.000Z')
 const roots: string[] = []
@@ -29,7 +30,7 @@ function ownerQuestionHandoff(): string {
 function stopTabIn(dir: string, lastBeat: string | null): { code: number, lines: string[] } {
   const lines: string[] = []
   const env = { [HANDOFF_DIR_VARIABLE]: dir, CLAUDE_CODE_SESSION_ID: 's-window', [WINDOW_VARIABLE]: TAB_MODE }
-  const code = runTurnWatch({ ...realTurnWatchDeps(env, tmpdir()), lastBeat: () => lastBeat, ownCard: () => null, now: () => NOW, err: line => lines.push(line) })
+  const code = runTurnWatch({ ...realTurnWatchDeps(claudeClient, env, tmpdir()), lastBeat: () => lastBeat, ownCard: () => null, now: () => NOW, err: line => lines.push(line) })
   return { code, lines }
 }
 

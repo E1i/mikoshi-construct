@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import type { ClientAdapter } from '../ports/client/contract.js'
 import type { WindowMode } from '../ports/session.js'
 import type { SessionMeasure } from '../supervisor/heartbeat.js'
 import type { SessionGauges } from './eddies-measure.js'
@@ -9,7 +10,7 @@ import { appendEvent, openBus } from '../core/db.js'
 import { EITHER_JOURNAL, events, processBeats } from '../core/events-query.js'
 import { PROCESS_ENDED, WINDOW_HEARTBEAT } from '../core/events.js'
 import { WINDOW_ACTOR } from '../core/node.js'
-import { clientAdapter, windowModeOf } from '../ports/session.js'
+import { windowModeOf } from '../ports/session.js'
 import { measureSession } from '../supervisor/heartbeat.js'
 import { beatsLive } from '../supervisor/liveness-sites.js'
 import { LOADED_CORE_VARIABLE } from './eddies-measure.js'
@@ -54,8 +55,10 @@ export interface WindowSession {
   root?: string
 }
 
-export function windowOf(env: NodeJS.ProcessEnv): WindowSession | null {
-  const session = clientAdapter().ownSession(env)?.trim()
+export type SessionOwner = Pick<ClientAdapter, 'ownSession'>
+
+export function windowOf(client: SessionOwner, env: NodeJS.ProcessEnv): WindowSession | null {
+  const session = client.ownSession(env)?.trim()
   const mode = windowModeOf(env)
   const root = env[PROJECT_VARIABLE]?.trim()
   if (mode === null || session === undefined || !SESSION_ID.test(session))
@@ -73,8 +76,8 @@ export function anotherWindowLine(root: string, others: { session: string, ts: s
   return `another window lives in ${root}: ${others.map(other => `session ${other.session} beat at ${other.ts}`).join(', ')}; name it to the owner before writing here`
 }
 
-export function windowSessionOf(env: NodeJS.ProcessEnv): string | null {
-  const window = windowOf(env)
+export function windowSessionOf(client: SessionOwner, env: NodeJS.ProcessEnv): string | null {
+  const window = windowOf(client, env)
   return window?.mode === 'loop' ? window.session : null
 }
 

@@ -1,8 +1,7 @@
-import type { ProcessCwds } from './client/contract.js'
+import type { ClientProcesses, ProcessCwds } from './client/contract.js'
 import { execFileSync } from 'node:child_process'
 import process from 'node:process'
 import { LISTING_COLUMNS, LISTING_PROGRAM } from '../core/process-listing.js'
-import { clientAdapter } from './session.js'
 
 export const TECHNOLOGY_WORDS = ['lsof', 'ps', 'top'] as const
 
@@ -71,12 +70,19 @@ export function rowsOf(snapshot: ProcessSnapshot): readonly ProcessRow[] {
   return snapshot.rows
 }
 
-function clientNameArgs(): string[] {
-  return clientAdapter().processes.processNames.flatMap(name => ['-c', name])
+export type ClientProcessNames = Pick<ClientProcesses, 'processNames'>
+
+const NO_CLIENT_NAMED: ClientProcessNames = { processNames: [] }
+
+function clientNameArgs(client: ClientProcessNames): string[] {
+  return client.processNames.flatMap(name => ['-c', name])
 }
 
 export const CPU_SAMPLE_COMMAND = `top ${SAMPLE_ARGS.join(' ')}`
-export const CLIENT_CWDS_COMMAND = `lsof ${clientNameArgs().join(' ')}`
+
+export function clientCwdsCommand(client: ClientProcessNames): string {
+  return `lsof ${clientNameArgs(client).join(' ')}`
+}
 
 function cwdsIn(output: string): string[] {
   return output.split('\n').filter(line => line.startsWith(CWD_FIELD)).map(line => line.slice(CWD_FIELD.length))
@@ -95,6 +101,8 @@ export function userProcessCount(uid: number): number | null {
 }
 
 export class OsProcessTable implements ProcessTable {
+  constructor(private readonly client: ClientProcessNames = NO_CLIENT_NAMED) {}
+
   snapshot(): ProcessSnapshot {
     try {
       return { readable: true, rows: parseListing(execFileSync(LISTING_PROGRAM, [...LISTING_COLUMNS], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' }, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: LISTING_BUFFER })) }
@@ -105,8 +113,10 @@ export class OsProcessTable implements ProcessTable {
   }
 
   clientCwds(): ProcessCwds {
+    if (this.client.processNames.length === 0)
+      return { kind: 'unreadable', why: 'no client adapter named its processes to this process table' }
     try {
-      return { kind: 'listed', cwds: cwdsIn(execFileSync('lsof', ['-a', ...clientNameArgs(), '-d', 'cwd', '-F', CWD_FIELD], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })) }
+      return { kind: 'listed', cwds: cwdsIn(execFileSync('lsof', ['-a', ...clientNameArgs(this.client), '-d', 'cwd', '-F', CWD_FIELD], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })) }
     }
     catch (error) {
       const failed = error as { status?: unknown, stdout?: unknown }
@@ -119,6 +129,11 @@ export class OsProcessTable implements ProcessTable {
   cpuSample(): string {
     return execFileSync('top', SAMPLE_ARGS, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: SAMPLE_BUFFER })
   }
+}
+
+export function clientCwdsOf(client: ClientProcessNames): () => ProcessCwds {
+  const table = new OsProcessTable(client)
+  return () => table.clientCwds()
 }
 
 export interface InMemoryProcesses {

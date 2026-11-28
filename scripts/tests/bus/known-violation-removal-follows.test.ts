@@ -25,6 +25,7 @@ import { classify } from '../../policy/morse/rules.js'
 import { KNOWN_VIOLATIONS, removesEntriesOnly, textBeforePatch } from '../../policy/touch-scope.js'
 import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { claudeClient } from '../client/claude-client.js'
 import { ranTheGreenGate } from './gate-stream.js'
 import { sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench } from './merge-bench.js'
@@ -143,6 +144,7 @@ async function answerWith(rounds: Round[]): Promise<Answering> {
   const prompts: string[] = []
   let published = 0
   const answerer = claudeAnswerer(dir, {
+    client: claudeClient,
     cardText: () => CARD_TEXT,
     available: () => true,
     remoteHead: () => heads.shift() ?? null,

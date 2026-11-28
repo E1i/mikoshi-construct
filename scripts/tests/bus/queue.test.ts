@@ -10,8 +10,9 @@ import { FAILURES_TO_STOP, LAUNCH_STOP_WITH_NO_PULL_REQUEST, queueTask } from '.
 import { RateLimited } from '../../ports/meter.js'
 import { cardTransitions } from '../../supervisor/composition.js'
 import { LIFTED_ADMISSION } from '../../supervisor/derive-queues.js'
-import { recordHeartbeat } from '../../supervisor/heartbeat.js'
+import { measureCardSession, recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { claudeClient } from '../client/claude-client.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench, taskState } from './merge-bench.js'
 import { detectMerge } from './merge-detection.js'
@@ -72,11 +73,11 @@ function queuedAnswer(made: MergeBench): string {
 }
 
 function beat(made: MergeBench, lease: Lease): void {
-  recordHeartbeat(made.db, now(made), { card: CARD, pr: PR, head: HEAD, step: 'answer', session: 'session-1', lease: { taskKey: lease.taskKey, leaseGen: lease.leaseGen } })
+  recordHeartbeat(made.db, now(made), { card: CARD, pr: PR, head: HEAD, step: 'answer', session: 'session-1', lease: { taskKey: lease.taskKey, leaseGen: lease.leaseGen } }, measureCardSession(claudeClient))
 }
 
 function cardBeat(made: MergeBench): void {
-  recordHeartbeat(made.db, now(made), { card: CARD, pr: PR, head: HEAD, step: 'launch', session: 'session-1', lease: null })
+  recordHeartbeat(made.db, now(made), { card: CARD, pr: PR, head: HEAD, step: 'launch', session: 'session-1', lease: null }, measureCardSession(claudeClient))
 }
 
 function failUntilTheLast(made: MergeBench): void {

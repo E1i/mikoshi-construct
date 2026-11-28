@@ -1,6 +1,6 @@
 import type { ShiftTask } from '../../../src/card/task-file.js'
 import type { ProcessIdentity } from '../../core/node.js'
-import type { SessionSpec } from '../../ports/client/contract.js'
+import type { ClientAdapter, SessionSpec } from '../../ports/client/contract.js'
 import type { ProcessTable } from '../../ports/process-table.js'
 import type { FreshTree } from '../../ports/worktree.js'
 import type { CardStart, CardStarter, ChildExit, HeldTree, QueuedCard, StartedCard } from './launch-executor.js'
@@ -37,6 +37,7 @@ export interface DetachedSpawn {
 }
 
 export interface StarterPorts {
+  client: ClientAdapter
   read: (cardId: number) => string | null
   cut: (task: ShiftTask) => string
   base: (worktree: string) => string
@@ -81,8 +82,8 @@ const UNQUOTED_LEADING_WORDS = 2
 
 const LAUNCH_POSITIONAL_WORDS = 4
 
-export function chainedClient(spec: SessionSpec, positionalWords: number, binary?: string): ChainedClient {
-  const invocation = clientInvocation(spec)
+export function chainedClient(client: ClientAdapter, spec: SessionSpec, positionalWords: number, binary?: string): ChainedClient {
+  const invocation = clientInvocation(client, spec)
   const split = invocation.args.length - positionalWords
   const unquoted = invocation.args.slice(0, UNQUOTED_LEADING_WORDS)
   const quoted = invocation.args.slice(UNQUOTED_LEADING_WORDS, split).map(shellWord)
@@ -275,7 +276,7 @@ export class ShiftCardStarter implements CardStarter, SessionContinuer {
       const session = this.ports.uuid()
       const places = { worktree, report: treeReportPath(worktree), gate: readShiftGate(worktree) }
       const prompt = this.ports.prompt({ ...task, body: body(task, places) }, places)
-      const client = chainedClient({ kind: 'start', role: 'launch', session, cwd: worktree, prompt, addDirs: [], pick: { model: null }, policy: launchPolicy(places.gate.prepush, tools) }, LAUNCH_POSITIONAL_WORDS, this.places.claude)
+      const client = chainedClient(this.ports.client, { kind: 'start', role: 'launch', session, cwd: worktree, prompt, addDirs: [], pick: { model: null }, policy: launchPolicy(places.gate.prepush, tools) }, LAUNCH_POSITIONAL_WORDS, this.places.claude)
       const pid = this.ports.spawnDetached({
         command: 'sh',
         args: launchArgv({ command: client.command, treePr: this.places.treePr, cardId: card.cardId, worktree, report: this.reportOf(card.cardId), exit: exitCodePath(this.places.launchDir, String(card.cardId)), id: session }, client.positional),

@@ -11,6 +11,7 @@ import { reduce } from '../../core/reducer.js'
 import { prClosed, prObserved } from '../../ports/netwatch.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { productionDeps, STALL_MS } from '../../window/watch.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const CARD = 1703
 const PR = 1433
@@ -67,7 +68,7 @@ function readingAfter(story: (db: DatabaseSync) => void): Reading {
     reduce(db, 'pending', busProjections())
     const card = db.prepare('SELECT state FROM cards WHERE card_id = ?').get(CARD) as { state: string }
     const prs = db.prepare('SELECT state FROM prs WHERE card_id = ?').all(CARD) as unknown as Array<{ state: string }>
-    return { cardState: card.state, prStates: prs.map(row => row.state), stalled: productionDeps(root, bus).stalls().map(stall => stall.cardId) }
+    return { cardState: card.state, prStates: prs.map(row => row.state), stalled: productionDeps(root, bus, claudeClient).stalls().map(stall => stall.cardId) }
   }
   finally {
     db.close()

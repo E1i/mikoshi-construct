@@ -6,7 +6,7 @@ import process from 'node:process'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CLIENT_ENV_PREFIXES, clientHome, transcriptFile } from '../../ports/client/claude/adapter.js'
 import { codexAdapter } from '../../ports/client/codex/adapter.js'
-import { clientAdapter } from '../../ports/session.js'
+import { claudeClient } from './claude-client.js'
 
 const SESSION = 'sess-1642'
 const PROMPT = 'Review this change.'
@@ -42,7 +42,7 @@ function claudeCompletedStream(spot: Spot): string {
 }
 
 const ROWS: Row[] = [
-  { adapter: clientAdapter(), completedStream: claudeCompletedStream },
+  { adapter: claudeClient, completedStream: claudeCompletedStream },
   { adapter: codexAdapter, completedStream: () => CODEX_W1 },
 ]
 
@@ -147,7 +147,7 @@ function expectReportsAsDeclared(adapter: ClientAdapter, reading: SessionReading
 }
 
 it('the table holds both adapters, the selected one and codex, each once', () => {
-  expect(ROWS.map(row => row.adapter)).toEqual([clientAdapter(), codexAdapter])
+  expect(ROWS.map(row => row.adapter)).toEqual([claudeClient, codexAdapter])
   expect(new Set(ROWS.map(row => row.adapter.id)).size).toBe(ROWS.length)
 })
 

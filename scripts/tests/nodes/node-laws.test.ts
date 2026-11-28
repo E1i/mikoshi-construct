@@ -62,6 +62,7 @@ import { ranTheGreenGate } from '../bus/gate-stream.js'
 import { Clock, FakeGitHub, sha } from '../bus/github-fake.js'
 import { eventsOf, liveBench, mergeBench } from '../bus/merge-bench.js'
 import { benchNetWatch } from '../bus/net-watch-bench.js'
+import { claudeClient } from '../client/claude-client.js'
 import { reachesSite } from './law-reach.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
@@ -501,6 +502,7 @@ async function directImporterWidened(node: LawNode): Promise<void> {
     queueTask(made.db, made.clock.now().toISOString(), { queue: 'answer', cardId: 1775, stop })
     const heads = [sha('a'), sha('e')]
     const answerer = claudeAnswerer(path.join(home, 'answers'), {
+      client: claudeClient,
       cardText: () => text,
       available: () => true,
       remoteHead: () => heads.shift() ?? null,
@@ -570,7 +572,7 @@ async function finishedReviewLeavesNoDescendant(): Promise<void> {
     state: () => ({ head: sha('a'), status: [] }),
   })
   const start: ReviewStart = { gate: { start: async () => true, release: () => {} }, keep: () => true, joinWorkers: () => 1, leaveWorkers: () => {}, descendants }
-  const reviewer = claudeReviewer(trees, async (params) => {
+  const reviewer = claudeReviewer(claudeClient, trees, async (params) => {
     held.rows = [
       row(REVIEW_SESSION_PID, process.pid, `agent ${params.sessionId}`),
       row(OBEDIENT_PNPM_PID, REVIEW_SESSION_PID, 'node pnpm.cjs install'),

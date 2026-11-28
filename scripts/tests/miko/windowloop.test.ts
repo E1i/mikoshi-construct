@@ -12,6 +12,7 @@ import { TAB_MODE } from '../../window/loop.js'
 import { AGENTS_FILE, liveAgentsOf, sessionTranscriptOf, stoppedTasksIn, stoppedTasksOf } from '../../window/window-agents.js'
 import { WINDOW_BEAT_MS, windowBeat, windowOf } from '../../window/window-heartbeat.js'
 import { SESSION_VARIABLE } from '../../window/window-requests.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const BELOW = { context: 1000, contextWarn: 200000, spent: 0, spendWarn: 2400000 } as unknown as ExitReadings
 const SESSION = 's-window'
@@ -33,6 +34,7 @@ function exitAtDone(overrides: Partial<MikoExitDeps>): { code: number, lines: st
   const lines: string[] = []
   const requests: string[] = []
   const code = runMikoExit({
+    client: claudeClient.processes,
     pid: 14,
     table: () => [],
     handoffMtime: () => 0,
@@ -94,7 +96,7 @@ describe('the window loop on DONE, a stopped subagent and a second window', () =
   it('a second window names the first before writing its own beat', () => {
     const bus = path.join(scratch(), 'bus.db')
     openBus(bus).close()
-    const first = windowOf({ CLAUDE_CODE_SESSION_ID: 'first', CLAUDE_PROJECT_DIR: '/repo', [WINDOW_VARIABLE]: TAB_MODE })
+    const first = windowOf(claudeClient, { CLAUDE_CODE_SESSION_ID: 'first', CLAUDE_PROJECT_DIR: '/repo', [WINDOW_VARIABLE]: TAB_MODE })
     expect(first).toMatchObject({ session: 'first', root: '/repo' })
     const lines: string[] = []
     const say = (line: string): void => {

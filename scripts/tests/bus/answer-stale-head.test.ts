@@ -47,7 +47,7 @@ function reviewedCard() {
   made.tick()
   const answerer = vi.fn<Answerer>(async () => ({ session: SESSION, resumed: true, before: REVIEWED, after: REVIEWED, owner: null }))
   const cardTrees: CardTreeTools = { home: path.join(trees, 'worktrees'), exists: existsSync, branchOf: () => `feat/card-${CARD}`, recreate: () => {}, bringTo: () => {} }
-  const parts: AnswerNodeParts = { silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, session: 'node-1', cardText: () => null, mode: 'live', env: {}, trees: cardTrees }
+  const parts: AnswerNodeParts = { liveSession: () => null, silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => '', clock: made.clock.now, session: 'node-1', cardText: () => null, mode: 'live', env: {}, trees: cardTrees }
   return {
     made,
     answerer,

@@ -17,6 +17,7 @@ import { productionDeps, selectOnce } from '../../window/watch.js'
 import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
 import { sha } from '../bus/github-fake.js'
 import { liveBench } from '../bus/merge-bench.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const CARD = 1951
 const PR = 1650
@@ -81,11 +82,11 @@ function decide(at: Room, decisionId: number, cards: number[]): void {
 }
 
 function cursorOf(at: Room): number {
-  return productionDeps(at.root, at.bench.busPath).lastBusId()
+  return productionDeps(at.root, at.bench.busPath, claudeClient).lastBusId()
 }
 
 function watchOnce(at: Room, from: number, card?: number): string | null | undefined {
-  return selectOnce({ offset: 0, busId: from }, productionDeps(at.root, at.bench.busPath), card)?.line
+  return selectOnce({ offset: 0, busId: from }, productionDeps(at.root, at.bench.busPath, claudeClient), card)?.line
 }
 
 const ANSWER_LINE = new RegExp(`^bus (${OWNER_WAIT_CLOSED}|${DECISION_RECORDED}) card ${CARD} `)

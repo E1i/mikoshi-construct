@@ -23,6 +23,7 @@ import { busAtContextLine, runTreePr } from '../../nodes/launch/tree-pr-cli.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { cardTransitions, nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { claudeClient } from '../client/claude-client.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -211,6 +212,7 @@ describe('the answer session at the context warn', () => {
     const pushedAfter: string[] = []
     let current = ''
     const answerer = claudeAnswerer(answers, {
+      client: claudeClient,
       cardText: () => null,
       available: () => true,
       remoteHead: () => pushedAfter.length === 0 ? sha('a') : sha('e'),
@@ -249,6 +251,7 @@ describe('the answer session at the context warn', () => {
     const pushed: string[] = []
     let spawned = 0
     const answerer = claudeAnswerer(path.join(root, 'answers'), {
+      client: claudeClient,
       cardText: () => null,
       available: () => true,
       remoteHead: () => sha('a'),

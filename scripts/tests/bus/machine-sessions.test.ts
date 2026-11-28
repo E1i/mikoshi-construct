@@ -22,6 +22,7 @@ import { claudeReviewer, ReviewTrees } from '../../nodes/review/reviewer.js'
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { busProjections, nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { claudeClient } from '../client/claude-client.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
 const TS = '2026-11-06T10:00:00.000Z'
@@ -165,6 +166,7 @@ function answerRequest(root: string) {
 function answererWith(root: string, runs: AnswerRun[], tools: Partial<Parameters<typeof claudeAnswerer>[1]>) {
   const heads = [HEAD, 'e'.repeat(40)]
   return claudeAnswerer(path.join(root, 'answers'), {
+    client: claudeClient,
     cardText: () => 'the card body',
     available: () => true,
     remoteHead: () => heads.shift() ?? null,
@@ -184,7 +186,7 @@ function answererWith(root: string, runs: AnswerRun[], tools: Partial<Parameters
 
 function reviewerWith(dir: string, spawned: SpawnSessionParams[], pause: () => Promise<void>, machine: MachineSessions) {
   const trees = new ReviewTrees('/repo', dir, { git: () => {}, worktrees: () => [], prepare: () => {}, state: () => ({ head: HEAD, status: [] }) })
-  return claudeReviewer(trees, async (params) => {
+  return claudeReviewer(claudeClient, trees, async (params) => {
     spawned.push(params)
     writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
     return 0

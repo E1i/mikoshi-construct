@@ -10,6 +10,7 @@ import { busWorktreeHome } from '../../ports/worktree-home.js'
 import { compactContextOf, sourceOf, startContextOf, WAKE_UP } from '../../window/compact-start.js'
 import { CONTINUE_PROMPT, MIKO_HANDOFF_NAME, repositoryContinuePrompt, TAB_MODE } from '../../window/loop.js'
 import { cardTreeHomes, ENTRYPOINT_VARIABLE, HEADLESS_ENTRYPOINT } from '../../window/tab.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const TAB = { CLAUDE_CODE_SESSION_ID: 's-tab', [HANDOFF_DIR_VARIABLE]: '/h', [WINDOW_VARIABLE]: TAB_MODE }
 const always = (): boolean => true
@@ -42,20 +43,20 @@ function sessionStart(source: string): { context: string, continuePrompt: string
 
 describe('a compacted tab window is handed the continue prompt', () => {
   it('a tab window with a handoff gets CONTINUE_PROMPT after compaction', () => {
-    expect(compactContextOf('compact', TAB, file => file === '/h/miko.md')).toBe(CONTINUE_PROMPT)
+    expect(compactContextOf(claudeClient, 'compact', TAB, file => file === '/h/miko.md')).toBe(CONTINUE_PROMPT)
   })
 
   it('a tab window without a handoff, a loop window, a card session and a headless session get nothing', () => {
-    expect(compactContextOf('compact', TAB, () => false)).toBeNull()
-    expect(compactContextOf('compact', { ...TAB, [WINDOW_VARIABLE]: WINDOW_MARK }, always)).toBeNull()
-    expect(compactContextOf('compact', { ...TAB, [CARD_VARIABLE]: '1266' }, always)).toBeNull()
-    expect(compactContextOf('compact', { ...TAB, [ENTRYPOINT_VARIABLE]: HEADLESS_ENTRYPOINT }, always)).toBeNull()
-    expect(compactContextOf('compact', { ...TAB, [WINDOW_VARIABLE]: '' }, always)).toBeNull()
+    expect(compactContextOf(claudeClient, 'compact', TAB, () => false)).toBeNull()
+    expect(compactContextOf(claudeClient, 'compact', { ...TAB, [WINDOW_VARIABLE]: WINDOW_MARK }, always)).toBeNull()
+    expect(compactContextOf(claudeClient, 'compact', { ...TAB, [CARD_VARIABLE]: '1266' }, always)).toBeNull()
+    expect(compactContextOf(claudeClient, 'compact', { ...TAB, [ENTRYPOINT_VARIABLE]: HEADLESS_ENTRYPOINT }, always)).toBeNull()
+    expect(compactContextOf(claudeClient, 'compact', { ...TAB, [WINDOW_VARIABLE]: '' }, always)).toBeNull()
   })
 
   it('a session started, resumed or cleared gets nothing, and so does unreadable input', () => {
     for (const source of ['startup', 'resume', 'clear', null])
-      expect(compactContextOf(source, TAB, always)).toBeNull()
+      expect(compactContextOf(claudeClient, source, TAB, always)).toBeNull()
     expect([sourceOf('{"source":"compact"}'), sourceOf('{}'), sourceOf('not json'), sourceOf('null')]).toEqual(['compact', null, null, null])
   })
 })
@@ -77,11 +78,11 @@ describe('a tab window sets its own wake-up on every start', () => {
     const handoff = (file: string): boolean => file === '/h/miko.md'
 
     for (const source of ['startup', 'resume', 'clear'])
-      expect(startContextOf(source, TAB, handoff, '/repo', homes)).toBe(WAKE_UP)
-    expect(startContextOf('compact', TAB, handoff, '/repo', homes)).toBe(`${compactContextOf('compact', TAB, handoff, '/repo')}\n\n${WAKE_UP}`)
+      expect(startContextOf(claudeClient, source, TAB, handoff, '/repo', homes)).toBe(WAKE_UP)
+    expect(startContextOf(claudeClient, 'compact', TAB, handoff, '/repo', homes)).toBe(`${compactContextOf(claudeClient, 'compact', TAB, handoff, '/repo')}\n\n${WAKE_UP}`)
     for (const tree of ['/w/mc-1436', path.join(busWorktreeHome('/b/bus.db'), '1436')])
-      expect(startContextOf('startup', TAB, handoff, tree, homes)).toBeNull()
-    expect(startContextOf('startup', { ...TAB, [CARD_VARIABLE]: '1436' }, handoff, '/repo', homes)).toBeNull()
-    expect(startContextOf('startup', { ...TAB, [WINDOW_VARIABLE]: WINDOW_MARK }, handoff, '/repo', homes)).toBeNull()
+      expect(startContextOf(claudeClient, 'startup', TAB, handoff, tree, homes)).toBeNull()
+    expect(startContextOf(claudeClient, 'startup', { ...TAB, [CARD_VARIABLE]: '1436' }, handoff, '/repo', homes)).toBeNull()
+    expect(startContextOf(claudeClient, 'startup', { ...TAB, [WINDOW_VARIABLE]: WINDOW_MARK }, handoff, '/repo', homes)).toBeNull()
   })
 })

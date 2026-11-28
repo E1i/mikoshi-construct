@@ -34,6 +34,7 @@ import { busProjections, cardTransitions, pullRequests } from '../../supervisor/
 import { admitCommandOf } from '../../supervisor/derive-queues.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { readBoard } from '../../window/board.js'
+import { claudeClient } from '../client/claude-client.js'
 import { sha } from './github-fake.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
 
@@ -81,6 +82,7 @@ function answerBench(storesPrompts = false) {
     bringTo: () => {},
   }
   const answerer = claudeAnswerer(answers, {
+    client: claudeClient,
     cardText: () => null,
     available: card => tools.available && card.session !== NO_RECORDED_SESSION,
     remoteHead: () => tools.heads.shift() ?? null,
@@ -94,7 +96,7 @@ function answerBench(storesPrompts = false) {
       tools.published.push({ branch: card.branch, commitMessage })
     },
   })
-  const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, answerer, ownerMerges: () => OWNER_MERGES, clock: bench.clock.now, trees: cardTrees, treeMerge: () => tools.merge, ...(storesPrompts ? { prompts: path.join(trees, 'prompts') } : {}) })
+  const executor = new AnswerExecutor({ liveSession: () => null, cards: cardTransitions(), silentMs: SILENT_MS, db: bench.db, answerer, ownerMerges: () => OWNER_MERGES, clock: bench.clock.now, trees: cardTrees, treeMerge: () => tools.merge, ...(storesPrompts ? { prompts: path.join(trees, 'prompts') } : {}) })
   const ts = (): string => bench.clock.now().toISOString()
   return {
     ...bench,
@@ -262,7 +264,7 @@ describe('the answer queue', () => {
       return { session: CARD_SESSION, resumed: true, before: sha('a'), after: PUSHED, owner: null }
     })
     const trees: CardTreeTools = { home: bench.home, exists: existsSync, branchOf: pr => `feat/card-${pr + 100}`, recreate: () => {}, bringTo: () => {} }
-    const node = new AnswerNode({ silentMs: SILENT_MS, db: bench.db, answerer, ownerMerges: () => OWNER_MERGES, clock: bench.clock.now, session: 'node-1', cardText: () => null, mode: 'live', env: {}, trees })
+    const node = new AnswerNode({ liveSession: () => null, silentMs: SILENT_MS, db: bench.db, answerer, ownerMerges: () => OWNER_MERGES, clock: bench.clock.now, session: 'node-1', cardText: () => null, mode: 'live', env: {}, trees })
     const once = async (): Promise<void> => {
       const controller = new AbortController()
       await node.run({ pause: async () => controller.abort(), signal: controller.signal })
@@ -1424,7 +1426,7 @@ describe('the card tree of every start path', () => {
 describe('the answer worker', () => {
   it('ships switched off: without --on it opens nothing and exits 0', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    expect(await runAnswerWorker([], { busPath: '/nonexistent/bus.db', answerer: async () => ({ session: 's', resumed: true, before: null, after: null, owner: null }), ownerMerges: () => OWNER_MERGES, cardText: () => null, session: 'worker-1', pause: async () => {}, isolation: () => ({ level: 'none', why: 'switched off' }) })).toBe(0)
+    expect(await runAnswerWorker([], { liveSession: () => null, busPath: '/nonexistent/bus.db', answerer: async () => ({ session: 's', resumed: true, before: null, after: null, owner: null }), ownerMerges: () => OWNER_MERGES, cardText: () => null, session: 'worker-1', pause: async () => {}, isolation: () => ({ level: 'none', why: 'switched off' }) })).toBe(0)
     expect(log).toHaveBeenCalledWith(expect.stringContaining('switched off'))
   })
 })

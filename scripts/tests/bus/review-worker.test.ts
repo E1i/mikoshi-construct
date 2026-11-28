@@ -38,9 +38,10 @@ import { prBodySha } from '../../ports/identifier-shapes.js'
 import { headlessInvocation } from '../../ports/session.js'
 import { busProjections, candidateRules, cardTransitions } from '../../supervisor/composition.js'
 import { reviewCandidates } from '../../supervisor/derive-queues.js'
-import { recordHeartbeat } from '../../supervisor/heartbeat.js'
+import { measureCardSession, recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
+import { claudeClient } from '../client/claude-client.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
 import { benchNetWatch } from './net-watch-bench.js'
 import { detectReview } from './review-detection.js'
@@ -317,7 +318,7 @@ describe('review worker', () => {
     expect(events(db, 'task.renewed')).toEqual([])
     expect(vi.getTimerCount()).toBe(0)
     const { card_id: card, task_key: taskKey, lease_gen: leaseGen } = db.prepare('SELECT card_id, task_key, lease_gen FROM tasks').get() as { card_id: number, task_key: string, lease_gen: number }
-    recordHeartbeat(db, clock.now().toISOString(), { card, pr: 946, head: sha('a'), step: 'review', session: 'reviewer-1', lease: { taskKey, leaseGen } })
+    recordHeartbeat(db, clock.now().toISOString(), { card, pr: 946, head: sha('a'), step: 'review', session: 'reviewer-1', lease: { taskKey, leaseGen } }, measureCardSession(claudeClient))
     expect((db.prepare('SELECT lease_until FROM tasks').get() as { lease_until: string }).lease_until).toBe(new Date(clock.ms + LEASE_MS).toISOString())
     finish()
     expect(await step).toMatchObject({ kind: 'recorded' })
@@ -450,7 +451,7 @@ describe('review worker', () => {
     gitHub.open({ number: 965 })
     tick()
     const prompts: string[] = []
-    const reviewer = claudeReviewer(new ReviewTrees('/repo', path.join(tmpdir(), 'bus-review-card'), { git: () => {}, worktrees: () => [], ...cleanTree }), async (params) => {
+    const reviewer = claudeReviewer(claudeClient, new ReviewTrees('/repo', path.join(tmpdir(), 'bus-review-card'), { git: () => {}, worktrees: () => [], ...cleanTree }), async (params) => {
       gitHub.failing = true
       prompts.push(params.prompt)
       throw new Error('stop after the spawn')
@@ -480,7 +481,7 @@ describe('review worker', () => {
     const amended = reviewCandidates(db, ts, candidateRules()).find(candidate => candidate.pr === 967)!
     queueTaskWithin(db, ts, amended)
     const prompts: string[] = []
-    const reviewer = claudeReviewer(new ReviewTrees('/repo', path.join(tmpdir(), 'bus-review-keyed-card'), { git: () => {}, worktrees: () => [], ...cleanTree }), async (params) => {
+    const reviewer = claudeReviewer(claudeClient, new ReviewTrees('/repo', path.join(tmpdir(), 'bus-review-keyed-card'), { git: () => {}, worktrees: () => [], ...cleanTree }), async (params) => {
       prompts.push(params.prompt)
       throw new Error('stop after the spawn')
     })
@@ -773,7 +774,7 @@ describe('review worker', () => {
       ...cleanTree,
     })
     const seen: string[][] = []
-    const reviewer = claudeReviewer(trees, async (params) => {
+    const reviewer = claudeReviewer(claudeClient, trees, async (params) => {
       seen.push([...listed])
       writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
       return 0
@@ -800,7 +801,7 @@ describe('review worker', () => {
     gitHub.open({ number: 941 })
     tick()
     const held = leaseNext(db, pullRequests(db), clock.now().toISOString(), 'review', 'worker:review:holder')!
-    recordHeartbeat(db, clock.now().toISOString(), { card: held.cardId, pr: held.pr, head: held.head, step: 'review', session: 'held-session', lease: { taskKey: held.taskKey, leaseGen: held.leaseGen } })
+    recordHeartbeat(db, clock.now().toISOString(), { card: held.cardId, pr: held.pr, head: held.head, step: 'review', session: 'held-session', lease: { taskKey: held.taskKey, leaseGen: held.leaseGen } }, measureCardSession(claudeClient))
     const heldTree = path.join(dir, 'held-session')
     const leftTree = path.join(dir, 'left-session')
     const listed = new Set([heldTree, leftTree])
@@ -877,7 +878,7 @@ describe('review worker', () => {
     const { db, gitHub, statuses, tick, worker } = setUp()
     const { repo, head } = oneCommitRepo(roots.at(-1)!)
     const dir = path.join(roots.at(-1)!, 'reviews')
-    const reviewer = claudeReviewer(new ReviewTrees(repo, dir, localTrees()), async (params) => {
+    const reviewer = claudeReviewer(claudeClient, new ReviewTrees(repo, dir, localTrees()), async (params) => {
       writeFileSync(params.stdoutPath, WRITING_TRANSCRIPT)
       writeFileSync(path.join(dir, params.sessionId, 'planted.txt'), 'planted\n')
       writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
@@ -898,7 +899,7 @@ describe('review worker', () => {
     const { db, gitHub, tick, worker } = setUp()
     const { repo, head } = oneCommitRepo(roots.at(-1)!)
     const dir = path.join(roots.at(-1)!, 'reviews')
-    const reviewer = claudeReviewer(new ReviewTrees(repo, dir, localTrees()), async (params) => {
+    const reviewer = claudeReviewer(claudeClient, new ReviewTrees(repo, dir, localTrees()), async (params) => {
       writeFileSync(params.stdoutPath, WRITING_TRANSCRIPT)
       writeFileSync(path.join(dir, params.sessionId, 'planted.txt'), 'planted\n')
       writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"changes","findings":["a finding"]}')
@@ -918,12 +919,12 @@ describe('review worker', () => {
     const { repo, head } = oneCommitRepo(roots.at(-1)!)
     const dir = path.join(roots.at(-1)!, 'reviews')
     const usage = { input_tokens: 40, cache_creation_input_tokens: 12_000, cache_read_input_tokens: 340_000, output_tokens: 900 }
-    const reviewer = claudeReviewer(new ReviewTrees(repo, dir, localTrees()), async (params) => {
+    const reviewer = claudeReviewer(claudeClient, new ReviewTrees(repo, dir, localTrees()), async (params) => {
       writeFileSync(params.stdoutPath, `${JSON.stringify({ type: 'result', usage })}\n`)
       writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
       return 0
     })
-    const silent = claudeReviewer(new ReviewTrees(repo, dir, localTrees()), async (params) => {
+    const silent = claudeReviewer(claudeClient, new ReviewTrees(repo, dir, localTrees()), async (params) => {
       writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
       return 0
     })
@@ -941,7 +942,7 @@ describe('review worker', () => {
     const { db, gitHub, tick, worker } = setUp()
     const { repo, head } = oneCommitRepo(roots.at(-1)!)
     const dir = path.join(roots.at(-1)!, 'reviews')
-    const reviewer = claudeReviewer(new ReviewTrees(repo, dir, localTrees()), async (params) => {
+    const reviewer = claudeReviewer(claudeClient, new ReviewTrees(repo, dir, localTrees()), async (params) => {
       const tree = path.join(dir, params.sessionId)
       writeFileSync(params.stdoutPath, WRITING_TRANSCRIPT)
       writeFileSync(path.join(tree, 'a.txt'), 'b\n')
@@ -975,7 +976,7 @@ describe('review worker', () => {
     gitHub.open({ number: 967 })
     tick()
 
-    expect(await worker(claudeReviewer(trees, async () => 0)).step()).toMatchObject({ kind: 'denied', denial: { reason: 'review_failed' } })
+    expect(await worker(claudeReviewer(claudeClient, trees, async () => 0)).step()).toMatchObject({ kind: 'denied', denial: { reason: 'review_failed' } })
     expect(removed).toEqual([])
     expect(events(db, 'review.tree.orphaned')).toEqual([])
     db.close()
@@ -989,7 +990,7 @@ describe('review worker', () => {
     gitRun(repo, 'config', 'filter.failing.required', 'true')
     const dir = path.join(roots.at(-1)!, 'reviews')
     const sessions: string[] = []
-    const reviewer = claudeReviewer(new ReviewTrees(repo, dir, localTrees()), async (params) => {
+    const reviewer = claudeReviewer(claudeClient, new ReviewTrees(repo, dir, localTrees()), async (params) => {
       sessions.push(params.sessionId)
       return 0
     })
@@ -1009,7 +1010,7 @@ describe('review worker', () => {
     const { repo, head } = oneCommitRepo(roots.at(-1)!)
     const dir = path.join(roots.at(-1)!, 'reviews')
     const recordedAtRemoval: number[] = []
-    const reviewer = claudeReviewer(new ReviewTrees(repo, dir, { ...localTrees((args) => {
+    const reviewer = claudeReviewer(claudeClient, new ReviewTrees(repo, dir, { ...localTrees((args) => {
       if (args[0] === 'worktree' && args[1] === 'remove')
         recordedAtRemoval.push(events(db, 'review.recorded').length)
     }), freeTrees: 0 }), async (params) => {
@@ -1039,7 +1040,7 @@ describe('review worker', () => {
       ...cleanTree,
     })
     const sessions: string[] = []
-    const reviewer = claudeReviewer(trees, async (params) => {
+    const reviewer = claudeReviewer(claudeClient, trees, async (params) => {
       sessions.push(params.sessionId)
       writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
       return 0
@@ -1065,7 +1066,7 @@ describe('review worker', () => {
       ...cleanTree,
     })
     const sessions: string[] = []
-    const reviewer = claudeReviewer(trees, async (params) => {
+    const reviewer = claudeReviewer(claudeClient, trees, async (params) => {
       sessions.push(params.sessionId)
       writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
       return 0
@@ -1095,7 +1096,7 @@ describe('review worker', () => {
     gitHub.open({ number: 964 })
     tick()
 
-    expect(await worker(claudeReviewer(trees, async (params) => {
+    expect(await worker(claudeReviewer(claudeClient, trees, async (params) => {
       sessions.push(params.sessionId)
       return 1
     })).step()).toMatchObject({ kind: 'denied', denial: { reason: 'review_failed' } })
@@ -1120,7 +1121,7 @@ describe('review worker', () => {
     gitHub.open({ number: 965 })
     tick()
 
-    await dryRun(gitHub.client, claudeReviewer(trees, async (params) => {
+    await dryRun(gitHub.client, claudeReviewer(claudeClient, trees, async (params) => {
       sessions.push(params.sessionId)
       writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
       return 0
@@ -1132,13 +1133,13 @@ describe('review worker', () => {
   it('the review session runs in the mode the contract names, not the window SHIFT_CLAUDE', async () => {
     vi.stubEnv('SHIFT_CLAUDE', 'claude --permission-mode bypassPermissions')
     const spawned: SpawnSessionParams[] = []
-    const reviewer = claudeReviewer(new ReviewTrees('/repo', path.join(tmpdir(), 'bus-review-mode'), { git: () => {}, worktrees: () => [], ...cleanTree }), async (params) => {
+    const reviewer = claudeReviewer(claudeClient, new ReviewTrees('/repo', path.join(tmpdir(), 'bus-review-mode'), { git: () => {}, worktrees: () => [], ...cleanTree }), async (params) => {
       spawned.push(params)
       throw new Error('stop after the spawn')
     })
 
     await expect(reviewer({ taskKey: review(960), queue: 'review', cardId: 1060, pr: 960, head: sha('a'), leaseGen: 1, actor: 'worker:review:w' }, fullReview('a fixed plan'))).rejects.toThrow('stop after the spawn')
-    const argv = headlessInvocation({ role: 'review', session: spawned[0]!.sessionId, prompt: spawned[0]!.prompt }).args
+    const argv = headlessInvocation(claudeClient, { role: 'review', session: spawned[0]!.sessionId, prompt: spawned[0]!.prompt }).args
     expect(argv[argv.indexOf('--permission-mode') + 1]).toBe('auto')
     expect(argv.join(' ')).not.toContain('bypassPermissions')
     vi.unstubAllEnvs()
@@ -1463,7 +1464,7 @@ describe('review depth by MORSE', () => {
 
 describe('the review isolation command', () => {
   it('is claude with the headless flags the reviewer is spawned with', () => {
-    expect(reviewIsolationCommand()).toEqual(['claude', '-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto', '--permission-prompts', 'none', '--strict-mcp-config', '--session-id'])
+    expect(reviewIsolationCommand(claudeClient)).toEqual(['claude', '-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'auto', '--permission-prompts', 'none', '--strict-mcp-config', '--session-id'])
   })
 })
 

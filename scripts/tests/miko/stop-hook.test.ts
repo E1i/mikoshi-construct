@@ -13,6 +13,7 @@ import { ENTRYPOINT_VARIABLE, HEADLESS_ENTRYPOINT, tabWindowOf } from '../../win
 import { LIVE_WATCH, NO_LIVE_WATCH, OWNER_QUESTION_WAITS, TAB_CONTINUE } from '../../window/turn-watch.js'
 import { ONCE_STORE, OnceStore } from '../../window/watch-store.js'
 import { recordWindowHeartbeat, windowSessionOf } from '../../window/window-heartbeat.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const HOOK = path.join(REPO_ROOT, '.claude', 'hooks', 'turn-watch.mjs')
@@ -147,7 +148,7 @@ describe('the Stop hook asks turn-watch whether a window turn may end', () => {
     for (const base of bases) {
       for (const env of [base, { ...base, ...HEADLESS }, { ...base, CONSTRUCT_BUS_RAISED: '1' }, { ...base, [ENTRYPOINT_VARIABLE]: 'cli' }]) {
         const session = { ...env, CLAUDE_CODE_SESSION_ID: SESSION }
-        expect(windowMarked(env)).toBe(windowSessionOf(session) !== null || tabWindowOf(session) !== null)
+        expect(windowMarked(env)).toBe(windowSessionOf(claudeClient, session) !== null || tabWindowOf(claudeClient, session) !== null)
       }
     }
   })

@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { CardBodiesBus } from './requests/context.js'
 import type { GitHub, StoredEvent } from './requests/reach.js'
 import type { RequestOutcome, RequestPayload, RequestTools } from './requests/request.js'
+import type { SessionOwner } from './window-heartbeat.js'
 import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import os from 'node:os'
@@ -11,9 +12,11 @@ import { unclosedDecisionWaitWithText } from '../core/card-readings.js'
 import { unanswered } from '../core/events-query.js'
 import { WINDOW_ACTOR } from '../core/node.js'
 import { BUS_REQUEST_COMMAND } from '../core/owner-commands.js'
+import { claudeAdapterWith } from '../ports/client/claude/adapter.js'
+import { settingsFlag, shiftSettings } from '../ports/shift-settings.js'
 import { RequestContext } from './requests/context.js'
 import { dispatchRequest } from './requests/index.js'
-import { ANSWER_SOURCE, appendEvent, cardIdOf, clientAdapter, declaredPayload, defaultBusPath, FACTORY_MODES, ghApi, inTransaction, isFactoryMode, isFullSha, isOwnerMoveRequest, isOwnerWaitNeed, listFlagOf, openBus, openOwnerWait, OWNER_WAIT_NEEDS, ownerChannelOf, ownerMoveRequestOf, ownerMoveUsage, parseTaken, POLICY_DENIED, prOf, QUEUE_ACTOR, readReleaseVersion, REQUEST_DONE, REQUEST_REFUSED, storedByKey, WINDOW_REQUEST } from './requests/reach.js'
+import { ANSWER_SOURCE, appendEvent, cardIdOf, declaredPayload, defaultBusPath, FACTORY_MODES, ghApi, inTransaction, isFactoryMode, isFullSha, isOwnerMoveRequest, isOwnerWaitNeed, listFlagOf, openBus, openOwnerWait, OWNER_WAIT_NEEDS, ownerChannelOf, ownerMoveRequestOf, ownerMoveUsage, parseTaken, POLICY_DENIED, prOf, QUEUE_ACTOR, readReleaseVersion, REQUEST_DONE, REQUEST_REFUSED, storedByKey, WINDOW_REQUEST } from './requests/reach.js'
 import { foreignIdsOf, HEAD_WORD, isRequestKind, OWNER_ANSWER_USAGE, PLAN_OPS, REQUEST_KINDS, text } from './requests/request.js'
 
 export { SESSION_VARIABLE } from '../ports/client/claude/adapter.js'
@@ -218,12 +221,12 @@ export function runRequest(argv: readonly string[], db: DatabaseSync, now: Date,
   return 0
 }
 
-export function requestSession(env: NodeJS.ProcessEnv): string {
-  return text(clientAdapter().ownSession(env)) ?? BY_HAND
+export function requestSession(client: SessionOwner, env: NodeJS.ProcessEnv): string {
+  return text(client.ownSession(env)) ?? BY_HAND
 }
 
-export function requestActor(env: NodeJS.ProcessEnv): string {
-  return `${WINDOW_ACTOR}${requestSession(env)}`
+export function requestActor(client: SessionOwner, env: NodeJS.ProcessEnv): string {
+  return `${WINDOW_ACTOR}${requestSession(client, env)}`
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -234,7 +237,7 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
   else {
     const db = openBus(defaultBusPath())
     try {
-      process.exitCode = runRequest(argv, db, new Date(), requestSession(process.env), line => console.log(line))
+      process.exitCode = runRequest(argv, db, new Date(), requestSession(claudeAdapterWith({ shiftSettings, settingsFlag }), process.env), line => console.log(line))
     }
     finally {
       db.close()

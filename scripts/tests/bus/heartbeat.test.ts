@@ -23,9 +23,10 @@ import { reviewSession } from '../../nodes/review/reviewer.js'
 import { UpdateNode } from '../../nodes/update/update-worker.js'
 import { CARD_VARIABLE } from '../../ports/session.js'
 import { cardTransitions } from '../../supervisor/composition.js'
-import { busSessionPulse, HEAD_VARIABLE, heartbeatEnv, heartbeatOf, lastHeartbeat, lastProcessBeats, LEASE_GEN_VARIABLE, LEASE_VARIABLE, PR_VARIABLE, recordHeartbeat, recordProcessHeartbeat, runHeartbeat, STEP_VARIABLE } from '../../supervisor/heartbeat.js'
+import { busSessionPulse, HEAD_VARIABLE, heartbeatEnv, heartbeatOf, lastHeartbeat, lastProcessBeats, LEASE_GEN_VARIABLE, LEASE_VARIABLE, measureCardSession, PR_VARIABLE, recordHeartbeat, recordProcessHeartbeat, runHeartbeat, STEP_VARIABLE } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { NO_TRANSCRIPT, sessionGauges } from '../../window/eddies-measure.js'
+import { claudeClient } from '../client/claude-client.js'
 import { waitFor } from '../wait-for.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
@@ -67,7 +68,7 @@ function heldBy(lease: Lease): HeldLease {
 }
 
 function beat(db: DatabaseSync, ms: number, lease: Lease | null, session = 'session-1'): void {
-  recordHeartbeat(db, at(ms), { card: lease?.cardId ?? 1110, pr: lease?.pr ?? null, head: lease?.head ?? null, step: lease?.queue ?? 'launch', session, lease: lease === null ? null : heldBy(lease) })
+  recordHeartbeat(db, at(ms), { card: lease?.cardId ?? 1110, pr: lease?.pr ?? null, head: lease?.head ?? null, step: lease?.queue ?? 'launch', session, lease: lease === null ? null : heldBy(lease) }, measureCardSession(claudeClient))
 }
 
 interface Tokens {
@@ -188,7 +189,7 @@ describe('a session holds its lease by the heartbeat its hook writes on every tu
     expect(session.env).not.toHaveProperty(CARD_VARIABLE)
 
     const lines: string[] = []
-    busReviewPulse(file, () => new Date(at(RENEW_MS)), line => lines.push(line))(lease, 'reviewer-1')
+    busReviewPulse(file, () => new Date(at(RENEW_MS)), line => lines.push(line), measureCardSession(claudeClient))(lease, 'reviewer-1')
     expect(lines).toEqual([reviewBeatLine(lease, 'reviewer-1', at(RENEW_MS))])
     expect(lastHeartbeat(db, 1110)).toEqual({ ts: at(RENEW_MS), pr: 940, head: HEAD, step: 'review', session: 'reviewer-1' })
     expect(expireLeases(db, cardTransitions(), at(LEASE_MS + 1), SILENT_MS)).toEqual([])
@@ -213,7 +214,7 @@ describe('a session holds its lease by the heartbeat its hook writes on every tu
     const lease = reviewLease(db)
     beat(db, 60_000, null, 'session-1')
     beat(db, 120_000, lease, 'session-2')
-    recordHeartbeat(db, at(180_000), { card: 1111, pr: null, head: null, step: 'launch', session: 'session-3', lease: null })
+    recordHeartbeat(db, at(180_000), { card: 1111, pr: null, head: null, step: 'launch', session: 'session-3', lease: null }, measureCardSession(claudeClient))
     const last = lastHeartbeat(db, 1110)
     expect(last).toEqual({ ts: at(120_000), pr: 940, head: HEAD, step: 'review', session: 'session-2' })
     expect(lastHeartbeat(db, 1112)).toBeNull()
@@ -227,13 +228,13 @@ describe('a session holds its lease by the heartbeat its hook writes on every tu
     const { db, file } = bus()
     db.close()
     const now = (): Date => new Date(START)
-    expect(runHeartbeat({}, 'session-1', file, now)).toBe(0)
-    expect(runHeartbeat({ [CARD_VARIABLE]: '1110' }, undefined, file, now)).toBe(0)
+    expect(runHeartbeat(claudeClient, {}, 'session-1', file, now)).toBe(0)
+    expect(runHeartbeat(claudeClient, { [CARD_VARIABLE]: '1110' }, undefined, file, now)).toBe(0)
     const env = { ...heartbeatEnv({ cardId: 1110, pr: 940, head: HEAD, queue: 'review', taskKey: 'review:1110:940', leaseGen: 2 }) }
     expect(env).toEqual({ [CARD_VARIABLE]: '1110', [PR_VARIABLE]: '940', [HEAD_VARIABLE]: HEAD, [STEP_VARIABLE]: 'review', [LEASE_VARIABLE]: 'review:1110:940', [LEASE_GEN_VARIABLE]: '2' })
     expect(heartbeatOf(env, 'session-1')?.lease).toEqual({ taskKey: 'review:1110:940', leaseGen: 2 })
     expect(heartbeatOf(env, 'bad session')).toBeNull()
-    expect(runHeartbeat(env, 'session-1', file, now)).toBe(0)
+    expect(runHeartbeat(claudeClient, env, 'session-1', file, now)).toBe(0)
     const reopened = openBus(file)
     expect(reopened.prepare(`SELECT count(*) AS n FROM events WHERE type = '${SESSION_HEARTBEAT}'`).get()).toEqual({ n: 1 })
     expect(lastHeartbeat(reopened, 1110)).toEqual({ ts: at(0), pr: 940, head: HEAD, step: 'review', session: 'session-1' })
@@ -244,7 +245,7 @@ describe('a session holds its lease by the heartbeat its hook writes on every tu
     const { db, file } = bus()
     db.close()
     const { home, root } = sessionTree('session-1', [usageLine('r1', { input: 1_000, cacheWrite: 20_000 }), usageLine('r2', { input: 500, cacheRead: 21_000 })])
-    expect(runHeartbeat(BEAT_ENV, 'session-1', file, () => new Date(START), home, root)).toBe(0)
+    expect(runHeartbeat(claudeClient, BEAT_ENV, 'session-1', file, () => new Date(START), home, root)).toBe(0)
     const payload = heartbeatPayloads(file)[0]!
     expect(payload).toEqual({ step: 'implement', session: 'session-1', start_context: 21_000, read_before_edit: null, context: 21_500, spent: 1_000 + 20_000 * 1.25 + 500 + 21_000 * 0.1 })
     const limits = JSON.parse(readFileSync(path.join(REPO_ROOT, '.claude', 'eddies.json'), 'utf8')) as { contextLimit: number, sessionSpend: number, warnRatio: number }
@@ -260,7 +261,7 @@ describe('a session holds its lease by the heartbeat its hook writes on every tu
     const subagents = path.join(transcript.replace(/\.jsonl$/, ''), 'subagents')
     mkdirSync(subagents, { recursive: true })
     writeFileSync(path.join(subagents, 'agent-a1.jsonl'), `${usageLine('s1', { input: 7_000, cacheWrite: 9_000 })}\n`)
-    expect(runHeartbeat(BEAT_ENV, 'session-1', file, () => new Date(START), home, root)).toBe(0)
+    expect(runHeartbeat(claudeClient, BEAT_ENV, 'session-1', file, () => new Date(START), home, root)).toBe(0)
     const measure = await import(pathToFileURL(HOOK_MEASURE).href) as HookMeasure
     const hookRoot = mkdtempSync(path.join(tmpdir(), 'heartbeat-hook-root-'))
     roots.push(hookRoot)
@@ -274,10 +275,10 @@ describe('a session holds its lease by the heartbeat its hook writes on every tu
     const { db, file } = bus()
     db.close()
     const { home, root } = sessionTree('session-2', [usageLine('r1', { input: 5 })])
-    expect(runHeartbeat(BEAT_ENV, 'session-1', file, () => new Date(START), home, root)).toBe(0)
+    expect(runHeartbeat(claudeClient, BEAT_ENV, 'session-1', file, () => new Date(START), home, root)).toBe(0)
     const empty = mkdtempSync(path.join(tmpdir(), 'heartbeat-home-'))
     roots.push(empty)
-    expect(runHeartbeat(BEAT_ENV, 'session-1', file, () => new Date(START + 1000), empty, root)).toBe(0)
+    expect(runHeartbeat(claudeClient, BEAT_ENV, 'session-1', file, () => new Date(START + 1000), empty, root)).toBe(0)
     const reopened = openBus(file)
     const rows = reopened.prepare(`SELECT type, payload FROM events ORDER BY id`).all() as { type: string, payload: string }[]
     reopened.close()

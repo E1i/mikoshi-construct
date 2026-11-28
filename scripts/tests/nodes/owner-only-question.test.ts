@@ -14,6 +14,7 @@ import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { sha } from '../bus/github-fake.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const CARD = 1843
 const CARD_SESSION = 'card-session-1843'
@@ -90,6 +91,7 @@ function startedCard(witnessed = false, onBase = false): Card {
   const asks = async (question: string): Promise<unknown> => {
     const lease = leaseNext(made.db, pullRequests(made.db), ts(), 'answer', 'worker:answer:worker-1')!
     const answerer = claudeAnswerer(answers, {
+      client: claudeClient,
       cardText: () => null,
       available: () => true,
       remoteHead: () => sha('a'),

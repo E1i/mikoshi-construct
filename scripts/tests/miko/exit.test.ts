@@ -12,6 +12,7 @@ import { appendExitLine, LOADED_CORE_VARIABLE, realExitReadings, UNKNOWN, UNREAD
 import { ancestors, exitDecision, FRESH_MS, loopExitDecision, loopRequestOf, NOT_AT_A_STOP_CONDITION, notAtAStopRefusal, runMikoExit, SANDBOX_REFUSAL, sessionClaudeOf, stopReasonOf, TAB_THRESHOLD } from '../../window/exit.js'
 import { MIKO_HANDOFF_NAME, mikoHandoff } from '../../window/loop.js'
 import { ENTRYPOINT_VARIABLE, HEADLESS_ENTRYPOINT } from '../../window/tab.js'
+import { claudeClient } from '../client/claude-client.js'
 
 function tableOf(text: string): ProcessRow[] {
   return text.trim().split('\n').map((line) => {
@@ -124,6 +125,7 @@ interface Outcome {
 function exit(overrides: Partial<MikoExitDeps>): Outcome {
   const outcome: Outcome = { code: 0, kills: [], stops: [], ends: [], lines: [], recorded: [] }
   outcome.code = runMikoExit({
+    client: claudeClient.processes,
     pid: 14,
     table: () => underLoop,
     handoffMtime: () => 0,
@@ -213,28 +215,28 @@ describe('exitDecision reads the stop reason, the process chain and the age of m
   const zsh = { pid: 13, ppid: 12, args: '/bin/zsh -c -l eval pnpm miko:exit' }
 
   it('kills the nearest claude when the loop is above it and miko.md is fresh', () => {
-    expect(exitDecision([zsh, claude, shell, loop], now - 1000, now, 'CONTINUE', AT_CONTEXT)).toMatchObject({ kill: 12, reason: 'context' })
+    expect(exitDecision(claudeClient.processes, [zsh, claude, shell, loop], now - 1000, now, 'CONTINUE', AT_CONTEXT)).toMatchObject({ kill: 12, reason: 'context' })
   })
 
   it('takes a claude started through node by its script path', () => {
     const viaNode = { ...claude, args: 'node /usr/local/bin/claude --permission-mode auto' }
-    expect(exitDecision([zsh, viaNode, shell, loop], now, now, 'CONTINUE', AT_CONTEXT)).toMatchObject({ kill: 12 })
+    expect(exitDecision(claudeClient.processes, [zsh, viaNode, shell, loop], now, now, 'CONTINUE', AT_CONTEXT)).toMatchObject({ kill: 12 })
   })
 
   it('refuses when another claude stands between the nearest claude and the loop', () => {
     const inner = { pid: 20, ppid: 13, args: '/tmp/stub/claude' }
-    expect(exitDecision([inner, zsh, claude, shell, loop], now, now, null, AT_CONTEXT)).toMatchObject({ refuse: expect.stringContaining('claude 20 does not run under') })
+    expect(exitDecision(claudeClient.processes, [inner, zsh, claude, shell, loop], now, now, null, AT_CONTEXT)).toMatchObject({ refuse: expect.stringContaining('claude 20 does not run under') })
   })
 
   it('refuses with no claude in the chain', () => {
-    expect(exitDecision([shell, loop], now, now, 'OWNER', AT_CONTEXT)).toMatchObject({ refuse: expect.stringContaining('no claude') })
+    expect(exitDecision(claudeClient.processes, [shell, loop], now, now, 'OWNER', AT_CONTEXT)).toMatchObject({ refuse: expect.stringContaining('no claude') })
   })
 
   it.each([
     { name: 'absent', mtime: undefined, says: 'does not exist' },
     { name: 'older than two minutes', mtime: now - FRESH_MS - 1000, says: 'written 121s ago' },
   ])('refuses at the context warn when miko.md is $name', ({ mtime, says }) => {
-    expect(exitDecision([zsh, claude, shell, loop], mtime, now, 'CONTINUE', AT_CONTEXT)).toMatchObject({ refuse: expect.stringContaining(says) })
+    expect(exitDecision(claudeClient.processes, [zsh, claude, shell, loop], mtime, now, 'CONTINUE', AT_CONTEXT)).toMatchObject({ refuse: expect.stringContaining(says) })
   })
 })
 
@@ -298,7 +300,7 @@ describe('miko:exit ends a session only at a stop reason', () => {
 
   it('without the session file the counters are unknown and a DONE exit still happens', () => {
     const dir = scratch()
-    const readings = realExitReadings({ CLAUDE_CODE_SESSION_ID: SESSION }, dir, dir, path.join(dir, 'bus.db'))
+    const readings = realExitReadings(claudeClient, { CLAUDE_CODE_SESSION_ID: SESSION }, dir, dir, path.join(dir, 'bus.db'))
     expect(readings).toEqual({ ...UNREAD, sessionId: SESSION, contextWarn: CONTEXT_WARN, contextWarnSource: '.claude/eddies.json contextLimit × warnRatio', budgetWarned: false, spendWarn: SPEND_WARN })
     const outcome = exit({ status: () => 'DONE', readings: () => readings, handoffMtime: () => undefined })
     expect(outcome.kills).toEqual([12])
@@ -310,7 +312,7 @@ describe('miko:exit ends a session only at a stop reason', () => {
     { name: 'no transcript of the session', env: { CLAUDE_CODE_SESSION_ID: SESSION } },
   ])('an unread context at the warn ends the session as a context stop and journals its counters as unknown ($name)', ({ env }) => {
     const dir = scratch()
-    const readings = realExitReadings(env, dir, dir, path.join(dir, 'bus.db'))
+    const readings = realExitReadings(claudeClient, env, dir, dir, path.join(dir, 'bus.db'))
     expect(readings.context).toBe(UNKNOWN)
     const outcome = exit({ readings: () => readings, recordExit: line => appendExitLine(dir, line) })
     expect(outcome).toMatchObject({ code: 0, kills: [12] })
@@ -337,7 +339,7 @@ describe('the line this session crossed is the stop, by the record of the hook',
     const dir = scratch()
     const file = transcript(dir, [usageLine('2026-11-05T00:00:00.000Z', 'r1', { input: CONTEXT_WARN }), usageLine('2026-11-05T00:10:00.000Z', 'r2', { input: COMPACTED })])
     writeFileSync(path.join(dir, '.construct', 'eddies.jsonl'), `${journalLines.join('\n')}\n`)
-    const readings = realExitReadings({ CLAUDE_CODE_SESSION_ID: SESSION }, dir, dir, path.join(dir, 'bus.db'))
+    const readings = realExitReadings(claudeClient, { CLAUDE_CODE_SESSION_ID: SESSION }, dir, dir, path.join(dir, 'bus.db'))
     expect(readings).toMatchObject({ context: COMPACTED, contextSource: file })
     return readings
   }
@@ -361,7 +363,7 @@ describe('the line this session crossed is the stop, by the record of the hook',
     const dir = scratch()
     transcript(dir, [usageLine('2026-11-05T00:00:00.000Z', 'r1', { input: COMPACTED })])
     mkdirSync(path.join(dir, '.construct', 'eddies.jsonl'))
-    const readings = realExitReadings({ CLAUDE_CODE_SESSION_ID: SESSION }, dir, dir, path.join(dir, 'bus.db'))
+    const readings = realExitReadings(claudeClient, { CLAUDE_CODE_SESSION_ID: SESSION }, dir, dir, path.join(dir, 'bus.db'))
     expect(readings.budgetWarned).toBe(UNKNOWN)
     expect(stopReasonOf('CONTINUE', readings)).toBeNull()
     expect(notAtAStopRefusal(readings)).toContain('budget-warn of this session unknown (.construct/eddies.jsonl)')
@@ -387,7 +389,7 @@ describe('the line this session crossed is the stop, by the record of the hook',
   it('the line of a card session names cardContextLine as its source', () => {
     const dir = scratch()
     writeFileSync(path.join(dir, '.claude', 'eddies.json'), JSON.stringify({ ...LIMITS, cardContextLine: 90000 }))
-    expect(realExitReadings({ CONSTRUCT_CARD: '7' }, dir, dir, path.join(dir, 'bus.db'))).toMatchObject({ contextWarn: 90000, contextWarnSource: '.claude/eddies.json cardContextLine', budgetWarned: UNKNOWN })
+    expect(realExitReadings(claudeClient, { CONSTRUCT_CARD: '7' }, dir, dir, path.join(dir, 'bus.db'))).toMatchObject({ contextWarn: 90000, contextWarnSource: '.claude/eddies.json cardContextLine', budgetWarned: UNKNOWN })
   })
 })
 
@@ -450,7 +452,7 @@ describe('a Miko window outside the pnpm miko loop that stops at a threshold', (
     { name: 'no STATUS', status: null, mtime: now },
     { name: 'a stale miko.md', status: 'CONTINUE', mtime: now - FRESH_MS - 1000 },
   ])('at the context warn with $name refuses as before and writes nothing', ({ status, mtime }) => {
-    expect(exitDecision([zsh, claude], mtime, now, status, AT_CONTEXT)).toMatchObject({ refuse: expect.stringContaining('does not run under the pnpm miko loop') })
+    expect(exitDecision(claudeClient.processes, [zsh, claude], mtime, now, status, AT_CONTEXT)).toMatchObject({ refuse: expect.stringContaining('does not run under the pnpm miko loop') })
   })
 })
 
@@ -494,9 +496,9 @@ describe('under the loop variables there is one path whatever the process table 
   })
 
   it('the request names the nearest claude above the caller, which outlives the caller, and nothing when ps fails or no claude is found', () => {
-    expect(sessionClaudeOf(() => claudeAbove, 15)).toBe(14)
-    expect(sessionClaudeOf(() => tableOf(' 10 1 node tsx scripts/window/loop.ts\n 15 10 node exit.ts\n'), 15)).toBeUndefined()
-    expect(sessionClaudeOf(() => {
+    expect(sessionClaudeOf(claudeClient.processes, () => claudeAbove, 15)).toBe(14)
+    expect(sessionClaudeOf(claudeClient.processes, () => tableOf(' 10 1 node tsx scripts/window/loop.ts\n 15 10 node exit.ts\n'), 15)).toBeUndefined()
+    expect(sessionClaudeOf(claudeClient.processes, () => {
       throw Object.assign(new Error('spawnSync ps EPERM'), { code: 'EPERM' })
     }, 15)).toBeUndefined()
   })

@@ -23,6 +23,7 @@ import { DECISIONS_SCOPE, decisionsInForceAt } from '../../policy/shards.js'
 import { cardTransitions, DECISION_EVENT_READS } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { ALLOW_MERGE_RECORD, ANSWER_SOURCE, HEAD_WORD, requestFromWindow, requestOf, WindowRequests } from '../../window/window-requests.js'
+import { claudeClient } from '../client/claude-client.js'
 import { sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench, spendReviewRounds } from './merge-bench.js'
 
@@ -158,6 +159,7 @@ async function realAnswer(writesProofs: (prompt: string) => Record<string, strin
   const heads = [HEAD]
   const made: RealAnswer = { prompts: [], argv: [], published: 0, result: answered() }
   const answerer = claudeAnswerer(answers, {
+    client: claudeClient,
     cardText: () => null,
     available: () => true,
     remoteHead: () => heads.at(-1)!,

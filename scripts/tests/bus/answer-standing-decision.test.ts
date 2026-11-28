@@ -25,6 +25,7 @@ import { UpdateExecutor } from '../../nodes/update/update-executor.js'
 import { answerParts, busProjections, cardTransitions, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
+import { claudeClient } from '../client/claude-client.js'
 import { ranTheGreenGate } from './gate-stream.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -117,6 +118,7 @@ async function answerEditing(changed: readonly string[]): Promise<{ made: MergeB
   const published: string[] = []
   const heads = [sha('a'), sha('e')]
   const answerer = claudeAnswerer(path.join(home, 'answers'), {
+    client: claudeClient,
     cardText: () => text,
     available: () => true,
     remoteHead: () => heads.shift() ?? null,

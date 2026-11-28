@@ -6,6 +6,7 @@ import type { BusEvent } from '../../core/db.js'
 import type { EventRow } from '../../core/events-query.js'
 import type { EventPayload } from '../../core/events.js'
 import type { Decision } from '../../policy/decisions/decisions.js'
+import type { ClientAdapter } from '../../ports/client/contract.js'
 import type { GhCall, GhCaller, GhRead } from '../../ports/gh.js'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import os from 'node:os'
@@ -33,9 +34,9 @@ import { cardStartedLines } from '../../core/tasks.js'
 import { VERIFICATION_WORDS } from '../../core/verification.js'
 import { archiveOf, decisionsNumbered, defaultDecisionsFile } from '../../policy/decisions/read.js'
 import { closeWitnessDenial } from '../../policy/policy.js'
-import { SESSION_VARIABLE } from '../../ports/client/claude/adapter.js'
+import { claudeAdapterWith, SESSION_VARIABLE } from '../../ports/client/claude/adapter.js'
 import { execGh, readGhJson } from '../../ports/gh.js'
-import { clientAdapter } from '../../ports/session.js'
+import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
 
 export const PREFIX = '[task:close] '
 export const USAGE = `usage: ${pnpmCommand('task:close', '<id> (--pr <N> | --report <path>) --verification <word> [--override-report <reason>] [--shared-by D-<N>]')}`
@@ -617,7 +618,7 @@ export function realpathOrSelf(file: string): string {
   }
 }
 
-function realDeps(): TaskCloseDeps {
+function realDeps(client: Pick<ClientAdapter, 'ownSession'>): TaskCloseDeps {
   const gh = ghInRepositoryOf(process.cwd(), execGh)
   return {
     cwd: process.cwd(),
@@ -628,7 +629,7 @@ function realDeps(): TaskCloseDeps {
     busPath: defaultBusPath(),
     prCard: pr => prCardOf(defaultBusPath(), pr),
     exists: existsSync,
-    session: clientAdapter().ownSession(process.env) ?? undefined,
+    session: client.ownSession(process.env) ?? undefined,
     projectsDir: claudeProjectsDir(),
     forecast: taskClass => cheapForecastOf(defaultShiftRoot(), taskClass, claudeProjectsDir(), defaultBusPath()),
     style: terminalStyle(process.stdout.isTTY, process.env.NO_COLOR),
@@ -643,7 +644,7 @@ function realDeps(): TaskCloseDeps {
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const result = runTaskClose(process.argv.slice(2), realDeps())
+  const result = runTaskClose(process.argv.slice(2), realDeps(claudeAdapterWith({ shiftSettings, settingsFlag })))
   for (const line of result.stdout)
     console.log(line)
   for (const line of result.stderr)

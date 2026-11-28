@@ -12,6 +12,7 @@ import { claudeReviewer, commandMayWrite, DescendantWatch, GIT_TREE_TOOLS, HEAD_
 import { PREPARE_TREE, prepareEnv } from '../../ports/prepare-tree.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
 import { headlessInvocation } from '../../ports/session.js'
+import { claudeClient } from '../client/claude-client.js'
 import { sha } from './github-fake.js'
 
 const lease = { taskKey: `review:1050:950:${sha('a')}`, queue: 'review' as const, cardId: 1050, pr: 950, head: sha('a'), leaseGen: 1, actor: 'worker:review:w' }
@@ -87,7 +88,7 @@ describe('reviewer', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'bus-reviewer-ceiling-'))
     try {
       const trees = new ReviewTrees('/repo', dir, { git: () => {}, worktrees: () => [], ...cleanTree })
-      const failed = await claudeReviewer(trees, async (spawned) => {
+      const failed = await claudeReviewer(claudeClient, trees, async (spawned) => {
         throw new Error(`the session ${spawned.sessionId} could not start`)
       })(lease, full).catch((error: unknown) => error)
       expect(failed).toBeInstanceOf(ReviewFailed)
@@ -132,7 +133,7 @@ describe('reviewer', () => {
       const locked = (): void => {
         throw new Error('database is locked')
       }
-      const review = await claudeReviewer(trees, working, locked, BEAT_MS, () => null, { ...realReviewStart(), descendants: osDescendants(new InMemoryProcessTable({})) })(lease, full)
+      const review = await claudeReviewer(claudeClient, trees, working, locked, BEAT_MS, () => null, { ...realReviewStart(), descendants: osDescendants(new InMemoryProcessTable({})) })(lease, full)
       expect(review.verdict).toBe('pass')
       expect(said.mock.calls.map(call => call[0])).toEqual([missedBeatLine(review.session, new Error('database is locked'))])
       expect(missedBeatLine('s-1', new Error('database is locked'))).toBe('[bus:review] the heartbeat of review session s-1 was not recorded, the review goes on: database is locked')
@@ -169,7 +170,7 @@ describe('reviewer', () => {
         return 0
       }
       const trees = new ReviewTrees('/repo', dir, { git: () => {}, worktrees: () => [], ...cleanTree })
-      const review = await claudeReviewer(trees, working, (beaten, session) => beats.push(`${beaten.taskKey} ${session}`), BEAT_MS)(lease, full)
+      const review = await claudeReviewer(claudeClient, trees, working, (beaten, session) => beats.push(`${beaten.taskKey} ${session}`), BEAT_MS)(lease, full)
       expect(beatsAt).toEqual([0, 1, 1, 2, 2])
       expect(beats).toEqual([`${lease.taskKey} ${review.session}`, `${lease.taskKey} ${review.session}`])
     }
@@ -191,7 +192,7 @@ describe('reviewer', () => {
         return 0
       }
       const trees = new ReviewTrees('/repo', dir, { git: () => {}, worktrees: () => [], ...cleanTree })
-      expect(await claudeReviewer(trees, running)(lease, full)).toMatchObject({ verdict: 'pass', model: 'claude-haiku-5-5' })
+      expect(await claudeReviewer(claudeClient, trees, running)(lease, full)).toMatchObject({ verdict: 'pass', model: 'claude-haiku-5-5' })
       expect(spawned.map(params => params.model)).toEqual(['claude-sonnet-5-5'])
     }
     finally {
@@ -215,13 +216,13 @@ describe('reviewer', () => {
       }
 
       const trees = new ReviewTrees('/repo', dir, { git, worktrees: () => [], ...cleanTree })
-      const review = await claudeReviewer(trees, passing)(lease, full)
+      const review = await claudeReviewer(claudeClient, trees, passing)(lease, full)
       expect(review).toMatchObject({ verdict: 'pass', findings: [] })
       expect(given).toContain(`[review:${lease.taskKey}]`)
       expect(review.input).toEqual({ prompt: given })
       expect(review.tree!.path.startsWith(`${dir}/`)).toBe(true)
       expect(review.tree!.release()).toBe('fatal: the tree is locked')
-      const failed = await claudeReviewer(trees, async () => 1)(lease, full).catch((error: unknown) => error)
+      const failed = await claudeReviewer(claudeClient, trees, async () => 1)(lease, full).catch((error: unknown) => error)
       expect(failed).toMatchObject({ message: expect.stringMatching(/exited 1/) })
       expect((failed as { held: { release: () => string | null } }).held.release()).toBe('fatal: the tree is locked')
     }
@@ -256,7 +257,7 @@ describe('reviewer', () => {
       const spawned: string[] = []
       const trees = new ReviewTrees('/repo', dir, { git: () => {}, worktrees: () => [], prepare: () => {}, state: () => ({ head: sha('a'), status: [' M a.txt'] }) })
 
-      await expect(claudeReviewer(trees, async (params) => {
+      await expect(claudeReviewer(claudeClient, trees, async (params) => {
         spawned.push(params.sessionId)
         return 0
       })(lease, full)).rejects.toThrow(/not clean before the review: {2}M a\.txt/)
@@ -291,7 +292,7 @@ describe('reviewer', () => {
       const run = async (stdout: string): Promise<unknown> => {
         let states = 0
         const trees = new ReviewTrees('/repo', dir, { git: () => {}, worktrees: () => [], prepare: () => {}, state: () => ({ head: sha('a'), status: states++ === 0 ? [] : [' D a.txt', ' D b.txt'] }) })
-        return claudeReviewer(trees, async (params) => {
+        return claudeReviewer(claudeClient, trees, async (params) => {
           writeFileSync(params.stdoutPath, stdout)
           writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
           return 0
@@ -372,7 +373,7 @@ describe('reviewer', () => {
         worktrees: () => [],
         ...cleanTree,
       })
-      const failed = await claudeReviewer(trees, async () => 0)(lease, full).catch((error: unknown) => error)
+      const failed = await claudeReviewer(claudeClient, trees, async () => 0)(lease, full).catch((error: unknown) => error)
 
       expect(failed).toBeInstanceOf(Error)
       expect(failed).not.toBeInstanceOf(ReviewFailed)
@@ -404,7 +405,7 @@ describe('reviewer', () => {
       }
       const trees = new ReviewTrees('/repo', dir, { git: () => {}, worktrees: () => [], ...cleanTree })
 
-      await claudeReviewer(trees, passing, () => {}, 50, (pr) => {
+      await claudeReviewer(claudeClient, trees, passing, () => {}, 50, (pr) => {
         asked.push(pr)
         return body
       })(lease, full, 'the card text')
@@ -479,7 +480,7 @@ describe('reviewer', () => {
   })
 
   it('an added directory goes before the headless flags, so it cannot take the prompt as a second directory', () => {
-    const argvOf = (addDirs: string[]): string[] => headlessInvocation({ role: 'review', session: 's-1', prompt: 'the prompt', addDirs }).args
+    const argvOf = (addDirs: string[]): string[] => headlessInvocation(claudeClient, { role: 'review', session: 's-1', prompt: 'the prompt', addDirs }).args
     const argv = argvOf(['/reviews'])
     expect(argv.slice(argv.indexOf('--add-dir'), argv.indexOf('--add-dir') + 3)).toEqual(['--add-dir', '/reviews', '--tools'])
     expect(argv.indexOf('--add-dir')).toBeLessThan(argv.indexOf('-p'))

@@ -1,5 +1,6 @@
 import type { Task, TasksFile } from '../core/tasks.js'
 import type { ProcessSnapshot } from '../ports/process-table.js'
+import type { SessionMarker } from './watch-process.js'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
@@ -7,7 +8,9 @@ import { fileURLToPath } from 'node:url'
 import { parseEverySeconds, sleep } from '../core/every.js'
 import { journalText } from '../core/journal.js'
 import { readTasksFile, startedTree } from '../core/tasks.js'
+import { claudeAdapterWith } from '../ports/client/claude/adapter.js'
 import { OsProcessTable } from '../ports/process-table.js'
+import { settingsFlag, shiftSettings } from '../ports/shift-settings.js'
 import { readLadderStage, runSourceOf } from './ledger.js'
 import { ghostRowSessionId } from './status.js'
 import { processField } from './watch-process.js'
@@ -64,7 +67,7 @@ export function treeStageField(task: Task, journalText: string): string {
   return tree === undefined ? `stage no task:start line for card #${task.card.id}` : stageField(tree.worktree, task.card.id)
 }
 
-function taskLine(task: Task, out: string, journalText: string, statusText: string | undefined, processes: ProcessSnapshot): string {
+function taskLine(client: SessionMarker, task: Task, out: string, journalText: string, statusText: string | undefined, processes: ProcessSnapshot): string {
   const reportPath = path.join(out, `ghost-${task.id}.jsonl`)
   const reportField = reportAgeField(reportPath)
   const tool = lastToolName(reportPath)
@@ -73,16 +76,16 @@ function taskLine(task: Task, out: string, journalText: string, statusText: stri
   const ledgerField = treeStageField(task, journalText)
   const sessionId = statusText === undefined ? undefined : ghostRowSessionId(statusText, task.id)
 
-  return `ghost-${task.id} | ${reportField} | ${toolField} | ${ledgerField} | ${processField(sessionId, processes)}`
+  return `ghost-${task.id} | ${reportField} | ${toolField} | ${ledgerField} | ${processField(client, sessionId, processes)}`
 }
 
-function drawFrame(tasksData: TasksFile): void {
+function drawFrame(client: SessionMarker, tasksData: TasksFile): void {
   const at = new Date().toISOString()
   const statusText = existsSync(tasksData.status) ? readFileSync(tasksData.status, 'utf8') : undefined
   const journalPath = path.join(tasksData.out, 'ghosts.jsonl')
   const journal = journalText(journalPath)
   const processes = new OsProcessTable().snapshot()
-  const lines = tasksData.tasks.map(task => taskLine(task, tasksData.out, journal, statusText, processes))
+  const lines = tasksData.tasks.map(task => taskLine(client, task, tasksData.out, journal, statusText, processes))
   print(`frame ${at}`)
   for (const line of lines)
     print(line)
@@ -91,14 +94,15 @@ function drawFrame(tasksData: TasksFile): void {
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2))
   const tasksData = readTasksFile(args.tasksFile)
+  const client = claudeAdapterWith({ shiftSettings, settingsFlag }).processes
 
   if (args.everySeconds === undefined) {
-    drawFrame(tasksData)
+    drawFrame(client, tasksData)
     return
   }
 
   for (;;) {
-    drawFrame(tasksData)
+    drawFrame(client, tasksData)
     await sleep(args.everySeconds * 1000)
   }
 }

@@ -89,7 +89,9 @@ function dirtyCount(worktree: string): number {
   return existsSync(worktree) ? git(worktree, ['status', '--porcelain']).split('\n').filter(line => line !== '').length : 0
 }
 
-export function treeMayBeReused(db: DatabaseSync, cardId: number, card: CardSession, cwds?: () => ProcessCwds): boolean {
+const NO_SESSION_READER = (): ProcessCwds => ({ kind: 'unreadable', why: 'no reader of the client sessions was handed to the close node' })
+
+export function treeMayBeReused(db: DatabaseSync, cardId: number, card: CardSession, cwds: () => ProcessCwds = NO_SESSION_READER): boolean {
   return cardStatesAmong(db, [cardId]).get(cardId) !== STOPPED_CARD && !liveSessionHolds(card.worktree, cwds)
 }
 

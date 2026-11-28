@@ -45,10 +45,11 @@ import { sessionEnv } from '../../ports/session.js'
 import { SESSION_BASH_CAP, TSX_PIPE_DIRECTORY } from '../../ports/shift-settings.js'
 import { WIDE_VITEST_HOOKS } from '../../ports/wide-vitest-guard.js'
 import { busProjections, cardTransitions, nodeSupply, reviewLaunch } from '../../supervisor/composition.js'
-import { recordHeartbeat } from '../../supervisor/heartbeat.js'
+import { measureCardSession, recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { busLaunches } from '../../supervisor/workers.js'
 import { requestFromWindow, WindowRequests } from '../../window/window-requests.js'
+import { claudeClient } from '../client/claude-client.js'
 import { waitFor } from '../wait-for.js'
 import { eventCount, eventsOf, mergeBench, taskState } from './merge-bench.js'
 
@@ -163,6 +164,7 @@ function realStarter(root: string, shiftClaude: string | undefined, cardId: numb
   if (shiftClaude === undefined)
     delete env.SHIFT_CLAUDE
   const ports: StarterPorts = {
+    client: claudeClient,
     read: (read) => {
       const file = path.join(parking, 'lane-x', `${read}.md`)
       return existsSync(file) ? readFileSync(file, 'utf8') : null
@@ -177,7 +179,7 @@ function realStarter(root: string, shiftClaude: string | undefined, cardId: numb
     pgidOf: psPgid,
     kill: killQuietly,
     uuid: () => `session-${cardId}`,
-    envOf: id => sessionEnv(env, id),
+    envOf: id => sessionEnv(claudeClient, env, id),
     prompt: (task, at) => renderPrompt('card {{card}} in {{worktree}}, report {{report}}\n\n', task, at),
     changedPaths: () => [],
     readReport: () => null,
@@ -612,7 +614,7 @@ describe('the launch queue', () => {
     const tree = path.join(tempRoot(), 'mc-1096')
     mkdirSync(tree)
     stoppedInTree(bench, 1096, tree)
-    recordHeartbeat(bench.db, new Date().toISOString(), { card: 1096, pr: null, head: null, step: 'launch', session: 'earlier', lease: null })
+    recordHeartbeat(bench.db, new Date().toISOString(), { card: 1096, pr: null, head: null, step: 'launch', session: 'earlier', lease: null }, measureCardSession(claudeClient))
     bench.tick()
 
     expect(taskState(bench.db, launch(1096, 'again-1096'))).toBeUndefined()
@@ -629,7 +631,7 @@ describe('the launch queue', () => {
     mkdirSync(tree)
     stoppedInTree(bench, 1160, tree)
     const beatAt = Date.parse('2026-10-01T00:00:00.000Z')
-    recordHeartbeat(bench.db, new Date(beatAt).toISOString(), { card: 1160, pr: null, head: null, step: 'launch', session: 'earlier', lease: null })
+    recordHeartbeat(bench.db, new Date(beatAt).toISOString(), { card: 1160, pr: null, head: null, step: 'launch', session: 'earlier', lease: null }, measureCardSession(claudeClient))
 
     expect(launchCandidates(bench.db, existsSync, () => beatAt + SILENT_MS)).toEqual([])
     expect(launchCandidates(bench.db, existsSync, () => beatAt + SILENT_MS + 1)).toEqual([{ cardId: 1160, generation: 'again-1160', continueIn: tree }])
@@ -656,6 +658,7 @@ describe('the launch queue', () => {
     const cuts: string[] = []
     const spawned: string[] = []
     const ports: StarterPorts = {
+      client: claudeClient,
       read: read => read === cardId ? cardText : null,
       cut: (task) => {
         cuts.push(task.branch)
@@ -822,7 +825,7 @@ describe('the launch queue', () => {
       const root = tempRoot()
       const busPath = busWithBody(root)
       parked(root, '931.md')
-      expect(busStarterPorts(busPath, root, {}, '', () => 'u').read(931)).toBe(BUS_TEXT)
+      expect(busStarterPorts(claudeClient, busPath, root, {}, '', () => 'u').read(931)).toBe(BUS_TEXT)
     })
 
     it('the launch prompt the ports build from the bus path carries the decisions of the card', () => {
@@ -840,7 +843,7 @@ describe('the launch queue', () => {
       const parsed = parseParkingFile('931.md', BUS_TEXT)
       if (parsed.kind !== 'parked')
         throw new Error('the bus text does not parse')
-      const prompt = busStarterPorts(busPath, root, {}, '', () => 'u').prompt(parsed.parked.task, { worktree: '/t', report: '/t/report.md', gate: { prepush: [], handoffWrite: null, codeMatrix: null } })
+      const prompt = busStarterPorts(claudeClient, busPath, root, {}, '', () => 'u').prompt(parsed.parked.task, { worktree: '/t', report: '/t/report.md', gate: { prepush: [], handoffWrite: null, codeMatrix: null } })
       expect(prompt).toContain(`${CARD_DECISIONS_HEADING}\nD-4931: launch reads this decision.`)
       expect(prompt).not.toContain('D-4932')
     })
@@ -849,7 +852,7 @@ describe('the launch queue', () => {
       const root = tempRoot()
       const busPath = busWithBody(root)
       parked(root, '933.md')
-      expect(busStarterPorts(busPath, root, {}, '', () => 'u').read(933)).toBeNull()
+      expect(busStarterPorts(claudeClient, busPath, root, {}, '', () => 'u').read(933)).toBeNull()
     })
   })
 
@@ -1046,7 +1049,7 @@ describe('the launch queue', () => {
       const node = new LaunchNode({ silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, session: 'w1', mode, env: {}, processes, disk: roomy, isolation: sandboxed })
       const advanceToLimitPlus = (offsetMs: number): void => {
         bench.clock.advance(startedAt + LIMIT_MS + offsetMs - bench.clock.now().getTime())
-        recordHeartbeat(bench.db, bench.clock.now().toISOString(), { card: 947, pr: null, head: null, step: 'PostToolUse', session: 's-947', lease: null })
+        recordHeartbeat(bench.db, bench.clock.now().toISOString(), { card: 947, pr: null, head: null, step: 'PostToolUse', session: 's-947', lease: null }, measureCardSession(claudeClient))
       }
       return { bench, starter, node, advanceToLimitPlus }
     }

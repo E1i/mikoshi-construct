@@ -18,7 +18,7 @@ import { busParkedDepends } from '../intake/parking-reads.js'
 import { activeDecisionsShard, OWNERS_OF_A_STOP } from '../policy/shards.js'
 import { execGh, readGhJson } from '../ports/gh.js'
 import { CARD_VARIABLE } from '../ports/session.js'
-import { busProjections, pullRequests } from '../supervisor/composition.js'
+import { busProjections, clientAdapterOfTheBus, pullRequests } from '../supervisor/composition.js'
 import { MERGE_PAST_THE_BUS, readAtLine, readBoard, waitText } from './board.js'
 import { appended, archiveOfDay, DAY_FILE_LIMIT, dayBytes, dayFileNamedIn, splitDay } from './day-archive.js'
 import { projectRoot, realExitReadings, UNKNOWN } from './eddies-measure.js'
@@ -510,7 +510,8 @@ function ghPrState(pr: number): PrState {
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const refusal = noWindowRefusal(process.env)
+  const client = clientAdapterOfTheBus()
+  const refusal = noWindowRefusal(client, process.env)
   if (refusal !== null) {
     console.error(`${PREFIX}${refusal}`)
     process.exit(1)
@@ -531,8 +532,8 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     merged: since => busMerged(defaultBusPath(), since),
     prState: ghPrState,
     decisionsShard: now => busDecisionsShard(defaultBusPath(), now),
-    openQuestion: question => busOpenQuestion(defaultBusPath(), requestSession(process.env), new Date(), question),
-    readings: () => realExitReadings(process.env, os.homedir(), projectRoot(process.env), defaultBusPath()),
+    openQuestion: question => busOpenQuestion(defaultBusPath(), requestSession(client, process.env), new Date(), question),
+    readings: () => realExitReadings(client, process.env, os.homedir(), projectRoot(process.env), defaultBusPath()),
     stopReason: stopReasonOf,
     now: () => new Date(),
     home: os.homedir(),

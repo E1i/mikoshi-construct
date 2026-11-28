@@ -4,6 +4,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appendEvent, openBus } from '../../core/db.js'
 import { appendExitLine, exitLineOf, GAUGES_UNREAD, LOADED_CORE_VARIABLE, NO_TRANSCRIPT, projectRoot, realExitReadings, sessionGauges, UNKNOWN, UNREAD } from '../../window/eddies-measure.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const SESSION = 'session-972'
 const LIMITS = { contextLimit: 250000, sessionSpend: 3000000, agentSpend: 2000000, runSpend: 3000000, warnRatio: 0.8 }
@@ -44,7 +45,7 @@ describe('realExitReadings reads the session the way Eddies reads it', () => {
     const agent = path.join(file.replace(/\.jsonl$/, ''), 'subagents', 'agent-a1.jsonl')
     mkdirSync(path.dirname(agent), { recursive: true })
     writeFileSync(agent, `${usageLine('2026-10-15T00:00:30.000Z', 'a1', { input: 50 })}\n`)
-    expect(realExitReadings({ CLAUDE_CODE_SESSION_ID: SESSION }, dir, dir, path.join(dir, 'bus.db'))).toEqual({
+    expect(realExitReadings(claudeClient, { CLAUDE_CODE_SESSION_ID: SESSION }, dir, dir, path.join(dir, 'bus.db'))).toEqual({
       sessionId: SESSION,
       start: { input: 100, cache_write: 1000, cache_read: 0 },
       end: { input: 10, cache_write: 200, cache_read: 1100 },
@@ -66,7 +67,7 @@ describe('realExitReadings reads the session the way Eddies reads it', () => {
     const dir = scratch()
     mkdirSync(path.join(dir, 'architecture'))
     writeFileSync(path.join(dir, 'architecture', 'window-core.md'), '# Window core\n\nwindow-core v7\n\nwindow-core v9\n')
-    const readings = (variable: string | undefined) => realExitReadings({ [LOADED_CORE_VARIABLE]: variable }, dir, dir, path.join(dir, 'bus.db'))
+    const readings = (variable: string | undefined) => realExitReadings(claudeClient, { [LOADED_CORE_VARIABLE]: variable }, dir, dir, path.join(dir, 'bus.db'))
     expect(readings('6')).toMatchObject({ coreLoaded: 6, coreOnMain: 7 })
     expect(readings(undefined)).toMatchObject({ coreLoaded: UNKNOWN, coreOnMain: 7 })
     expect(readings('')).toMatchObject({ coreLoaded: UNKNOWN })
@@ -87,7 +88,7 @@ describe('realExitReadings reads the session the way Eddies reads it', () => {
     finally {
       db.close()
     }
-    expect(realExitReadings({ CLAUDE_CODE_SESSION_ID: SESSION }, dir, dir, busPath)).toMatchObject({ busEvents: 4, cards: 2 })
+    expect(realExitReadings(claudeClient, { CLAUDE_CODE_SESSION_ID: SESSION }, dir, dir, busPath)).toMatchObject({ busEvents: 4, cards: 2 })
   })
 
   it.each([
@@ -95,7 +96,7 @@ describe('realExitReadings reads the session the way Eddies reads it', () => {
     { name: 'a session id that is not a plain id', env: { CLAUDE_CODE_SESSION_ID: '../x' } },
   ])('with $name reads nothing of the session and keeps the limits', ({ env }) => {
     const dir = scratch()
-    expect(realExitReadings(env, dir, dir, path.join(dir, 'bus.db'))).toEqual({ ...UNREAD, contextWarn: LIMITS.contextLimit * LIMITS.warnRatio, contextWarnSource: '.claude/eddies.json contextLimit × warnRatio', spendWarn: LIMITS.sessionSpend * LIMITS.warnRatio })
+    expect(realExitReadings(claudeClient, env, dir, dir, path.join(dir, 'bus.db'))).toEqual({ ...UNREAD, contextWarn: LIMITS.contextLimit * LIMITS.warnRatio, contextWarnSource: '.claude/eddies.json contextLimit × warnRatio', spendWarn: LIMITS.sessionSpend * LIMITS.warnRatio })
   })
 
   it.each([
@@ -103,7 +104,7 @@ describe('realExitReadings reads the session the way Eddies reads it', () => {
     { name: 'a session spend of zero', limits: { ...LIMITS, sessionSpend: 0 }, read: { ...UNREAD, contextWarn: LIMITS.contextLimit * LIMITS.warnRatio, contextWarnSource: '.claude/eddies.json contextLimit × warnRatio' } },
   ])('reads limits it cannot validate as unknown, never as zero: $name', ({ limits, read }) => {
     const dir = scratch(limits)
-    expect(realExitReadings({}, dir, dir, path.join(dir, 'bus.db'))).toEqual(read)
+    expect(realExitReadings(claudeClient, {}, dir, dir, path.join(dir, 'bus.db'))).toEqual(read)
   })
 })
 
@@ -119,7 +120,7 @@ describe('sessionGauges measures a session from its transcript by the hook funct
     writeFileSync(agent, `${usageLine('2026-10-15T00:00:30.000Z', 'a1', { input: 50 })}\n`)
     const gauges = sessionGauges(dir, dir, SESSION)
     expect(gauges).toEqual({ context: 1310, spent: 100 + 10 + 50 + (1000 + 200) * 1.25 + 1100 * 0.1, subagents: [{ name: 'agent-a1', context: 50, spent: 50, at: expect.any(String) as string }] })
-    const exit = realExitReadings({ CLAUDE_CODE_SESSION_ID: SESSION }, dir, dir, path.join(dir, 'bus.db'))
+    const exit = realExitReadings(claudeClient, { CLAUDE_CODE_SESSION_ID: SESSION }, dir, dir, path.join(dir, 'bus.db'))
     expect(gauges).toMatchObject({ context: exit.context, spent: exit.spent })
   })
 

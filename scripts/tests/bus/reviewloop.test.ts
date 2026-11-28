@@ -35,6 +35,7 @@ import { prBodySha } from '../../ports/identifier-shapes.js'
 import { answerParts, busProjections, candidateRules, cardTransitions, witnessParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
+import { claudeClient } from '../client/claude-client.js'
 import { cardBody, Clock, FakeGitHub, sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 import { benchNetWatch } from './net-watch-bench.js'
@@ -126,7 +127,7 @@ function questionUnderShard(made: ReturnType<typeof mergeBench>, answerer: Answe
   const stop = Number((made.db.prepare(`SELECT max(id) AS id FROM events WHERE type = ?`).get(CARD_STOPPED) as { id: number }).id)
   queueTask(made.db, ts, { queue: 'answer', cardId: 905, stop })
   const cardTrees: CardTreeTools = { home: trees, exists: existsSync, branchOf: pr => `feat/card-${pr}`, recreate: () => {}, bringTo: () => {} }
-  const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, isolation: () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }), dirty, shardDecider: () => ({ answer: 'finish inside the touches' }) })
+  const executor = new AnswerExecutor({ liveSession: () => null, cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees, isolation: () => ({ level: 'partial', mechanism: 'claude-code-sandbox', gaps: [] }), dirty, shardDecider: () => ({ answer: 'finish inside the touches' }) })
   return async () => executor.answer(leaseNext(made.db, pullRequests(made.db), ts, 'answer', 'worker:answer:worker-1')!)
 }
 
@@ -181,6 +182,7 @@ describe('the review loop', () => {
     const lease: Lease = { taskKey: 'answer:1164:1064', queue: 'answer', cardId: 1164, pr: 1064, head: sha('a'), leaseGen: 1, actor: 'worker:answer:worker-1' }
     const spawned: boolean[] = []
     const answerer = claudeAnswerer(scratch('bus-reviewloop-answers-'), {
+      client: claudeClient,
       cardText: () => null,
       available: () => true,
       remoteHead: () => sha('a'),
@@ -268,6 +270,7 @@ describe('the review loop', () => {
     const logsRead: string[] = []
     const heads = [sha('a'), sha('e')]
     const answerer = claudeAnswerer(scratch('bus-red-ci-answers-'), {
+      client: claudeClient,
       cardText: () => null,
       available: () => true,
       remoteHead: () => heads.shift() ?? null,
@@ -285,7 +288,7 @@ describe('the review loop', () => {
       },
     })
     const cardTrees: CardTreeTools = { home: worktree, exists: existsSync, branchOf: () => `feat/card-${cardId}`, recreate: () => {}, bringTo: () => {} }
-    const executor = new AnswerExecutor({ cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
+    const executor = new AnswerExecutor({ liveSession: () => null, cards: cardTransitions(), silentMs: SILENT_MS, db: made.db, answerer, ownerMerges: () => OWNER_MERGES, clock: made.clock.now, trees: cardTrees })
     appendEvent(made.db, { ts: made.clock.now().toISOString(), type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${cardId}`, payload: { session: 'card-session-1', worktree, branch: `feat/card-${cardId}`, base: sha('1') }, legacy: false })
     made.gitHub.open({ number: pr, required: 'failure', failed: ['vitest 4/4'], ...review })
     const answer = async (): Promise<AnswerOutcome> => {
