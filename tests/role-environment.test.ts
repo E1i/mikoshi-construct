@@ -350,12 +350,12 @@ describe('a card session of a consumer commits in a tree whose git data lives in
     expect(git(made.dir, 'log', '-1', '--format=%s', 'card').trim()).toBe('step')
   })
 
-  it('boundary:ports->project counts 2 once cardTreeGitWrites leaves the attach settings, the client port stops reading the manifest and the record ports belong to project', () => {
+  it('boundary:ports->project counts 1 once cardTreeGitWrites leaves the attach settings, the client port stops reading the manifest, the record ports belong to project and the session port builds no client adapter', () => {
     const report = boundaryReport()
     const row = 'boundary:ports->project'
     expect(report.graph.filter(edge => edge.from === SHIFT_SETTINGS_SOURCE).map(edge => edge.to)).not.toContain(ATTACH_SETTINGS_SOURCE)
-    expect(boundaryNumbers(report.violations)[row]).toBe(2)
-    expect(json(REPO_ROOT, RATCHET_FILE)[row]).toBe(2)
+    expect(boundaryNumbers(report.violations)[row]).toBe(1)
+    expect(json(REPO_ROOT, RATCHET_FILE)[row]).toBe(1)
   }, 120_000)
 })
 

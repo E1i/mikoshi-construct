@@ -30,6 +30,7 @@ const RELAUNCH_ACTOR = 'worker:relaunch:'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const WATCH = path.join(REPO_ROOT, 'scripts', 'window', 'watch.ts')
+const CLAUDE_CLIENT = path.join(REPO_ROOT, 'scripts', 'tests', 'client', 'claude-client.ts')
 const TSX = path.join(REPO_ROOT, 'node_modules', '.bin', 'tsx')
 const DEADLINE_MS = 15_000
 
@@ -759,8 +760,9 @@ describe('pnpm miko:watch --once keeps its cursor in a SQLite file that one cons
     const pausedBeforeCommit = 'paused before COMMIT'
     const script = [
       `const { productionDeps, runOnce } = await import(${JSON.stringify(pathToFileURL(WATCH).href)})`,
+      `const { claudeClient } = await import(${JSON.stringify(pathToFileURL(CLAUDE_CLIENT).href)})`,
       'const handoff = process.env.CONSTRUCT_HANDOFF_DIR',
-      `const deps = { ...productionDeps(handoff, process.env.CONSTRUCT_BUS_DB), beforeCommit: () => { process.stderr.write(${JSON.stringify(`${pausedBeforeCommit}\n`)}); return new Promise(() => {}) } }`,
+      `const deps = { ...productionDeps(handoff, process.env.CONSTRUCT_BUS_DB, claudeClient), beforeCommit: () => { process.stderr.write(${JSON.stringify(`${pausedBeforeCommit}\n`)}); return new Promise(() => {}) } }`,
       'await runOnce(handoff, deps)',
     ].join('\n')
     const paused = startNode(file, ['--input-type=module', '--eval', script], busOf(file))
