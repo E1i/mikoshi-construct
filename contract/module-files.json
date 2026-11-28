@@ -817,6 +817,7 @@
     "scripts/tests/contract/reducer-contour.test.ts",
     "scripts/tests/contract/session-takes-window-and-launch-files.test.ts",
     "scripts/tests/conveyor/measures.test.ts",
+    "scripts/tests/core/card-bodies-admitted-row.test.ts",
     "scripts/tests/core/card-decisions.test.ts",
     "scripts/tests/core/core-runs-no-git.test.ts",
     "scripts/tests/core/dead-code-cleanup.test.ts",
