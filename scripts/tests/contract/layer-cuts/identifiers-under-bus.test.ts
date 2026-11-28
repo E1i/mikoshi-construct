@@ -9,6 +9,7 @@ const SHAPES = 'scripts/ports/identifier-shapes.ts'
 const PORTS_IMPORTERS = ['scripts/ports/snapshot.ts', 'scripts/ports/main-merge.ts']
 const IDENTIFIERS_SPECIFIER = '../core/identifiers.js'
 const BUS_TO_CARD_MODEL = 'boundary:bus->card-model'
+const BUS_TO_CARD_MODEL_TRANSITIONAL_UNDER_D897 = 1
 const PORTS_TO_CARD_MODEL = 'boundary:ports->card-model'
 const PORTS_TO_CARD_MODEL_BEFORE = 4
 const SHA256_OF_BODY = '230d8358dc8e8890b4c58deeb62912ee2f20357ae92a5cc861b98e68fe31acb5'
@@ -34,9 +35,9 @@ describe('the identifiers sit under the bus and their shapes in ports', () => {
     expect(drawn.ports!.contract).toContain(SHAPES)
   })
 
-  it('the ratchet holds no bus->card-model row and a lower ports->card-model row', () => {
+  it('the ratchet holds bus->card-model no higher than the legacy-history import D-897 allows and a lower ports->card-model row', () => {
     const ratchet = readJson<Record<string, number>>('contract/ratchet.json')
-    expect(ratchet[BUS_TO_CARD_MODEL]).toBeUndefined()
+    expect(ratchet[BUS_TO_CARD_MODEL] ?? 0).toBeLessThanOrEqual(BUS_TO_CARD_MODEL_TRANSITIONAL_UNDER_D897)
     expect(ratchet[PORTS_TO_CARD_MODEL] ?? 0).toBeLessThan(PORTS_TO_CARD_MODEL_BEFORE)
   })
 

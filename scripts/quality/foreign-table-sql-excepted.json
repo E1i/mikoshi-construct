@@ -1,6 +1,5 @@
 [
   "scripts/cli/card-chain.ts",
-  "scripts/core/legacy-history.ts",
   "scripts/core/report.ts",
   "src/card/risk.ts"
 ]
