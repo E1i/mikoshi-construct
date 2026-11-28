@@ -1,4 +1,4 @@
-import type { CostSource, ExpectInput, ImplementSubsample, RoleBand, RunStep, SampleRow, SampleSource, StepExpect } from '../../src/commands/cost/index.js'
+import type { ExpectInput, ImplementSubsample, RoleBand, SampleRow, SampleSource, StepExpect } from '../../src/commands/cost/expect.js'
 import type { LedgerEntry } from '../../src/commands/cost/ledger.js'
 import type { SubagentRecord } from '../../src/commands/cost/turns.js'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
@@ -6,16 +6,18 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
-import { countsTowardSteps } from '../../src/commands/cost/expect.js'
-import { expectFor, formatContour as formatContourIn, formatRoleExpect, formatStepExpect as formatStepExpectIn, formatTokens, readLedgerEntries as readLedgerEntriesIn, recordingSource, stepExpects, stepsOfRepository as stepsOfRepositoryIn } from '../../src/commands/cost/index.js'
+import { countsTowardSteps, expectFor, formatContour as formatContourIn, formatRoleExpect, formatStepExpect as formatStepExpectIn, formatTokens, MINIMUM_SAMPLE, readLedgerEntries as readLedgerEntriesIn, stepExpects, stepsOfRepository as stepsOfRepositoryIn } from '../../src/commands/cost/expect.js'
 import { LEDGER_FILE, parseLedgerLine } from '../../src/commands/cost/ledger.js'
 import { readSubagentRecords } from '../../src/commands/cost/turns.js'
 import { PLAIN_LORE } from '../../src/ui/lore.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { roleExpects } from './role-sample.js'
 
-export type { ImplementSubsample, SampleRow, SampleSource, StepExpect, Subsample } from '../../src/commands/cost/index.js'
-export { formatTokens, stepExpects }
+export type { ImplementSubsample, SampleRow, SampleSource, StepExpect, Subsample } from '../../src/commands/cost/expect.js'
+export { formatTokens, MINIMUM_SAMPLE, stepExpects }
+
+type RunSteps = NonNullable<ExpectInput['runSteps']>
+type CostSource = NonNullable<Parameters<typeof stepsOfRepositoryIn>[4]>
 
 export interface ExpectSample {
   line: string
@@ -29,7 +31,7 @@ export interface LadderSampleInput {
   ledgers: SampleSource[]
   effort?: string
   taskClass?: { name: string, journal: SampleSource }
-  runSteps?: Map<string, RunStep[]>
+  runSteps?: RunSteps
   sketch?: { wanted: boolean, journal: SampleSource }
   turns?: SubagentRecord[] | null
 }
@@ -143,7 +145,7 @@ function ledgerRuns(ledgers: SampleSource[]): string[] {
   return ledgers.flatMap(ledger => (ledger.lines ?? []).map(parseLedgerLine)).flatMap(entry => typeof entry === 'string' || entry.run === null ? [] : [entry.run])
 }
 
-export function stepsOfRepository(root: string, runs: string[], warnings: string[], source: CostSource = recordingSource()): Map<string, RunStep[]> {
+export function stepsOfRepository(root: string, runs: string[], warnings: string[], source?: CostSource): RunSteps {
   return stepsOfRepositoryIn(root, runs, warnings, PLAIN_LORE, source)
 }
 
@@ -184,7 +186,7 @@ function main(): void {
   const warnings: string[] = []
   const ledgers = runs.map(source => path.resolve(source)).map(source => ({ source, lines: textLines(source) }))
   const taskClass = positionals[0] === undefined ? undefined : { name: positionals[0], journal: { source: journal, lines: textLines(journal) } }
-  const runSteps = values.effort === undefined ? new Map<string, RunStep[]>() : stepsOfRepository(process.cwd(), ledgerRuns(ledgers), warnings)
+  const runSteps: RunSteps = values.effort === undefined ? new Map() : stepsOfRepository(process.cwd(), ledgerRuns(ledgers), warnings)
   const sketch = values.sketch === undefined ? undefined : { wanted: values.sketch === 'yes', journal: { source: journal, lines: textLines(journal) } }
   const sample = ladderSample({ ledgers, effort: values.effort, taskClass, runSteps, sketch, turns: readSubagentRecords(process.cwd()) }, warnings)
   for (const warning of warnings)

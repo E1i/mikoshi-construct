@@ -1,13 +1,38 @@
 import type { Lore } from '../../ui/lore.js'
 import type { LedgerEntry } from './ledger.js'
 import type { Band } from './sample.js'
-import type { RunStep, Step } from './steps.js'
+import type { CostSource } from './source.js'
+import type { StepCache } from './step-cache.js'
+import type { RunStep, Step, UnreadAgent } from './steps.js'
 import { parseLedgerLine } from './ledger.js'
 import { MINIMUM_SAMPLE, recentBand } from './sample.js'
+import { recordingSource } from './source.js'
+import { knownRunSteps, readStepCache } from './step-cache.js'
 import { STEPS } from './steps.js'
 import { TURN_JOURNAL_FILE } from './turns.js'
 
+export { MINIMUM_SAMPLE }
+
 export const EFFORTS = ['low', 'medium', 'high']
+
+function knownSteps(root: string, runs: string[], source: CostSource | null): StepCache {
+  return source != null && source.readable() ? knownRunSteps(root, runs, run => source.steps(run)) : readStepCache(root)
+}
+
+function unreadWarnings(unread: UnreadAgent[], lore: Lore): string[] {
+  const byRun = new Map<string, UnreadAgent[]>()
+  for (const agent of unread)
+    byRun.set(agent.run, [...byRun.get(agent.run) ?? [], agent])
+  return [...byRun].map(([run, agents]) => lore.expectUnreadRun(run, agents.map(agent => lore.expectUnreadAgent(agent.agent, agent.reason)).join('; ')))
+}
+
+export function stepsOfRepository(root: string, runs: string[], warnings: string[], lore: Lore, source: CostSource | null = recordingSource()): Map<string, RunStep[]> {
+  const cache = knownSteps(root, runs, source)
+  for (const line of cache.malformed)
+    warnings.push(lore.expectStepCacheMalformed(line))
+  warnings.push(...unreadWarnings(cache.unread, lore))
+  return cache.runs
+}
 
 const COUNTED_STATUS = 'done'
 const SUBSAMPLED_STEP: Step = 'implement'

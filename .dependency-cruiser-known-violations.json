@@ -374,20 +374,6 @@
   {
     "type": "dependency",
     "from": "scripts/ladder/expect-sample.ts",
-    "to": "src/commands/cost/index.ts",
-    "unresolvedTo": "../../src/commands/cost/index.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "ladder-imports-only-core-and-ports"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/ladder/expect-sample.ts",
     "to": "src/commands/cost/ledger.ts",
     "unresolvedTo": "../../src/commands/cost/ledger.js",
     "dependencyTypes": [
@@ -404,20 +390,6 @@
     "from": "scripts/ladder/expect-sample.ts",
     "to": "src/commands/cost/turns.ts",
     "unresolvedTo": "../../src/commands/cost/turns.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "ladder-imports-only-core-and-ports"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/ladder/expect.ts",
-    "to": "src/commands/cost/index.ts",
-    "unresolvedTo": "../../src/commands/cost/index.js",
     "dependencyTypes": [
       "local",
       "import"

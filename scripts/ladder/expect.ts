@@ -1,6 +1,5 @@
 import type { StepExpect } from './expect-sample.js'
-import { MINIMUM_SAMPLE } from '../../src/commands/cost/index.js'
-import { formatStepExpect, formatTokens } from './expect-sample.js'
+import { formatStepExpect, formatTokens, MINIMUM_SAMPLE } from './expect-sample.js'
 
 export type Expect
   = | { kind: 'forecast', tokens: number, minutes: number, basis: { effort: Effort, n: number }, band?: TokenBand }

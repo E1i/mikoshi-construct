@@ -286,21 +286,10 @@
     "scripts/contract/update.ts"
   ],
   "cost": [
-    "src/commands/cost/bus.ts",
-    "src/commands/cost/cheap.ts",
-    "src/commands/cost/claude-code.ts",
     "src/commands/cost/daemon.ts",
-    "src/commands/cost/expect.ts",
     "src/commands/cost/index.ts",
-    "src/commands/cost/ledger.ts",
     "src/commands/cost/report.ts",
-    "src/commands/cost/runtime.ts",
-    "src/commands/cost/sample.ts",
-    "src/commands/cost/source.ts",
-    "src/commands/cost/step-cache.ts",
-    "src/commands/cost/steps.ts",
-    "src/commands/cost/turns.ts",
-    "src/commands/cost/usage.ts"
+    "src/commands/cost/runtime.ts"
   ],
   "decisions": [
     "scripts/core/card-decisions.ts",
@@ -730,6 +719,7 @@
     "scripts/tests/contract/bus-cut/answer-source-and-tree-pr-are-pr.test.ts",
     "scripts/tests/contract/bus-cut/cadence-to-core.test.ts",
     "scripts/tests/contract/bus-cut/cli-owner-and-backfill-roots.test.ts",
+    "scripts/tests/contract/bus-cut/cost-hands-the-ladder-its-files.test.ts",
     "scripts/tests/contract/bus-cut/decision-and-rule-symbols.test.ts",
     "scripts/tests/contract/bus-cut/events-decided.test.ts",
     "scripts/tests/contract/bus-cut/executor-bus-reads-to-queue.test.ts",
@@ -1326,7 +1316,19 @@
     "scripts/ladder/watch-report.ts",
     "scripts/ladder/watch.ts",
     "scripts/ladder/window.ts",
-    "scripts/nodes/update/review-carry.ts"
+    "scripts/nodes/update/review-carry.ts",
+    "src/commands/cost/bus.ts",
+    "src/commands/cost/cheap.ts",
+    "src/commands/cost/claude-code.ts",
+    "src/commands/cost/expect.ts",
+    "src/commands/cost/ledger.ts",
+    "src/commands/cost/sample.ts",
+    "src/commands/cost/source.ts",
+    "src/commands/cost/step-cache.ts",
+    "src/commands/cost/steps.ts",
+    "src/commands/cost/turns.ts",
+    "src/commands/cost/usage.ts",
+    "src/commands/run-record.ts"
   ],
   "layout": [
     "contract/eslint-edges.json",
@@ -2684,8 +2686,7 @@
     "scripts/release/stage.ts",
     "scripts/release/verify-published.ts",
     "scripts/release/version-pr-guard.ts",
-    "scripts/release/version-rehearsal.ts",
-    "src/commands/run-record.ts"
+    "scripts/release/version-rehearsal.ts"
   ],
   "repository": [
     ".editorconfig",
