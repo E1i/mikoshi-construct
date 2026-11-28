@@ -2,8 +2,8 @@ import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { latestOfEachType } from '../../scripts/core/bus-readings.js'
 import { WINDOW_HEARTBEAT } from '../../scripts/core/events.js'
-import { withReadOnlyDatabase } from '../../scripts/core/sqlite.js'
-import { claudeProjectsDir, projectKey } from '../../scripts/ports/client/claude/adapter.js'
+import { withReadOnlyBus } from './cost/bus.js'
+import { claudeProjectsDir, projectKey } from './cost/claude-code.js'
 
 export const WINDOW_SILENT_MS = 20 * 60_000
 
@@ -19,7 +19,7 @@ const EVENTS_TABLE = `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name 
 function newestWindowBeat(busFile: string): string | null {
   if (!existsSync(busFile))
     return null
-  return withReadOnlyDatabase(busFile, (db) => {
+  return withReadOnlyBus(busFile, (db) => {
     if (db.prepare(EVENTS_TABLE).get() === undefined)
       return null
     return latestOfEachType(db, [WINDOW_HEARTBEAT])[0]?.at ?? null

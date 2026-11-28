@@ -23,6 +23,7 @@
   "boundary:project->model": 1,
   "boundary:release->node-close": 2,
   "boundary:session->intake": 2,
+  "boundary:session->ladder": 2,
   "boundary:session->quality": 1,
   "boundary:session->rules": 1,
   "boundary:window->node-answer": 1,

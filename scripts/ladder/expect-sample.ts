@@ -1,24 +1,23 @@
 import type { ExpectInput, ImplementSubsample, RoleBand, SampleRow, SampleSource, StepExpect } from '../../src/commands/cost/expect.js'
 import type { LedgerEntry } from '../../src/commands/cost/ledger.js'
-import type { CostSource } from '../../src/commands/cost/source.js'
 import type { SubagentRecord } from '../../src/commands/cost/turns.js'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
-import { countsTowardSteps, expectFor, formatContour as formatContourIn, formatRoleExpect, formatStepExpect as formatStepExpectIn, formatTokens, readLedgerEntries as readLedgerEntriesIn, stepExpects } from '../../src/commands/cost/expect.js'
+import { countsTowardSteps, expectFor, formatContour as formatContourIn, formatRoleExpect, formatStepExpect as formatStepExpectIn, formatTokens, MINIMUM_SAMPLE, readLedgerEntries as readLedgerEntriesIn, stepExpects, stepsOfRepository as stepsOfRepositoryIn } from '../../src/commands/cost/expect.js'
 import { LEDGER_FILE, parseLedgerLine } from '../../src/commands/cost/ledger.js'
-import { recordingSource, stepsOfRepository as stepsOfRepositoryIn } from '../../src/commands/cost/source.js'
 import { readSubagentRecords } from '../../src/commands/cost/turns.js'
 import { PLAIN_LORE } from '../../src/ui/lore.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { roleExpects } from './role-sample.js'
 
 export type { ImplementSubsample, SampleRow, SampleSource, StepExpect, Subsample } from '../../src/commands/cost/expect.js'
-export { formatTokens, stepExpects }
+export { formatTokens, MINIMUM_SAMPLE, stepExpects }
 
 type RunSteps = NonNullable<ExpectInput['runSteps']>
+type CostSource = NonNullable<Parameters<typeof stepsOfRepositoryIn>[4]>
 
 export interface ExpectSample {
   line: string
@@ -146,7 +145,7 @@ function ledgerRuns(ledgers: SampleSource[]): string[] {
   return ledgers.flatMap(ledger => (ledger.lines ?? []).map(parseLedgerLine)).flatMap(entry => typeof entry === 'string' || entry.run === null ? [] : [entry.run])
 }
 
-export function stepsOfRepository(root: string, runs: string[], warnings: string[], source: CostSource = recordingSource()): RunSteps {
+export function stepsOfRepository(root: string, runs: string[], warnings: string[], source?: CostSource): RunSteps {
   return stepsOfRepositoryIn(root, runs, warnings, PLAIN_LORE, source)
 }
 

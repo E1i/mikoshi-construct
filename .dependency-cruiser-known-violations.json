@@ -402,36 +402,8 @@
   {
     "type": "dependency",
     "from": "scripts/ladder/expect-sample.ts",
-    "to": "src/commands/cost/source.ts",
-    "unresolvedTo": "../../src/commands/cost/source.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "ladder-imports-only-core-and-ports"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/ladder/expect-sample.ts",
     "to": "src/commands/cost/turns.ts",
     "unresolvedTo": "../../src/commands/cost/turns.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "ladder-imports-only-core-and-ports"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/ladder/expect.ts",
-    "to": "src/commands/cost/sample.ts",
-    "unresolvedTo": "../../src/commands/cost/sample.js",
     "dependencyTypes": [
       "local",
       "import"
@@ -2252,62 +2224,6 @@
     "rule": {
       "severity": "error",
       "name": "ports-imports-nothing-to-its-right"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/commands/cost/bus.ts",
-    "to": "scripts/core/sqlite.ts",
-    "unresolvedTo": "../../../scripts/core/sqlite.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "src-imports-no-script"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/commands/cost/claude-code.ts",
-    "to": "scripts/ports/client/claude/adapter.ts",
-    "unresolvedTo": "../../../scripts/ports/client/claude/adapter.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "src-imports-no-script"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/commands/liveness.ts",
-    "to": "scripts/core/sqlite.ts",
-    "unresolvedTo": "../../scripts/core/sqlite.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "src-imports-no-script"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "src/commands/liveness.ts",
-    "to": "scripts/ports/client/claude/adapter.ts",
-    "unresolvedTo": "../../scripts/ports/client/claude/adapter.js",
-    "dependencyTypes": [
-      "local",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "src-imports-no-script"
     }
   },
   {

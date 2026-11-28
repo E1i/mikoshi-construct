@@ -5717,9 +5717,12 @@
           "formatStepExpect": "(expected: StepExpect, lore: Lore): string",
           "formatTokens": "(tokens: number): string",
           "readLedgerEntries": "(ledger: SampleSource, notes: string[], lore: Lore): LedgerEntry[]",
-          "stepExpects": "(entries: LedgerEntry[], runSteps: Map<string, RunStep[]>, effort: string, implement: ImplementSubsample | null = null): StepExpect[]"
+          "stepExpects": "(entries: LedgerEntry[], runSteps: Map<string, RunStep[]>, effort: string, implement: ImplementSubsample | null = null): StepExpect[]",
+          "stepsOfRepository": "(root: string, runs: string[], warnings: string[], lore: Lore, source: CostSource | null = recordingSource()): Map<string, RunStep[]>"
         },
-        "reexports": [],
+        "reexports": [
+          "MINIMUM_SAMPLE"
+        ],
         "types": {
           "ExpectInput": "interface ExpectInput { ledgers: SampleSource[]; effort?: string; taskClass?: string; runsOfClass?: Set<string> | null; missing?: string | null; extraSources?: string[]; classNotes?: string[]; runSteps?: Map<string, RunStep[]>; implement?: (entries: LedgerEntry[]) => { sample: ImplementSubsample; notes: string[]; } | null; roles?: RoleBand[]; }",
           "ImplementSubsample": "interface ImplementSubsample { subsample: Subsample; runs: Set<string>; }",
@@ -5756,7 +5759,6 @@
       },
       "src/commands/cost/sample.ts": {
         "constants": [
-          "MINIMUM_SAMPLE",
           "RECENT_RUNS"
         ],
         "functions": {
@@ -5766,17 +5768,6 @@
         "reexports": [],
         "types": {
           "Band": "type Band = { kind: 'band'; median: number; p25: number; p75: number; n: number; } | { kind: 'none'; n: number; }"
-        }
-      },
-      "src/commands/cost/source.ts": {
-        "constants": [],
-        "functions": {
-          "recordingSource": "(projectsDir?: string): CostSource",
-          "stepsOfRepository": "(root: string, runs: string[], warnings: string[], lore: Lore, source: CostSource | null): Map<string, RunStep[]>"
-        },
-        "reexports": [],
-        "types": {
-          "CostSource": "interface CostSource { runtime: Runtime; readable: () => boolean; read: (cwd: string, ledgerRuns: string[]) => CostReading; steps: (run: string) => RunDecomposition | null; }"
         }
       },
       "src/commands/cost/step-cache.ts": {
@@ -6358,7 +6349,6 @@
           "cardIsolationCommand": "(client: string): string[]",
           "cardLineOfConfig": "(config: Record<string, unknown>, size: string | undefined): CardLine | null",
           "claudeAdapterWith": "<Settings extends object>(source: ShiftSettingsSource<Settings>): ClientAdapter",
-          "claudeProjectsDir": "(): string",
           "clientHome": "(env: NodeJS.ProcessEnv): string",
           "clientLastSteps": "(env: NodeJS.ProcessEnv, worktree: string, session: string): string[] | null",
           "clientTranscript": "(env: NodeJS.ProcessEnv, worktree: string, session: string): string | null",
@@ -6372,7 +6362,6 @@
           "measuredSubagents": "(root: string, transcript: string): MeasuredSubagent[]",
           "ownerMessagesOf": "(transcript: string): number",
           "parseSessionJournal": "(text: string, worktree: string): CommandJournal",
-          "projectKey": "(cwd: string): string",
           "rawUsageIn": "(stdoutPath: string): unknown | null",
           "spendBasis": "(): string",
           "startContextOf": "(transcript: string, marker: string): StartContext",
