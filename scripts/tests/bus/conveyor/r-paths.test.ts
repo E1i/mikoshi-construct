@@ -11,7 +11,7 @@ import { BUS_SHARED, CHANGESET_READERS } from '../../../ci/layers.js'
 import { BUS_CONTRACT } from '../../../core/bus-adapter.js'
 import { openOwnerWaits } from '../../../core/card-readings.js'
 import { appendEvent, openBus } from '../../../core/db.js'
-import { ASSEMBLED_LAYER_MAP, FACTORY_PATHS, INTERNAL_MODULES_FILE, layerMapOf, MODULE_FILES, moduleFilesOf, readDeclarations, renderFactoryPaths, renderLayerMap, renderModuleFiles, trackedFrom, validateDeclarations } from '../../../core/declarations.js'
+import { ASSEMBLED_LAYER_MAP, COMPOSITION_ROOTS_RECORD, FACTORY_PATHS, INTERNAL_MODULES_FILE, layerMapOf, MODULE_FILES, moduleFilesOf, readDeclarations, renderFactoryPaths, renderLayerMap, renderModuleFiles, trackedFrom, validateDeclarations } from '../../../core/declarations.js'
 import { OWNER_WAIT_OPENED, PR_ORDERED } from '../../../core/events.js'
 import { FACTORY_LISTS, FACTORY_NAMED, FACTORY_RUNTIME, FACTORY_WORKERS } from '../../../core/factory-paths.js'
 import { GENERATED_PATHS, isRebuiltOnUpdate } from '../../../core/generated-files.js'
@@ -59,6 +59,7 @@ function checkout(cards: readonly Card[]): string {
   roots.push(root)
   cpSync(path.join(REPO_ROOT, DECLARATIONS), path.join(root, DECLARATIONS), { recursive: true })
   copyFileSync(path.join(REPO_ROOT, INTERNAL_MODULES_FILE), path.join(root, INTERNAL_MODULES_FILE))
+  cpSync(path.join(REPO_ROOT, COMPOSITION_ROOTS_RECORD), path.join(root, COMPOSITION_ROOTS_RECORD))
   for (const card of cards) {
     for (const [key, entry] of Object.entries(card.entries))
       writeFileSync(path.join(root, ENTRIES, `${key}.json`), JSON.stringify(entry))

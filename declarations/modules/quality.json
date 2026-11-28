@@ -7,7 +7,6 @@
     "scripts/core/verification.ts",
     "scripts/cli/check-catalog.ts",
     "scripts/cli/check-matrix.ts",
-    "scripts/cli/mutate.ts",
     "scripts/ci/",
     "scripts/quality/",
     "scripts/privacy/",

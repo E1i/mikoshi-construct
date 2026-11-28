@@ -173,6 +173,24 @@ describe('scenario 15, the validator part: what the validator refuses', () => {
     expect(problemsOf({ modules: { a: module('a', ['scripts/']) } }, ['scripts/a.ts', 'README.md'])).toEqual(['README.md: no module owns it'])
   })
 
+  it('takes a composition root of contract/factory.json as owned by no module, and still refuses any other unowned file', () => {
+    const root = fixture({ modules: { a: module('a', ['scripts/core/']) } })
+    mkdirSync(path.join(root, 'contract'), { recursive: true })
+    writeFileSync(path.join(root, 'contract', 'factory.json'), JSON.stringify({ modules: { composition_roots: ['scripts/cli/root.ts'] } }))
+    const declarations = readDeclarations(root)
+    expect(declarations.compositionRoots).toEqual(['scripts/cli/root.ts'])
+    expect(validateDeclarations(declarations, ['scripts/core/a.ts', 'scripts/cli/root.ts', 'scripts/cli/other.ts'])).toEqual(['scripts/cli/other.ts: no module owns it'])
+  })
+
+  it('reads no composition root where contract/factory.json is absent, so the root is unowned again', () => {
+    expect(problemsOf({ modules: { a: module('a', ['scripts/core/']) } }, ['scripts/core/a.ts', 'scripts/cli/root.ts'])).toEqual(['scripts/cli/root.ts: no module owns it'])
+  })
+
+  it('names every composition root of this repository in the roots the declarations read', () => {
+    const { compositionRoots } = readDeclarations(REPO_ROOT)
+    expect(compositionRoots).toEqual(expect.arrayContaining(['scripts/cli/card.ts', 'scripts/cli/mutate.ts', 'scripts/owner/session.ts']))
+  })
+
   it('reports a pattern that matches nothing, an exclude that removes nothing, and a shared path claimed twice', () => {
     const problems = problemsOf({
       modules: {

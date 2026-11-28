@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAdmit } from '../../../src/commands/intake/admit.js'
-import { cardBodyText } from '../../core/card-bodies.js'
+import { admittedCardRow, cardBodyText } from '../../core/card-bodies.js'
 import { appendEvent, BUS_DB_VARIABLE, openBus } from '../../core/db.js'
 import { CARD_ADMITTED } from '../../core/events.js'
 import { projectionDump, reduce } from '../../core/reducer.js'
@@ -16,6 +16,7 @@ import { busProjections } from '../../supervisor/composition.js'
 
 const AFTER_THE_CUTOFF = new Date('2026-10-13T09:00:00.000Z')
 const CARD = '#90 body-card [implement/netwatch/S/cheap/auto] · depends — · blocks —'
+const THE_FIRST_EVENT = 1
 const roots: string[] = []
 
 afterEach(() => {
@@ -148,6 +149,17 @@ describe('the admitted body intake and launch read back from card_bodies', () =>
       reduce(db, 'pending', busProjections())
       expect(cardBodyText(db, 90)).toBe(readFileSync(w.file, 'utf8'))
       expect(cardBodyText(db, 91)).toBeNull()
+    })
+  })
+
+  it('admittedCardRow returns the folded body of a card with the event that admitted it and the state its cards row holds, and null for a card with no body', () => {
+    const w = world()
+    admit(w)
+    withBus(w, (db) => {
+      reduce(db, 'pending', busProjections())
+      const text = readFileSync(w.file, 'utf8')
+      expect(admittedCardRow(db, 90)).toEqual({ admission_event_id: THE_FIRST_EVENT, text, text_sha: sha256(text), lane: null, state: 'queued' })
+      expect(admittedCardRow(db, 91)).toBeNull()
     })
   })
 
