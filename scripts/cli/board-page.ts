@@ -14,7 +14,7 @@ import type { AgentWords, EddiesLimits, EventSlices, Gauges, SessionView } from 
 import type { BoardWarning, SessionContext } from './board-warnings.js'
 import type { CardChain } from './card-chain.js'
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -34,6 +34,7 @@ import { builtEntry } from '../core/built-entry.js'
 import { staleLine } from '../core/bus-readings.js'
 import { linkedPrs } from '../core/card-readings.js'
 import { BOARD_STALE_TICKS, BOARD_TIMER_PERIOD_MS, BUSY_TIMEOUT_MS, defaultBusPath, openBoardBeatWriter, recordBoardBeat } from '../core/db.js'
+import { lastEventId } from '../core/events-query.js'
 import { CARD_HELD, CARD_RELEASED, TASK_LEASED } from '../core/events.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { statusLineOf } from '../core/handoff-status.js'
@@ -70,9 +71,10 @@ export const HANDOFF_FILE = mikoHandoff(defaultHandoffDir())
 export interface BoardFiles {
   write: (file: string, text: string) => void
   rename: (from: string, to: string) => void
+  remove?: (file: string) => void
 }
 
-export const DISK_FILES: BoardFiles = { write: (file, text) => writeFileSync(file, text), rename: renameSync }
+export const DISK_FILES: BoardFiles = { write: (file, text) => writeFileSync(file, text), rename: renameSync, remove: file => rmSync(file, { force: true }) }
 
 export { escaped }
 export type { EddiesLimits, Gauges, RunsGroup, RunsReading }
@@ -132,6 +134,9 @@ const BOARD_ICON = { id: 'board-icon', calm: `data:image/svg+xml,${encodeURIComp
 const MINUTE_MS = 60_000
 export const BOARD_DATA_FILE = 'board-data.js'
 const BOARD_DATA_PREFIX = 'window.BOARD = '
+export const BOARD_STAMP_FILE = 'board-stamp.js'
+export const SECTION_FILE_PREFIX = 'board-section-'
+const SECTION_HASH_DIGITS = 16
 const FORMAT_FLAGS: readonly (readonly [string, BoardFormat])[] = [['--json', 'json'], ['--html', 'html']]
 const PLAN_FLAG = '--plan'
 const ALL_FLAG = '--all'
@@ -362,10 +367,7 @@ function servicesMeta(page: BoardPage): string {
   const warn = limits.warnRatio === null ? 'eddies: no warn line' : `eddies: warn line <b>${percent(limits.warnRatio)}</b>`
   const cardLine = limits.cardContextLine === null ? '' : ` · card line <b>${compact(limits.cardContextLine)}</b>`
   const sizedLines = [...limits.cardLineBySize ?? []].filter(([, line]) => line !== limits.cardContextLine).map(([size, line]) => ` · ${escaped(size)} <b>${compact(line)}</b>`).join('')
-  return [
-    `<span class="meta">quickhacks on the subnet · agents at work <b>${facts.services.length}</b> · slots <b>${escaped(slotsReading(facts))}</b></span>`,
-    `<span class="meta right edd-note">${warn}${cardLine}${sizedLines}</span>`,
-  ].join('')
+  return `<span class="meta">quickhacks on the subnet · agents at work <b>${facts.services.length}</b> · slots <b>${escaped(slotsReading(facts))}</b></span><span class="meta right edd-note">${warn}${cardLine}${sizedLines}</span>`
 }
 
 function servicesSlot(page: BoardPage): string {
@@ -405,11 +407,8 @@ function legendRow(entry: CardsAtStage, page: BoardPage): string {
 
 function planBlock(plan: PlanProgress, backlog: number): string {
   const dropped = droppedLine(plan, PLAIN_LORE)
-  return [
-    `<div class="goal-top"><span class="goal-k">release</span><span class="goal-name">${escaped(planLine(plan, backlog))}</span></div>`,
-    `<div class="bar" role="img" aria-label="Release cards by stage">${RELEASE_PROGRESS_ORDER.filter(stage => plan.stages[stage] > 0).map(stage => swatch(stage, plan.stages[stage])).join('')}</div>`,
-    dropped === null ? '' : `<div class="goal-dropped">${escaped(dropped)}</div>`,
-  ].join('')
+  const bar = `<div class="bar" role="img" aria-label="Release cards by stage">${RELEASE_PROGRESS_ORDER.filter(stage => plan.stages[stage] > 0).map(stage => swatch(stage, plan.stages[stage])).join('')}</div>`
+  return `<div class="goal-top"><span class="goal-k">release</span><span class="goal-name">${escaped(planLine(plan, backlog))}</span></div>${bar}${dropped === null ? '' : `<div class="goal-dropped">${escaped(dropped)}</div>`}`
 }
 
 function goalSlot(facts: BusFacts): string {
@@ -558,17 +557,9 @@ function pulseReading(facts: BusFacts): string {
 }
 
 function statusSlot(facts: BusFacts): string {
-  return [
-    '<span class="mode">BOARD</span>',
-    `<span>subnet <b class="live" id="${PULSE_ELEMENT_ID}"${liveAttribute(facts)}>${pulseReading(facts)}</b></span>`,
-    `<span>agents <b>${facts.services.length}</b></span>`,
-    `<span>review queue <b>${facts.reviewQueue}</b></span>`,
-    failureSpan(facts),
-    `<button type="button"${opener(HANDOFF_DIALOG)}><kbd>H</kbd> handoff ›</button>`,
-    `<button type="button"${opener(DECISIONS_DIALOG)}><kbd>D</kbd> decisions ›</button>`,
-    '<span>geek mode <b>--geek</b></span>',
-    `<span class="cursor">${constructCommand('board')}</span>`,
-  ].join('')
+  const readings = ['<span class="mode">BOARD</span>', `<span>subnet <b class="live" id="${PULSE_ELEMENT_ID}"${liveAttribute(facts)}>${pulseReading(facts)}</b></span>`, `<span>agents <b>${facts.services.length}</b></span>`, `<span>review queue <b>${facts.reviewQueue}</b></span>`, failureSpan(facts)]
+  const buttons = [`<button type="button"${opener(HANDOFF_DIALOG)}><kbd>H</kbd> handoff ›</button>`, `<button type="button"${opener(DECISIONS_DIALOG)}><kbd>D</kbd> decisions ›</button>`]
+  return [...readings, ...buttons, '<span>geek mode <b>--geek</b></span>', `<span class="cursor">${constructCommand('board')}</span>`].join('')
 }
 
 function opener(dialog: string): string {
@@ -626,30 +617,10 @@ function dialogHead(kind: string, id: string, name: string, state: string, idTit
 function cardPunch(card: BusCard, detail: CardDetail, page: BoardPage): string {
   const [slug, kind, contour, size, cardPath, gate, depends, blocks] = cardFields(card)
   const contract = detail.contract
-  const fields = [
-    punchField('kind', kind, page),
-    punchField('contour', contour, page),
-    punchField('size', size, page),
-    punchField('path', cardPath, page),
-    punchField('gate', gate, page),
-    punchField('milestone', contract?.milestone, page),
-    punchField('decision', contract?.decision, page),
-    punchField('who', contract?.who, page),
-    punchField('priority', contract?.priority, page),
-    punchField('risk', contract?.risk, page),
-    punchField('continue', contract?.continue, page),
-    punchField('depends', depends, page),
-    punchField('blocks', blocks, page),
-    punchField('branch', contract?.branch, page, true),
-    punchField('card line', contract?.cardLine ?? card.line, page, true),
-    punchField('touches', contract?.touches, page, true),
-    punchField('creates', contract?.creates, page, true),
-    punchField('seam', contract?.seam, page),
-    punchField('slice', contract?.slice, page),
-    punchField('text_sha', contract?.textSha, page),
-    punchField('admission', contract?.admissionEventId, page),
-    punchField('last heartbeat', contract?.lastHeartbeat?.ts, page),
-  ]
+  const narrow: [string, PunchValue][] = [['kind', kind], ['contour', contour], ['size', size], ['path', cardPath], ['gate', gate], ['milestone', contract?.milestone], ['decision', contract?.decision], ['who', contract?.who], ['priority', contract?.priority], ['risk', contract?.risk], ['continue', contract?.continue], ['depends', depends], ['blocks', blocks]]
+  const wide: [string, PunchValue][] = [['branch', contract?.branch], ['card line', contract?.cardLine ?? card.line], ['touches', contract?.touches], ['creates', contract?.creates]]
+  const tail: [string, PunchValue][] = [['seam', contract?.seam], ['slice', contract?.slice], ['text_sha', contract?.textSha], ['admission', contract?.admissionEventId], ['last heartbeat', contract?.lastHeartbeat?.ts]]
+  const fields = [...narrow.map(([label, value]) => punchField(label, value, page)), ...wide.map(([label, value]) => punchField(label, value, page, true)), ...tail.map(([label, value]) => punchField(label, value, page))]
   return punch(`card · ${slug === NONE ? `#${card.id}` : slug}`, contract?.textSha ?? card.id.toString(16).padStart(PUNCH_DIGITS, '0'), fields)
 }
 
@@ -807,19 +778,17 @@ export const VIEW_KEY = 'construct-board:view'
 
 const PAGE_SCRIPT = path.join(import.meta.dirname, 'board-page', 'script.js')
 const SCRIPT_NAMES_GLOBAL = 'window.BOARD_NAMES'
-const SCRIPT_NAMES = { drill: DRILL, drillContent: DRILL_CONTENT, backlogScroll: BACKLOG_SCROLL, viewKey: VIEW_KEY, dialogPrefix: DIALOG_PREFIX, handoffDialog: HANDOFF_DIALOG, decisionsDialog: DECISIONS_DIALOG, busLive: BUS_LIVE, offlineReading: OFFLINE_READING, pulse: PULSE_ELEMENT_ID, titlePrefix: `${constructCommand('board')} · `, slotPrefix: SLOT_PREFIX, backlog: BACKLOG, filterAttribute: FILTER_ATTRIBUTE, icon: BOARD_ICON, staleTicks: STALE_TICKS, staleReading: STALE_READING, dataFile: BOARD_DATA_FILE, refreshIn: REFRESH_IN, round: { ...ROUND_COLOURS, ...ROUND_LABELS } }
+const SCRIPT_NAMES = { drill: DRILL, drillContent: DRILL_CONTENT, backlogScroll: BACKLOG_SCROLL, viewKey: VIEW_KEY, dialogPrefix: DIALOG_PREFIX, handoffDialog: HANDOFF_DIALOG, decisionsDialog: DECISIONS_DIALOG, busLive: BUS_LIVE, offlineReading: OFFLINE_READING, pulse: PULSE_ELEMENT_ID, titlePrefix: `${constructCommand('board')} · `, slotPrefix: SLOT_PREFIX, backlog: BACKLOG, filterAttribute: FILTER_ATTRIBUTE, icon: BOARD_ICON, staleTicks: STALE_TICKS, staleReading: STALE_READING, dataFile: BOARD_DATA_FILE, stampFile: BOARD_STAMP_FILE, sectionPrefix: SECTION_FILE_PREFIX, refreshIn: REFRESH_IN, round: { ...ROUND_COLOURS, ...ROUND_LABELS } }
 const SCRIPT = `\n${SCRIPT_NAMES_GLOBAL} = ${JSON.stringify(SCRIPT_NAMES)};\n${readFileSync(PAGE_SCRIPT, 'utf8')}`
 
-function dialogsSlot(page: BoardPage): string {
-  const cards = page.facts.cards.flatMap((card) => {
+type DialogPart = readonly [string, string]
+
+function dialogParts(page: BoardPage): DialogPart[] {
+  const cards = page.facts.cards.flatMap((card): DialogPart[] => {
     const detail = page.details.get(card.id)
-    return detail === undefined ? [] : [dialogTemplate(cardDialog(card.id), cardDialogHtml(card, detail, page))]
+    return detail === undefined ? [] : [[cardDialog(card.id), cardDialogHtml(card, detail, page)]]
   })
-  return [
-    dialogTemplate(HANDOFF_DIALOG, handoffDialogHtml(page)),
-    dialogTemplate(DECISIONS_DIALOG, decisionsDialogHtml(page)),
-    ...cards,
-  ].join('\n')
+  return [[HANDOFF_DIALOG, handoffDialogHtml(page)], [DECISIONS_DIALOG, decisionsDialogHtml(page)], ...cards]
 }
 
 function dialogs(slots: BoardSlots): string {
@@ -851,9 +820,10 @@ export interface BoardData extends BoardSnapshot {
   slots: BoardSlots
   filters: string[]
   alarms: string[]
+  hashes?: Record<string, string>
 }
 
-export function boardData(page: BoardPage): BoardData {
+export function boardData(page: BoardPage, dialogs: readonly DialogPart[] = dialogParts(page)): BoardData {
   return {
     written: page.facts.at,
     tickMs: page.tickMs,
@@ -869,7 +839,7 @@ export function boardData(page: BoardPage): BoardData {
       backlog: backlogSlot(page.facts),
       rows: rowsSlot(page.facts, page.held),
       status: statusSlot(page.facts),
-      dialogs: dialogsSlot(page),
+      dialogs: dialogs.map(([dialog, html]) => dialogTemplate(dialog, html)).join('\n'),
     },
     filters: filterTargetIds(page.facts),
     alarms: page.facts.panel?.alarm == null ? [] : [page.facts.panel.alarm.reason ?? NONE],
@@ -1147,22 +1117,48 @@ export function runBoardCli(busPath: string = defaultBusPath(), args: readonly s
 
 export interface BoardProjection { file: string, dataFile: string, project: (now: Date) => void }
 
+export function sectionFileOf(dir: string, name: string): string {
+  return path.join(dir, `${SECTION_FILE_PREFIX}${name}.js`)
+}
+
+function sectionsOf(data: BoardData, dialogs: readonly DialogPart[]): Map<string, string> {
+  return new Map([...Object.entries(data.slots).filter(([name]) => name !== 'dialogs'), ...dialogs.map(([dialog, html]): [string, string] => [`${DIALOG_PREFIX}${dialog}`, html])])
+}
+
+function writeSections(dir: string, sections: ReadonlyMap<string, string>, held: Map<string, string>, files: BoardFiles): Record<string, string> {
+  const hashes = new Map([...sections].map(([name, html]) => [name, createHash('sha256').update(html).digest('hex').slice(0, SECTION_HASH_DIGITS)]))
+  for (const [name, html] of [...sections].filter(([name]) => held.get(name) !== hashes.get(name)))
+    writeBoardPage(sectionFileOf(dir, name), `window.BOARD_SECTION(${JSON.stringify(name)}, ${JSON.stringify(hashes.get(name))}, ${JSON.stringify(html)})\n`, files)
+  for (const name of [...held.keys()].filter(name => !sections.has(name)))
+    files.remove?.(sectionFileOf(dir, name))
+  held.clear()
+  hashes.forEach((hash, name) => held.set(name, hash))
+  return Object.fromEntries(hashes)
+}
+
 export function boardProjection(db: DatabaseSync, busPath: string, tickMs: number, files: BoardFiles = DISK_FILES, handoffFile: string = HANDOFF_FILE, main: MainUpToDate = mainUpToDateOfThisRepository(), written: () => void = () => {}): BoardProjection {
-  const file = path.join(path.dirname(busPath), BOARD_FILE)
-  const dataFile = path.join(path.dirname(busPath), BOARD_DATA_FILE)
+  const [dir, file, dataFile] = [path.dirname(busPath), path.join(path.dirname(busPath), BOARD_FILE), path.join(path.dirname(busPath), BOARD_DATA_FILE)]
   let shell = existsSync(file) ? readFileSync(file, 'utf8') : null
+  const held = new Map<string, string>()
+  let built: { cursor: number, at: number, stamp: Pick<BoardData, 'tickMs' | 'filters' | 'alarms' | 'hashes'> } | null = null
   return {
     file,
     dataFile,
     project: (now) => {
       try {
-        const page = boardPageOf(db, busPath, now, handoffFile, tickMs, main, EDDIES_FILE, true)
-        writeBoardPage(dataFile, boardDataScript(boardData(page)), files)
-        const next = renderShell(page.version, tickMs)
-        if (next !== shell) {
-          writeBoardPage(file, next, files)
-          shell = next
+        const cursor = lastEventId(db)
+        if (built === null || built.cursor !== cursor || now.getTime() - built.at >= MINUTE_MS) {
+          const page = boardPageOf(db, busPath, now, handoffFile, tickMs, main, EDDIES_FILE, true)
+          const dialogs = dialogParts(page)
+          const data = boardData(page, dialogs)
+          const hashes = writeSections(dir, sectionsOf(data, dialogs), held, files)
+          writeBoardPage(dataFile, boardDataScript({ ...data, hashes }), files)
+          const next = renderShell(page.version, tickMs)
+          if (next !== shell)
+            writeBoardPage(file, shell = next, files)
+          built = { cursor, at: now.getTime(), stamp: { tickMs, filters: data.filters, alarms: data.alarms, hashes } }
         }
+        writeBoardPage(path.join(dir, BOARD_STAMP_FILE), `window.BOARD_STAMP = ${JSON.stringify({ written: now.toISOString(), ...built.stamp })}\n`, files)
         written()
       }
       catch (error) {

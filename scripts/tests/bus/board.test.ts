@@ -268,12 +268,13 @@ describe('the factory board', () => {
     const projection = boardProjection(bench.db, busPath, TICK_MS, files)
     expect(projection.dataFile).toBe(dataFile)
     projection.project(bench.clock.now())
-    const [dataWrite, dataRename, pageWrite, pageRename] = calls
+    const renameOf = (target: string): number => calls.findIndex(call => call[0] === 'rename' && call[2] === target)
+    const [dataWrite, dataRename, pageWrite, pageRename] = [calls[renameOf(projection.dataFile) - 1], calls[renameOf(projection.dataFile)], calls[renameOf(projection.file) - 1], calls[renameOf(projection.file)]]
     expect(dataWrite).toEqual(['write', dataWrite![1], 'window.BOARD = '])
     expect(dataRename).toEqual(['rename', dataWrite![1], projection.dataFile])
     expect(pageWrite).toEqual(['write', pageWrite![1], '<!doctype html>'])
     expect(pageRename).toEqual(['rename', pageWrite![1], projection.file])
-    expect(calls).toHaveLength(4)
+    expect(calls.every((call, at) => call[0] === (at % 2 === 0 ? 'write' : 'rename') && (call[0] === 'write' || call[1] === calls[at - 1]![1]))).toBe(true)
     for (const temporary of [dataWrite![1]!, pageWrite![1]!]) {
       expect(path.dirname(temporary)).toBe(root)
       expect(existsSync(temporary)).toBe(false)
