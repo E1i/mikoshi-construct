@@ -190,6 +190,7 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/core/bus-contract.ts`,
     `${FACTORY_ROOT}/core/process-listing.ts`,
     `${FACTORY_ROOT}/ci/required.ts`,
+    'src/client-record.ts',
     'src/commands/ci/state.ts',
     'src/commands/intake/command-word.ts',
   ],
