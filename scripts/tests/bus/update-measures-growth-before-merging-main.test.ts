@@ -117,11 +117,30 @@ describe('ratchet growth is measured on a head that holds main (F-update-measure
     expect(mainAdvanceToUpdateFirst([RATCHET], ['scripts/a.ts', 'docs/b.md'])).toEqual([])
     expect(mainAdvanceToUpdateFirst(['scripts/a.ts'], [RATCHET, DECLARATION])).toEqual([])
   })
+
+  it('a truncated compare of main is not read as a file list: the check before merge counts it as an overlap and updates', () => {
+    const bench = liveBench()
+    benches.push(bench)
+    const pr = 2397
+    admitted(bench, pr)
+    bench.gitHub.open({ number: pr, review: 'success', baseSha: MAIN_1, files: [RATCHET, 'scripts/other.ts'], patches: { [RATCHET]: MAIN_SHRANK_THE_ROW } })
+    mainMovedAModule(bench)
+    bench.gitHub.commitsBeyondTheCompare = 1
+    bench.tick()
+
+    const judged = bench.merge(bench.lease()!)
+
+    expect(judged).toMatchObject({ kind: 'denied', denial: { kind: 'technical', reason: busContract().needsUpdate, parkedUntil: 'new_head' } })
+    expect(JSON.stringify(judged)).toContain('which counts as an overlap')
+    expect(JSON.stringify(judged)).not.toContain('judged on the updated head')
+    expect(ownerMergeWaits(bench)).toEqual([])
+  })
 })
 
 const CARD = 2497
 const SESSION = 'card-session-1'
 const TOUCHED = 'scripts/core/lease.ts'
+const NOT_DERIVED = 'scripts/core/other.ts'
 const CARD_TEXT = `card: #${CARD} reset-derived [implement/netwatch/S/cheap/auto] · depends — · blocks —\nbranch: feat/card-${CARD}\ntouches: ${TOUCHED}\ncontinue: stop\nwho: shift\n\nDrop the import.\n`
 
 function gitIn(cwd: string, args: string[]): string {
@@ -134,8 +153,8 @@ function room(): string {
   return root
 }
 
-function branchThatChangedTheRatchet(worktree: string): void {
-  const files = { 'construct.json': `${JSON.stringify({ harness: { command: 'pnpm run quality' }, shift: { prepush: [] } })}\n`, [TOUCHED]: 'export const lease = 1\n', [RATCHET]: ROWS(2, 13) }
+function branchThatChangedTheRatchet(worktree: string, staleOutside: boolean): void {
+  const files = { 'construct.json': `${JSON.stringify({ harness: { command: 'pnpm run quality' }, shift: { prepush: [] } })}\n`, [TOUCHED]: 'export const lease = 1\n', [NOT_DERIVED]: 'export const other = 1\n', [RATCHET]: ROWS(2, 13) }
   for (const [file, text] of Object.entries(files)) {
     mkdirSync(path.dirname(path.join(worktree, file)), { recursive: true })
     writeFileSync(path.join(worktree, file), text)
@@ -145,15 +164,17 @@ function branchThatChangedTheRatchet(worktree: string): void {
   gitIn(worktree, ['commit', '-q', '-m', 'base'])
   gitIn(worktree, ['update-ref', 'refs/remotes/origin/main', 'HEAD'])
   writeFileSync(path.join(worktree, RATCHET), ROWS(6, 13))
+  if (staleOutside)
+    writeFileSync(path.join(worktree, NOT_DERIVED), 'export const other = 2\n')
   gitIn(worktree, ['commit', '-q', '-am', 'stale rows'])
 }
 
-async function answerWith(round: (worktree: string) => void): Promise<{ made: MergeBench, outcome: AnswerOutcome, published: number, ratchet: string }> {
+async function answerWith(round: (worktree: string) => void, staleOutside = false): Promise<{ made: MergeBench, outcome: AnswerOutcome, published: number, ratchet: string }> {
   const made = mergeBench()
   benches.push(made)
   const home = room()
   const worktree = path.join(home, `mc-${CARD}`)
-  branchThatChangedTheRatchet(worktree)
+  branchThatChangedTheRatchet(worktree, staleOutside)
   const ts = made.clock.now().toISOString()
   appendEvent(made.db, { ts, type: CARD_ADMITTED, actor: 'worker:intake:by-hand', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:body:${CARD}`, payload: { card: `#${CARD}`, lane: 'lane-1', text: CARD_TEXT, textSha: textSha(CARD_TEXT) }, legacy: false })
   appendEvent(made.db, { ts, type: CARD_STARTED, actor: 'worker:launch:launch-1', cardId: CARD, pr: null, head: null, dedupeKey: `${CARD_STARTED}:${CARD}`, payload: { session: SESSION, worktree, branch: `feat/card-${CARD}`, base: sha('1') }, legacy: false })
@@ -207,6 +228,17 @@ describe('an answer that resets a derived file to the branch base changes nothin
     })
 
     expect(outcome).not.toMatchObject({ kind: 'answered' })
+    expect(published).toBe(0)
+  })
+
+  it('a file outside the touches that is not derived stays refused when the answer resets it to the branch base', async () => {
+    const { outcome, published } = await answerWith((worktree) => {
+      writeFileSync(path.join(worktree, TOUCHED), 'export const lease = 2\n')
+      gitIn(worktree, ['checkout', 'origin/main', '--', RATCHET, NOT_DERIVED])
+    }, true)
+
+    expect(outcome).not.toMatchObject({ kind: 'answered' })
+    expect(JSON.stringify(outcome)).toContain(NOT_DERIVED)
     expect(published).toBe(0)
   })
 })

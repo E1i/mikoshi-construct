@@ -63,6 +63,7 @@ export interface Declarations {
   events: readonly EventDeclaration[]
   readings: readonly ReadingDeclaration[]
   internalModules: readonly string[]
+  compositionRoots: readonly string[]
   problems: readonly string[]
 }
 
@@ -101,6 +102,7 @@ export const FACTORY_PATHS = generatedPathOf(FACTORY_PATHS_ROW)
 export const LAYER_MAP_ROW = 'layer-map'
 export const ASSEMBLED_LAYER_MAP = generatedPathOf(LAYER_MAP_ROW)
 export const INTERNAL_MODULES_FILE = 'internal-modules.json'
+export const COMPOSITION_ROOTS_RECORD = generatedPathOf('factory')
 
 const SOURCE_ROOT = 'src'
 const SOURCE_SUFFIX = '.ts'
@@ -487,14 +489,16 @@ export function readDeclarations(root: string = REPO_ROOT): Declarations {
     }
   }
   const internalModules = kinds.includes(MAY_USE_KIND) ? internalModulesAt(root, text => problems.push(text)) : []
-  return { modules, contention, generated, mayUse, workers, entries, events, readings, internalModules, problems }
+  const rootsRecord = path.join(root, COMPOSITION_ROOTS_RECORD)
+  const compositionRoots: unknown = existsSync(rootsRecord) ? (JSON.parse(readFileSync(rootsRecord, 'utf8')) as { modules?: { composition_roots?: unknown } }).modules?.composition_roots : []
+  return { modules, contention, generated, mayUse, workers, entries, events, readings, internalModules, compositionRoots: isTextList(compositionRoots) ? compositionRoots : [], problems }
 }
 
 function filesUnder(entry: string, tracked: readonly string[]): string[] {
   return tracked.filter(file => matches(entry, file))
 }
 
-function moduleProblems(modules: readonly ModuleDeclaration[], tracked: readonly string[]): string[] {
+function moduleProblems(modules: readonly ModuleDeclaration[], tracked: readonly string[], roots: readonly string[]): string[] {
   const problems: string[] = []
   for (const module of modules) {
     const at = where(MODULES_KIND, module.module)
@@ -519,9 +523,8 @@ function moduleProblems(modules: readonly ModuleDeclaration[], tracked: readonly
   }
   for (const file of tracked) {
     const { owner, tied } = ownershipOf(modules, file)
-    if (owner !== null)
-      continue
-    problems.push(tied.length === 0 ? `${file}: no module owns it` : `${file}: ${tied.join(', ')} match it with equal specificity`)
+    if (owner === null && (tied.length > 0 || !roots.includes(file)))
+      problems.push(tied.length === 0 ? `${file}: no module owns it` : `${file}: ${tied.join(', ')} match it with equal specificity`)
   }
   return problems
 }
@@ -619,7 +622,7 @@ function pathProblems(workers: readonly WorkerDeclaration[], entries: readonly E
 export function validateDeclarations(declarations: Declarations, tracked: readonly string[]): string[] {
   return [
     ...declarations.problems,
-    ...moduleProblems(declarations.modules, moduleFilesAmong(tracked)),
+    ...moduleProblems(declarations.modules, moduleFilesAmong(tracked), declarations.compositionRoots),
     ...areaProblems(declarations.contention, declarations.modules, tracked),
     ...rowProblemsOver(declarations.generated, declarations.modules, tracked),
     ...mayUseProblems(declarations.mayUse, declarations.internalModules, tracked),
