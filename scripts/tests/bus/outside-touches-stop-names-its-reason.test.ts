@@ -5,7 +5,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { ownerHolds } from '../../cli/board-page/live-cards.js'
-import { cardHoldOf } from '../../core/card-hold.js'
+import { cardHoldOf, outsideTouchesStops } from '../../core/card-hold.js'
 import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, CARD_HELD, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, OUTSIDE_TOUCHES, QUESTION_AGENT } from '../../core/events.js'
 import { MachineSessions } from '../../core/machine-sessions.js'
@@ -68,7 +68,7 @@ class Bench {
 
   boardReason(): string | undefined {
     const read = new BusRead(this.db)
-    return ownerHolds(read.slice(CARD_HELD, ['reason', 'takeover']), read.slice(CARD_RELEASED, ['takeover']), read.slice(CARD_STOPPED, ['code', 'paths'])).get(CARD)
+    return ownerHolds(read.slice(CARD_HELD, ['reason', 'takeover']), read.slice(CARD_RELEASED, ['takeover']), outsideTouchesStops(read.slice(CARD_STOPPED, ['code', 'paths']))).get(CARD)
   }
 
   launchLine(): string | undefined {

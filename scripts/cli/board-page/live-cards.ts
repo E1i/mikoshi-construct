@@ -1,7 +1,5 @@
-import type { StopRow } from '../../core/card-hold.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { outsideTouchesStops } from '../../core/card-hold.js'
 
 export const MERGED_SHOWN_HOURS = 24
 export const BOARD_HISTORY_FILE = 'board-history.html'
@@ -82,9 +80,8 @@ function latestLayer(layers: Map<HoldLayer, { id: number, reason: string }>): Ho
   return takeover === undefined || owner.id > takeover.id ? 'owner' : 'takeover'
 }
 
-export function ownerHolds(held: readonly HoldEvent[], released: readonly HoldEvent[], stops: readonly StopRow[] = []): Map<number, string> {
+export function ownerHolds(held: readonly HoldEvent[], released: readonly HoldEvent[], stoppedOutside: ReadonlyMap<number, string> = new Map()): Map<number, string> {
   const releases = new Set(released.map(event => event.id))
-  const stoppedOutside = outsideTouchesStops(stops)
   const cards = new Map<number, Map<HoldLayer, { id: number, reason: string }>>()
   for (const event of [...held, ...released].sort((a, b) => a.id - b.id)) {
     if (event.card === null)
