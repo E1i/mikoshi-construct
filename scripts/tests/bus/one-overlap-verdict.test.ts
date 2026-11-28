@@ -368,16 +368,20 @@ describe('what is no resource', () => {
     expect(bench.candidates()).toEqual([2])
   })
 
-  it('the open pull request of a card held for the owner does not hold its files against a higher-priority card', () => {
-    const bench = new SchedulerBench()
+  it('the open pull request of a card held for the owner holds none of its files, whatever the claimant\'s priority', () => {
+    const higher = new SchedulerBench()
       .admit(1, ['scripts/a.ts'], { priority: 'p2' })
       .openPr(1, ['scripts/a.ts'])
       .holdForOwner(1)
       .admit(2, ['scripts/a.ts'], { priority: 'p0' })
+    const same = new SchedulerBench()
+      .admit(1, ['scripts/a.ts'], { priority: 'p2' })
+      .openPr(1, ['scripts/a.ts'])
+      .holdForOwner(1)
       .admit(3, ['scripts/a.ts', 'scripts/x.ts'], { priority: 'p2' })
 
-    expect(bench.candidates()).toContain(2)
-    expect(bench.candidates()).not.toContain(3)
+    expect(higher.candidates()).toContain(2)
+    expect(same.candidates()).toContain(3)
   })
 
   it('two cards whose touches meet only on a file an owner decision declares additive both start with no overlap skip', () => {
