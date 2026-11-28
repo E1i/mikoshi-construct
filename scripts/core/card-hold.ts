@@ -3,7 +3,7 @@ import type { BusEvent } from './db.js'
 import type { Queue } from './identifiers.js'
 import { appendEvent } from './db.js'
 import { EITHER_JOURNAL, events, ofCard } from './events-query.js'
-import { CARD_HELD, CARD_RELEASED, OPEN_QUESTION, OUTSIDE_TOUCHES, TASK_FAILED, TASK_REQUEUED, TASK_WITHDRAWN } from './events.js'
+import { CARD_HELD, CARD_RELEASED, CARD_STOPPED, OPEN_QUESTION, OUTSIDE_TOUCHES, TASK_FAILED, TASK_REQUEUED, TASK_WITHDRAWN } from './events.js'
 import { generationOfKey } from './identifiers.js'
 import { QUEUE_ACTOR, QUEUED, TASK_FOLDS, WITHDRAWN } from './queue.js'
 import { storedByKey } from './stored.js'
@@ -13,6 +13,8 @@ export const HOLD_RECHECK_MS = 5 * 60_000
 
 export const LIVE_SESSION_IN_THE_TREE = 'live_session_in_the_tree'
 
+const NO_REASON = 'the hold names no reason'
+
 export type SessionStopCode = typeof OUTSIDE_TOUCHES | typeof OPEN_QUESTION
 
 export const SESSION_STOP_CODES: readonly SessionStopCode[] = [OUTSIDE_TOUCHES, OPEN_QUESTION]
@@ -21,6 +23,37 @@ export interface SessionStop {
   code: SessionStopCode
   blocker: string
   paths: string[]
+}
+
+export function outsideTouchesReason(stop: number, paths: readonly string[]): string {
+  return `${OUTSIDE_TOUCHES}: its session stopped at ${stop} on paths outside its touches: ${paths.join(', ')}`
+}
+
+export interface StopRow {
+  id: number
+  card: number | null
+  fields: { readonly code?: unknown, readonly paths?: unknown }
+}
+
+function namedPaths(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((each): each is string => typeof each === 'string' && each !== '') : []
+}
+
+export function outsideTouchesStops(stops: readonly StopRow[]): Map<number, string> {
+  const latest = new Map<number, StopRow>()
+  for (const stop of [...stops].sort((a, b) => a.id - b.id)) {
+    if (stop.card !== null)
+      latest.set(stop.card, stop)
+  }
+  return new Map([...latest].flatMap(([card, stop]) => {
+    const paths = namedPaths(stop.fields.paths)
+    return stop.fields.code === OUTSIDE_TOUCHES && paths.length > 0 ? [[card, outsideTouchesReason(stop.id, paths)] as const] : []
+  }))
+}
+
+function unnamedHoldReason(db: DatabaseSync, cardId: number): string {
+  const stops = ofCard(db, cardId, { types: [CARD_STOPPED] }).map(({ id, data }) => ({ id: Number(id), card: cardId, fields: { code: data?.code, paths: data?.paths } }))
+  return outsideTouchesStops(stops).get(cardId) ?? NO_REASON
 }
 
 export function sessionStopOf(questions: readonly string[], outsideTheTouches: (text: string) => string[]): SessionStop | null {
@@ -47,7 +80,6 @@ const ANSWER_QUEUE: Queue = 'answer'
 
 const HELD_FOR_OWNER = 'held_for_owner'
 const HOLD_EVENTS = [CARD_HELD, CARD_RELEASED]
-const NO_REASON = 'the hold names no reason'
 const WITHDRAWN_BY_A_HOLD = `${TASK_WITHDRAWN}:${CARD_HELD}:`
 
 export interface HoldLayer {
@@ -91,7 +123,7 @@ export function holdLayersOf(db: DatabaseSync, cardId: number): HoldLayers {
       continue
     }
     const kind = row.takeover === null ? 'owner' : 'takeover'
-    const reason = typeof row.reason === 'string' && row.reason !== '' ? row.reason : NO_REASON
+    const reason = typeof row.reason === 'string' && row.reason !== '' ? row.reason : unnamedHoldReason(db, cardId)
     layers[kind] = { id: layers[kind]?.id ?? Number(row.id), reason }
     layers.opened ??= Number(row.id)
   }

@@ -15,7 +15,7 @@ import { isBackfill } from '../../core/backfill-source.js'
 import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { DEFERRED_CARD, unsatisfiedDependencies } from '../../core/card-automaton.js'
 import { bodyNotFoldedYet, pathsOutsideTheBody } from '../../core/card-bodies.js'
-import { cardHoldOf, SESSION_STOP_CODES } from '../../core/card-hold.js'
+import { cardHoldOf, outsideTouchesReason, SESSION_STOP_CODES } from '../../core/card-hold.js'
 import { cardsWithAState, closedWaitsOfCard, openOwnerWaits } from '../../core/card-readings.js'
 import { appendEvent, openOwnerWait } from '../../core/db.js'
 import { BY_CARD, EITHER_JOURNAL, events, lastPer } from '../../core/events-query.js'
@@ -483,7 +483,7 @@ export function holdReason(hold: StartableHold): string {
     case 'dropped-depends':
       return `its dependency #${hold.dropped} is dropped, so it never launches until its depends are amended or it is dropped`
     case 'outside-touches':
-      return `its session stopped at ${hold.stop} on paths outside its touches: ${hold.paths.join(', ')}; it starts once intake widens its touches, or a decision bound to the card or the owner's word closing its wait says no widening is needed`
+      return `${outsideTouchesReason(hold.stop, hold.paths)}; it starts once intake widens its touches, or a decision bound to the card or the owner's word closing its wait says no widening is needed`
   }
 }
 

@@ -1,5 +1,7 @@
+import type { StopRow } from '../../core/card-hold.js'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
+import { outsideTouchesStops } from '../../core/card-hold.js'
 
 export const MERGED_SHOWN_HOURS = 24
 export const BOARD_HISTORY_FILE = 'board-history.html'
@@ -80,8 +82,9 @@ function latestLayer(layers: Map<HoldLayer, { id: number, reason: string }>): Ho
   return takeover === undefined || owner.id > takeover.id ? 'owner' : 'takeover'
 }
 
-export function ownerHolds(held: readonly HoldEvent[], released: readonly HoldEvent[]): Map<number, string> {
+export function ownerHolds(held: readonly HoldEvent[], released: readonly HoldEvent[], stops: readonly StopRow[] = []): Map<number, string> {
   const releases = new Set(released.map(event => event.id))
+  const stoppedOutside = outsideTouchesStops(stops)
   const cards = new Map<number, Map<HoldLayer, { id: number, reason: string }>>()
   for (const event of [...held, ...released].sort((a, b) => a.id - b.id)) {
     if (event.card === null)
@@ -95,7 +98,7 @@ export function ownerHolds(held: readonly HoldEvent[], released: readonly HoldEv
       continue
     }
     const layer: HoldLayer = event.fields.takeover == null ? 'owner' : 'takeover'
-    const reason = typeof event.fields.reason === 'string' && event.fields.reason !== '' ? event.fields.reason : NO_REASON
+    const reason = typeof event.fields.reason === 'string' && event.fields.reason !== '' ? event.fields.reason : stoppedOutside.get(event.card) ?? NO_REASON
     layers.set(layer, { id: layers.get(layer)?.id ?? event.id, reason })
   }
   return new Map([...cards].flatMap(([card, layers]) => latestLayer(layers) === 'owner' ? [[card, layers.get('owner')!.reason] as const] : []))
