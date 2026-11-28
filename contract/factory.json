@@ -2327,6 +2327,7 @@
           "scripts/cli/task-start.ts",
           "scripts/conveyor/measures.ts",
           "scripts/core/bus-adapter.ts",
+          "scripts/core/bus-history.ts",
           "scripts/core/bus-path.ts",
           "scripts/core/journal.ts",
           "scripts/core/machine-sessions.ts",
@@ -3500,6 +3501,7 @@
           "rules",
           "pr-record",
           "factory-contract",
+          "ladder",
           "node-answer",
           "node-close",
           "node-launch",
@@ -3546,6 +3548,7 @@
           "rules",
           "pr-record",
           "factory-contract",
+          "ladder",
           "node-answer",
           "node-close",
           "node-launch",
@@ -3593,6 +3596,8 @@
           "scripts/core/task-must-wait.ts",
           "scripts/core/bus-adapter.ts",
           "scripts/core/identifiers.ts",
+          "scripts/core/legacy-history.ts",
+          "scripts/core/bus-history.ts",
           "scripts/ports/bus-read.ts",
           "scripts/ports/worktree-home.ts"
         ],
@@ -3630,6 +3635,8 @@
           "scripts/core/rejection.ts",
           "scripts/core/bus-adapter.ts",
           "scripts/core/identifiers.ts",
+          "scripts/core/legacy-history.ts",
+          "scripts/core/bus-history.ts",
           "scripts/ports/bus-read.ts",
           "scripts/ports/worktree-home.ts"
         ],
@@ -3768,6 +3775,7 @@
           "rules",
           "pr-record",
           "factory-contract",
+          "ladder",
           "node-answer",
           "node-close",
           "node-launch",
@@ -3836,8 +3844,6 @@
       "cost": {
         "concepts": [],
         "contract": [
-          "scripts/ladder/**",
-          "scripts/done/**",
           "src/commands/cost/**"
         ],
         "may_use": [
@@ -3861,6 +3867,7 @@
           "rules",
           "pr-record",
           "factory-contract",
+          "ladder",
           "node-answer",
           "node-close",
           "node-launch",
@@ -3874,8 +3881,6 @@
           "release"
         ],
         "owns": [
-          "scripts/ladder/**",
-          "scripts/done/**",
           "src/commands/cost/**"
         ],
         "status": "decided"
@@ -4021,6 +4026,46 @@
         ],
         "status": "decided"
       },
+      "ladder": {
+        "concepts": [],
+        "contract": [
+          "scripts/ladder/**",
+          "scripts/done/**",
+          "scripts/core/journal.ts",
+          "scripts/nodes/update/review-carry.ts",
+          "!scripts/ladder/ladder-starter.ts"
+        ],
+        "may_use": [
+          "layout",
+          "command-registry",
+          "ui",
+          "ports-adapters",
+          "ports",
+          "events",
+          "bus",
+          "card-model",
+          "card-record",
+          "project",
+          "plan",
+          "order",
+          "decisions",
+          "session",
+          "model",
+          "quality",
+          "intake",
+          "rules",
+          "pr-record",
+          "factory-contract"
+        ],
+        "owns": [
+          "scripts/ladder/**",
+          "scripts/done/**",
+          "scripts/core/journal.ts",
+          "scripts/nodes/update/review-carry.ts",
+          "!scripts/ladder/ladder-starter.ts"
+        ],
+        "status": "decided"
+      },
       "layout": {
         "concepts": [
           "generated-files"
@@ -4102,7 +4147,8 @@
           "intake",
           "rules",
           "pr-record",
-          "factory-contract"
+          "factory-contract",
+          "ladder"
         ],
         "owns": [
           "scripts/nodes/answer/**",
@@ -4136,7 +4182,8 @@
           "intake",
           "rules",
           "pr-record",
-          "factory-contract"
+          "factory-contract",
+          "ladder"
         ],
         "owns": [
           "scripts/nodes/close/**"
@@ -4168,10 +4215,12 @@
           "intake",
           "rules",
           "pr-record",
-          "factory-contract"
+          "factory-contract",
+          "ladder"
         ],
         "owns": [
           "scripts/nodes/launch/**",
+          "scripts/ladder/ladder-starter.ts",
           "!scripts/nodes/launch/continuation.ts",
           "!scripts/nodes/launch/tree-pr.ts"
         ],
@@ -4211,7 +4260,8 @@
           "intake",
           "rules",
           "pr-record",
-          "factory-contract"
+          "factory-contract",
+          "ladder"
         ],
         "owns": [
           "scripts/nodes/merge/**"
@@ -4243,7 +4293,8 @@
           "intake",
           "rules",
           "pr-record",
-          "factory-contract"
+          "factory-contract",
+          "ladder"
         ],
         "owns": [
           "scripts/nodes/restart/**",
@@ -4276,7 +4327,8 @@
           "intake",
           "rules",
           "pr-record",
-          "factory-contract"
+          "factory-contract",
+          "ladder"
         ],
         "owns": [
           "scripts/nodes/review/**",
@@ -4313,10 +4365,12 @@
           "intake",
           "rules",
           "pr-record",
-          "factory-contract"
+          "factory-contract",
+          "ladder"
         ],
         "owns": [
-          "scripts/nodes/update/**"
+          "scripts/nodes/update/**",
+          "!scripts/nodes/update/review-carry.ts"
         ],
         "status": "decided"
       },
@@ -4345,7 +4399,8 @@
           "intake",
           "rules",
           "pr-record",
-          "factory-contract"
+          "factory-contract",
+          "ladder"
         ],
         "owns": [
           "scripts/nodes/witness/**"
@@ -4738,6 +4793,7 @@
           "rules",
           "pr-record",
           "factory-contract",
+          "ladder",
           "node-answer",
           "node-close",
           "node-launch",
@@ -4813,7 +4869,6 @@
         "contract": [
           "scripts/core/machine-sessions.ts",
           "scripts/core/eddies.ts",
-          "scripts/core/journal.ts",
           "scripts/core/tasks.ts",
           "scripts/core/handoff-dir.ts",
           "scripts/core/handoff-fields.ts",
@@ -4821,7 +4876,6 @@
           "scripts/core/chain.ts",
           "scripts/core/places.ts",
           "scripts/core/report.ts",
-          "scripts/core/legacy-history.ts",
           "scripts/core/import-closure.ts",
           "scripts/core/cadence.ts",
           "scripts/intake/witness-fields-backfill.ts",
@@ -4858,7 +4912,6 @@
         "owns": [
           "scripts/core/machine-sessions.ts",
           "scripts/core/eddies.ts",
-          "scripts/core/journal.ts",
           "scripts/core/tasks.ts",
           "scripts/core/handoff-dir.ts",
           "scripts/core/handoff-fields.ts",
@@ -4866,7 +4919,6 @@
           "scripts/core/chain.ts",
           "scripts/core/places.ts",
           "scripts/core/report.ts",
-          "scripts/core/legacy-history.ts",
           "scripts/core/import-closure.ts",
           "scripts/core/cadence.ts",
           "scripts/intake/witness-fields-backfill.ts",
@@ -4952,6 +5004,7 @@
           "rules",
           "pr-record",
           "factory-contract",
+          "ladder",
           "node-answer",
           "node-close",
           "node-launch",

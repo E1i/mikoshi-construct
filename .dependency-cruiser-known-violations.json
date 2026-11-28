@@ -772,21 +772,6 @@
   {
     "type": "dependency",
     "from": "scripts/core/journal.ts",
-    "to": "scripts/ladder/approval.ts",
-    "unresolvedTo": "../ladder/approval.js",
-    "dependencyTypes": [
-      "local",
-      "type-only",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "no-factory-contour-imports-ladder"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/core/journal.ts",
     "to": "scripts/ladder/expect.ts",
     "unresolvedTo": "../ladder/expect.js",
     "dependencyTypes": [
@@ -804,21 +789,6 @@
     "from": "scripts/core/journal.ts",
     "to": "scripts/ladder/ledger.ts",
     "unresolvedTo": "../ladder/ledger.js",
-    "dependencyTypes": [
-      "local",
-      "type-only",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "no-factory-contour-imports-ladder"
-    }
-  },
-  {
-    "type": "dependency",
-    "from": "scripts/core/legacy-history.ts",
-    "to": "scripts/ladder/approval.ts",
-    "unresolvedTo": "../ladder/approval.js",
     "dependencyTypes": [
       "local",
       "type-only",

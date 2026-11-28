@@ -37,6 +37,8 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/core/rejection.ts`,
     `${FACTORY_ROOT}/core/bus-adapter.ts`,
     `${FACTORY_ROOT}/core/identifiers.ts`,
+    `${FACTORY_ROOT}/core/legacy-history.ts`,
+    `${FACTORY_ROOT}/core/bus-history.ts`,
     `${FACTORY_ROOT}/ports/bus-read.ts`,
     `${FACTORY_ROOT}/ports/worktree-home.ts`,
   ],
@@ -103,8 +105,6 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/contract/**`,
   ],
   'cost': [
-    `${FACTORY_ROOT}/ladder/**`,
-    `${FACTORY_ROOT}/done/**`,
     'src/commands/cost/**',
   ],
   'decisions': [
@@ -124,6 +124,12 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
   'intake': [
     `${FACTORY_ROOT}/intake/**`,
     'src/commands/intake/**',
+  ],
+  'ladder': [
+    `${FACTORY_ROOT}/ladder/**`,
+    `${FACTORY_ROOT}/done/**`,
+    `${FACTORY_ROOT}/core/journal.ts`,
+    `${FACTORY_ROOT}/nodes/update/review-carry.ts`,
   ],
   'layout': [
     `${FACTORY_ROOT}/core/built-entry.ts`,
@@ -147,6 +153,7 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
   ],
   'node-launch': [
     `${FACTORY_ROOT}/nodes/launch/**`,
+    `${FACTORY_ROOT}/ladder/ladder-starter.ts`,
   ],
   'node-laws': [
     `${FACTORY_ROOT}/nodes/laws.ts`,
@@ -273,7 +280,6 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
   'session': [
     `${FACTORY_ROOT}/core/machine-sessions.ts`,
     `${FACTORY_ROOT}/core/eddies.ts`,
-    `${FACTORY_ROOT}/core/journal.ts`,
     `${FACTORY_ROOT}/core/tasks.ts`,
     `${FACTORY_ROOT}/core/handoff-dir.ts`,
     `${FACTORY_ROOT}/core/handoff-fields.ts`,
@@ -281,7 +287,6 @@ export const MODULE_OWNS: Readonly<Record<string, readonly string[]>> = {
     `${FACTORY_ROOT}/core/chain.ts`,
     `${FACTORY_ROOT}/core/places.ts`,
     `${FACTORY_ROOT}/core/report.ts`,
-    `${FACTORY_ROOT}/core/legacy-history.ts`,
     `${FACTORY_ROOT}/core/import-closure.ts`,
     `${FACTORY_ROOT}/core/cadence.ts`,
     `${FACTORY_ROOT}/intake/witness-fields-backfill.ts`,

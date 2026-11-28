@@ -1,9 +1,7 @@
 {
   "module": "cost",
-  "layer": "ladder",
+  "layer": "src",
   "paths": [
-    "scripts/ladder/",
-    "scripts/done/",
     "src/commands/cost/"
   ],
   "exclude": [],

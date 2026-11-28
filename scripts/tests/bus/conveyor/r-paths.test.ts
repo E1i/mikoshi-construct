@@ -200,7 +200,7 @@ describe('conveyor R-paths: the witnesses', () => {
     const layers = JSON.parse(merged.layerMap) as { files: Record<string, string> }
     expect(layers.files['scripts/ladder/probe-starter.ts']).toBe('bus:probe')
     expect(layers.files['scripts/window/probe-view.ts']).toBe('bus')
-    expect(JSON.parse(merged.moduleFiles)).toMatchObject({ cost: expect.arrayContaining(['scripts/ladder/probe-starter.ts']), window: expect.arrayContaining(['scripts/window/probe-view.ts']) })
+    expect(JSON.parse(merged.moduleFiles)).toMatchObject({ ladder: expect.arrayContaining(['scripts/ladder/probe-starter.ts']), window: expect.arrayContaining(['scripts/window/probe-view.ts']) })
   })
 
   it('scenario 10: two cards of one module add different files under its pattern and edit no declaration, a third works elsewhere; three groups, and main equals a fresh rebuild after both merge', () => {
@@ -214,7 +214,7 @@ describe('conveyor R-paths: the witnesses', () => {
     expect(rebuild([beta, alpha])).toEqual(merged)
     expect(merged.factoryPaths).toBe(onMain().factoryPaths)
     expect(merged.moduleFiles).not.toBe(rebuild([alpha]).moduleFiles)
-    expect((JSON.parse(merged.moduleFiles) as Record<string, string[]>).cost).toEqual(expect.arrayContaining(['scripts/ladder/alpha-starter.ts', 'scripts/ladder/beta-starter.ts']))
+    expect((JSON.parse(merged.moduleFiles) as Record<string, string[]>).ladder).toEqual(expect.arrayContaining(['scripts/ladder/alpha-starter.ts', 'scripts/ladder/beta-starter.ts']))
     const layers = JSON.parse(merged.layerMap) as { files: Record<string, string> }
     expect([layers.files['scripts/ladder/alpha-starter.ts'], layers.files['scripts/ladder/beta-starter.ts']]).toEqual(['bus:alpha', 'bus:beta'])
   })

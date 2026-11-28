@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
-import type { JournalEvent } from '../ladder/approval.js'
+import type { JournalEvent } from './bus-history.js'
 import { writtenBeforeHistoryEnds } from '../../src/card/closed.js'
 
 const LEGACY_LINES = `

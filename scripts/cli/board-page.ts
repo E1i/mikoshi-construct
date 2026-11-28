@@ -33,9 +33,10 @@ import { currentVersion } from '../../src/version.js'
 import { cardRunsOf, catalogLayersByTest, catalogModuleLayers } from '../ci/card-runs.js'
 import { builtEntry } from '../core/built-entry.js'
 import { staleLine } from '../core/bus-readings.js'
+import { outsideTouchesStops } from '../core/card-hold.js'
 import { linkedPrs } from '../core/card-readings.js'
 import { BOARD_STALE_TICKS, BOARD_TIMER_PERIOD_MS, BUSY_TIMEOUT_MS, defaultBusPath, openBoardBeatWriter, recordBoardBeat } from '../core/db.js'
-import { CARD_HELD, CARD_RELEASED, TASK_LEASED } from '../core/events.js'
+import { CARD_HELD, CARD_RELEASED, CARD_STOPPED, TASK_LEASED } from '../core/events.js'
 import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { statusLineOf } from '../core/handoff-status.js'
 import { readLayerMap } from '../core/layer-map.js'
@@ -1019,9 +1020,8 @@ function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: 
   }
 }
 
-function ownerHoldsOf(db: DatabaseSync): Map<number, string> {
-  const read = new BusRead(db)
-  return ownerHolds(read.slice(CARD_HELD, ['reason', 'takeover']), read.slice(CARD_RELEASED, ['takeover']))
+function ownerHoldsOf(db: DatabaseSync, read: BusRead = new BusRead(db)): Map<number, string> {
+  return ownerHolds(read.slice(CARD_HELD, ['reason', 'takeover']), read.slice(CARD_RELEASED, ['takeover']), outsideTouchesStops(db, read.slice(CARD_STOPPED, ['code', 'paths'])))
 }
 
 export function writeBoardPage(file: string, html: string, files: BoardFiles = DISK_FILES): void {
