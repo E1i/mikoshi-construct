@@ -9,8 +9,10 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_SESSION_ENDED, SESSION_HEARTBEAT, SESSION_STALLED } from '../../core/events.js'
 import { leaseQueued } from '../../core/lease.js'
 import { keyOf, queueTask } from '../../core/queue.js'
-import { composeBusTick } from '../../supervisor/run.js'
-import { NO_PROGRESS_LINES, STALLED_ACTOR } from '../../supervisor/stalled-sessions.js'
+import { OsProcessTable } from '../../ports/process-table.js'
+import { clientAdapterOfTheBus } from '../../supervisor/composition.js'
+import { busProcessTable, composeBusTick } from '../../supervisor/run.js'
+import { NO_PROGRESS_LINES, STALLED_ACTOR, StalledSessions } from '../../supervisor/stalled-sessions.js'
 import { Clock, FakeGitHub } from '../bus/github-fake.js'
 
 const SILENT_SESSION = 'bus-tick-silent-session-no-process-carries-this-id'
@@ -53,5 +55,22 @@ describe('the bus tick and the silent sessions', () => {
 
     const handled = db.prepare('SELECT type, payload FROM events WHERE type IN (?, ?) AND card_id = ? AND actor = ?').all(CARD_SESSION_ENDED, SESSION_STALLED, task.cardId, STALLED_ACTOR) as { type: string, payload: string }[]
     expect(handled.map(row => ({ type: row.type, ...JSON.parse(row.payload) as Record<string, unknown> }))).toMatchObject([{ session: SILENT_SESSION }])
+  })
+})
+
+describe('the bus tick reads the card trees through the client the bus builds', () => {
+  it('the table composeBusTick hands to StalledSessions lists the client cwds instead of reporting them unreadable', () => {
+    expect(busProcessTable(clientAdapterOfTheBus()).clientCwds()).toMatchObject({ kind: 'listed' })
+  })
+
+  it('a table built with no client names no process, which is why the bus never builds one for the undriven sweep', () => {
+    expect(new OsProcessTable().clientCwds()).toMatchObject({ kind: 'unreadable' })
+  })
+
+  it('stalledSessions cannot be built without the reader of the card trees', () => {
+    const parts = { cards: undefined as never, lifeOf: () => 'live' as const }
+    // @ts-expect-error trees is a required port, so a caller cannot fall back to a reader that reads nothing
+    const build = (): StalledSessions => new StalledSessions(undefined as never, () => new Date(), parts)
+    expect(typeof build).toBe('function')
   })
 })
