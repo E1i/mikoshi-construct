@@ -545,6 +545,7 @@
     "scripts/tests/bus/node-versions.test.ts",
     "scripts/tests/bus/node.test.ts",
     "scripts/tests/bus/one-overlap-verdict.test.ts",
+    "scripts/tests/bus/outside-touches-stop-names-its-reason.test.ts",
     "scripts/tests/bus/outside-touches-stop.test.ts",
     "scripts/tests/bus/owner-github-actions.test.ts",
     "scripts/tests/bus/owner-wait-close-word.test.ts",
