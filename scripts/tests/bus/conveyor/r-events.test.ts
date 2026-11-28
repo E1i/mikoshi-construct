@@ -12,7 +12,7 @@ import { BUS_CONTRACT } from '../../../core/bus-adapter.js'
 import { CARD_TYPES_FOLDED_ON_APPEND, CARDS, PROJECTION_TYPES, REDUCED_IN_ORDER } from '../../../core/bus-readings.js'
 import { openOwnerWaits } from '../../../core/card-readings.js'
 import { appendEvent, openBus } from '../../../core/db.js'
-import { INTERNAL_MODULES_FILE, MODULE_FILES, readDeclarations, trackedFrom, validateDeclarations } from '../../../core/declarations.js'
+import { COMPOSITION_ROOTS_RECORD, INTERNAL_MODULES_FILE, MODULE_FILES, readDeclarations, trackedFrom, validateDeclarations } from '../../../core/declarations.js'
 import { EVENT_CATALOG, READINGS_CATALOG, renderEvents, renderReadings } from '../../../core/declared-events.js'
 import { EVENT_PAYLOADS, OWNER_WAIT_OPENED, PR_ORDERED } from '../../../core/events.js'
 import { GENERATED_PATHS, isRebuiltOnUpdate } from '../../../core/generated-files.js'
@@ -74,6 +74,7 @@ function checkout(cards: readonly Card[]): string {
   const root = scratch('r-events-')
   cpSync(path.join(REPO_ROOT, DECLARATIONS), path.join(root, DECLARATIONS), { recursive: true })
   copyFileSync(path.join(REPO_ROOT, INTERNAL_MODULES_FILE), path.join(root, INTERNAL_MODULES_FILE))
+  cpSync(path.join(REPO_ROOT, COMPOSITION_ROOTS_RECORD), path.join(root, COMPOSITION_ROOTS_RECORD))
   declare(root, cards)
   return root
 }

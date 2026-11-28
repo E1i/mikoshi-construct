@@ -95,7 +95,7 @@ const UI_CONTRACT = within('src/ui', 'console.ts', 'expect-lore.ts', 'lore.ts', 
 
 export const COMPOSITION_MODULE = factory('supervisor/composition.ts')
 
-export const COMPOSITION_ROOTS: readonly string[] = ['src/cli.ts', 'src/program.ts', factory('window/miko.ts'), factory('intake/intake.ts'), factory('supervisor/start.ts'), factory('supervisor/run.ts'), factory('supervisor/review-bg.ts'), factory('supervisor/supervisor.ts'), factory('supervisor/reducer-thread.ts'), factory('supervisor/launchd/install.ts'), factory('supervisor/netwatch-root.ts'), factory('ports/netwatch.ts'), factory('cli/task-start.ts'), factory('policy/decisions/add.ts'), factory('owner/answer.ts'), COMPOSITION_MODULE]
+export const COMPOSITION_ROOTS: readonly string[] = ['src/cli.ts', 'src/program.ts', factory('window/miko.ts'), factory('intake/intake.ts'), factory('supervisor/start.ts'), factory('supervisor/run.ts'), factory('supervisor/review-bg.ts'), factory('supervisor/supervisor.ts'), factory('supervisor/reducer-thread.ts'), factory('supervisor/launchd/install.ts'), factory('supervisor/netwatch-root.ts'), factory('ports/netwatch.ts'), factory('cli/task-start.ts'), factory('cli/card.ts'), factory('cli/mutate.ts'), factory('owner/session.ts'), factory('policy/decisions/add.ts'), factory('owner/answer.ts'), COMPOSITION_MODULE]
 
 export const OWNS_ARE_THE_CONTRACT = 'owns'
 
