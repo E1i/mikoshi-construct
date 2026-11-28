@@ -182,6 +182,15 @@ describe('scenario 15, the validator part: what the validator refuses', () => {
     expect(validateDeclarations(declarations, ['scripts/core/a.ts', 'scripts/cli/root.ts', 'scripts/cli/other.ts'])).toEqual(['scripts/cli/other.ts: no module owns it'])
   })
 
+  it('still reports a composition root two modules match with equal specificity as tied', () => {
+    const root = fixture({ modules: { a: module('a', ['scripts/cli/*.ts']), b: module('b', ['scripts/cli/']) } })
+    mkdirSync(path.join(root, 'contract'), { recursive: true })
+    writeFileSync(path.join(root, 'contract', 'factory.json'), JSON.stringify({ modules: { composition_roots: ['scripts/cli/root.ts'] } }))
+    const declarations = readDeclarations(root)
+    expect(declarations.compositionRoots).toEqual(['scripts/cli/root.ts'])
+    expect(validateDeclarations(declarations, ['scripts/cli/root.ts'])).toEqual(['scripts/cli/root.ts: a, b match it with equal specificity'])
+  })
+
   it('reads no composition root where contract/factory.json is absent, so the root is unowned again', () => {
     expect(problemsOf({ modules: { a: module('a', ['scripts/core/']) } }, ['scripts/core/a.ts', 'scripts/cli/root.ts'])).toEqual(['scripts/cli/root.ts: no module owns it'])
   })
