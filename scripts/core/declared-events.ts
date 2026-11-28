@@ -34,7 +34,7 @@ export const READINGS_CATALOG = generatedPathOf(READINGS_ROW)
 
 const CONSTANT = /^[A-Z][A-Z0-9_]*$/
 
-const WRITTEN_BESIDE_THE_EVENTS = ['CARD_WAITS', 'CLOSED_PLAN', 'DEFERRED_TARGET', 'DROPPED_LANE', 'EVENT_PAYLOADS', 'OPEN_PLAN', 'OPEN_QUESTION', 'OUTSIDE_TOUCHES', 'TERMINAL_LANES', 'WAIT_LIFTERS']
+const WRITTEN_BESIDE_THE_EVENTS = ['CARD_WAITS', 'CLOSED_PLAN', 'DEFERRED_TARGET', 'DROPPED_LANE', 'EVENT_PAYLOADS', 'JOURNAL_HISTORY_ENDS', 'OPEN_PLAN', 'OPEN_QUESTION', 'OUTSIDE_TOUCHES', 'TERMINAL_LANES', 'WAIT_LIFTERS']
 
 function where(kind: string, key: string): string {
   return `${DECLARATIONS_FOLDER}/${kind}/${key}${DECLARATION_SUFFIX}`
@@ -124,6 +124,13 @@ const LANES_AND_WAITS = [
   '} as const satisfies Record<string, WaitTerm>',
   '',
   'export type WaitKind = keyof typeof CARD_WAITS',
+  '',
+  'export const JOURNAL_HISTORY_ENDS = \'2026-10-12T17:04:00.000Z\'',
+  '',
+  'export function writtenBeforeHistoryEnds(entry: { ts?: unknown }): boolean {',
+  '  const writtenAt = typeof entry.ts === \'string\' ? Date.parse(entry.ts) : Number.NaN',
+  '  return Number.isNaN(writtenAt) || writtenAt < Date.parse(JOURNAL_HISTORY_ENDS)',
+  '}',
   '',
 ]
 

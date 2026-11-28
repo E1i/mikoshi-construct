@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { JournalEvent } from './bus-history.js'
-import { writtenBeforeHistoryEnds } from '../../src/card/closed.js'
+import { writtenBeforeHistoryEnds } from './events.js'
 
 const LEGACY_LINES = `
   SELECT payload FROM events

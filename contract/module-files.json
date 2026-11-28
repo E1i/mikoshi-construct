@@ -738,6 +738,7 @@
     "scripts/tests/contract/bus-cut/ladder-module-takes-scripts-ladder.test.ts",
     "scripts/tests/contract/bus-cut/lease-liveness-injected.test.ts",
     "scripts/tests/contract/bus-cut/lease-task-must-wait.test.ts",
+    "scripts/tests/contract/bus-cut/legacy-history-reads-no-card-model.test.ts",
     "scripts/tests/contract/bus-cut/netwatch-is-a-root.test.ts",
     "scripts/tests/contract/bus-cut/node-parts-cadence-heartbeat-slots.test.ts",
     "scripts/tests/contract/bus-cut/node-private-last-event-id.test.ts",
