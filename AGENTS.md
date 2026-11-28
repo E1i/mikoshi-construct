@@ -134,10 +134,10 @@ here. Before proposing an architecture, answer the questions and name the catego
 - *Dependency policy.*
   <!-- construct:discover:dependency-policy -->
   Inside `src/`, dependencies point one way, and `ALLOWED_INTERNAL_IMPORTS` in `eslint.config.mjs` is
-  the declaration: `detect` (facts only), `card`, `known-flags` and `record-ahead` import no other
+  the declaration: `detect` (facts only), `card`, `client-record`, `known-flags` and `record-ahead` import no other
   module, and only the two readers of a versioned record and `failure` import `record-ahead`;
   `presets` imports `detect`; `model` `detect`, `presets`, `record-ahead`; `atlas` `detect`, `model`,
-  `ui`; `materialize` and `ui` `presets`; `manifest` `detect`, `materialize`, `presets`,
+  `ui`; `materialize` and `ui` `presets`; `manifest` `client-record`, `detect`, `materialize`, `presets`,
   `record-ahead`; `sync` `manifest`, `materialize`, `presets`; `failure` `record-ahead`, `ui`;
   `commands` `card`, `detect`, `manifest`, `materialize`, `model`, `presets`, `sync`, `ui`, `version`;
   `program` `atlas`, `commands`, `detect`, `failure`, `known-flags`, `presets`, `ui`, `version`; `cli`

@@ -4436,6 +4436,7 @@
           "scripts/core/bus-contract.ts",
           "scripts/core/process-listing.ts",
           "scripts/ci/required.ts",
+          "src/client-record.ts",
           "src/commands/ci/state.ts",
           "src/commands/intake/command-word.ts"
         ],

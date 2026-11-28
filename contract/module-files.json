@@ -1953,6 +1953,7 @@
     "tests/contract/cli-module-holds-the-commands.test.ts",
     "tests/contract/client-adapter-built-at-roots.test.ts",
     "tests/contract/client-port-receives-the-manifest.test.ts",
+    "tests/contract/client-record-module.test.ts",
     "tests/contract/concept-owner-export.test.ts",
     "tests/contract/contours-ledger.test.ts",
     "tests/contract/contract-files.test.ts",
