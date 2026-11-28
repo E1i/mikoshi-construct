@@ -161,7 +161,7 @@ describe('an answer that leaves a clean tree on a card with no pull request', ()
     const outcome = await bench.answer(publish)
 
     expect(publish).toHaveBeenCalledTimes(1)
-    expect(outcome).toMatchObject({ kind: 'denied', denial: { reason: 'left_nothing', detail: expect.stringContaining('empty answer 1 of') as unknown }, next: 'queued' })
+    expect(outcome).toMatchObject({ kind: 'denied', denial: { reason: 'left_nothing', detail: expect.stringContaining('empty answer 1 in a row') as unknown }, next: 'queued' })
     expect(eventsOf(bench.made.db, CARD_ANSWERED)).toEqual([])
     expect(bench.made.db.prepare(`SELECT state, failures FROM tasks WHERE queue = 'answer' AND card_id = ?`).get(CARD)).toEqual({ state: 'queued', failures: 1 })
   })
