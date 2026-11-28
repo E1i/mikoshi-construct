@@ -14,9 +14,11 @@ import { cardCommand, launchArgv, shellWord } from '../../nodes/launch/launch-st
 import { parseSessionJournal } from '../../nodes/launch/session-journal.js'
 import { claudeResume } from '../../nodes/launch/tree-pr-cli.js'
 import { WINDOW_MCP_CONFIG, WINDOW_RESUME_REFUSAL } from '../../ports/client/claude/adapter.js'
-import { clientAdapter, sessionEnv, witnessEnv } from '../../ports/session.js'
+import { sessionEnv, witnessEnv } from '../../ports/session.js'
 import { settingsFlag, shiftSettings } from '../../ports/shift-settings.js'
-import { claudeArgv, DEFAULT_CLAUDE } from '../../window/loop.js'
+import { claudeArgv } from '../../window/loop.js'
+import { claudeClient } from './claude-client.js'
+import { DEFAULT_CLAUDE } from './claude-window.js'
 
 const SESSION = 'sess-1573'
 const PROMPT = 'do the card'
@@ -95,6 +97,7 @@ function ladderStartToday(spot: Spot): Captured {
   const spawned: DetachedSpawn[] = []
   const body = parkingFileText({ card: `#${CARD} a-card [implement/construct/S/ladder/auto] · depends — · blocks —`, branch: 'feat/a-card', touches: ['scripts/x.ts'], continue: 'stop', who: 'shift', body: 'unused' })
   const ports = {
+    client: claudeClient,
     read: () => body,
     base: () => 'b'.repeat(40),
     spawnDetached: (run: DetachedSpawn) => {
@@ -122,7 +125,7 @@ function cardResumeToday(spot: Spot): Captured {
   const db = openBus(busPath)
   appendEvent(db, { ts: '2026-11-05T00:00:00.000Z', type: 'card.started', actor: 'worker:launch:1', cardId: CARD, pr: null, head: null, dedupeKey: `start:${CARD}`, payload: { session: SESSION, worktree: spot.root, branch: 'feat/a-card' }, legacy: false })
   db.close()
-  expect(claudeResume(busPath, spot.stub, 10_000)(CARD, spot.root, PROMPT)).toBe(true)
+  expect(claudeResume(claudeClient, busPath, spot.stub, 10_000)(CARD, spot.root, PROMPT)).toBe(true)
   return spot.seen()
 }
 
@@ -250,7 +253,7 @@ function specOf(golden: Golden, spot: Spot): SessionSpec {
 }
 
 function invoked(spec: SessionSpec): Invocation {
-  const result = clientAdapter().invocation(spec)
+  const result = claudeClient.invocation(spec)
   if ('kind' in result)
     throw new Error(`refused: ${result.reason}`)
   return result
@@ -273,7 +276,7 @@ it('the invocation of each role equals the argv of the existing code byte for by
 
 it('a window resume is refused by name, because no existing code resumes a window', () => {
   const spot = aSpot()
-  const refusal = clientAdapter().invocation(specOf({ label: 'window resume', role: 'window', kind: 'resume', today: spot.seen, literal: () => [], stdin: null }, spot)) as Refusal
+  const refusal = claudeClient.invocation(specOf({ label: 'window resume', role: 'window', kind: 'resume', today: spot.seen, literal: () => [], stdin: null }, spot)) as Refusal
   expect(refusal).toEqual({ kind: 'refused', reason: WINDOW_RESUME_REFUSAL })
 })
 
@@ -284,7 +287,7 @@ it('the env of an invocation is what sessionEnv adds to the core environment, an
     if (golden.role === 'window')
       expect(invocation.env, golden.label).toEqual({})
     else
-      expect({ ...witnessEnv(base), ...invocation.env }, golden.label).toEqual(sessionEnv(base))
+      expect({ ...witnessEnv(base), ...invocation.env }, golden.label).toEqual(sessionEnv(claudeClient, base))
   }
 })
 
@@ -295,7 +298,7 @@ it('the journal of the contract is the shape the session journal parser returns'
 })
 
 it('clientAdapter returns Claude and its capabilities', () => {
-  const adapter = clientAdapter()
+  const adapter = claudeClient
   expect(adapter.id).toBe('claude')
   expect(adapter.capabilities).toEqual({ identity: 'assigned', ladder: true, reports: { cost: true, turns: true, model: true, denials: true, journal: true }, guarantees: { allowlist: true, writeConfinement: true, mcpOff: true, toolNarrowing: true, guardFailsClosed: true } })
 })

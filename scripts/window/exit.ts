@@ -1,4 +1,5 @@
 import type { RoleStop, THRESHOLDS, WindowEnd } from '../nodes/restart/role.js'
+import type { ClientAdapter, ClientProcesses } from '../ports/client/contract.js'
 import type { ProcessTable } from '../ports/process-table.js'
 import type { ExitLine, ExitReadings, Reading } from './eddies-measure.js'
 import { mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
@@ -12,9 +13,10 @@ import { defaultHandoffDir } from '../core/handoff-dir.js'
 import { statusOfFile } from '../core/handoff-status.js'
 import { HANDOFF_WRITE_COMMAND, MIKO_COMMAND, MIKO_WATCH_COMMAND } from '../core/owner-commands.js'
 import { RAISED_STATUS, raisedByTheBus } from '../nodes/restart/role.js'
-import { ownerMessagesOf } from '../ports/client/claude/adapter.js'
+import { claudeAdapterWith, ownerMessagesOf } from '../ports/client/claude/adapter.js'
 import { OsProcessTable, rowsOf } from '../ports/process-table.js'
-import { clientAdapter, EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE } from '../ports/session.js'
+import { EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE } from '../ports/session.js'
+import { settingsFlag, shiftSettings } from '../ports/shift-settings.js'
 import { appendExitLine, EDDIES_JOURNAL_FILE, exitLineOf, PROJECT_VARIABLE, projectRoot, realExitReadings, SESSION_EXIT_EVENT, UNKNOWN } from './eddies-measure.js'
 import { MIKO_HANDOFF_NAME, mikoHandoff, PREFIX } from './loop.js'
 import { realRoleStopObserver } from './role-bus.js'
@@ -42,6 +44,7 @@ export interface ProcessRow {
 }
 
 export interface MikoExitDeps {
+  client: Pick<ClientProcesses, 'isClient'>
   pid: number
   table: () => ProcessRow[]
   handoffMtime: () => number | undefined
@@ -104,13 +107,9 @@ export function ancestors(table: ProcessRow[], pid: number): ProcessRow[] {
   return chain.slice(1)
 }
 
-function isClaude(row: ProcessRow): boolean {
-  return clientAdapter().processes.isClient(row.args)
-}
-
-export function sessionClaudeOf(table: () => ProcessRow[], pid: number): number | undefined {
+export function sessionClaudeOf(client: Pick<ClientProcesses, 'isClient'>, table: () => ProcessRow[], pid: number): number | undefined {
   try {
-    return ancestors(table(), pid).find(isClaude)?.pid
+    return ancestors(table(), pid).find(row => client.isClient(row.args))?.pid
   }
   catch {
     return undefined
@@ -216,10 +215,11 @@ function decisionOf(deps: MikoExitDeps, status: string | null, readings: ExitRea
   if (missing !== null)
     return missing
   const chain = chainOf(deps)
-  return chain === null ? { refuse: SANDBOX_REFUSAL } : exitDecision(chain, deps.handoffMtime(), deps.now(), status, readings)
+  return chain === null ? { refuse: SANDBOX_REFUSAL } : exitDecision(deps.client, chain, deps.handoffMtime(), deps.now(), status, readings)
 }
 
-export function exitDecision(chain: ProcessRow[], handoffMtime: number | undefined, now: number, status: string | null, readings: ExitReadings): ExitDecision {
+export function exitDecision(client: Pick<ClientProcesses, 'isClient'>, chain: ProcessRow[], handoffMtime: number | undefined, now: number, status: string | null, readings: ExitReadings): ExitDecision {
+  const isClaude = (row: ProcessRow): boolean => client.isClient(row.args)
   const at = chain.findIndex(isClaude)
   if (at === -1)
     return { refuse: 'no claude process among the ancestors of this command: nothing to end' }
@@ -313,11 +313,12 @@ export function exitRootOf(env: NodeJS.ProcessEnv, cwd: string): string {
   return projectRoot({ [PROJECT_VARIABLE]: env[PROJECT_VARIABLE] || cwd })
 }
 
-export function realMikoExitDeps(handoff: string): MikoExitDeps {
+export function realMikoExitDeps(client: ClientAdapter, handoff: string): MikoExitDeps {
   const root = exitRootOf(process.env, process.cwd())
   const transcript = (): string | null => sessionTranscriptOf(os.homedir(), process.env[SESSION_VARIABLE])
   const table = (): ProcessRow[] => chainRowsOf(new OsProcessTable())
   return {
+    client: client.processes,
     pid: process.pid,
     table,
     handoffMtime: () => mtimeOf(handoff),
@@ -326,17 +327,17 @@ export function realMikoExitDeps(handoff: string): MikoExitDeps {
     loopRequest: loopRequestOf(process.env),
     requestEnd: (request) => {
       mkdirSync(path.dirname(request), { recursive: true })
-      writeFileSync(request, `${sessionClaudeOf(table, process.pid) ?? ''}\n`)
+      writeFileSync(request, `${sessionClaudeOf(client.processes, table, process.pid) ?? ''}\n`)
     },
     err: line => console.error(line),
-    readings: () => realExitReadings(process.env, os.homedir(), root, defaultBusPath()),
+    readings: () => realExitReadings(client, process.env, os.homedir(), root, defaultBusPath()),
     recordExit: line => appendExitLine(root, line),
     handoff,
     status: () => statusOfFile(handoff) ?? null,
     raised: raisedByTheBus(process.env),
     observeStop: realRoleStopObserver(line => console.error(`${PREFIX}${line}`)),
     endWindow: windowEndObserver({ busPath: defaultBusPath(), pid: process.pid, now: () => new Date(), err: line => console.error(`${PREFIX}${line}`) }),
-    tab: tabWindowOf(process.env) !== null,
+    tab: tabWindowOf(client, process.env) !== null,
     liveAgents: () => liveAgentsOf(root, process.env, stoppedTasksIn(transcript())),
     dirtyTrees: () => dirtyOpenCardTrees(process.env, defaultBusPath()),
     ownerMessages: () => ownerMessagesIn(transcript()),
@@ -344,4 +345,4 @@ export function realMikoExitDeps(handoff: string): MikoExitDeps {
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
-  process.exitCode = runMikoExit(realMikoExitDeps(mikoHandoff(defaultHandoffDir())))
+  process.exitCode = runMikoExit(realMikoExitDeps(claudeAdapterWith({ shiftSettings, settingsFlag }), mikoHandoff(defaultHandoffDir())))

@@ -25,6 +25,7 @@ import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { cardTransitions, nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { realExitReadings, sessionGauges } from '../../window/eddies-measure.js'
+import { claudeClient } from '../client/claude-client.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -186,7 +187,7 @@ describe('the 150k line of a launch session', () => {
     writeFileSync(eddiesFileIn(tree), JSON.stringify(without))
     hookOn(tree, 's-old', transcriptAt(tree, 's-old', AT_THE_LINE), '1812')
     expect(reachedContextLine(tree, 's-old')).toBe(false)
-    expect(realExitReadings({ CONSTRUCT_CARD: '1812' }, tree, tree, path.join(tree, 'bus.db')).contextWarn).toBe(without.contextLimit * without.warnRatio)
+    expect(realExitReadings(claudeClient, { CONSTRUCT_CARD: '1812' }, tree, tree, path.join(tree, 'bus.db')).contextWarn).toBe(without.contextLimit * without.warnRatio)
   })
 })
 
@@ -218,6 +219,7 @@ describe('the 150k line of an answer session', () => {
     const pushedAfter: string[] = []
     let current = ''
     const answerer = claudeAnswerer(path.join(root, 'answers'), {
+      client: claudeClient,
       cardText: () => null,
       available: () => true,
       remoteHead: () => pushedAfter.length === 0 ? sha('a') : sha('e'),
@@ -248,8 +250,8 @@ describe('the 150k line of an answer session', () => {
 
   it('the coordinating window keeps contextLimit times warnRatio', () => {
     const root = treeWithLimits()
-    const withCard = realExitReadings({ CONSTRUCT_CARD: '1' }, root, root, path.join(root, 'bus.db'))
-    const asWindow = realExitReadings({}, root, root, path.join(root, 'bus.db'))
+    const withCard = realExitReadings(claudeClient, { CONSTRUCT_CARD: '1' }, root, root, path.join(root, 'bus.db'))
+    const asWindow = realExitReadings(claudeClient, {}, root, root, path.join(root, 'bus.db'))
     expect(withCard.contextWarn).toBe(CARD_LINE)
     expect(asWindow.contextWarn).toBe(LIMITS.contextLimit * LIMITS.warnRatio)
   })

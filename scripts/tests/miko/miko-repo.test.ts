@@ -15,6 +15,7 @@ import { compactContextOf } from '../../window/compact-start.js'
 import { CONTINUE_PROMPT, continuePrompt, MIKO_HANDOFF_NAME, mikoHandoff, PACKAGE_COMMANDS, TAB_MODE } from '../../window/loop.js'
 import { LOOP_SCRIPT_NAME, mikoRoute } from '../../window/miko.js'
 import { ONCE_STORE } from '../../window/watch-store.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const MIKO = fileURLToPath(new URL('../../window/miko.ts', import.meta.url))
 const TSX_LOADER = pathToFileURL(path.resolve(import.meta.dirname, '..', '..', '..', 'node_modules', 'tsx', 'dist', 'esm', 'index.mjs')).href
@@ -183,7 +184,7 @@ describe('miko runs the window of the repository it is started in', () => {
     const handoffDir = path.join(w.own, HANDOFF_DIR)
     const env = { CLAUDE_CODE_SESSION_ID: 's-tab', [HANDOFF_DIR_VARIABLE]: handoffDir, [WINDOW_VARIABLE]: TAB_MODE }
     const handoff = mikoHandoff(handoffDir)
-    const context = compactContextOf('compact', env, file => file === handoff, w.repo)
+    const context = compactContextOf(claudeClient, 'compact', env, file => file === handoff, w.repo)
     expect(context).toBe(continuePrompt(handoff, PACKAGE_COMMANDS))
     expect(context).not.toBe(CONTINUE_PROMPT)
     expect(context).not.toContain('pnpm ')

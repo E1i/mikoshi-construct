@@ -29,6 +29,7 @@ import { DERIVED_REGISTRY } from '../../policy/touch-scope.js'
 import { treeReading } from '../../ports/git.js'
 import { cardAllowances, cardTransitions, derivedHolds, updateParts } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { claudeClient } from '../client/claude-client.js'
 import { ranTheGreenGate } from './gate-stream.js'
 import { sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench } from './merge-bench.js'
@@ -265,6 +266,7 @@ async function answer(name: ScenarioName, decide: (made: MergeBench) => void = (
   const heads = [sha('a'), sha('e')]
   let published = 0
   const answerer = claudeAnswerer(path.join(home, 'answers'), {
+    client: claudeClient,
     cardText: () => text,
     available: () => true,
     remoteHead: () => heads.shift() ?? null,

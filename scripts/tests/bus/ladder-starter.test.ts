@@ -6,6 +6,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parkingFileText } from '../../../src/card/parking.js'
 import { LadderCardStarter } from '../../ladder/ladder-starter.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const CARD = 9401
 const roots: string[] = []
@@ -24,6 +25,7 @@ function starterFor(step: LadderStep, options: { tree?: string | null, parked?: 
   const cut: string[] = []
   const tree = options.tree === undefined ? '/trees/known' : options.tree
   const ports: StarterPorts = {
+    client: claudeClient,
     read: cardId => options.parked === false || cardId !== CARD ? null : body,
     cut: () => {
       cut.push('cut')

@@ -17,6 +17,7 @@ import { spawnSession } from '../../ports/session.js'
 import { nodeSupply } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { eventsOf, mergeBench } from '../bus/merge-bench.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const benches: MergeBench[] = []
 const roots: string[] = []
@@ -88,7 +89,7 @@ describe('a host fault is not a card fault', () => {
     const sleeps: number[] = []
     const work = mkdtempSync(path.join(tmpdir(), 'host-fault-spawn-'))
     roots.push(work)
-    const spawned = spawnSession({ cwd: work, sessionId: 's-enoent', prompt: 'p', stdoutPath: path.join(work, 'out'), stderrPath: path.join(work, 'err'), env: { PATH: work } })
+    const spawned = spawnSession(claudeClient, { cwd: work, sessionId: 's-enoent', prompt: 'p', stdoutPath: path.join(work, 'out'), stderrPath: path.join(work, 'err'), env: { PATH: work } })
     await expect(spawned).rejects.toBeInstanceOf(HostFaultPersists)
     await expect(spawned).rejects.toMatchObject({ fault: { source: 'os' }, code: 'ENOENT' })
 

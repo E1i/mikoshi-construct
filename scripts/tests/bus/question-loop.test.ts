@@ -12,6 +12,7 @@ import { claudeAnswerer, ownerQuestionPath } from '../../nodes/answer/answerer.j
 import { recordDecision } from '../../policy/decisions/index.js'
 import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { claudeClient } from '../client/claude-client.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -56,6 +57,7 @@ function startedCard(): Card {
   const asks = async (question: string): Promise<unknown> => {
     const lease = leaseNext(made.db, pullRequests(made.db), ts(), 'answer', 'worker:answer:worker-1')!
     const answerer = claudeAnswerer(answers, {
+      client: claudeClient,
       cardText: () => null,
       available: () => true,
       remoteHead: () => sha('a'),

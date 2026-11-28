@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { CardOfWho } from '../core/card-readings.js'
 import type { WindowMode } from '../ports/session.js'
 import type { Status } from './loop.js'
+import type { SessionOwner } from './window-heartbeat.js'
 import { existsSync, realpathSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -15,6 +16,8 @@ import { defaultBusPath, openBus } from '../core/db.js'
 import { events } from '../core/events-query.js'
 import { WINDOW_HEARTBEAT } from '../core/events.js'
 import { MIKO_WATCH_COMMAND } from '../core/owner-commands.js'
+import { claudeAdapterWith } from '../ports/client/claude/adapter.js'
+import { settingsFlag, shiftSettings } from '../ports/shift-settings.js'
 import { sessionHandoffOf } from './handoff-write.js'
 import { HANDOFF_VARIABLE, PREFIX } from './loop.js'
 import { cardTreeHomes, handoffStatusOf, tabWindowIn } from './tab.js'
@@ -127,13 +130,13 @@ function onceStoreOf(env: NodeJS.ProcessEnv, dir: string): string | null {
   return handoff === null ? null : path.join(path.dirname(handoff), ONCE_STORE)
 }
 
-export function realTurnWatchDeps(env: NodeJS.ProcessEnv, dir: string = process.cwd()): TurnWatchDeps {
-  const tab = tabWindowIn(env, dir, cardTreeHomes(env, defaultBusPath()))
+export function realTurnWatchDeps(client: SessionOwner, env: NodeJS.ProcessEnv, dir: string = process.cwd()): TurnWatchDeps {
+  const tab = tabWindowIn(client, env, dir, cardTreeHomes(env, defaultBusPath()))
   const handoff = sessionHandoffOf(env, os.homedir())
   const bus = defaultBusPath()
   const onceStore = onceStoreOf(env, dir)
   return {
-    session: tab?.session ?? windowSessionOf(env),
+    session: tab?.session ?? windowSessionOf(client, env),
     mode: tab === null ? 'loop' : 'tab',
     status: () => handoffStatusOf(handoff),
     lastBeat: session => readBus(bus, db => lastWindowBeat(db, session)),
@@ -145,4 +148,4 @@ export function realTurnWatchDeps(env: NodeJS.ProcessEnv, dir: string = process.
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
-  process.exitCode = runTurnWatch(realTurnWatchDeps(process.env))
+  process.exitCode = runTurnWatch(realTurnWatchDeps(claudeAdapterWith({ shiftSettings, settingsFlag }), process.env))

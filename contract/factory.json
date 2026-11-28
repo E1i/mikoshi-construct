@@ -6736,11 +6736,12 @@
       },
       "scripts/ports/process-table.ts": {
         "constants": [
-          "CLIENT_CWDS_COMMAND",
           "CPU_SAMPLE_COMMAND",
           "TECHNOLOGY_WORDS"
         ],
         "functions": {
+          "clientCwdsCommand": "(client: ClientProcessNames): string",
+          "clientCwdsOf": "(client: ClientProcessNames): () => ProcessCwds",
           "identityOf": "(snapshot: ProcessSnapshot, pid: number): RowIdentity | null",
           "lstartOf": "(row: ProcessRow): string | null",
           "parseListing": "(output: string): ProcessRow[]",
@@ -6752,9 +6753,10 @@
         "reexports": [],
         "technologyWords": [],
         "types": {
+          "ClientProcessNames": "type ClientProcessNames = Pick<ClientProcesses, 'processNames'>",
           "InMemoryProcessTable": "class InMemoryProcessTable implements ProcessTable { constructor(private readonly held: InMemoryProcesses); snapshot(): ProcessSnapshot; clientCwds(): ProcessCwds; cpuSample(): string }",
           "InMemoryProcesses": "interface InMemoryProcesses { rows?: readonly ProcessRow[] | { unreadable: string; }; cwds?: ProcessCwds; cpu?: string; }",
-          "OsProcessTable": "class OsProcessTable implements ProcessTable { snapshot(): ProcessSnapshot; clientCwds(): ProcessCwds; cpuSample(): string }",
+          "OsProcessTable": "class OsProcessTable implements ProcessTable { constructor(private readonly client: ClientProcessNames = NO_CLIENT_NAMED); snapshot(): ProcessSnapshot; clientCwds(): ProcessCwds; cpuSample(): string }",
           "ProcessRow": "interface ProcessRow { pid: number; ppid: number; pgid: number; started: string; command: string; }",
           "ProcessSnapshot": "type ProcessSnapshot = { readable: true; rows: readonly ProcessRow[]; } | { readable: false; reason: string; }",
           "ProcessTable": "interface ProcessTable { snapshot: () => ProcessSnapshot; clientCwds: () => ProcessCwds; cpuSample: () => string; }",
@@ -6782,7 +6784,7 @@
       "scripts/ports/result.ts": {
         "constants": [],
         "functions": {
-          "readResultFields": "(reportPath: string): ResultFields"
+          "readResultFields": "(adapter: ClientAdapter, reportPath: string): ResultFields"
         },
         "language": "factory",
         "reexports": [],
@@ -6830,15 +6832,15 @@
         "functions": {
           "cardSessionOverlay": "(root: string, base: NodeJS.ProcessEnv, size: string | null): NodeJS.ProcessEnv",
           "cardSizeIn": "(cardBody: string | null): string | null",
-          "clientAdapter": "(): ClientAdapter",
-          "clientCommand": "(): string",
-          "clientInvocation": "(spec: SessionSpec): Invocation",
-          "headlessInvocation": "(parts: Partial<SessionSpec> = {}): Invocation",
+          "clientCommand": "(adapter: ClientAdapter): string",
+          "clientInvocation": "(adapter: ClientAdapter, spec: SessionSpec): Invocation",
+          "headlessInvocation": "(adapter: ClientAdapter, parts: Partial<SessionSpec> = {}): Invocation",
           "reviewModelOf": "(env: NodeJS.ProcessEnv = process.env): string | undefined",
-          "sessionEnv": "(base: NodeJS.ProcessEnv = process.env, card?: number, cardOverlay: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv",
-          "spawnReviewSession": "(params: SpawnSessionParams): Promise<number>",
-          "spawnSession": "(params: SpawnSessionParams): Promise<number>",
-          "streamReading": "(stdoutPath: string): SessionReading",
+          "reviewSessionSpawner": "(adapter: ClientAdapter): SessionSpawner",
+          "sessionEnv": "(adapter: ClientAdapter, base: NodeJS.ProcessEnv = process.env, card?: number, cardOverlay: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv",
+          "sessionSpawner": "(adapter: ClientAdapter): SessionSpawner",
+          "spawnSession": "(adapter: ClientAdapter, params: SpawnSessionParams): Promise<number>",
+          "streamReading": "(adapter: ClientAdapter, stdoutPath: string): SessionReading",
           "windowModeOf": "(env: NodeJS.ProcessEnv): WindowMode | null",
           "withoutCard": "(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv",
           "witnessEnv": "(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv"
@@ -6940,7 +6942,7 @@
         "types": {
           "HandedContract": "interface HandedContract extends Contract { forecast?: CheapForecast; }",
           "TaskStartContract": "type TaskStartContract = Parameters<typeof unsatisfiedDependencies>[0]",
-          "TaskStartDeps": "interface TaskStartDeps { contract: TaskStartContract; flags: TaskStartFlags; cwd: string; git: (cwd: string, args: string[]) => string; install: (cwd: string, args: string[]) => void; exists: (target: string) => boolean; bus: string; now: () => Date; session: string | undefined; shift?: string; worktreeHome?: string; treeOf?: (id: string) => string; style?: SignalStyle; cardBody?: (cardId: number) => string | null; windowLimit?: () => number; }",
+          "TaskStartDeps": "interface TaskStartDeps { contract: TaskStartContract; flags: TaskStartFlags; cwd: string; git: (cwd: string, args: string[]) => string; install: (cwd: string, args: string[]) => void; exists: (target: string) => boolean; bus: string; now: () => Date; session: string | undefined; shift?: string; worktreeHome?: string; treeOf?: (id: string) => string; holds?: (tree: string) => boolean; style?: SignalStyle; cardBody?: (cardId: number) => string | null; windowLimit?: () => number; }",
           "TaskStartFlags": "interface TaskStartFlags { card: string; adopt: string; withoutIntake: string; }",
           "TaskStartResult": "interface TaskStartResult { stdout: string[]; stderr: string[]; exitCode: number; worktree?: string; }"
         }
@@ -7060,7 +7062,7 @@
           "gitIn": "(cwd: string, args: string[]): string",
           "gitInAsync": "(cwd, args)",
           "lastLine": "(output: string): string",
-          "liveSessionHolds": "(tree: string, cwds: () => ProcessCwds = () => new OsProcessTable().clientCwds()): boolean",
+          "liveSessionHolds": "(tree: string, cwds: () => ProcessCwds): boolean",
           "parkTree": "(git: GitRun, repo: string, tree: string, capacity: number): string | null",
           "pnpmInstall": "(cwd: string, args: string[]): void",
           "realShell": "(command: string, cwd: string): ShellResult",

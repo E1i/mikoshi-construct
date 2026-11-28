@@ -18,6 +18,7 @@ import { BusTick } from '../../supervisor/run.js'
 import { Clock, FakeGitHub, sha } from '../bus/github-fake.js'
 import { benchNetWatch } from '../bus/net-watch-bench.js'
 import { detectReview } from '../bus/review-detection.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const PR = 1840
 const CARD = PR + 100
@@ -55,7 +56,7 @@ async function promptOfTheReview(): Promise<{ prompt: string, bound: ReturnType<
   const candidate = reviewCandidates(db, ts(), candidateRules()).find(each => each.pr === PR)!
   queueTaskWithin(db, ts(), candidate)
   const prompts: string[] = []
-  const reviewer = claudeReviewer(new ReviewTrees('/repo', path.join(root, 'reviews'), { git: () => {}, worktrees: () => [], prepare: () => {}, state: () => ({ head: sha('a'), status: [] }) }), async (params) => {
+  const reviewer = claudeReviewer(claudeClient, new ReviewTrees('/repo', path.join(root, 'reviews'), { git: () => {}, worktrees: () => [], prepare: () => {}, state: () => ({ head: sha('a'), status: [] }) }), async (params) => {
     prompts.push(params.prompt)
     throw new Error('stop after the spawn')
   })

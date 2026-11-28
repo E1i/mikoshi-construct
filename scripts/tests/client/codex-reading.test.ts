@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { codexAdapter } from '../../ports/client/codex/adapter.js'
-import { clientAdapter } from '../../ports/session.js'
+import { claudeClient } from './claude-client.js'
 
 const TREE = '/tree'
 const W1 = path.join(import.meta.dirname, 'fixtures', 'codex-w1.jsonl')
@@ -53,7 +53,7 @@ describe('the capabilities of the second adapter', () => {
   it('reports nothing it cannot read and is selected by nothing yet', () => {
     expect(codexAdapter.id).toBe('codex')
     expect(codexAdapter.capabilities).toMatchObject({ identity: 'reported', ladder: false, reports: { cost: false, turns: false, model: false, denials: false, journal: false } })
-    expect(clientAdapter().id).toBe('claude')
+    expect(claudeClient.id).toBe('claude')
   })
 })
 

@@ -20,6 +20,7 @@ import { CONCEPT_WIDENING_REASON } from '../../nodes/answer/concept-scope.js'
 import { DECISIONS_SCOPE } from '../../policy/shards.js'
 import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { claudeClient } from '../client/claude-client.js'
 import { ranTheGreenGate } from './gate-stream.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -122,6 +123,7 @@ async function answerLeaving(changed: readonly string[], shard: boolean, publish
   const published: string[] = []
   const heads = [sha('a'), sha('e')]
   const answerer = claudeAnswerer(path.join(home, 'answers'), {
+    client: claudeClient,
     cardText: () => CARD_TEXT,
     available: () => true,
     remoteHead: () => heads.shift() ?? null,

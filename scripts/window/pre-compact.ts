@@ -1,4 +1,4 @@
-import type { WindowSession } from './window-heartbeat.js'
+import type { SessionOwner, WindowSession } from './window-heartbeat.js'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
@@ -7,6 +7,8 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defaultBusPath } from '../core/db.js'
 import { HANDOFF_WRITE_COMMAND } from '../core/owner-commands.js'
+import { claudeAdapterWith } from '../ports/client/claude/adapter.js'
+import { settingsFlag, shiftSettings } from '../ports/shift-settings.js'
 import { FRESH_MS } from './exit.js'
 import { PREV_LABEL, STATE_LABELS } from './handoff-check.js'
 import { sessionHandoffOf } from './handoff-write.js'
@@ -109,9 +111,9 @@ function handoffWriteOf(env: NodeJS.ProcessEnv): (handoff: string, draft: string
   }
 }
 
-export function realPreCompactDeps(env: NodeJS.ProcessEnv, dir: string = process.cwd()): PreCompactDeps {
+export function realPreCompactDeps(client: SessionOwner, env: NodeJS.ProcessEnv, dir: string = process.cwd()): PreCompactDeps {
   return {
-    window: tabWindowIn(env, dir, cardTreeHomes(env, defaultBusPath())),
+    window: tabWindowIn(client, env, dir, cardTreeHomes(env, defaultBusPath())),
     handoff: sessionHandoffOf(env, os.homedir(), dir),
     mtime: mtimeOf,
     now: () => Date.now(),
@@ -123,4 +125,4 @@ export function realPreCompactDeps(env: NodeJS.ProcessEnv, dir: string = process
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
-  process.exitCode = runPreCompact(realPreCompactDeps(process.env))
+  process.exitCode = runPreCompact(realPreCompactDeps(claudeAdapterWith({ shiftSettings, settingsFlag }), process.env))

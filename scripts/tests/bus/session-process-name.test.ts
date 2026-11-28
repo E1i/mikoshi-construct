@@ -7,8 +7,9 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, expect, it } from 'vitest'
 import { liveSessionIn } from '../../nodes/answer/answerer.js'
-import { OsProcessTable } from '../../ports/process-table.js'
+import { clientCwdsOf, OsProcessTable } from '../../ports/process-table.js'
 import { liveSessionHolds } from '../../ports/worktree.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const SMALL_SYSTEM_BINARY = '/bin/sleep'
 const VERSION_NAME = '2.1.318'
@@ -59,7 +60,7 @@ function listedByItsOwnName(name: string, tree: string): boolean {
 }
 
 function clientListingNames(tree: string): boolean {
-  const read = new OsProcessTable().clientCwds()
+  const read = new OsProcessTable(claudeClient.processes).clientCwds()
   expect(read.kind).toBe('listed')
   return read.kind === 'listed' && read.cwds.includes(tree)
 }
@@ -67,13 +68,13 @@ function clientListingNames(tree: string): boolean {
 it.skipIf(lsofAbsent)('a live process named by a version holds the tree it stands in', async () => {
   const tree = await processNamedIn(VERSION_NAME)
   expect(clientListingNames(tree)).toBe(true)
-  expect(liveSessionHolds(tree)).toBe(true)
+  expect(liveSessionHolds(tree, clientCwdsOf(claudeClient.processes))).toBe(true)
   expect(stillRunning(running)).toBe(true)
 })
 
 it.skipIf(lsofAbsent)('the answerer sees a live process named by a version in the card tree', async () => {
   const tree = await processNamedIn(VERSION_NAME)
-  expect(liveSessionIn({ session: 'a-session', worktree: tree, branch: 'feat/a-card' })).toContain(tree)
+  expect(liveSessionIn({ session: 'a-session', worktree: tree, branch: 'feat/a-card' }, clientCwdsOf(claudeClient.processes))).toContain(tree)
   expect(stillRunning(running)).toBe(true)
 })
 
@@ -81,7 +82,7 @@ it.skipIf(lsofAbsent)('a live process with another name does not hold the tree i
   const tree = await processNamedIn(ANOTHER_NAME)
   expect(listedByItsOwnName(ANOTHER_NAME, tree)).toBe(true)
   expect(clientListingNames(tree)).toBe(false)
-  expect(liveSessionHolds(tree)).toBe(false)
-  expect(liveSessionIn({ session: 'a-session', worktree: tree, branch: 'feat/a-card' })).toBeNull()
+  expect(liveSessionHolds(tree, clientCwdsOf(claudeClient.processes))).toBe(false)
+  expect(liveSessionIn({ session: 'a-session', worktree: tree, branch: 'feat/a-card' }, clientCwdsOf(claudeClient.processes))).toBeNull()
   expect(stillRunning(running)).toBe(true)
 })

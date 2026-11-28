@@ -18,6 +18,7 @@ import { reduce } from '../../core/reducer.js'
 import { busIntakePorts } from '../../intake/intake.js'
 import { runTaskStart } from '../../ports/task-start.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const CARD = 1783
 const LINE = `#${CARD} card-${CARD} [implement/ghosts/S/cheap/owner] · depends — · blocks —`
@@ -95,7 +96,7 @@ function depsOf(w: World): TaskStartDeps {
     bus: w.bus,
     now: () => AMENDED_AT,
     session: undefined,
-    cardBody: realDeps().cardBody,
+    cardBody: realDeps(claudeClient).cardBody,
   }
 }
 

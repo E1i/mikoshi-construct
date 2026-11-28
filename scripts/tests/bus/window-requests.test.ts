@@ -44,6 +44,7 @@ import { CONTINUED_FROM_THE_TREE } from '../../window/requests/requeue.js'
 import { productionDeps, STALL_MS } from '../../window/watch.js'
 import { countLineAppender, realRequestTools, worktreesHolding } from '../../window/window-request-tools.js'
 import { ALLOW_MERGE_RECORD, ANSWER_SOURCE, pendingRequests, PREFIX, REQUEST_KINDS, REQUEST_RULE, requestFromWindow, runRequest, USAGE, WindowRequests } from '../../window/window-requests.js'
+import { claudeClient } from '../client/claude-client.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, liveBench, mergeBench, spendReviewRounds, taskState } from './merge-bench.js'
 import { benchNetWatch } from './net-watch-bench.js'
@@ -660,7 +661,7 @@ describe('requests from the sandboxed window, executed by the bus outside it', (
     it('a card with no body in review is dropped with its reason and its stall warning goes', () => {
       const made = room()
       inReviewWithNoBody(made)
-      const stalls = (): number[] => productionDeps(made.root, made.bench.busPath).stalls().map(stall => stall.cardId)
+      const stalls = (): number[] => productionDeps(made.root, made.bench.busPath, claudeClient).stalls().map(stall => stall.cardId)
       expect(stateOfCard(made)).toBe('in_review')
       expect(stalls()).toEqual([CARD])
 

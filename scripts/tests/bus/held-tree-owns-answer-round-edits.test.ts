@@ -9,6 +9,7 @@ import { parkingFileText } from '../../../src/card/parking.js'
 import { cardSessionsIn } from '../../core/card-bodies.js'
 import { CARD_STARTED, CARD_STOPPED, SESSION_HEARTBEAT } from '../../core/events.js'
 import { ShiftCardStarter } from '../../nodes/launch/launch-starter.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const CARD = 2137
 const TREE = '/trees/mc-2137'
@@ -72,6 +73,7 @@ const NO_DB = {} as DatabaseSync
 
 function continuation(changed: string[]): CardStart {
   const ports: StarterPorts = {
+    client: claudeClient,
     read: cardId => cardId === CARD ? CARD_TEXT : null,
     cut: () => {
       throw new Error('a held tree is never cut')

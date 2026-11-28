@@ -35,6 +35,7 @@ import { busProjections, cardTransitions, nodeSupply, recordOwnStart, reviewLaun
 import { SILENT_MS } from '../../../supervisor/liveness-sites.js'
 import { generationEnv, ownIdentity, tableIdentity } from '../../../supervisor/recorded-worker.js'
 import { workerLaunches } from '../../../supervisor/workers.js'
+import { claudeClient } from '../../client/claude-client.js'
 import { eventsOf, mergeBench } from '../merge-bench.js'
 
 const roots: string[] = []
@@ -381,7 +382,7 @@ describe('k1a: the answer, review and continued sessions record their child', ()
 
   it('the real answer and review tools carry a child log, and the node supply carries the identity reader the witness worker hands on', () => {
     const { busPath } = bus()
-    expect(realAnswererTools(busPath).children).toBeInstanceOf(ChildLog)
+    expect(realAnswererTools(claudeClient, busPath).children).toBeInstanceOf(ChildLog)
     expect(realReviewStart(busPath).children).toBeInstanceOf(ChildLog)
     expect(nodeSupply().identityOf).toBeTypeOf('function')
   })

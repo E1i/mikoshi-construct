@@ -58,6 +58,7 @@ export interface TaskStartDeps {
   shift?: string
   worktreeHome?: string
   treeOf?: (id: string) => string
+  holds?: (tree: string) => boolean
   style?: SignalStyle
   cardBody?: (cardId: number) => string | null
   windowLimit?: () => number

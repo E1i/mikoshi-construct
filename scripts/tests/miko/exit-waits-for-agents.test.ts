@@ -12,6 +12,7 @@ import { taskWorktree } from '../../ports/worktree.js'
 import { runMikoExit } from '../../window/exit.js'
 import { AGENTS_FILE, dirtyOpenCardTrees, dirtyTreesOf, liveAgentsOf } from '../../window/window-agents.js'
 import { SESSION_VARIABLE } from '../../window/window-requests.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const HOOK = path.resolve(import.meta.dirname, '../../../.claude/hooks/window-agents.mjs')
 
@@ -36,6 +37,7 @@ function exit(overrides: Partial<MikoExitDeps>): { code: number, lines: string[]
   const lines: string[] = []
   const requests: string[] = []
   const code = runMikoExit({
+    client: claudeClient.processes,
     pid: 14,
     table: () => [],
     handoffMtime: () => 0,

@@ -19,6 +19,7 @@ import { realAnswererTools } from '../../nodes/answer/answerer.js'
 import { launchTasks } from '../../nodes/launch/launch-candidates.js'
 import { gitDepthSources } from '../../nodes/review/depth-sources.js'
 import { busProjections } from '../../supervisor/composition.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const RUNTIME_ROOTS = ['scripts', 'src']
@@ -147,7 +148,7 @@ describe('no runtime reader opens the parking directory; the card body comes fro
     unreadable(path.join(w.parking, 'lane-2', '90.md'))
 
     expect(busCardBodies(w.bus)(90)).toBe(TEXT)
-    expect(realAnswererTools(w.bus).cardText(90)).toBe(TEXT)
+    expect(realAnswererTools(claudeClient, w.bus).cardText(90)).toBe(TEXT)
     expect(gitDepthSources(w.repo, path.join(w.root, 'morse.jsonl'), busCardBodies(w.bus)).scope(90)).toMatchObject({ touches: ['src/a.ts'] })
     expect(busParkedDepends(w.bus).get(90)).toEqual([])
     const db = openBus(w.bus)
@@ -177,7 +178,7 @@ describe('no runtime reader opens the parking directory; the card body comes fro
     writeFileSync(parked, TEXT.replace('Do the thing.', 'A parking body nobody admitted.'))
     unreadable(parked)
     vi.stubEnv(BUS_DB_VARIABLE, w.bus)
-    const body = realDeps().cardBody!(90)
+    const body = realDeps(claudeClient).cardBody!(90)
     expect(body).toContain(AMENDED_NOTE)
     expect(body).not.toContain('A parking body nobody admitted.')
     expect(body).toBe(busAdmittedBodies(BUS_CONTRACT, w.bus)(90))

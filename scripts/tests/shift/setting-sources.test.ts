@@ -10,6 +10,7 @@ import { claudeAnswerer } from '../../nodes/answer/answerer.js'
 import { ShiftCardStarter } from '../../nodes/launch/launch-starter.js'
 import { renderPrompt } from '../../nodes/launch/prompt.js'
 import { claudeResume } from '../../nodes/launch/tree-pr-cli.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const CARD = 1348
 const SESSION = `card-session-${CARD}`
@@ -40,6 +41,7 @@ function launchArgv(): string[] {
   const text = parkingFileText({ card: `#${CARD} a-card [implement/netwatch/S/cheap/auto] · depends — · blocks —`, branch: `feat/card-${CARD}`, touches: ['scripts/bus/**'], continue: 'stop', who: 'shift', body: 'Do the card.' })
   let args: string[] = []
   const ports: StarterPorts = {
+    client: claudeClient,
     read: () => text,
     cut: () => tree,
     base: () => 'b'.repeat(40),
@@ -73,7 +75,7 @@ function resumeArgv(): string[] {
   const seen = path.join(root, 'seen.txt')
   writeFileSync(claude, `#!/bin/sh\nprintf '%s\\n' "$@" > ${seen}\n`)
   chmodSync(claude, 0o755)
-  claudeResume(busPath, claude, 10_000)(CARD, tree, 'merge a fresh origin/main')
+  claudeResume(claudeClient, busPath, claude, 10_000)(CARD, tree, 'merge a fresh origin/main')
   return readFileSync(seen, 'utf8').trim().split('\n')
 }
 
@@ -82,6 +84,7 @@ async function answerArgv(): Promise<string[][]> {
   const runs: AnswerRun[] = []
   const heads = ['a'.repeat(40), 'e'.repeat(40)]
   await claudeAnswerer(path.join(root, 'answers'), {
+    client: claudeClient,
     cardText: () => `#${CARD} a-card [implement/netwatch/S/cheap/owner]\n\nthe card body`,
     available: () => true,
     remoteHead: () => heads.shift() ?? null,

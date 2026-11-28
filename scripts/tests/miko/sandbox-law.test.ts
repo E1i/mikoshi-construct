@@ -14,6 +14,7 @@ import { gitIn, runTaskStart } from '../../ports/task-start.js'
 import { realMikoExitDeps, runMikoExit, SANDBOX_REFUSAL, stopReasonOf } from '../../window/exit.js'
 import { runHandoffWrite } from '../../window/handoff-write.js'
 import { productionDeps, tick, watchState } from '../../window/watch.js'
+import { claudeClient } from '../client/claude-client.js'
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>()
@@ -107,12 +108,12 @@ describe('the window commands under the sandbox law', () => {
     const handoff = path.join(dir, 'miko.md')
     const lines: string[] = []
     writeFileSync(handoff, 'STATUS: CONTINUE\n')
-    const outside = runMikoExit({ ...realMikoExitDeps(handoff), loopRequest: undefined, readings: () => AT_CONTEXT_WARN, recordExit: () => {}, endWindow: undefined, observeStop: undefined, err: line => lines.push(line) })
+    const outside = runMikoExit({ ...realMikoExitDeps(claudeClient, handoff), loopRequest: undefined, readings: () => AT_CONTEXT_WARN, recordExit: () => {}, endWindow: undefined, observeStop: undefined, err: line => lines.push(line) })
     expect(outside).toBe(1)
     expect(lines).toEqual([`[miko] ${SANDBOX_REFUSAL}`])
 
     const request = path.join(dir, 'miko-exit.request')
-    const underLoop = runMikoExit({ ...realMikoExitDeps(handoff), loopRequest: request, readings: () => AT_CONTEXT_WARN, recordExit: () => {}, endWindow: undefined, observeStop: undefined, err: () => {}, handoffMtime: () => Date.now(), now: () => Date.now(), status: () => 'CONTINUE' })
+    const underLoop = runMikoExit({ ...realMikoExitDeps(claudeClient, handoff), loopRequest: request, readings: () => AT_CONTEXT_WARN, recordExit: () => {}, endWindow: undefined, observeStop: undefined, err: () => {}, handoffMtime: () => Date.now(), now: () => Date.now(), status: () => 'CONTINUE' })
     expect(underLoop).toBe(0)
     expect(existsSync(request)).toBe(true)
 
@@ -126,7 +127,7 @@ describe('the window commands under the sandbox law', () => {
 
     const handoffDir = path.join(dir, 'handoff')
     mkdirSync(handoffDir)
-    const deps = productionDeps(handoffDir, busPath)
+    const deps = productionDeps(handoffDir, busPath, claudeClient)
     expect(tick(watchState(deps), deps)).toEqual([])
 
     const out: string[] = []

@@ -4,9 +4,9 @@ import { describe, expect, it } from 'vitest'
 import { CLIENT_IDS, CLIENT_ROLES, clientIdFor, clientModelOf, DEFAULT_CLIENT_MODEL } from '../../../src/manifest.js'
 import { codexAdapter } from '../../ports/client/codex/adapter.js'
 import { ClientPort } from '../../ports/client/index.js'
-import { clientAdapter } from '../../ports/session.js'
+import { claudeClient } from './claude-client.js'
 
-const claudeAdapter = clientAdapter()
+const claudeAdapter = claudeClient
 
 const UNKNOWN = 'no-such-client'
 
@@ -31,8 +31,8 @@ describe('client choice is configuration (D-323)', () => {
     }
   })
 
-  it('clientAdapter() with no argument stays the default adapter', () => {
-    expect(clientAdapter()).toBe(claudeAdapter)
+  it('claudeClient with no argument stays the default adapter', () => {
+    expect(claudeClient).toBe(claudeAdapter)
   })
 
   it('looks an adapter up by its id', () => {

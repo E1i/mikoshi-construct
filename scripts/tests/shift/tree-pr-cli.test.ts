@@ -10,6 +10,7 @@ import { busCardStopped, busPrOpened, claudeResume, PREFIX, runTreePr } from '..
 import { CARD_VARIABLE } from '../../ports/session.js'
 import { SESSION_BASH_CAP, TSX_PIPE_DIRECTORY } from '../../ports/shift-settings.js'
 import { WIDE_VITEST_HOOKS } from '../../ports/wide-vitest-guard.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const roots: string[] = []
 
@@ -383,7 +384,7 @@ describe('the session a refusal returns the card to', () => {
     writeFileSync(claude, `#!/bin/sh\n${script.replaceAll('SEEN', seen)}\n`)
     chmodSync(claude, 0o755)
     const started = Date.now()
-    const ran = claudeResume(busPath, claude, ceilingMs)(951, root, 'merge a fresh origin/main')
+    const ran = claudeResume(claudeClient, busPath, claude, ceilingMs)(951, root, 'merge a fresh origin/main')
     return { ran, seen, ms: Date.now() - started }
   }
 

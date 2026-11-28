@@ -16,7 +16,8 @@ import { lastProcessBeats, recordProcessHeartbeat } from '../../supervisor/heart
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { LOADED_CORE_VARIABLE, PROJECT_VARIABLE } from '../../window/eddies-measure.js'
 import { STATE_LABELS } from '../../window/handoff-check.js'
-import { claimLoop, CLAUDE_VARIABLE, claudeCommand, compoundCommandRefusal, CONTINUE_PROMPT, DEFAULT_CLAUDE, DOUBLE_CTRL_C_WINDOW_MS, DOUBLE_CTRL_C_WINDOW_VARIABLE, doubleCtrlCWatcher, doubleCtrlCWindowOf, exitRequestFile, HANGUPS, liveLoop, loopProcess, MIKO_HANDOFF_NAME, mikoHandoff, once, PAUSE_MS, pauseUntilCtrlC, PREFIX, recordLoopEnded, requestEndsSession, requesterOf, runMikoLoop, runSession, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight, sessionScript, takeExitRequest } from '../../window/loop.js'
+import { claimLoop, compoundCommandRefusal, CONTINUE_PROMPT, DOUBLE_CTRL_C_WINDOW_MS, DOUBLE_CTRL_C_WINDOW_VARIABLE, doubleCtrlCWatcher, doubleCtrlCWindowOf, exitRequestFile, HANGUPS, liveLoop, loopProcess, MIKO_HANDOFF_NAME, mikoHandoff, once, PAUSE_MS, pauseUntilCtrlC, PREFIX, recordLoopEnded, requestEndsSession, requesterOf, runMikoLoop, runSession, sessionAndPauseSharingCtrlCs, sessionCtrlCsStillInFlight, sessionScript, takeExitRequest } from '../../window/loop.js'
+import { CLAUDE_VARIABLE, claudeCommand, DEFAULT_CLAUDE } from '../client/claude-window.js'
 import { waitFor } from '../wait-for.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
@@ -734,9 +735,9 @@ describe('the loop owns the end of a session: a request file asks it to end the 
   }, 10_000)
 
   it('refuses a command with shell syntax, since an exit request would end only its shell and leave claude running', () => {
-    expect(compoundCommandRefusal('true && sleep 30')).toBe(`${PREFIX}${CLAUDE_VARIABLE} contains shell syntax (true && sleep 30): an exit request could not end the claude it starts; name one command`)
-    expect(compoundCommandRefusal(DEFAULT_CLAUDE)).toBeNull()
-    expect(compoundCommandRefusal('MIKO_SEEN=yes /opt/claude')).toBeNull()
+    expect(compoundCommandRefusal('true && sleep 30', CLAUDE_VARIABLE)).toBe(`${PREFIX}${CLAUDE_VARIABLE} contains shell syntax (true && sleep 30): an exit request could not end the claude it starts; name one command`)
+    expect(compoundCommandRefusal(DEFAULT_CLAUDE, CLAUDE_VARIABLE)).toBeNull()
+    expect(compoundCommandRefusal('MIKO_SEEN=yes /opt/claude', CLAUDE_VARIABLE)).toBeNull()
   })
 
   describe('an exit request ends the session only from a pid that descends from the claude the loop started', () => {

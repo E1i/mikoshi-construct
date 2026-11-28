@@ -30,6 +30,5 @@ export { activeDecisionsShard, activeWindowShards, deciderUnderAShard, decisions
 export { ghApi, type GitHub } from '../../ports/github.js'
 export { cardIdOf, isFullSha } from '../../ports/identifier-shapes.js'
 export { Meter } from '../../ports/meter.js'
-export { clientAdapter } from '../../ports/session.js'
 export { MAIN_BRANCH } from '../../ports/snapshot.js'
 export { MAIN_REF, readReleaseVersion, VERSION_PR_REF } from '../../release/changesets.js'

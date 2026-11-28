@@ -3,6 +3,7 @@ import type { Lease } from '../../core/lease.js'
 import type { DetectionMode, NodeDeclaration, Scope } from '../../core/node.js'
 import type { QueuedTask } from '../../core/queue.js'
 import type { StoredEvent } from '../../core/stored.js'
+import type { ProcessCwds } from '../../ports/client/contract.js'
 import type { FreedArtifact, RootSize } from './artifact-lifetimes.js'
 import type { CardTreeRemover, CloseOutcome, ReportedVerification } from './close-executor.js'
 import type { EndedTree } from './ended-card-trees.js'
@@ -19,7 +20,8 @@ import { CARD_VERIFIED, PR_CLOSED, PR_OPENED, REDUCED, WITNESS_RECORDED } from '
 import { Node, prefixOf, runNode, UNDERSTOOD_NOW } from '../../core/node.js'
 import { answerCardBodyOf, cardBodyShaOfCard, closeCandidates } from '../../core/queue.js'
 import { loadedCodeSha } from '../../ports/git.js'
-import { candidateRules, nodeLiveness, nodeSupply } from '../../supervisor/composition.js'
+import { clientCwdsOf } from '../../ports/process-table.js'
+import { candidateRules, clientAdapterOfTheBus, nodeLiveness, nodeSupply } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { alarmOverBudget, HOME_BUDGET_BYTES, recordFreedArtifacts, sweepArtifacts } from './artifact-lifetimes.js'
 import { cardClosed, CloseExecutor, failureOf, probeClosingCardIds } from './close-executor.js'
@@ -46,6 +48,7 @@ export interface CloseNodeParts {
   env: NodeJS.ProcessEnv
   silentMs: number
   trees?: CardTreeRemover
+  cwds?: () => ProcessCwds
   endedTrees?: () => EndedTree[]
   artifacts?: () => FreedArtifact[]
   home?: HomeWatch
@@ -87,7 +90,7 @@ export class CloseNode extends Node<CloseStep> {
 
   constructor(private readonly closeParts: CloseNodeParts) {
     super('close', { db: closeParts.db, clock: closeParts.clock, session: closeParts.session, mode: closeParts.mode, env: closeParts.env, silentMs: closeParts.silentMs, supply: nodeSupply() })
-    this.executor = new CloseExecutor({ db: closeParts.db, cards: this.suppliedCards, reported: closeParts.reported, clock: closeParts.clock, parking: closeParts.parking, silentMs: closeParts.silentMs, trees: closeParts.trees })
+    this.executor = new CloseExecutor({ db: closeParts.db, cards: this.suppliedCards, reported: closeParts.reported, clock: closeParts.clock, parking: closeParts.parking, silentMs: closeParts.silentMs, trees: closeParts.trees, cwds: closeParts.cwds })
     this.declare(CLOSE_NODE, scopeOf)
   }
 
@@ -170,13 +173,14 @@ export interface CloseRun {
   session: string
   parking: string
   pause: (ms: number) => Promise<unknown>
+  cwds?: () => ProcessCwds
   endedTrees?: (db: DatabaseSync) => () => EndedTree[]
   artifacts?: (db: DatabaseSync) => () => FreedArtifact[]
   home?: HomeWatch
 }
 
 export function closeNodeOf(run: CloseRun, db: DatabaseSync, mode: DetectionMode, clock: () => Date = () => new Date()): CloseNode {
-  return new CloseNode({ ...nodeLiveness(), db, reported: run.reported, clock, session: run.session, parking: run.parking, mode, env: process.env, endedTrees: run.endedTrees?.(db), artifacts: run.artifacts?.(db), home: run.home })
+  return new CloseNode({ ...nodeLiveness(), db, reported: run.reported, clock, session: run.session, parking: run.parking, mode, env: process.env, cwds: run.cwds, endedTrees: run.endedTrees?.(db), artifacts: run.artifacts?.(db), home: run.home })
 }
 
 export async function runCloseWorker(argv: string[], run: CloseRun): Promise<number> {
@@ -188,13 +192,14 @@ async function main(): Promise<number> {
   const repo = process.cwd()
   const busPath = defaultBusPath()
   const places = { home: construct, busDir: busDirOf(busPath) }
+  const cwds = clientCwdsOf(clientAdapterOfTheBus().processes)
   const endedTrees = (db: DatabaseSync) => {
-    const trees = cardTreeSweep(db, process.env, busPath, repo, gitWorktrees(repo), () => new Date())
+    const trees = cardTreeSweep(db, process.env, busPath, repo, gitWorktrees(repo), () => new Date(), cwds)
     return () => trees.free()
   }
   const artifacts = (db: DatabaseSync) => () => sweepArtifacts(db, places, gitWorktrees(repo), new Date())
   const home = { path: construct, budget: HOME_BUDGET_BYTES, everyMs: HOME_MEASURED_EVERY_MS }
-  return runCloseWorker(process.argv.slice(2), { busPath, reported: closingVerification(busPath), session: randomUUID(), parking: path.join(construct, 'parking'), pause: sleep, endedTrees, artifacts, home })
+  return runCloseWorker(process.argv.slice(2), { busPath, reported: closingVerification(busPath), session: randomUUID(), parking: path.join(construct, 'parking'), pause: sleep, cwds, endedTrees, artifacts, home })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -23,6 +23,7 @@ import { ReleaseLoops } from '../../window/release-loop.js'
 import { ANOTHER_CONSUMER, ONCE_STORE, OnceStore } from '../../window/watch-store.js'
 import { BOARD_STALE, boardStaleOf, BUS_ALIVE_MS, cardOfEvent, deliverOnce, LEGACY_CURSOR, ONCE, parseWatchArgs, parseWokenStalls, productionDeps, selectOnce, skippedLine, STALL_MS, stalledOf, STOP_EVENT, stuckOf, tick, USER_SETTINGS, wakesTheWindow, WATCHING, WATCHING_FROM_CURSOR, watchState, withWoken, withWokenSignals, WOKEN_SIGNALS, WOKEN_STALLS } from '../../window/watch.js'
 import { requestActor } from '../../window/window-requests.js'
+import { claudeClient } from '../client/claude-client.js'
 import { waitFor } from '../wait-for.js'
 
 const RELAUNCH_ACTOR = 'worker:relaunch:'
@@ -178,7 +179,7 @@ function append(file: string, event: object): string {
 }
 
 function busDeps(file: string): WatchDeps {
-  return { ...productionDeps(path.dirname(file), path.join(path.dirname(file), 'bus.db')), beat: () => {} }
+  return { ...productionDeps(path.dirname(file), path.join(path.dirname(file), 'bus.db'), claudeClient), beat: () => {} }
 }
 
 describe('pnpm miko:watch wakes the foreman on an event and on nothing else', () => {
@@ -462,7 +463,7 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
     const file = journal()
     const bus = path.join(path.dirname(file), 'bus.db')
     writeStop(bus, 1)
-    const deps = { ...productionDeps(path.dirname(file), bus), beat: () => {} }
+    const deps = { ...productionDeps(path.dirname(file), bus, claudeClient), beat: () => {} }
     const state = watchState(deps)
     const refused = writeBusEvent(bus, REQUEST_REFUSED, QUEUE_ACTOR, 'window.request:7:answered', JSON.stringify({ request: 7, kind: 'review', detail: 'the card is not in review' }), 950, null, 1050)
     expect(tick(state, deps)).toEqual([`bus ${REQUEST_REFUSED} card 1050 pr 950 ${refused}`])
@@ -473,9 +474,9 @@ describe('pnpm miko:watch wakes the foreman on an event and on nothing else', ()
     const file = journal()
     const bus = path.join(path.dirname(file), 'bus.db')
     writeStop(bus, 1)
-    writeBusEvent(bus, WINDOW_REQUEST, requestActor(process.env), 'window.request:own', JSON.stringify({ kind: 'tree.cut', card: 1050 }), null, null, 1050)
+    writeBusEvent(bus, WINDOW_REQUEST, requestActor(claudeClient, process.env), 'window.request:own', JSON.stringify({ kind: 'tree.cut', card: 1050 }), null, null, 1050)
     writeBusEvent(bus, WINDOW_REQUEST, 'worker:window:another-session', 'window.request:other', JSON.stringify({ kind: 'tree.cut', card: 1051 }), null, null, 1051)
-    const deps = { ...productionDeps(path.dirname(file), bus), beat: () => {} }
+    const deps = { ...productionDeps(path.dirname(file), bus, claudeClient), beat: () => {} }
     const state = watchState(deps)
     const own = writeBusEvent(bus, REQUEST_DONE, QUEUE_ACTOR, 'window.request:2:answered', JSON.stringify({ request: 2, kind: 'tree.cut', detail: 'cut' }), null, null, 1050)
     writeBusEvent(bus, REQUEST_DONE, QUEUE_ACTOR, 'window.request:3:answered', JSON.stringify({ request: 3, kind: 'tree.cut', detail: 'cut' }), null, null, 1051)
@@ -1220,12 +1221,12 @@ describe('pnpm miko:watch wakes the window where the bus is stuck, not only on a
   it('the stalls a --once woke on live beside the cursor, so a later process does not wake on them again', () => {
     const handoff = mkdtempSync(path.join(tmpdir(), 'miko-watch-woken-'))
     roots.push(handoff)
-    const deps = productionDeps(handoff, path.join(handoff, 'bus.db'))
+    const deps = productionDeps(handoff, path.join(handoff, 'bus.db'), claudeClient)
     const card = (cardId: number, lastEventId: number): CardActivity => ({ cardId, lastEventId, lastType: 'card.started', lastTs: '2026-10-21T11:00:00.000Z' })
     expect(deps.wokenStalls()).toEqual(new Map())
     deps.rememberStalls([card(1071, 40), card(1086, 7)])
     deps.rememberStalls([card(1071, 12)])
-    expect(productionDeps(handoff, path.join(handoff, 'bus.db')).wokenStalls()).toEqual(new Map([[1071, 40], [1086, 7]]))
+    expect(productionDeps(handoff, path.join(handoff, 'bus.db'), claudeClient).wokenStalls()).toEqual(new Map([[1071, 40], [1086, 7]]))
     expect(readFileSync(path.join(handoff, WOKEN_STALLS), 'utf8')).toBe('{"1071":40,"1086":7}\n')
     for (const text of ['[]', '{"x":1}', '{"1071":0}', '{"1071":"40"}', 'not json'])
       expect(parseWokenStalls(text), text).toBeUndefined()
@@ -1244,7 +1245,7 @@ describe('pnpm miko:watch wakes the window where the bus is stuck, not only on a
     finally {
       db.close()
     }
-    const deps = productionDeps(path.dirname(file), bus)
+    const deps = productionDeps(path.dirname(file), bus, claudeClient)
     const judged = deps.busEventsAfter(0)
     expect(judged.map(event => [event.type, cardOfEvent(event)])).toEqual([[PROCESS_JUDGED, 1071]])
     const offset = 0
@@ -1377,11 +1378,11 @@ describe('miko:watch wakes the window once per unchanged signal, whatever its ki
   it('the signals a --once woke on live beside the cursor, so a later process does not wake on them again', () => {
     const handoff = mkdtempSync(path.join(tmpdir(), 'miko-watch-signals-'))
     roots.push(handoff)
-    const deps = productionDeps(handoff, path.join(handoff, 'bus.db'))
+    const deps = productionDeps(handoff, path.join(handoff, 'bus.db'), claudeClient)
     expect(deps.wokenSignals()).toEqual(new Map())
     deps.rememberSignals([boardStaleOf(beatAt(5), NOW)[0]!, OTHER_KIND])
     deps.rememberSignals([{ ...OTHER_KIND, facts: 'fact 2' }])
-    expect(productionDeps(handoff, path.join(handoff, 'bus.db')).wokenSignals()).toEqual(new Map([[`${BOARD_STALE} · board timer`, beatAt(5)], ['any kind · any subject', 'fact 2']]))
+    expect(productionDeps(handoff, path.join(handoff, 'bus.db'), claudeClient).wokenSignals()).toEqual(new Map([[`${BOARD_STALE} · board timer`, beatAt(5)], ['any kind · any subject', 'fact 2']]))
     expect(existsSync(path.join(handoff, WOKEN_SIGNALS))).toBe(true)
   })
 })
@@ -1406,13 +1407,13 @@ describe('miko:watch reads observed heads and the last event of each pull reques
     written(bus, PR_OBSERVED, 'observed:1', 7, HEAD_1)
     written(bus, PR_OBSERVED, 'observed:2', 7, HEAD_2)
     const last = written(bus, PR_OBSERVED, 'observed:3', 7, HEAD_1)
-    expect(productionDeps(path.dirname(bus), bus).observedHeads(7, last + 1)).toEqual([HEAD_2, HEAD_1])
+    expect(productionDeps(path.dirname(bus), bus, claudeClient).observedHeads(7, last + 1)).toEqual([HEAD_2, HEAD_1])
   })
 
   it('keeps the last observation and the last witness of every pull request of one card', () => {
     const bus = journal()
     const ids = [PR_OBSERVED, WITNESS_RECORDED].flatMap(type => [written(bus, type, `${type}:7`, 7, null, 9), written(bus, type, `${type}:8`, 8, null, 9)])
-    const deps = productionDeps(path.dirname(bus), bus)
+    const deps = productionDeps(path.dirname(bus), bus, claudeClient)
     expect(deps.observedUpTo(ids.at(-1)!).map(event => event.id)).toEqual(ids.slice(0, 2))
     expect(deps.witnessedUpTo(ids.at(-1)!).map(event => event.id)).toEqual(ids.slice(2))
   })

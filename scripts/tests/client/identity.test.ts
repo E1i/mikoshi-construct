@@ -3,9 +3,9 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
 import { SESSION_VARIABLE, USER_SETTINGS } from '../../ports/client/claude/adapter.js'
-import { clientAdapter } from '../../ports/session.js'
 import { USER_SETTINGS as WATCH_SETTINGS } from '../../window/watch.js'
 import { requestSession } from '../../window/window-requests.js'
+import { claudeClient } from './claude-client.js'
 
 const SCRIPTS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const SESSION_NAME = ['CLAUDE', 'CODE', 'SESSION', 'ID'].join('_')
@@ -26,7 +26,7 @@ function sourceOf(file: string): string {
 }
 
 it('ownSession reads the session of the running client and null without one', () => {
-  const adapter = clientAdapter()
+  const adapter = claudeClient
   expect(adapter.ownSession({ [SESSION_NAME]: 'sess-1575' })).toBe('sess-1575')
   expect(adapter.ownSession({})).toBeNull()
   expect(adapter.ownSession({ [SESSION_NAME]: '' })).toBeNull()
@@ -50,6 +50,6 @@ it('watch names the settings path the adapter owns and does not spell it', () =>
 })
 
 it('a request keeps its trimmed session and goes by hand on a blank one', () => {
-  expect(requestSession({ [SESSION_NAME]: '  sess-1575  ' })).toBe('sess-1575')
-  expect(requestSession({ [SESSION_NAME]: '   ' })).toBe(requestSession({}))
+  expect(requestSession(claudeClient, { [SESSION_NAME]: '  sess-1575  ' })).toBe('sess-1575')
+  expect(requestSession(claudeClient, { [SESSION_NAME]: '   ' })).toBe(requestSession(claudeClient, {}))
 })

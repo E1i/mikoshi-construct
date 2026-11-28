@@ -4,7 +4,7 @@ import type { BusEvent } from '../../core/db.js'
 import type { Lease } from '../../core/lease.js'
 import type { MachineGate } from '../../core/machine-sessions.js'
 import type { FailedJobLog } from '../../ports/ci-reading.js'
-import type { Denial, Invocation, ProcessCwds, SessionTool, Usage } from '../../ports/client/contract.js'
+import type { ClientAdapter, Denial, Invocation, ProcessCwds, SessionTool, Usage } from '../../ports/client/contract.js'
 import type { AnswerInput } from '../../ports/prompt-store.js'
 import type { UnselectedWitness } from '../../ports/witnesses.js'
 import type { FreshBaseGap } from '../launch/tree-pr.js'
@@ -37,7 +37,7 @@ import { CARD_SIZE_VARIABLE, CARD_VARIABLE, cardSessionOverlay, cardSizeIn, clie
 import { MAIN_BRANCH } from '../../ports/snapshot.js'
 import { unselectedWitnessesLine } from '../../ports/witnesses.js'
 import { isAlive } from '../../quality/lock.js'
-import { busSessionPulse } from '../../supervisor/heartbeat.js'
+import { busSessionPulse, measureCardSession } from '../../supervisor/heartbeat.js'
 import { projectRoot, realExitReadings, sessionGauges, UNKNOWN } from '../../window/eddies-measure.js'
 import { answerFollowed, commitAndPush, CONCEPT_RULES, followedLine, freshBaseProblem, freshBaseTask, worktreeCoverage, worktreeImporters } from '../launch/tree-pr.js'
 import { conceptWidening } from './concept-scope.js'
@@ -96,6 +96,7 @@ export type Answerer = (request: AnswerRequest) => Promise<Answered>
 export type CardText = (cardId: number) => string | null
 
 export interface AnswererTools {
+  client: ClientAdapter
   cardText: CardText
   cardTools?: (cardId: number, cardBody: string | null) => readonly SessionTool[]
   available: (card: CardSession) => boolean
@@ -239,8 +240,8 @@ export function unselectedWitnessPrompt(lease: Lease, card: CardSession, unselec
   ].join('\n')
 }
 
-function measuredOf(stdoutPaths: readonly string[]): { tokens?: number | null } {
-  const results = stdoutPaths.map(streamReading).filter(result => result.end !== 'missing')
+function measuredOf(client: ClientAdapter, stdoutPaths: readonly string[]): { tokens?: number | null } {
+  const results = stdoutPaths.map(stdoutPath => streamReading(client, stdoutPath)).filter(result => result.end !== 'missing')
   if (results.length === 0)
     return {}
   const counts = results.map(result => tokensOf(result.usage)).filter((count): count is number => count !== null)
@@ -292,8 +293,8 @@ function denialAimsAt(denial: Denial, file: string): boolean {
   return denial.path === file || denial.command?.includes(file) === true
 }
 
-export function refusedOwnerQuestionIn(stdoutPath: string, file: string): string | null {
-  const refused = streamReading(stdoutPath).denials?.find(denial => denialAimsAt(denial, file))
+export function refusedOwnerQuestionIn(client: ClientAdapter, stdoutPath: string, file: string): string | null {
+  const refused = streamReading(client, stdoutPath).denials?.find(denial => denialAimsAt(denial, file))
   return refused === undefined || refused.text === '' ? null : refused.text
 }
 
@@ -309,7 +310,7 @@ export function roundGateOf(gate: ShiftGate, head: string | null): ShiftGate {
   return head === null ? gate : { ...gate, prepush: roundGate(gate.prepush, head) }
 }
 
-export function liveSessionIn(card: CardSession, cwds: () => ProcessCwds = () => new OsProcessTable().clientCwds()): string | null {
+export function liveSessionIn(card: CardSession, cwds: () => ProcessCwds): string | null {
   const read = cwds()
   if (read.kind === 'unreadable')
     return `the sessions running in the tree ${card.worktree} cannot be read (${read.why}), so the card counts as held`
@@ -318,8 +319,10 @@ export function liveSessionIn(card: CardSession, cwds: () => ProcessCwds = () =>
   return inside === undefined ? null : `a live session runs in ${inside}, inside the tree ${card.worktree}`
 }
 
+const ANSWER_READS_NO_OWN_SESSION = { ownSession: () => null }
+
 function answerReadingsOf(size: string | null) {
-  return realExitReadings({ [CARD_VARIABLE]: 'answer', ...(size === null ? {} : { [CARD_SIZE_VARIABLE]: size }) }, os.homedir(), projectRoot(process.env), defaultBusPath())
+  return realExitReadings(ANSWER_READS_NO_OWN_SESSION, { [CARD_VARIABLE]: 'answer', ...(size === null ? {} : { [CARD_SIZE_VARIABLE]: size }) }, os.homedir(), projectRoot(process.env), defaultBusPath())
 }
 
 export function contextWarnOfEddies(size: string | null = null): number | null {
@@ -543,11 +546,12 @@ function busLeaseHeld(busPath: string): (lease: Lease) => boolean {
   }
 }
 
-export function realAnswererTools(busPath: string = defaultBusPath()): AnswererTools {
+export function realAnswererTools(client: ClientAdapter, busPath: string = defaultBusPath()): AnswererTools {
   return {
+    client,
     machine: machineGate(busNameOf(busPath), 'answer', { machine: machineSessions(isAlive) }),
     held: busLeaseHeld(busPath),
-    pulse: busSessionPulse(busPath, () => new Date()),
+    pulse: busSessionPulse(busPath, () => new Date(), measureCardSession(client)),
     cardText: busCardBodies(busPath),
     available: card => hasClientTranscript(process.env, card.worktree, card.session),
     remoteHead,
@@ -633,7 +637,7 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
     if (!keepsHandoff)
       rmSync(handoff, { force: true })
     const prompt = [answerPrompt(request, cardBody, windowGateRule(card, gate, ownerQuestion), resumed ? undefined : tools.diff?.(card), ciLog), WIDE_VITEST_RULE, ...proofsRule(prove, proofs), ...handoffLines(handoff, keepsHandoff)].join('\n')
-    const invocationOf = (kind: 'start' | 'resume', text: string): Invocation => clientInvocation({ kind, role: 'answer', session, cwd: card.worktree, prompt: text, addDirs: [dir], pick: { model: null }, policy: answerPolicy(gate.prepush, prove.length === 0 ? [ownerQuestion] : [ownerQuestion, proofs], tools.cardTools?.(request.lease.cardId, cardBody)) })
+    const invocationOf = (kind: 'start' | 'resume', text: string): Invocation => clientInvocation(tools.client, { kind, role: 'answer', session, cwd: card.worktree, prompt: text, addDirs: [dir], pick: { model: null }, policy: answerPolicy(gate.prepush, prove.length === 0 ? [ownerQuestion] : [ownerQuestion, proofs], tools.cardTools?.(request.lease.cardId, cardBody)) })
     mkdirSync(dir, { recursive: true })
     rmSync(ownerQuestion, { force: true })
     rmSync(proofs, { force: true })
@@ -663,7 +667,7 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
           argv: invocation.args,
           stdoutPath: stdoutOf(step),
           stderrPath: path.join(dir, `${session}.${request.lease.leaseGen}${step}.err.log`),
-          env: { ...sessionEnv(process.env, request.lease.cardId, cardSessionOverlay(projectRoot(process.env), process.env, size)), ...invocation.env },
+          env: { ...sessionEnv(tools.client, process.env, request.lease.cardId, cardSessionOverlay(projectRoot(process.env), process.env, size)), ...invocation.env },
           signal: withdrawn.signal,
           onLine: line => timer.line(line),
           ...(started === undefined ? {} : { started }),
@@ -683,7 +687,7 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
       return code
     }
     const steps = ['']
-    const ownerAfter = (step: string): string | null => ownerQuestionIn(ownerQuestion) ?? refusedOwnerQuestionIn(stdoutOf(step), ownerQuestion)
+    const ownerAfter = (step: string): string | null => ownerQuestionIn(ownerQuestion) ?? refusedOwnerQuestionIn(tools.client, stdoutOf(step), ownerQuestion)
     const widenedInConcept = new Set<string>()
     let noViolationFreePath = false
     const scopeOfTheTree = (): { followed: string[], widened: string[], outside: string[] } => {
@@ -774,7 +778,7 @@ function sessionAnswerer(dir: string, tools: AnswererTools): Answerer {
       const gateDecision = timer.decision()
       const offForm = timer.offFormGateCommands()
       const owner = reasked ?? (kept || atLine || unprovedNow().length > 0 || gateDecision === null ? null : await publish())
-      const measured = measuredOf(steps.map(stdoutOf))
+      const measured = measuredOf(tools.client, steps.map(stdoutOf))
       return { session, resumed, atContextWarn: atLine, before, after: tools.remoteHead(card), owner, gateDecision, ...(offForm.length === 0 ? {} : { offFormGateCommands: offForm }), ...measured, input: { prompt, cardBody }, steps: timer.steps(), ...(widenedInConcept.size === 0 ? {} : { widenedInConcept: [...widenedInConcept] }), ...(noViolationFreePath ? { noViolationFreePath } : {}), ...(prove.length === 0 ? {} : { proofs: proofsIn(proofs, prove) }) }
     }
     finally {

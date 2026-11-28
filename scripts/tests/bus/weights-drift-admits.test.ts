@@ -18,6 +18,7 @@ import { handFile, ShiftCardStarter } from '../../nodes/launch/launch-starter.js
 import { liveMergeRun, MergeNode } from '../../nodes/merge/merge-worker.js'
 import { WeightsDriftWatch } from '../../nodes/merge/weights-drift.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { claudeClient } from '../client/claude-client.js'
 import { cardBody, sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -172,6 +173,7 @@ interface StarterView { table: string | null, prompt: string }
 
 function starterOf(bench: MergeBench, launchDir: string, worktree: string, changed: string[], seen: StarterView): ShiftCardStarter {
   return new ShiftCardStarter({ launchDir, claude: 'client-binary', treePr: 'true' }, {
+    client: claudeClient,
     read: id => cardBodyText(bench.db, id),
     cut: () => {
       mkdirSync(worktree, { recursive: true })

@@ -1,6 +1,6 @@
 import type { BusSection } from './factory/bus.js'
 import type { CardSection } from './factory/card.js'
-import type { Axis, Concept } from './factory/concepts.js'
+import type { Axis, ClientNamed, Concept } from './factory/concepts.js'
 import type { FilesSection } from './factory/files.js'
 import type { GlobalsSection } from './factory/globals.js'
 import type { ModulesSection } from './factory/modules.js'
@@ -10,10 +10,9 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript'
 import { FACTORY_FOLDERS } from '../core/factory-paths.js'
-import { clientAdapter } from '../ports/session.js'
 import { busSection } from './factory/bus.js'
 import { cardSection } from './factory/card.js'
-import { assertNoLoreConflict, assertOwnersExport, CONCEPTS } from './factory/concepts.js'
+import { assertNoLoreConflict, assertOwnersExport, CONCEPTS, withClientDetectors } from './factory/concepts.js'
 import { filesSection } from './factory/files.js'
 import { globalsSection } from './factory/globals.js'
 import { modulesSection } from './factory/modules.js'
@@ -120,9 +119,14 @@ function declaredIn(statement: ts.Statement): string[] {
   })
 }
 
-export function technologyVocabulary(root: string = REPO_ROOT): ReadonlySet<string> {
+export interface FactoryClient {
+  id: string
+  isClient: ClientNamed
+}
+
+export function technologyVocabulary(client: Pick<FactoryClient, 'id'>, root: string = REPO_ROOT): ReadonlySet<string> {
   const declared = parsedFiles(root, [PORTS_TREE]).flatMap(({ source }) => source.statements.flatMap(declaredIn))
-  return new Set([clientAdapter().id, ...declared])
+  return new Set([client.id, ...declared])
 }
 
 export function portLanguage(module: PortModule, vocabulary: ReadonlySet<string>): FactoryPort {
@@ -139,11 +143,12 @@ function acceptedConcepts(root: string): AcceptedConcepts {
   return concepts
 }
 
-export function generateFactory(root: string = REPO_ROOT): Factory {
+export function generateFactory(client: FactoryClient, root: string = REPO_ROOT): Factory {
   const bus = busSection(root)
+  const concepts = withClientDetectors(CONCEPTS, client.isClient)
   return {
     factoryVersion: FACTORY_VERSION,
-    ports: markedPorts(portsSection(root), technologyVocabulary(root)),
+    ports: markedPorts(portsSection(root), technologyVocabulary(client, root)),
     bus,
     card: cardSection(root),
     nodes: nodesSection(),
@@ -151,7 +156,7 @@ export function generateFactory(root: string = REPO_ROOT): Factory {
     globals: globalsSection(root),
     concepts: conceptsSection(acceptedConcepts(root), CONCEPTS, root),
     modules: modulesSection(),
-    overlaps: overlapsSection(findSites(root)),
+    overlaps: overlapsSection(findSites(root, concepts), concepts),
   }
 }
 

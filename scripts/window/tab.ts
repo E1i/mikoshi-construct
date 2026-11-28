@@ -1,12 +1,12 @@
 import type { Status } from '../core/handoff-status.js'
-import type { WindowSession } from './window-heartbeat.js'
+import type { SessionOwner, WindowSession } from './window-heartbeat.js'
 import { readFileSync, realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { isTabWindowIn, tabCandidate, worktreeHomesOf } from '../../.claude/hooks/tab-window.mjs'
 import { isOwnerCheckout, REPO_ID_SEPARATOR, repoIdOf } from '../core/bus-path.js'
 import { statusOfFile } from '../core/handoff-status.js'
-import { clientAdapter, windowModeOf } from '../ports/session.js'
+import { windowModeOf } from '../ports/session.js'
 import { busWorktreeHome } from '../ports/worktree-home.js'
 import { PREFIX } from './loop.js'
 import { windowOf } from './window-heartbeat.js'
@@ -19,24 +19,24 @@ export const PROMPT_REFUSED_EXIT = 2
 const OWNER_WINDOW = 'the owner checkout'
 const ADDRESSED_HANDOFF = /\.construct\/(?:([\w.-]+)\/)?handoff\/miko\.md/
 
-export function tabWindowOf(env: NodeJS.ProcessEnv): WindowSession | null {
-  return tabCandidate(env) ? windowOf(env) : null
+export function tabWindowOf(client: SessionOwner, env: NodeJS.ProcessEnv): WindowSession | null {
+  return tabCandidate(env) ? windowOf(client, env) : null
 }
 
 export function cardTreeHomes(env: NodeJS.ProcessEnv, busPath: string): string[] {
   return [...worktreeHomesOf(env), busWorktreeHome(busPath)]
 }
 
-export function tabWindowIn(env: NodeJS.ProcessEnv, dir: string, treeHomes: readonly string[]): WindowSession | null {
-  return isTabWindowIn(env, dir, treeHomes) ? windowOf(env) : null
+export function tabWindowIn(client: SessionOwner, env: NodeJS.ProcessEnv, dir: string, treeHomes: readonly string[]): WindowSession | null {
+  return isTabWindowIn(env, dir, treeHomes) ? windowOf(client, env) : null
 }
 
 export function handoffStatusOf(handoff: string | null): Status | null {
   return handoff === null ? null : statusOfFile(handoff) ?? null
 }
 
-export function noWindowRefusal(env: NodeJS.ProcessEnv): string | null {
-  const isClientSession = clientAdapter().ownSession(env) !== null
+export function noWindowRefusal(client: SessionOwner, env: NodeJS.ProcessEnv): string | null {
+  const isClientSession = client.ownSession(env) !== null
   return isClientSession && tabCandidate(env) && windowModeOf(env) === null ? NO_WINDOW : null
 }
 

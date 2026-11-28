@@ -30,13 +30,14 @@ import { busReviewPulse } from '../../nodes/review/review-worker.js'
 import { RECUT_ACTOR } from '../../policy/round-limit-decision.js'
 import { windowShardEnded } from '../../policy/shards.js'
 import { busProjections, cardTransitions, pullRequests } from '../../supervisor/composition.js'
-import { busSessionPulse, recordHeartbeat, recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
+import { busSessionPulse, measureCardSession, recordHeartbeat, recordProcessHeartbeat } from '../../supervisor/heartbeat.js'
 import { recordJudged } from '../../supervisor/liveness-judge.js'
 import { BusTick } from '../../supervisor/run.js'
 import { cardGauges, MERGE_PAST_THE_BUS, readBoard, SILENT_PROCESS, windowGauges } from '../../window/board.js'
 import { stateLines } from '../../window/handoff-write.js'
 import { foldPlanEvent } from '../../window/plan-folds.js'
 import { recordWindowHeartbeat } from '../../window/window-heartbeat.js'
+import { claudeClient } from '../client/claude-client.js'
 import { Clock, FakeGitHub, sha } from './github-fake.js'
 import { benchNetWatch } from './net-watch-bench.js'
 import { detectReview } from './review-detection.js'
@@ -490,7 +491,7 @@ describe('the factory board', () => {
 
   it('a card whose heartbeat carries no fields has no bar', () => {
     const bench = boardBench()
-    recordHeartbeat(bench.db, bench.ts(), { card: 872, pr: null, head: null, step: 'implement', session: 's-872', lease: null })
+    recordHeartbeat(bench.db, bench.ts(), { card: 872, pr: null, head: null, step: 'implement', session: 's-872', lease: null }, measureCardSession(claudeClient))
     recordHeartbeat(bench.db, bench.ts(), { card: 873, pr: null, head: null, step: 'implement', session: 's-873', lease: null }, () => ({}))
     expect(cardGauges(bench.db)).toEqual([])
     expect(bench.tick().gauges).toEqual([])
@@ -503,7 +504,7 @@ describe('the factory board', () => {
     appendEvent(working.db, { ts: working.ts(), type: CARD_STARTED, actor: 'policy', cardId: 850, pr: null, head: null, dedupeKey: `${CARD_STARTED}:850`, payload: {}, legacy: false })
     for (let minute = 0; minute < 30; minute++) {
       if (minute === 20)
-        recordHeartbeat(working.db, working.ts(), { card: 850, pr: null, head: null, step: 'implement', session: 's-850', lease: null })
+        recordHeartbeat(working.db, working.ts(), { card: 850, pr: null, head: null, step: 'implement', session: 's-850', lease: null }, measureCardSession(claudeClient))
       expect(working.tick().progress.stalled).toBe(false)
     }
     const stalled = working.tick()

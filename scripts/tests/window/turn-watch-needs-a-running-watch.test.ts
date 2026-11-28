@@ -9,6 +9,7 @@ import { WINDOW_MARK, WINDOW_VARIABLE } from '../../ports/session.js'
 import { LIVE_WATCH, NO_LIVE_WATCH, realTurnWatchDeps, runTurnWatch } from '../../window/turn-watch.js'
 import { ONCE_STORE, OnceStore, ownerFile } from '../../window/watch-store.js'
 import { recordWindowHeartbeat } from '../../window/window-heartbeat.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const SESSION = 's-window-watch'
 const BEAT_AGE_MS = 60_000
@@ -38,7 +39,7 @@ function windowWithFreshBeat(): { handoff: string, env: NodeJS.ProcessEnv } {
 
 function turnEnd(env: NodeJS.ProcessEnv): { code: number, lines: string[] } {
   const lines: string[] = []
-  const code = runTurnWatch({ ...realTurnWatchDeps(env, tmpdir()), err: line => lines.push(line) })
+  const code = runTurnWatch({ ...realTurnWatchDeps(claudeClient, env, tmpdir()), err: line => lines.push(line) })
   return { code, lines }
 }
 

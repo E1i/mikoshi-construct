@@ -5,7 +5,6 @@ import ts from 'typescript'
 import { FACTORY_NAMED, FACTORY_RUNTIME } from '../../core/factory-paths.js'
 import { GENERATED_FILES, GENERATED_PATHS } from '../../core/generated-files.js'
 import { BUS_TABLES } from '../../ports/bus-read.js'
-import { clientAdapter } from '../../ports/session.js'
 import {
   adjacentLiterals,
   called,
@@ -224,6 +223,18 @@ function namesAConstructCommand(text: string): boolean {
   return constructCommand.test(text)
 }
 
+export const CLIENT_LIVENESS_CONCEPT = 'live-session'
+
+export type ClientNamed = (name: string) => boolean
+
+export function clientNameInLsofArguments(isClient: ClientNamed): Detector {
+  return adjacentLiterals('-c', isClient, 'the client process name in lsof arguments')
+}
+
+export function withClientDetectors(concepts: readonly Concept[], isClient: ClientNamed): readonly Concept[] {
+  return concepts.map(concept => concept.id === CLIENT_LIVENESS_CONCEPT ? { ...concept, detectors: [...concept.detectors, clientNameInLsofArguments(isClient)] } : concept)
+}
+
 export const CONCEPTS: readonly Concept[] = [
   {
     id: 'process-table',
@@ -257,7 +268,6 @@ export const CONCEPTS: readonly Concept[] = [
       declaredFunction(/^liveSession(?!s$)/),
       declaredFunction(/^(?:sessionLiveness|isSessionAlive)$/),
       referenced('claudeProcessCwds'),
-      adjacentLiterals('-c', name => clientAdapter().processes.isClient(name), 'the client process name in lsof arguments'),
     ],
   },
   {

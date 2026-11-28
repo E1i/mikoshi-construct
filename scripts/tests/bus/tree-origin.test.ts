@@ -26,6 +26,7 @@ import { cutTree, FREE_TREE_CAPACITY, treeOriginIn, treeOriginLine } from '../..
 import { busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { BusTick } from '../../supervisor/run.js'
+import { claudeClient } from '../client/claude-client.js'
 import { Clock, FakeGitHub } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 import { benchNetWatch } from './net-watch-bench.js'
@@ -153,7 +154,7 @@ describe('the origin of a tree is recorded on the event that starts its work', (
     const head = git(repo, ['rev-parse', 'HEAD']).trim()
     const dir = path.join(root, 'reviews')
     const { db, gitHub, tick, worker } = reviewBench(root)
-    const reviewer = claudeReviewer(new ReviewTrees(repo, dir, localTrees()), async (params) => {
+    const reviewer = claudeReviewer(claudeClient, new ReviewTrees(repo, dir, localTrees()), async (params) => {
       writeFileSync(params.stdoutPath, '')
       writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
       return 0

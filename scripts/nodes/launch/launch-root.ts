@@ -3,6 +3,7 @@ import type { ShiftTask } from '../../../src/card/task-file.js'
 import type { DetectionMode } from '../../core/node.js'
 import type { CardBodyReader } from '../../intake/parking-reads.js'
 import type { LadderSteps } from '../../ladder/ladder-starter.js'
+import type { ClientAdapter } from '../../ports/client/contract.js'
 import type { IsolationReader } from '../../ports/isolation.js'
 import type { TreePreparer } from '../../ports/prepare-tree.js'
 import type { TreeOrigin } from '../../ports/worktree.js'
@@ -49,7 +50,7 @@ import { builtTreePr, HTTPS_ORIGIN_ENV, launchDirOf, TREE_PR_ENTRY, treeHoldsACo
 import { cardTree } from '../../ports/worktree-home.js'
 import { treeOriginIn } from '../../ports/worktree.js'
 import { BUILD_DIR, BUILT_MODULE, builtEntryOf, installedPackage } from '../../supervisor/bg.js'
-import { cardAllowances, launchSessionEnv, nodeLiveness, nodeSupply } from '../../supervisor/composition.js'
+import { cardAllowances, clientAdapterOfTheBus, launchSessionEnv, nodeLiveness, nodeSupply } from '../../supervisor/composition.js'
 import { stampLogOutput } from '../../supervisor/stamp.js'
 import { builtHandoff, continuationRefusal, CONTINUE_PROMPT, eddiesEvidence, reachedContextLine, sessionWrittenPart, stoppedOnSpend } from './continuation.js'
 import { gitChangedPaths, killQuietly, psPgid, ShiftCardStarter, spawnDetached } from './launch-starter.js'
@@ -237,9 +238,10 @@ export class CutTreeOrigins {
   }
 }
 
-export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null, cardSessions: (cardId: number) => string[] = () => [], installed: string | null = installedPackage(), busPath: string = busPathOf(env, os.homedir(), repo), prepare: TreePreparer = prepareTree, origins: CutTreeOrigins = new CutTreeOrigins(), decisionsOf: (cardId: number) => string[] = () => []): StarterPorts {
+export function realStarterPorts(client: ClientAdapter, repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, bodyOf: CardBodyReader = () => null, cardSessions: (cardId: number) => string[] = () => [], installed: string | null = installedPackage(), busPath: string = busPathOf(env, os.homedir(), repo), prepare: TreePreparer = prepareTree, origins: CutTreeOrigins = new CutTreeOrigins(), decisionsOf: (cardId: number) => string[] = () => []): StarterPorts {
   const taskStart = taskStartCommand(installed)
   return {
+    client,
     read: bodyOf,
     cut: (task) => {
       const output = execFileSync(taskStart.file, [...taskStart.args, task.branch, '--card', task.card.line], { cwd: repo, env: { ...env, [WINDOW_VARIABLE]: '', [LOOP_PID_VARIABLE]: '', [EXIT_REQUEST_VARIABLE]: '' }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
@@ -257,7 +259,7 @@ export function realStarterPorts(repo: string, env: NodeJS.ProcessEnv, header: s
     pgidOf: psPgid,
     kill: killQuietly,
     uuid,
-    envOf: cardId => ({ ...sessionEnv(env, cardId, cardSessionOverlay(repo, env, cardSizeIn(bodyOf(cardId)))), ...launchSessionEnv(cardId), ...HTTPS_ORIGIN_ENV }),
+    envOf: cardId => ({ ...sessionEnv(client, env, cardId, cardSessionOverlay(repo, env, cardSizeIn(bodyOf(cardId)))), ...launchSessionEnv(cardId), ...HTTPS_ORIGIN_ENV }),
     prompt: (task, places) => renderPrompt(header, withCardDecisions(continuedOnCardText(task, bodyOf), decisionsOf(task.card.id)), places),
     changedPaths: gitChangedPaths,
     readReport: file => existsSync(file) ? sessionWrittenPart(readFileSync(file, 'utf8')) : null,
@@ -298,8 +300,8 @@ export function busCardSessions(busPath: string): (cardId: number) => string[] {
   }
 }
 
-export function busStarterPorts(busPath: string, repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, origins?: CutTreeOrigins): StarterPorts {
-  return realStarterPorts(repo, env, header, uuid, busCardBodies(busPath), busCardSessions(busPath), installedPackage(), busPath, prepareTree, origins, busCardDecisions(busPath, cardDecisionLines))
+export function busStarterPorts(client: ClientAdapter, busPath: string, repo: string, env: NodeJS.ProcessEnv, header: string, uuid: () => string, origins?: CutTreeOrigins): StarterPorts {
+  return realStarterPorts(client, repo, env, header, uuid, busCardBodies(busPath), busCardSessions(busPath), installedPackage(), busPath, prepareTree, origins, busCardDecisions(busPath, cardDecisionLines))
 }
 
 export function repoHandoffEnv(env: NodeJS.ProcessEnv, repo: string, home: string = os.homedir()): NodeJS.ProcessEnv {
@@ -348,10 +350,11 @@ async function main(): Promise<number> {
   const places = launchPlaces(os.homedir(), process.cwd(), busPath)
   const header = readFileSync(HEADER_FILE, 'utf8')
   const origins = new CutTreeOrigins()
-  const ports = busStarterPorts(busPath, process.cwd(), env, header, randomUUID, origins)
+  const client = clientAdapterOfTheBus()
+  const ports = busStarterPorts(client, busPath, process.cwd(), env, header, randomUUID, origins)
   const starter = new ShiftCardStarter(places, ports)
   const ladder = new LadderCardStarter({ ...places, repo: process.cwd() }, ports, repoLadderSteps(process.cwd(), env, busPath))
-  return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, continuer: starter, session: randomUUID(), pause: sleep, launchDir: places.launchDir, treePr: places.treePr, treeOrigin: origins.take, isolation: realIsolationReader(env, process.cwd(), launchIsolationCommand(clientCommand()), { sandbox: CARD_SESSION_SANDBOX }) })
+  return runLaunchWorker(process.argv.slice(2), { busPath, starter, ladder, continuer: starter, session: randomUUID(), pause: sleep, launchDir: places.launchDir, treePr: places.treePr, treeOrigin: origins.take, isolation: realIsolationReader(env, process.cwd(), launchIsolationCommand(clientCommand(client)), { sandbox: CARD_SESSION_SANDBOX }) })
 }
 
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -23,9 +23,10 @@ import { claudeReviewer, osDescendants, raiseCeilingAlarm, REVIEW_AT_CEILING, re
 import { DISK_FLOOR_BYTES } from '../../ports/disk.js'
 import { InMemoryProcessTable } from '../../ports/process-table.js'
 import { cardTransitions } from '../../supervisor/composition.js'
-import { recordHeartbeat } from '../../supervisor/heartbeat.js'
+import { measureCardSession, recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { NO_PROGRESS_LINES, StalledSessions } from '../../supervisor/stalled-sessions.js'
+import { claudeClient } from '../client/claude-client.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
 const sandboxed: IsolationReader = () => ({ level: 'full', mechanism: 'claude-code-sandbox', gaps: [] })
@@ -63,7 +64,7 @@ function runningLaunch(cardId: number) {
   bench.tick()
   const node = new LaunchNode({ silentMs: SILENT_MS, db: bench.db, starter, clock: bench.clock.now, session: 'w1', mode: 'live', env: {}, processes, disk: roomy, isolation: sandboxed })
   const beat = (): void => {
-    recordHeartbeat(bench.db, bench.clock.now().toISOString(), { card: cardId, pr: null, head: null, step: 'PostToolUse', session: `s-${cardId}`, lease: null })
+    recordHeartbeat(bench.db, bench.clock.now().toISOString(), { card: cardId, pr: null, head: null, step: 'PostToolUse', session: `s-${cardId}`, lease: null }, measureCardSession(claudeClient))
   }
   const ownerStops = (): void => {
     appendEvent(bench.db, { ts: bench.clock.now().toISOString(), type: COMMAND_EXECUTED, actor: 'owner', cardId, pr: null, head: null, dedupeKey: `${COMMAND_EXECUTED}:owner-stop:${cardId}`, payload: { command: ownerMoveCommand('stop', cardId) }, legacy: false })
@@ -159,7 +160,7 @@ describe('a live session is warned on silence or over time and only the owner st
       writeFileSync(path.join(dir, `${params.sessionId}.verdict.json`), '{"verdict":"pass","findings":[]}')
       return 0
     }
-    const review = await claudeReviewer(new ReviewTrees('/repo', dir, tools), pastTheCeiling, () => {}, 60_000, () => null, {
+    const review = await claudeReviewer(claudeClient, new ReviewTrees('/repo', dir, tools), pastTheCeiling, () => {}, 60_000, () => null, {
       gate: { start: async () => true, release: () => {} },
       keep: () => true,
       joinWorkers: () => 1,

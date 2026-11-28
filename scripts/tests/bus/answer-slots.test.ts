@@ -17,6 +17,7 @@ import { claudeAnswerer } from '../../nodes/answer/answerer.js'
 import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { SLOTS, slotsOf, slotsVariable } from '../../supervisor/scheduler.js'
+import { claudeClient } from '../client/claude-client.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -58,8 +59,9 @@ function slotsBench() {
     cards,
     inFlight,
     answered,
-    node: (slots: number) => new AnswerNode({ silentMs: SILENT_MS, ...parts, answerer, env: { [slotsVariable('answer')]: String(slots) } }),
-    prompted: (runs: AnswerRun[]) => new AnswerNode({ silentMs: SILENT_MS, ...parts, env: { [slotsVariable('answer')]: '1' }, answerer: claudeAnswerer(path.join(trees, 'answers'), {
+    node: (slots: number) => new AnswerNode({ liveSession: () => null, silentMs: SILENT_MS, ...parts, answerer, env: { [slotsVariable('answer')]: String(slots) } }),
+    prompted: (runs: AnswerRun[]) => new AnswerNode({ liveSession: () => null, silentMs: SILENT_MS, ...parts, env: { [slotsVariable('answer')]: '1' }, answerer: claudeAnswerer(path.join(trees, 'answers'), {
+      client: claudeClient,
       cardText,
       available: () => true,
       remoteHead: () => null,

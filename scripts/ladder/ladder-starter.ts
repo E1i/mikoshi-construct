@@ -118,7 +118,7 @@ export class LadderCardStarter implements CardStarter {
     const session = this.ports.uuid()
     const report = path.join(this.places.launchDir, step === 'brief' ? `report-${card.cardId}-brief.md` : `report-${card.cardId}.md`)
     const prompt = step === 'launch' ? '' : this.ports.prompt({ ...task, body: `${this.steps.body(task, step)}\n\n${task.body}` }, { worktree, report, gate: readShiftGate(worktree) })
-    const client = chainedClient({ kind: 'start', role: 'ladder', session, cwd: worktree, prompt, addDirs: [], pick: { model: null }, policy: { profile: 'client-default', gateCommands: [], writePaths: [], mcpOff: false } }, LADDER_POSITIONAL_WORDS, this.places.claude)
+    const client = chainedClient(this.ports.client, { kind: 'start', role: 'ladder', session, cwd: worktree, prompt, addDirs: [], pick: { model: null }, policy: { profile: 'client-default', gateCommands: [], writePaths: [], mcpOff: false } }, LADDER_POSITIONAL_WORDS, this.places.claude)
     const chain = CHAINS[step]({ places: this.places, client: client.command, task, worktree, report, brief: this.steps.brief(task), tasksFile: step === 'review' ? '' : this.steps.tasksFile(task), input: client.input })
     const pid = this.ports.spawnDetached({
       command: 'sh',

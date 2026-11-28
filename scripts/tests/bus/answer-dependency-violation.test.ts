@@ -17,6 +17,7 @@ import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer, KNOWN_VIOLATIONS, ownerQuestionPath } from '../../nodes/answer/answerer.js'
 import { cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
+import { claudeClient } from '../client/claude-client.js'
 import { ranTheGreenGate } from './gate-stream.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
@@ -125,6 +126,7 @@ async function answerWith(rounds: Round[], moves: boolean): Promise<Answering> {
   const prompts: string[] = []
   let published = 0
   const answerer = claudeAnswerer(dir, {
+    client: claudeClient,
     cardText: () => text,
     available: () => true,
     remoteHead: () => heads.shift() ?? null,

@@ -22,12 +22,13 @@ import { ghApi } from '../../ports/github.js'
 import { Meter } from '../../ports/meter.js'
 import { BUS_RUN_LAUNCH, launchName, PREFIX, runningInstance, startDetached } from '../../supervisor/bg.js'
 import { busProjections, cardTransitions, reviewLaunch } from '../../supervisor/composition.js'
-import { CARD_PROCESS, lastProcessBeats, recordHeartbeat, recordProcessHeartbeat, stillSilent, WINDOW_PROCESS } from '../../supervisor/heartbeat.js'
+import { CARD_PROCESS, lastProcessBeats, measureCardSession, recordHeartbeat, recordProcessHeartbeat, stillSilent, WINDOW_PROCESS } from '../../supervisor/heartbeat.js'
 import { expectedRunning, JUDGE_ACTOR, JUDGED_HORIZON_MS, LivenessJudge, processName, RESTART_RETRY_MS, SUPERVISOR_PROCESS, SUPERVISOR_SILENT_MS } from '../../supervisor/liveness-judge.js'
 import { LIVENESS_JUDGE, livenessSources, SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { backoffMs, baselineAdvance, busDrain, BusSupervisor, DRAIN_LIMIT_MS, entryOf, FAILURES_REPORTED, freeLeasesOf, KEEP_MAX_MS, lastMainAdvance, mainAdvancedSince, outsideGroup, recordRestartMissed, recordStarted, recordWorkerDown, RESTART_LIMIT_MS, restartSilent, restartSilentSupervisor, startingBaseline, superviseUntilReplaced, SUPERVISOR_LAUNCH, WorkerKeeper } from '../../supervisor/supervisor.js'
 import { busLaunches, switchWorker, wantedLaunches, workerLaunches } from '../../supervisor/workers.js'
 import { recordWindowHeartbeat } from '../../window/window-heartbeat.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const NOT_CLEAN = 'replay byte-diff: the projection differs from a replay of the events'
 const SHARED_FILE = 'scripts/core/db.ts'
@@ -1113,7 +1114,7 @@ describe('the supervisor judges liveness from heartbeats alone', () => {
     const clock = { now: BEAT_AT + SILENT_MS }
     recordProcessHeartbeat(db, at(0), 'bus:merge')
     recordProcessHeartbeat(db, at(SILENT_MS), 'netwatch')
-    recordHeartbeat(db, at(0), { card: 1160, pr: null, head: null, step: 'launch', session: 's-1160', lease: null })
+    recordHeartbeat(db, at(0), { card: 1160, pr: null, head: null, step: 'launch', session: 's-1160', lease: null }, measureCardSession(claudeClient))
     recordWindowHeartbeat(db, at(SILENT_MS), 'w-1')
     expect(lastProcessBeats(db).map(beat => beat.process)).toEqual(['bus:merge', `${CARD_PROCESS}1160`, 'netwatch', `${WINDOW_PROCESS}w-1`])
     const restarted: string[] = []
@@ -1146,7 +1147,7 @@ describe('the supervisor judges liveness from heartbeats alone', () => {
     roots.push(root)
     const db = openBus(path.join(root, 'bus.db'))
     recordProcessHeartbeat(db, at(0), 'bus:merge')
-    recordHeartbeat(db, at(0), { card: 1170, pr: null, head: null, step: 'launch', session: 's-1170', lease: null })
+    recordHeartbeat(db, at(0), { card: 1170, pr: null, head: null, step: 'launch', session: 's-1170', lease: null }, measureCardSession(claudeClient))
     recordWindowHeartbeat(db, at(0), 'w-2')
     const judge = new LivenessJudge(db, () => BEAT_AT + 2 * SILENT_MS, () => expectedRunning(db, [workerLaunches(reviewLaunch(() => [])).review]))
 
@@ -1177,7 +1178,7 @@ describe('the supervisor judges liveness from heartbeats alone', () => {
     appendEvent(db, { ts: at(0), type: CARD_STARTED, actor: 'worker:launch:earlier', cardId, pr: null, head: null, dedupeKey: `${CARD_STARTED}:earlier-${cardId}`, payload: { session: `s-${cardId}`, worktree: root, branch: `feat/card-${cardId}`, base: 'f'.repeat(40), pid: 1, pgid: 1 }, legacy: false })
     reduce(db, 'pending', busProjections())
     expect(db.prepare('SELECT state FROM cards WHERE card_id = ?').get(cardId)).toEqual({ state: RUNNING_CARD })
-    recordHeartbeat(db, at(0), { card: cardId, pr: null, head: null, step: 'launch', session: `s-${cardId}`, lease: null })
+    recordHeartbeat(db, at(0), { card: cardId, pr: null, head: null, step: 'launch', session: `s-${cardId}`, lease: null }, measureCardSession(claudeClient))
     const judge = new LivenessJudge(db, () => BEAT_AT + SILENT_MS + 1, () => expectedRunning(db, []))
 
     await judge.step()
@@ -1196,7 +1197,7 @@ describe('the supervisor judges liveness from heartbeats alone', () => {
     }
     appendEvent(db, { ts: at(0), type: CARD_ADMITTED, actor: 'worker:intake:window', cardId, pr: null, head: null, dedupeKey: `${CARD_ADMITTED}:${cardId}`, payload: { card: `#${cardId} part [implement/netwatch/S/cheap/auto] · depends — · blocks —`, lane: null, decision: 'auto', contour: 'cheap', depends: [] }, legacy: false })
     started(0, 's-old')
-    recordHeartbeat(db, at(0), { card: cardId, pr: null, head: null, step: 'launch', session: 's-old', lease: null })
+    recordHeartbeat(db, at(0), { card: cardId, pr: null, head: null, step: 'launch', session: 's-old', lease: null }, measureCardSession(claudeClient))
     started(NEW_LIFE_MS, 's-new')
     reduce(db, 'pending', busProjections())
     expect(db.prepare('SELECT state FROM cards WHERE card_id = ?').get(cardId)).toEqual({ state: RUNNING_CARD })
@@ -1204,7 +1205,7 @@ describe('the supervisor judges liveness from heartbeats alone', () => {
     const judge = new LivenessJudge(db, () => clock.now, () => expectedRunning(db, []))
 
     expect(await judge.step()).toEqual([])
-    recordHeartbeat(db, at(NEW_LIFE_MS + 20_000), { card: cardId, pr: null, head: null, step: 'launch', session: 's-new', lease: null })
+    recordHeartbeat(db, at(NEW_LIFE_MS + 20_000), { card: cardId, pr: null, head: null, step: 'launch', session: 's-new', lease: null }, measureCardSession(claudeClient))
     clock.now = BEAT_AT + NEW_LIFE_MS + SILENT_MS
     expect(await judge.step()).toEqual([])
     expect(judgedRows(db)).toEqual([])

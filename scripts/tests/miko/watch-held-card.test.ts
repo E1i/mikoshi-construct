@@ -9,6 +9,7 @@ import { reduce } from '../../core/reducer.js'
 import { prClosed, prObserved } from '../../ports/netwatch.js'
 import { busProjections } from '../../supervisor/composition.js'
 import { productionDeps, STALL_MS } from '../../window/watch.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const CARD = 1631
 const PR = 1405
@@ -55,7 +56,7 @@ function stalledCards(story: (db: DatabaseSync) => void): number[] {
   finally {
     db.close()
   }
-  return productionDeps(root, bus).stalls().map(stall => stall.cardId)
+  return productionDeps(root, bus, claudeClient).stalls().map(stall => stall.cardId)
 }
 
 describe('the stall alarm and a held card', () => {

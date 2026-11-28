@@ -6,13 +6,14 @@ import path from 'node:path'
 import process from 'node:process'
 import { afterEach, expect, it } from 'vitest'
 import { CLIENT_SANDBOX_DIRECTORY, findTranscript, measuredSession, measuredSpent, ownerMessagesOf, stoppedTasksOf, transcriptContext, transcriptCounters, transcriptModel, WINDOW_COMMAND_VARIABLE, WINDOW_KEPT_TOOLS, WINDOW_MCP_CONFIG, WINDOW_UNUSED_TOOLS, windowCommand } from '../../ports/client/claude/adapter.js'
-import { clientAdapter } from '../../ports/session.js'
 import { TSX_PIPE_DIRECTORY } from '../../ports/shift-settings.js'
 import { queueDir } from '../../quality/lock.js'
 import { sessionGauges } from '../../window/eddies-measure.js'
 import { ownerMessagesOf as exitOwnerMessagesOf } from '../../window/exit.js'
-import { CLAUDE_VARIABLE, claudeArgv, claudeCommand, DEFAULT_CLAUDE } from '../../window/loop.js'
+import { claudeArgv } from '../../window/loop.js'
 import { stoppedTasksOf as agentsStoppedTasksOf, sessionTranscriptOf } from '../../window/window-agents.js'
+import { claudeClient } from './claude-client.js'
+import { CLAUDE_VARIABLE, claudeCommand, DEFAULT_CLAUDE } from './claude-window.js'
 
 const PROMPT = 'continue from the handoff'
 const SESSION = 'window-1577'
@@ -37,7 +38,7 @@ function windowSpec(prompt: string): SessionSpec {
 }
 
 function windowInvocation(prompt: string): Invocation {
-  const result = clientAdapter().invocation(windowSpec(prompt))
+  const result = claudeClient.invocation(windowSpec(prompt))
   if ('kind' in result)
     throw new Error(result.reason)
   return result
@@ -101,7 +102,7 @@ it('the window command never disallows a tool the window keeps', () => {
 })
 
 it('the card session command is unchanged by the window diet', () => {
-  const card = clientAdapter().invocation({ ...windowSpec(PROMPT), role: 'launch' })
+  const card = claudeClient.invocation({ ...windowSpec(PROMPT), role: 'launch' })
   if ('kind' in card)
     throw new Error(card.reason)
   expect(card.args).toEqual(['--permission-mode', 'dontAsk', '--settings', JSON.stringify({ autoMemoryEnabled: false, claudeMdExcludes: [path.join(homedir(), '.claude', 'CLAUDE.md')] }), '--tools', 'Read,Edit,Write,Bash,Grep,Glob', '--disable-slash-commands', '-p', '--session-id', SESSION])

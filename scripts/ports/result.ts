@@ -1,3 +1,4 @@
+import type { ClientAdapter } from './client/contract.js'
 import { rawUsageIn } from './client/claude/adapter.js'
 import { streamReading } from './session.js'
 
@@ -9,8 +10,8 @@ export interface ResultFields {
   usage: unknown | null
 }
 
-export function readResultFields(reportPath: string): ResultFields {
-  const reading = streamReading(reportPath)
+export function readResultFields(adapter: ClientAdapter, reportPath: string): ResultFields {
+  const reading = streamReading(adapter, reportPath)
   return {
     resultLine: reading.end === 'missing' ? 'missing' : 'present',
     total_cost_usd: reading.costUsd,

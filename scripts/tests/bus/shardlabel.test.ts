@@ -12,6 +12,7 @@ import { appendEvent, openBus } from '../../core/db.js'
 import { CARD_ADMITTED, SHARD_ISSUED, SHARD_REVOKED } from '../../core/events.js'
 import { windowShardOfRun } from '../../intake/intake.js'
 import { windowShardEnded } from '../../policy/shards.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const INTAKE = fileURLToPath(new URL('../../intake/intake.ts', import.meta.url))
 const SHARD = 'shard-window'
@@ -81,7 +82,7 @@ describe('who confirmed an intake correction', () => {
     const w = bench()
     const now = new Date()
     onBus(w, db => issueShard(db, now))
-    expect(onBus(w, db => windowShardOfRun(db, LOOP_WINDOW, now))).toBe(SHARD)
+    expect(onBus(w, db => windowShardOfRun(claudeClient, db, LOOP_WINDOW, now))).toBe(SHARD)
     const { confirmation, printed } = confirmedRun(w, TAB_WINDOW)
     expect(confirmation).toBe(`window under shard ${SHARD}`)
     expect(printed).toContain(`window under shard ${SHARD}`)
@@ -92,7 +93,7 @@ describe('who confirmed an intake correction', () => {
     const w = bench()
     const now = new Date()
     onBus(w, db => issueShard(db, now))
-    expect(onBus(w, db => windowShardOfRun(db, PERSON, now))).toBeNull()
+    expect(onBus(w, db => windowShardOfRun(claudeClient, db, PERSON, now))).toBeNull()
     const { confirmation, printed } = confirmedRun(w, PERSON)
     expect(confirmation).toBe('person')
     expect(printed).toContain('confirmed by a person')
@@ -105,7 +106,7 @@ describe('who confirmed an intake correction', () => {
       issueShard(db, now)
       appendEvent(db, windowShardEnded(SHARD_REVOKED, 'owner', SHARD, now))
     })
-    expect(onBus(w, db => windowShardOfRun(db, TAB_WINDOW, now))).toBeNull()
+    expect(onBus(w, db => windowShardOfRun(claudeClient, db, TAB_WINDOW, now))).toBeNull()
     expect(confirmedRun(w, TAB_WINDOW).confirmation).toBe('person')
   })
 
@@ -117,6 +118,6 @@ describe('who confirmed an intake correction', () => {
     const w = bench()
     const now = new Date()
     onBus(w, db => issueShard(db, now))
-    expect(onBus(w, db => windowShardOfRun(db, env, now))).toBeNull()
+    expect(onBus(w, db => windowShardOfRun(claudeClient, db, env, now))).toBeNull()
   })
 })

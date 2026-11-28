@@ -21,10 +21,10 @@ import { AnswerExecutor } from '../../nodes/answer/answer-executor.js'
 import { claudeAnswerer, liveSessionIn, refusedOwnerQuestionIn } from '../../nodes/answer/answerer.js'
 import { pendingPathsOf } from '../../nodes/answer/duties/index.js'
 import { codexAdapter } from '../../ports/client/codex/adapter.js'
-import { clientAdapter } from '../../ports/session.js'
 import { answerParts, busProjections, cardTransitions } from '../../supervisor/composition.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { requestFromWindow, requestOf, WindowRequests } from '../../window/window-requests.js'
+import { claudeClient } from '../client/claude-client.js'
 import { sha } from './github-fake.js'
 import { eventsOf, mergeBench } from './merge-bench.js'
 
@@ -101,6 +101,7 @@ async function answered({ made, trees, lease }: Card, pending: string[] = [TOUCH
   let spawned = 0
   let head = sha('a')
   const answerer = claudeAnswerer(path.join(trees, 'answers'), {
+    client: claudeClient,
     cardText: () => null,
     available: () => true,
     remoteHead: () => head,
@@ -452,9 +453,9 @@ describe('a client that does not report its denials', () => {
     const stream = path.join(dir, 'out.jsonl')
     const question = path.join(dir, 'q.owner.txt')
     writeFileSync(stream, `${JSON.stringify({ type: 'turn.failed', error: { message: `refused ${question}` } })}\n`)
-    const reading = vi.spyOn(clientAdapter(), 'reading').mockImplementation(codexAdapter.reading)
+    const reading = vi.spyOn(claudeClient, 'reading').mockImplementation(codexAdapter.reading)
 
-    expect(refusedOwnerQuestionIn(stream, question)).toBeNull()
+    expect(refusedOwnerQuestionIn(claudeClient, stream, question)).toBeNull()
     expect(reading).toHaveLastReturnedWith(expect.objectContaining({ denials: null }))
   })
 })

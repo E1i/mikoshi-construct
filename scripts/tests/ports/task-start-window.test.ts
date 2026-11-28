@@ -18,6 +18,7 @@ import { cardTree, WORKTREE_HOME_VARIABLE } from '../../ports/worktree-home.js'
 import { cutTree } from '../../ports/worktree.js'
 import { busProjections, DECISION_EVENT_READS } from '../../supervisor/composition.js'
 import { realRequestTools } from '../../window/window-request-tools.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const CARD_ID = 987654
 const CARD = `#${CARD_ID} window-card [implement/ghosts/S/cheap/auto] · depends — · blocks —`
@@ -158,7 +159,7 @@ it('the bus tree.cut path still cuts the tree', () => {
 
 it('the launch cut from a bus a window raised still cuts the tree', () => {
   const world = cliWorld()
-  const ports = realStarterPorts(world.repo, envOf(world, { [WINDOW_VARIABLE]: WINDOW_MARK, [LOOP_PID_VARIABLE]: '4242' }), '', () => 'u', () => null, () => [], null, world.bus)
+  const ports = realStarterPorts(claudeClient, world.repo, envOf(world, { [WINDOW_VARIABLE]: WINDOW_MARK, [LOOP_PID_VARIABLE]: '4242' }), '', () => 'u', () => null, () => [], null, world.bus)
   const worktree = ports.cut({ card: { id: CARD_ID, line: CARD }, branch: BRANCH } as ShiftTask)
   expect(existsSync(worktree)).toBe(true)
   expect(startsIn(world.bus)).toBe(1)

@@ -13,6 +13,7 @@ import { CARD_ADMITTED, CARD_STARTED, INTAKE_EVENT, INTAKE_MOVE_EVENT } from '..
 import { runTaskStart } from '../../ports/task-start.js'
 import { DEFAULT_WORKTREE_HOME, WORKTREE_HOME_VARIABLE, worktreeHome } from '../../ports/worktree-home.js'
 import { slotsOf } from '../../supervisor/scheduler.js'
+import { claudeClient } from '../client/claude-client.js'
 import { journalInBus } from './card-started-bus.js'
 
 const BACKFILL_ACTOR = 'worker:backfill:window'
@@ -450,7 +451,7 @@ describe('w1: task:start cuts the tree and writes the start', () => {
     const busFile = path.join(tmpdir(), 'task-start-real', 'bus.db')
     vi.stubEnv('CONSTRUCT_BUS_DB', busFile)
     vi.stubEnv('CONSTRUCT_WORKTREE_HOME', '')
-    expect(realDeps().treeOf!('987654')).toBe(path.join(path.dirname(busFile), 'bus', 'worktrees', '987654'))
+    expect(realDeps(claudeClient).treeOf!('987654')).toBe(path.join(path.dirname(busFile), 'bus', 'worktrees', '987654'))
     vi.unstubAllEnvs()
   })
 

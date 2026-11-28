@@ -13,10 +13,11 @@ import { watermarkOf } from '../../core/watermark.js'
 import { withdrawLegacyLaunchTasks } from '../../nodes/launch/launch-withdraw.js'
 import { observeRoleStop, returnEndedRole, returnSilentRole, ROLE_FOLDS, roleToOwner } from '../../nodes/restart/role.js'
 import { busProjections, cardTransitions } from '../../supervisor/composition.js'
-import { recordHeartbeat } from '../../supervisor/heartbeat.js'
+import { measureCardSession, recordHeartbeat } from '../../supervisor/heartbeat.js'
 import { SILENT_MS } from '../../supervisor/liveness-sites.js'
 import { recordWindowHeartbeat } from '../../window/window-heartbeat.js'
 import { requestFromWindow } from '../../window/window-requests.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const EVENT_COLUMNS = 'id, ts, type, actor, card_id, pr, head, dedupe_key, payload, legacy'
 const START = Date.parse('2026-10-20T10:00:00.000Z')
@@ -51,7 +52,7 @@ function liveTasks(): DatabaseSync {
   reduce(db, 'pending', busProjections())
   const done = leaseNext(db, pullRequests(db), at(1), 'launch', ACTOR)!
   renewLease(db, at(2), done)
-  recordHeartbeat(db, at(3), { card: done.cardId, pr: null, head: null, step: 'launch', session: 'session-1', lease: { taskKey: done.taskKey, leaseGen: done.leaseGen } })
+  recordHeartbeat(db, at(3), { card: done.cardId, pr: null, head: null, step: 'launch', session: 'session-1', lease: { taskKey: done.taskKey, leaseGen: done.leaseGen } }, measureCardSession(claudeClient))
   completeTask(db, cardTransitions(), at(4), done, [])
   for (let failure = 1; failure <= FAILURES_TO_STOP; failure += 1)
     failTask(db, cardTransitions(), at(10 + failure), leaseNext(db, pullRequests(db), at(10 + failure), 'launch', ACTOR)!, { reason: 'session_failed', withdraw: false }, SILENT_MS)

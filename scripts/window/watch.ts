@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { EventRow } from '../core/events-query.js'
 import type { CiReading } from '../ports/ci-reading.js'
 import type { WatchCursor } from './watch-store.js'
+import type { SessionOwner } from './window-heartbeat.js'
 import type { WindowPr } from './window-prs.js'
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -20,7 +21,8 @@ import { MIKO_WATCH_COMMAND } from '../core/owner-commands.js'
 import { ofCard as prsOfCard } from '../core/pr-readings.js'
 import { REVIEW_ROUNDS_SPENT } from '../nodes/review/review-executor.js'
 import { ciWord } from '../ports/ci-reading.js'
-import { USER_SETTINGS } from '../ports/client/claude/adapter.js'
+import { claudeAdapterWith, USER_SETTINGS } from '../ports/client/claude/adapter.js'
+import { settingsFlag, shiftSettings } from '../ports/shift-settings.js'
 import { CARD_PROCESS, lastProcessBeats, WINDOW_PROCESS } from '../supervisor/heartbeat.js'
 import { ReleaseLoops, textOf } from './release-loop.js'
 import { noWindowRefusal } from './tab.js'
@@ -688,9 +690,9 @@ function rememberSignals(file: string, signals: readonly WatchSignal[]): void {
   writeWhole(file, Object.fromEntries(withWokenSignals(readWokenSignals(file), signals)))
 }
 
-export function productionDeps(handoff: string, bus: string): WatchDeps {
+export function productionDeps(handoff: string, bus: string, client: SessionOwner): WatchDeps {
   const woken = path.join(handoff, WOKEN_STALLS)
-  const actor = requestActor(process.env)
+  const actor = requestActor(client, process.env)
   return {
     bus,
     lastBusId: () => lastBusId(bus),
@@ -711,7 +713,7 @@ export function productionDeps(handoff: string, bus: string): WatchDeps {
     rememberSignals: signals => rememberSignals(path.join(handoff, WOKEN_SIGNALS), signals),
     emit: emitLine,
     beforeCommit: async () => {},
-    beat: windowBeat(bus, windowOf(process.env), Date.now),
+    beat: windowBeat(bus, windowOf(client, process.env), Date.now),
   }
 }
 
@@ -771,14 +773,15 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     console.error(USAGE)
     process.exit(2)
   }
-  const refusal = noWindowRefusal(process.env)
+  const client = claudeAdapterWith({ shiftSettings, settingsFlag })
+  const refusal = noWindowRefusal(client, process.env)
   if (refusal !== null) {
     console.error(`miko:watch: ${refusal}`)
     process.exit(1)
   }
   const handoff = defaultHandoffDir()
   mkdirSync(handoff, { recursive: true })
-  const deps = productionDeps(handoff, defaultBusPath())
+  const deps = productionDeps(handoff, defaultBusPath(), client)
   try {
     if (args.tail)
       console.log(runTail(handoff, deps))

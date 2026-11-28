@@ -2,7 +2,6 @@ import type { SessionSpec } from '../../../ports/client/contract.js'
 import { describe, expect, it } from 'vitest'
 import { repositoryReport } from '../../../contract/module-graph/report.js'
 import { claudeAdapterWith } from '../../../ports/client/claude/adapter.js'
-import { clientAdapter } from '../../../ports/session.js'
 import { settingsFlag, shiftSettings } from '../../../ports/shift-settings.js'
 
 const ADAPTER = 'scripts/ports/client/claude/adapter.ts'
@@ -17,16 +16,15 @@ function sandboxedLaunch(): SessionSpec {
 }
 
 describe('the claude adapter takes the shift settings from the one who builds it', () => {
-  it('repositoryReport() holds no import of scripts/ports/shift-settings.ts from the claude adapter or the client index, and one from the session port', () => {
+  it('repositoryReport() holds no import of scripts/ports/shift-settings.ts from the claude adapter, the client index or the session port', () => {
     const { graph } = repositoryReport()
-    expect(graph.imports.filter(({ from, to }) => (from === ADAPTER || from === CLIENT_INDEX) && to === SHIFT_SETTINGS)).toEqual([])
-    expect(graph.imports.some(({ from, to }) => from === SESSION_PORT && to === SHIFT_SETTINGS)).toBe(true)
+    expect(graph.imports.filter(({ from, to }) => (from === ADAPTER || from === CLIENT_INDEX || from === SESSION_PORT) && to === SHIFT_SETTINGS)).toEqual([])
   })
 
-  it('the adapter the session port builds invokes a sandboxed launch with the shift settings it was given', () => {
+  it('an adapter a root builds with the shift settings invokes a sandboxed launch with them', () => {
     const built = claudeAdapterWith({ shiftSettings, settingsFlag })
-    const invocation = clientAdapter().invocation(sandboxedLaunch())
-    expect(invocation).toEqual(built.invocation(sandboxedLaunch()))
+    const invocation = built.invocation(sandboxedLaunch())
+    expect('args' in invocation && invocation.args).toEqual(expect.arrayContaining(['--settings']))
   })
 
   it('the adapter writes whatever settings its source hands it', () => {

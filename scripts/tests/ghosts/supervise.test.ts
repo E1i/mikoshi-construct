@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { cardFellEvent, fallEvent, resultPathOf, sessionParams, supervisorSpawnOptions } from '../../ladder/supervise.js'
+import { claudeClient } from '../client/claude-client.js'
 
 describe('supervisorSpawnOptions', () => {
   it('w2: starts the supervisor in a process group of its own, with no stdin from the window', () => {
@@ -17,7 +18,7 @@ describe('resultPathOf', () => {
 
 describe('sessionParams', () => {
   it('a Ghost session sees its card in CONSTRUCT_CARD', () => {
-    const params = sessionParams({ worktree: '/w', sessionId: 's', approvedText: 'p', reportPath: '/r', stderrPath: '/e', card: { id: 641 } } as never)
+    const params = sessionParams(claudeClient, { worktree: '/w', sessionId: 's', approvedText: 'p', reportPath: '/r', stderrPath: '/e', card: { id: 641 } } as never)
     expect(params.env?.CONSTRUCT_CARD).toBe('641')
   })
 })

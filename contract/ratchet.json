@@ -27,7 +27,7 @@
   "boundary:ports->events": 2,
   "boundary:ports->intake": 1,
   "boundary:ports->pr-record": 1,
-  "boundary:ports->project": 2,
+  "boundary:ports->project": 1,
   "boundary:ports->session": 4,
   "boundary:ports->window": 1,
   "boundary:project->model": 1,

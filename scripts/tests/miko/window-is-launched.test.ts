@@ -8,10 +8,12 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { openBus } from '../../core/db.js'
 import { WINDOW_HEARTBEAT } from '../../core/events.js'
 import { CARD_VARIABLE, EXIT_REQUEST_VARIABLE, LOOP_PID_VARIABLE, sessionEnv, WINDOW_MARK, WINDOW_VARIABLE, windowModeOf, withoutCard } from '../../ports/session.js'
-import { CLAUDE_VARIABLE, TAB_WORD as LOOP_TAB_WORD, MIKO_HANDOFF_NAME, TAB_MODE } from '../../window/loop.js'
+import { TAB_WORD as LOOP_TAB_WORD, MIKO_HANDOFF_NAME, TAB_MODE } from '../../window/loop.js'
 import { LOOP_SCRIPT_NAME, mikoHelp, mikoRoute, TAB_WORD } from '../../window/miko.js'
 import { ENTRYPOINT_VARIABLE, HEADLESS_ENTRYPOINT, misaddressedPromptRefusal, NO_WINDOW, noWindowRefusal, PROMPT_REFUSED_EXIT, tabWindowOf } from '../../window/tab.js'
 import { windowBeat, windowOf } from '../../window/window-heartbeat.js'
+import { claudeClient } from '../client/claude-client.js'
+import { CLAUDE_VARIABLE } from '../client/claude-window.js'
 
 const REPO_ROOT = path.join(import.meta.dirname, '..', '..', '..')
 const WINDOW_DIR = path.join(REPO_ROOT, 'scripts', 'window')
@@ -69,11 +71,11 @@ describe('a window is what miko started, not what a hook read', () => {
     const handoff = path.join(dir, MIKO_HANDOFF_NAME)
     writeFileSync(draft, '# Handoff\n\nSTATUS: CONTINUE\n')
 
-    expect(windowOf(BARE)).toBeNull()
-    expect(tabWindowOf(BARE)).toBeNull()
-    windowBeat(bus, windowOf(BARE), Date.now, () => ({}), () => {})()
+    expect(windowOf(claudeClient, BARE)).toBeNull()
+    expect(tabWindowOf(claudeClient, BARE)).toBeNull()
+    windowBeat(bus, windowOf(claudeClient, BARE), Date.now, () => ({}), () => {})()
     expect(heartbeats(bus)).toBe(0)
-    windowBeat(bus, windowOf(TAB), Date.now, () => ({}), () => {})()
+    windowBeat(bus, windowOf(claudeClient, TAB), Date.now, () => ({}), () => {})()
     expect(heartbeats(bus)).toBe(1)
 
     const write = script('handoff-write', [handoff, draft], dir, BARE)
@@ -93,13 +95,13 @@ describe('a window is what miko started, not what a hook read', () => {
   }, 60_000)
 
   it('a session the launcher marked, a loop session and a card session are not told they are no window', () => {
-    expect(noWindowRefusal(TAB)).toBeNull()
-    expect(noWindowRefusal(LOOP)).toBeNull()
-    expect(noWindowRefusal({ ...BARE, [CARD_VARIABLE]: '1669' })).toBeNull()
-    expect(noWindowRefusal({ ...BARE, [ENTRYPOINT_VARIABLE]: HEADLESS_ENTRYPOINT })).toBeNull()
-    expect(noWindowRefusal({ ...BARE, CONSTRUCT_BUS_RAISED: '1' })).toBeNull()
-    expect(noWindowRefusal({})).toBeNull()
-    expect(noWindowRefusal(BARE)).toBe(NO_WINDOW)
+    expect(noWindowRefusal(claudeClient, TAB)).toBeNull()
+    expect(noWindowRefusal(claudeClient, LOOP)).toBeNull()
+    expect(noWindowRefusal(claudeClient, { ...BARE, [CARD_VARIABLE]: '1669' })).toBeNull()
+    expect(noWindowRefusal(claudeClient, { ...BARE, [ENTRYPOINT_VARIABLE]: HEADLESS_ENTRYPOINT })).toBeNull()
+    expect(noWindowRefusal(claudeClient, { ...BARE, CONSTRUCT_BUS_RAISED: '1' })).toBeNull()
+    expect(noWindowRefusal(claudeClient, {})).toBeNull()
+    expect(noWindowRefusal(claudeClient, BARE)).toBe(NO_WINDOW)
   })
 
   it('the mark is the launcher\'s: a card or a bus session started from a tab window does not inherit it', () => {
@@ -107,7 +109,7 @@ describe('a window is what miko started, not what a hook read', () => {
     expect(windowModeOf(BARE)).toBeNull()
     expect(windowModeOf({ ...TAB, [CARD_VARIABLE]: '1669' })).toBeNull()
     expect(withoutCard(TAB)[WINDOW_VARIABLE]).toBeUndefined()
-    expect(sessionEnv(TAB)[WINDOW_VARIABLE]).toBeUndefined()
+    expect(sessionEnv(claudeClient, TAB)[WINDOW_VARIABLE]).toBeUndefined()
   })
 
   it('pnpm miko --tab starts one session with the launcher\'s mark and no loop mark', () => {

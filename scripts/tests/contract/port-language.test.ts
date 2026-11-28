@@ -6,6 +6,7 @@ import path from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { DECLARED_WORDS, PORT_LANGUAGES, portLanguage, technologyVocabulary } from '../../contract/factory.js'
 import { portsSection } from '../../contract/factory/ports.js'
+import { claudeClient } from '../client/claude-client.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const RECORDED = path.join(REPO_ROOT, 'contract', 'factory.json')
@@ -31,7 +32,7 @@ function port(parts: Partial<PortModule>): PortModule {
 describe('the language each port speaks in contract/factory.json', () => {
   it('every port in the contract says whether it speaks the factory or a technology', () => {
     const { modules: ports } = (JSON.parse(readFileSync(RECORDED, 'utf8')) as Factory).ports
-    const declared = technologyVocabulary()
+    const declared = technologyVocabulary(claudeClient)
 
     expect(Object.keys(ports).length).toBeGreaterThan(0)
     for (const [file, recorded] of Object.entries(ports)) {
@@ -51,7 +52,7 @@ describe('the language each port speaks in contract/factory.json', () => {
       'frob.ts': `export const ${DECLARED_WORDS} = ['frobnicator'] as const\nexport function readFrobnicator(): string { return '' }\n`,
       'plain.ts': `export function cardTitle(card: number): string { return String(card) }\n`,
     })
-    const vocabulary = technologyVocabulary(root)
+    const vocabulary = technologyVocabulary(claudeClient, root)
     const ports = portsSection(root).modules
 
     expect(readFileSync(GENERATOR, 'utf8')).not.toContain('frobnicator')
@@ -63,7 +64,7 @@ describe('the language each port speaks in contract/factory.json', () => {
   it('the generator keeps no list of technology words: every word but the client id comes from a port', () => {
     const root = scratchPorts({ 'plain.ts': `export function cardTitle(card: number): string { return String(card) }\n` })
 
-    expect(technologyVocabulary(root).size).toBe(1)
+    expect(technologyVocabulary(claudeClient, root).size).toBe(1)
     expect(readFileSync(GENERATOR, 'utf8')).not.toMatch(/'(?:bwrap|lsof|porcelain|socat|statfs)'/)
   })
 

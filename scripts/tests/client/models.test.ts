@@ -1,8 +1,9 @@
 import type { ModelOffer, Refusal, Role } from '../../ports/client/contract.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { clientAdapter, REVIEW_MODEL_VARIABLE, reviewModelOf } from '../../ports/session.js'
+import { REVIEW_MODEL_VARIABLE, reviewModelOf } from '../../ports/session.js'
+import { claudeClient } from './claude-client.js'
 
-const claudeAdapter = clientAdapter()
+const claudeAdapter = claudeClient
 
 const ROLES_WITHOUT_A_MODEL_VARIABLE: Role[] = ['launch', 'answer', 'ladder', 'ghost', 'window']
 const NOT_OFFERED = 'gpt-6-astra'

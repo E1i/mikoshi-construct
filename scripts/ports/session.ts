@@ -3,9 +3,8 @@ import { spawn } from 'node:child_process'
 import { closeSync, openSync, writeFileSync } from 'node:fs'
 import process from 'node:process'
 import { BUS_DB_VARIABLE } from '../core/bus-path.js'
-import { claudeAdapterWith, CLIENT_ENV_PREFIXES, compactWindowOverlay } from './client/claude/adapter.js'
+import { CLIENT_ENV_PREFIXES, compactWindowOverlay } from './client/claude/adapter.js'
 import { HOST_FAILURES, HostFaultPersists } from './host-fault.js'
-import { settingsFlag, shiftSettings } from './shift-settings.js'
 
 export { WIDE_VITEST_RULE } from './wide-vitest-guard.js'
 
@@ -15,15 +14,8 @@ export const PREPARE_ENV_KEYS = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'PNPM_HOME', 
 
 export const TECHNOLOGY_WORDS = ['argv', 'spawn', 'stderr', 'stdout'] as const
 
-let builtClientAdapter: ClientAdapter | undefined
-
-export function clientAdapter(): ClientAdapter {
-  builtClientAdapter ??= claudeAdapterWith({ shiftSettings, settingsFlag })
-  return builtClientAdapter
-}
-
-export function clientInvocation(spec: SessionSpec): Invocation {
-  const invocation = clientAdapter().invocation(spec)
+export function clientInvocation(adapter: ClientAdapter, spec: SessionSpec): Invocation {
+  const invocation = adapter.invocation(spec)
   if ('kind' in invocation)
     throw new Error(invocation.reason)
   return invocation
@@ -33,16 +25,16 @@ const HEADLESS_POLICY: SessionPolicy = { profile: 'client-default', gateCommands
 
 const ANY_HEADLESS_SESSION: SessionSpec = { kind: 'start', role: 'ghost', session: '', cwd: '', prompt: '', addDirs: [], pick: { model: null }, policy: HEADLESS_POLICY }
 
-export function headlessInvocation(parts: Partial<SessionSpec> = {}): Invocation {
-  return clientInvocation({ ...ANY_HEADLESS_SESSION, ...parts })
+export function headlessInvocation(adapter: ClientAdapter, parts: Partial<SessionSpec> = {}): Invocation {
+  return clientInvocation(adapter, { ...ANY_HEADLESS_SESSION, ...parts })
 }
 
-export function clientCommand(): string {
-  return headlessInvocation().command
+export function clientCommand(adapter: ClientAdapter): string {
+  return headlessInvocation(adapter).command
 }
 
-export function streamReading(stdoutPath: string): SessionReading {
-  return clientAdapter().reading({ session: '', cwd: '', stdoutPath, stderrPath: null, exitCode: null })
+export function streamReading(adapter: ClientAdapter, stdoutPath: string): SessionReading {
+  return adapter.reading({ session: '', cwd: '', stdoutPath, stderrPath: null, exitCode: null })
 }
 
 export const REVIEW_MODEL_VARIABLE = 'CONSTRUCT_REVIEW_MODEL'
@@ -111,8 +103,8 @@ export function cardSessionOverlay(root: string, base: NodeJS.ProcessEnv, size: 
   return { ...(size === null ? {} : { [CARD_SIZE_VARIABLE]: size }), ...compactWindowOverlay(root, base, size) }
 }
 
-export function sessionEnv(base: NodeJS.ProcessEnv = process.env, card?: number, cardOverlay: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...witnessEnv(listedVariables(base)), ...headlessInvocation().env }
+export function sessionEnv(adapter: ClientAdapter, base: NodeJS.ProcessEnv = process.env, card?: number, cardOverlay: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...witnessEnv(listedVariables(base)), ...headlessInvocation(adapter).env }
   if (card === undefined)
     return env
   const { [BUS_DB_VARIABLE]: _ownersBus, [CARD_SIZE_VARIABLE]: _inheritedSize, ...cardEnv } = env
@@ -132,8 +124,8 @@ export interface SpawnSessionParams {
   started?: (pid: number) => void
 }
 
-export function spawnSession(params: SpawnSessionParams): Promise<number> {
-  const invocation = headlessInvocation({ role: params.role ?? ANY_HEADLESS_SESSION.role, session: params.sessionId, cwd: params.cwd, prompt: params.prompt, addDirs: params.addDirs ?? [], pick: { model: params.model ?? null } })
+export function spawnSession(adapter: ClientAdapter, params: SpawnSessionParams): Promise<number> {
+  const invocation = headlessInvocation(adapter, { role: params.role ?? ANY_HEADLESS_SESSION.role, session: params.sessionId, cwd: params.cwd, prompt: params.prompt, addDirs: params.addDirs ?? [], pick: { model: params.model ?? null } })
   const outFd = openSync(params.stdoutPath, 'w')
   const errFd = openSync(params.stderrPath, 'w')
   let closed = false
@@ -148,7 +140,7 @@ export function spawnSession(params: SpawnSessionParams): Promise<number> {
   return new Promise((resolve, reject) => {
     const child = spawn(invocation.command, invocation.args, {
       cwd: params.cwd,
-      env: { ...sessionEnv(params.env), ...invocation.env },
+      env: { ...sessionEnv(adapter, params.env), ...invocation.env },
       stdio: ['ignore', outFd, errFd],
     })
     if (child.pid !== undefined)
@@ -167,11 +159,15 @@ export function spawnSession(params: SpawnSessionParams): Promise<number> {
   })
 }
 
-export function spawnReviewSession(params: SpawnSessionParams): Promise<number> {
-  return spawnSession({ ...params, role: 'review' })
+export type SessionSpawner = (params: SpawnSessionParams) => Promise<number>
+
+export function sessionSpawner(adapter: ClientAdapter): SessionSpawner {
+  return params => spawnSession(adapter, params)
 }
 
-export type SessionSpawner = (params: SpawnSessionParams) => Promise<number>
+export function reviewSessionSpawner(adapter: ClientAdapter): SessionSpawner {
+  return params => spawnSession(adapter, { ...params, role: 'review' })
+}
 
 export interface SessionRun {
   code: number
