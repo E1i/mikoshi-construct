@@ -13,6 +13,7 @@ const PORTS_INTAKE = 'boundary:ports->intake'
 const PORTS_INTAKE_CEILING = 2
 
 const BASE_ROWS: Readonly<Record<string, number>> = {
+  'boundary:bus->card-model': 1,
   'boundary:card-model->card-record': 1,
   'boundary:card-model->plan': 1,
   'boundary:card-record->intake': 7,

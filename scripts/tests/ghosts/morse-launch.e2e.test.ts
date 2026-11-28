@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
+import { ghostLines } from '../../core/bus-history.js'
 import { BUS_DB_VARIABLE } from '../../core/db.js'
-import { ghostLines } from '../../core/journal.js'
 import { approvalEvent, revokeEvent } from '../../ladder/approval.js'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')

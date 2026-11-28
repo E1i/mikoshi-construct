@@ -1,0 +1,12 @@
+{
+  "module": "ladder",
+  "layer": "ladder",
+  "paths": [
+    "scripts/ladder/",
+    "scripts/done/",
+    "scripts/core/journal.ts",
+    "scripts/nodes/update/review-carry.ts"
+  ],
+  "exclude": [],
+  "shared": []
+}

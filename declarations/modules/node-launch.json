@@ -2,7 +2,8 @@
   "module": "node-launch",
   "layer": "nodes",
   "paths": [
-    "scripts/nodes/launch/"
+    "scripts/nodes/launch/",
+    "scripts/ladder/ladder-starter.ts"
   ],
   "exclude": [],
   "shared": []

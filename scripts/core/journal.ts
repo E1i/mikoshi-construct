@@ -1,15 +1,13 @@
-import type { JournalEvent } from '../ladder/approval.js'
 import type { Expect } from '../ladder/expect.js'
 import type { LadderOutcome } from '../ladder/ledger.js'
+import type { GhostLine } from './bus-history.js'
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import process from 'node:process'
 import { cardIdOf } from '../ports/identifier-shapes.js'
-import { appendEvent, BUSY_TIMEOUT_MS, defaultBusPath, openBus } from './db.js'
-import { events } from './events-query.js'
+import { ghostLinesText } from './bus-history.js'
+import { appendEvent, defaultBusPath, openBus } from './db.js'
 import { declaredPayload, GHOST_LINE } from './events.js'
-import { legacyHistory } from './legacy-history.js'
-import { openDatabase } from './sqlite.js'
 
 export type RangeDiffOutcome = 'identical' | 'equal' | 'regenerated'
 
@@ -39,8 +37,6 @@ export interface JournalEntry {
   actual: LadderOutcome['actual']
 }
 
-export type GhostLine = Record<string, unknown>
-
 export function recordGhostLine(writer: string, line: object, busPath: string = defaultBusPath()): void {
   const fields = line as GhostLine
   const db = openBus(busPath)
@@ -60,34 +56,6 @@ export function recordGhostLine(writer: string, line: object, busPath: string = 
   finally {
     db.close()
   }
-}
-
-export function ghostLines(busPath: string = defaultBusPath()): GhostLine[] {
-  if (!existsSync(busPath))
-    return []
-  const db = openBus(busPath)
-  try {
-    return events(db, { types: [GHOST_LINE] }).map(row => JSON.parse(row.payload) as GhostLine)
-  }
-  finally {
-    db.close()
-  }
-}
-
-export function busHistory(busPath: string = defaultBusPath()): JournalEvent[] {
-  if (!existsSync(busPath))
-    return []
-  const db = openDatabase(busPath, { readOnly: true, timeout: BUSY_TIMEOUT_MS })
-  try {
-    return legacyHistory(db)
-  }
-  finally {
-    db.close()
-  }
-}
-
-export function ghostLinesText(busPath: string = defaultBusPath()): string {
-  return ghostLines(busPath).map(line => `${JSON.stringify(line)}\n`).join('')
 }
 
 export function withGhostLines(file: string | null, busPath: string = defaultBusPath()): string {

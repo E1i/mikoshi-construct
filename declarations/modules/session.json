@@ -4,7 +4,6 @@
   "paths": [
     "scripts/core/machine-sessions.ts",
     "scripts/core/eddies.ts",
-    "scripts/core/journal.ts",
     "scripts/core/tasks.ts",
     "scripts/core/handoff-dir.ts",
     "scripts/core/handoff-fields.ts",
@@ -12,7 +11,6 @@
     "scripts/core/chain.ts",
     "scripts/core/places.ts",
     "scripts/core/report.ts",
-    "scripts/core/legacy-history.ts",
     "scripts/core/import-closure.ts",
     "scripts/core/cadence.ts",
     "scripts/intake/witness-fields-backfill.ts",

@@ -174,7 +174,6 @@ export const HAND_EVENT_READERS_EXCEPTED = [
   'scripts/core/bus-version.ts',
   'scripts/core/card-bodies.ts',
   'scripts/core/inbox.ts',
-  'scripts/core/journal.ts',
   'scripts/core/lease.ts',
   'scripts/core/legacy-history.ts',
   'scripts/core/report.ts',

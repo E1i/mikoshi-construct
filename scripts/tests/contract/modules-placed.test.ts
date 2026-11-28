@@ -15,7 +15,7 @@ const NODES = ['node-answer', 'node-close', 'node-launch', 'node-merge', 'node-r
 const TARGET_LAYERS: readonly Layer[] = [
   { modules: ['layout', 'command-registry', 'ui', 'ports-adapters', 'ports'], ordered: true },
   { modules: ['events', 'bus'], ordered: true },
-  { modules: ['card-model', 'card-record', 'project', 'plan', 'order', 'decisions', 'session', 'model', 'quality', 'intake', 'rules', 'pr-record', 'factory-contract'], ordered: true },
+  { modules: ['card-model', 'card-record', 'project', 'plan', 'order', 'decisions', 'session', 'model', 'quality', 'intake', 'rules', 'pr-record', 'factory-contract', 'ladder'], ordered: true },
   { modules: NODES, ordered: false },
   { modules: ['cli', 'atlas', 'release', 'cost', 'window', 'board'], ordered: true },
 ]
