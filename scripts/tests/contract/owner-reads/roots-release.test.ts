@@ -18,10 +18,10 @@ const LINT_MS = 120_000
 const OWNER_OF: Record<string, string> = {
   'scripts/ports/netwatch.ts': 'ports',
   'scripts/ports/task-start.ts': 'ports',
-  'scripts/cli/card.ts': 'card-record',
   'scripts/release/evidence.ts': 'release',
 }
-const FILES = Object.keys(OWNER_OF)
+const COMPOSITION_ROOTS = ['scripts/cli/card.ts']
+const FILES = [...Object.keys(OWNER_OF), ...COMPOSITION_ROOTS]
 
 async function ruleWithoutExceptions(): Promise<ESLint> {
   const eslint = new ESLint({ cwd: REPO_ROOT })
@@ -49,6 +49,11 @@ describe('the composition roots and release evidence read the tables of other ow
     for (const [file, owner] of Object.entries(OWNER_OF))
       expect(MODULE_FILES[owner]).toContain(file)
     expect(EXCEPTED.filter(file => FILES.includes(file))).toEqual([])
+  })
+
+  it('a composition root among them belongs to no module', () => {
+    const listed = Object.values(MODULE_FILES).flat()
+    expect(COMPOSITION_ROOTS.filter(file => listed.includes(file))).toEqual([])
   })
 
   it('the rule without exceptions finds no table of another owner in any of them', async () => {

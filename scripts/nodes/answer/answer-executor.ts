@@ -163,6 +163,18 @@ export function ratchetGrowthLine(cardId: number, rows: readonly string[], quest
   return `card #${cardId} asks to grow the ratchet row${rows.length === 1 ? '' : 's'} ${rows.join(', ')} of contract/ratchet.json; the merge policy denies ratchet growth under every shard and every decision, so only the owner answers it and no answer round runs until this wait closes: ${question}`
 }
 
+export function derivedAtTheBranchBase(worktree: string, file: string): boolean {
+  if (!isRegisteredDerived(file))
+    return false
+  try {
+    const base = treeGit(worktree, ['merge-base', `origin/${MAIN_BRANCH}`, 'HEAD']).trim()
+    return treeGit(worktree, ['diff', '--name-only', base, '--', file]).trim() === ''
+  }
+  catch {
+    return false
+  }
+}
+
 export function derivedRefusalNote(refused: readonly string[]): string {
   const derived = refused.filter(isRegisteredDerived)
   return derived.length === 0 ? '' : `${derived.join(', ')} ${derived.length === 1 ? 'is a derived file' : 'are derived files'} that the touches never widen to: the rerun of the generator did not reproduce the change, or the change grows the file, and growth is the owner's (D-592); `
@@ -458,7 +470,7 @@ export class AnswerExecutor {
     this.recordSteps(lease, preparing, beforeTheSession)
     try {
       const allowances = [...(this.parts.allowances?.(lease.cardId) ?? []), ...this.witnessGrowth(lease, () => card.worktree)]
-      const answered = await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh, outsideTouches: this.outsideTouchesOf(lease, widened), allowances, concept: this.conceptOf(lease), findingsToProve: prove, stepped: steps => this.recordSteps(lease, preparing, steps) })
+      const answered = await this.parts.answerer({ lease, source, widened: widened?.reason ?? null, card, fresh, outsideTouches: this.outsideTouchesOf(lease, widened, card.worktree), allowances, concept: this.conceptOf(lease), findingsToProve: prove, stepped: steps => this.recordSteps(lease, preparing, steps) })
       return answered.steps === undefined ? answered : { ...answered, steps: { ...beforeTheSession, ...answered.steps } }
     }
     catch (error) {
@@ -491,10 +503,13 @@ export class AnswerExecutor {
     }
   }
 
-  private outsideTouchesOf(lease: Lease, widened: Widened | null): (paths: readonly string[]) => string[] {
+  private outsideTouchesOf(lease: Lease, widened: Widened | null, worktree?: string): (paths: readonly string[]) => string[] {
     const scope = admittedScopeOf(this.parts.db, lease.cardId)
     const widenedPaths = widened?.paths ?? []
-    return paths => scope === null ? [...paths] : pathsOutside([...scope.touches, ...widenedPaths], scope.creates, paths)
+    return (paths) => {
+      const changed = worktree === undefined ? paths : paths.filter(file => !derivedAtTheBranchBase(worktree, file))
+      return scope === null ? [...changed] : pathsOutside([...scope.touches, ...widenedPaths], scope.creates, changed)
+    }
   }
 
   private conceptOf(lease: Lease): CardConcept | null {

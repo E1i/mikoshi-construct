@@ -191,6 +191,24 @@ export function cardBodyText(db: DatabaseSync, cardId: number): string | null {
   return (db.prepare(`SELECT text FROM ${CARD_BODIES} WHERE card_id = ?`).get(cardId) as { text: string } | undefined)?.text ?? null
 }
 
+export interface AdmittedCardRow {
+  admission_event_id: number
+  text: string
+  text_sha: string
+  lane: string | null
+  state: string | null
+}
+
+const ADMITTED_ROW_OF_CARD = `
+  SELECT body.admission_event_id, body.text, body.text_sha, body.lane, cards.state
+  FROM ${CARD_BODIES} body LEFT JOIN cards ON cards.card_id = body.card_id
+  WHERE body.card_id = ?
+`
+
+export function admittedCardRow(db: DatabaseSync, cardId: number): AdmittedCardRow | null {
+  return (db.prepare(ADMITTED_ROW_OF_CARD).get(cardId) as AdmittedCardRow | undefined) ?? null
+}
+
 export interface AdmittedBody {
   id: number
   text: string

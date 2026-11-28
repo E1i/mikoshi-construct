@@ -17,7 +17,7 @@ import { ofPr } from '../../core/pr-readings.js'
 import { KEPT_BY_PUSH_POLICY } from '../../core/push-policy.js'
 import { cardContract } from '../../intake/card-contract.js'
 import { allowLiveCommand, liveDecisionOf } from '../../policy/live-decision.js'
-import { cardWitnessRunsOf, mergePolicy, OWNER_MERGES, OWNER_MERGES_RULES, underOwnerDecision, VERSION_BRANCH, WITNESS_REASON, witnessDenial, witnessSubjectOf } from '../../policy/policy.js'
+import { cardWitnessRunsOf, mainAdvanceToUpdateFirst, mergePolicy, OWNER_MERGES, OWNER_MERGES_RULES, underOwnerDecision, VERSION_BRANCH, WITNESS_REASON, witnessDenial, witnessSubjectOf } from '../../policy/policy.js'
 import { activeWindowShards, decisionsInForceAt, expiredWindowShards, shardActive, unspentShard } from '../../policy/shards.js'
 import { followsTouches, pathsOutside, removesEntriesOnly, textBeforePatch } from '../../policy/touch-scope.js'
 import { ciOf, GitHubCommitCi } from '../../ports/ci-reading.js'
@@ -179,6 +179,9 @@ export class MergeExecutor {
       const asked = checked.mergedCommit === null ? this.heldByAnOpenQuestion(lease) : null
       if (asked !== null)
         return this.denied(lease, asked)
+      const behind = checked.mergedCommit === null ? this.behindAMeasuredAdvance(lease, checked.facts.files, checked.base) : null
+      if (behind !== null)
+        return this.denied(lease, behind)
       const outside = checked.mergedCommit === null ? this.outsideTouches(lease, checked.facts.patched) : null
       if (outside !== null)
         return this.denied(lease, outside)
@@ -373,6 +376,14 @@ export class MergeExecutor {
       return null
     const why = main.kind === 'truncated' ? `${main.why}, which counts as an overlap` : `${MAIN_BRANCH} changed ${shared.join(', ')} since ${base}, which overlaps #${lease.pr}`
     return { kind: 'technical', reason: this.parts.bus.needsUpdate, detail: `the check before merge found what needsUpdate had not seen: ${why}; #${lease.pr} is updated once and gives the turn back`, parkedUntil: 'new_head' }
+  }
+
+  private behindAMeasuredAdvance(lease: Lease, files: readonly string[], base: string | null): MergeDenial | null {
+    const main = base === null ? null : mainFilesSince(new Meter(this.parts.gitHub, () => this.parts.clock().getTime()), base)
+    const advanced = main?.kind === 'files' ? mainAdvanceToUpdateFirst(files, main.files) : []
+    if (advanced.length === 0)
+      return null
+    return { kind: 'technical', reason: this.parts.bus.needsUpdate, detail: `${MAIN_BRANCH} changed ${advanced.join(', ')} since ${base}, which the ratchet and outside-touch measures of #${lease.pr} read; #${lease.pr} is updated from ${MAIN_BRANCH} first and judged on the updated head`, parkedUntil: 'new_head' }
   }
 
   private notClean(pull: Pull, lease: Lease): MergeDenial | null {

@@ -185,7 +185,6 @@
     "src/card/task-file.ts"
   ],
   "card-record": [
-    "scripts/cli/card.ts",
     "scripts/core/backfill-source.ts",
     "scripts/core/card-automaton.ts",
     "scripts/core/card-bodies.ts",
@@ -617,6 +616,7 @@
     "scripts/tests/bus/update-conflict.test.ts",
     "scripts/tests/bus/update-detection.ts",
     "scripts/tests/bus/update-live.test.ts",
+    "scripts/tests/bus/update-measures-growth-before-merging-main.test.ts",
     "scripts/tests/bus/update-node.test.ts",
     "scripts/tests/bus/update-queue.test.ts",
     "scripts/tests/bus/verdict-rules-version.test.ts",
@@ -717,6 +717,7 @@
     "scripts/tests/contract/bus-contract-injected-card.test.ts",
     "scripts/tests/contract/bus-cut/answer-source-and-tree-pr-are-pr.test.ts",
     "scripts/tests/contract/bus-cut/cadence-to-core.test.ts",
+    "scripts/tests/contract/bus-cut/cli-owner-and-backfill-roots.test.ts",
     "scripts/tests/contract/bus-cut/cost-hands-the-ladder-its-files.test.ts",
     "scripts/tests/contract/bus-cut/decision-and-rule-symbols.test.ts",
     "scripts/tests/contract/bus-cut/events-decided.test.ts",
@@ -2630,7 +2631,6 @@
     "scripts/ci/weights-law.ts",
     "scripts/cli/check-catalog.ts",
     "scripts/cli/check-matrix.ts",
-    "scripts/cli/mutate.ts",
     "scripts/core/layer-map.json",
     "scripts/core/layer-map.ts",
     "scripts/core/verification.ts",
