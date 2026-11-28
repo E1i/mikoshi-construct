@@ -1051,7 +1051,7 @@ function boardPageOf(db: DatabaseSync, busPath: string, now: Date, handoffFile: 
 }
 
 function ownerHoldsOf(db: DatabaseSync, read: BusRead = new BusRead(db)): Map<number, string> {
-  return ownerHolds(read.slice(CARD_HELD, ['reason', 'takeover']), read.slice(CARD_RELEASED, ['takeover']), outsideTouchesStops(read.slice(CARD_STOPPED, ['code', 'paths'])))
+  return ownerHolds(read.slice(CARD_HELD, ['reason', 'takeover']), read.slice(CARD_RELEASED, ['takeover']), outsideTouchesStops(db, read.slice(CARD_STOPPED, ['code', 'paths'])))
 }
 
 export function writeBoardPage(file: string, html: string, files: BoardFiles = DISK_FILES): void {

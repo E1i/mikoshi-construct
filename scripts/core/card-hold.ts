@@ -1,9 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite'
 import type { BusEvent } from './db.js'
 import type { Queue } from './identifiers.js'
+import { pathsOutsideTheBody } from './card-bodies.js'
+import { closedWaitsOfCard } from './card-readings.js'
 import { appendEvent } from './db.js'
 import { EITHER_JOURNAL, events, ofCard } from './events-query.js'
-import { CARD_HELD, CARD_RELEASED, CARD_STOPPED, OPEN_QUESTION, OUTSIDE_TOUCHES, TASK_FAILED, TASK_REQUEUED, TASK_WITHDRAWN } from './events.js'
+import { CARD_ADMITTED, CARD_HELD, CARD_RELEASED, CARD_STOPPED, DECISION_RECORDED, OPEN_QUESTION, OUTSIDE_TOUCHES, TASK_FAILED, TASK_REQUEUED, TASK_WITHDRAWN } from './events.js'
 import { generationOfKey } from './identifiers.js'
 import { QUEUE_ACTOR, QUEUED, TASK_FOLDS, WITHDRAWN } from './queue.js'
 import { storedByKey } from './stored.js'
@@ -36,24 +38,37 @@ export interface StopRow {
 }
 
 function namedPaths(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((each): each is string => typeof each === 'string' && each !== '') : []
+  return Array.isArray(value) ? value.filter((each): each is string => typeof each === 'string') : []
 }
 
-export function outsideTouchesStops(stops: readonly StopRow[]): Map<number, string> {
+function decidedOnTheCardSince(db: DatabaseSync, cardId: number, stop: number): boolean {
+  return events(db, { types: [DECISION_RECORDED], since: stop }).some(decided => Array.isArray(decided.data?.scope) && decided.data.scope.includes(cardId))
+}
+
+function ownerAnsweredSince(db: DatabaseSync, cardId: number, stop: number): boolean {
+  return decidedOnTheCardSince(db, cardId, stop) || closedWaitsOfCard(db, cardId).some(wait => wait.event_id > stop && wait.type !== CARD_ADMITTED)
+}
+
+export function pathsStillOutside(db: DatabaseSync, cardId: number, stop: number, paths: readonly string[]): string[] {
+  const uncovered = pathsOutsideTheBody(db, cardId, paths.join('\n'))
+  return uncovered.length === 0 || ownerAnsweredSince(db, cardId, stop) ? [] : uncovered
+}
+
+export function outsideTouchesStops(db: DatabaseSync, stops: readonly StopRow[]): Map<number, string> {
   const latest = new Map<number, StopRow>()
   for (const stop of [...stops].sort((a, b) => a.id - b.id)) {
     if (stop.card !== null)
       latest.set(stop.card, stop)
   }
   return new Map([...latest].flatMap(([card, stop]) => {
-    const paths = namedPaths(stop.fields.paths)
-    return stop.fields.code === OUTSIDE_TOUCHES && paths.length > 0 ? [[card, outsideTouchesReason(stop.id, paths)] as const] : []
+    const missed = stop.fields.code === OUTSIDE_TOUCHES ? pathsStillOutside(db, card, stop.id, namedPaths(stop.fields.paths)) : []
+    return missed.length > 0 ? [[card, outsideTouchesReason(stop.id, missed)] as const] : []
   }))
 }
 
 function unnamedHoldReason(db: DatabaseSync, cardId: number): string {
   const stops = ofCard(db, cardId, { types: [CARD_STOPPED] }).map(({ id, data }) => ({ id: Number(id), card: cardId, fields: { code: data?.code, paths: data?.paths } }))
-  return outsideTouchesStops(stops).get(cardId) ?? NO_REASON
+  return outsideTouchesStops(db, stops).get(cardId) ?? NO_REASON
 }
 
 export function sessionStopOf(questions: readonly string[], outsideTheTouches: (text: string) => string[]): SessionStop | null {

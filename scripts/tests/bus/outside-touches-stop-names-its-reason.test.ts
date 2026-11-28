@@ -5,14 +5,14 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { textSha } from '../../../src/card/text-sha.js'
 import { ownerHolds } from '../../cli/board-page/live-cards.js'
-import { cardHoldOf, outsideTouchesStops } from '../../core/card-hold.js'
+import { cardHoldOf, outsideTouchesReason, outsideTouchesStops } from '../../core/card-hold.js'
 import { appendEvent, openBus } from '../../core/db.js'
-import { CARD_ADMITTED, CARD_HELD, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, OUTSIDE_TOUCHES, QUESTION_AGENT } from '../../core/events.js'
+import { CARD_ADMITTED, CARD_HELD, CARD_RELEASED, CARD_STARTED, CARD_STOPPED, DECISION_RECORDED, OPEN_QUESTION, OUTSIDE_TOUCHES, QUESTION_AGENT } from '../../core/events.js'
 import { MachineSessions } from '../../core/machine-sessions.js'
 import { reduce } from '../../core/reducer.js'
 import { busCardEvents } from '../../intake/bus-intake.js'
 import { laneOverlapRecorder, layLanes } from '../../nodes/launch/lane-assign.js'
-import { launchCandidates, UNEXPLAINED_HOLD } from '../../nodes/launch/launch-candidates.js'
+import { heldSessionStop, launchCandidates, UNEXPLAINED_HOLD } from '../../nodes/launch/launch-candidates.js'
 import { BusRead } from '../../ports/bus-read.js'
 import { UNREAD_THERMAL } from '../../ports/host-thermal.js'
 import { busProjections } from '../../supervisor/composition.js'
@@ -39,6 +39,7 @@ function cardText(id: number, touches: readonly string[]): string {
 class Bench {
   readonly root = mkdtempSync(path.join(tmpdir(), 'outside-touches-reason-'))
   readonly db: DatabaseSync
+  private stops = 0
 
   constructor() {
     roots.push(this.root)
@@ -53,9 +54,18 @@ class Bench {
     return this.reduced()
   }
 
-  stopOutsideTouches(): this {
-    this.append(CARD_STARTED, `${CARD_STARTED}:${CARD}`, {})
-    return this.append(CARD_STOPPED, `${CARD_STOPPED}:${CARD}`, { reason: QUESTION_AGENT, code: OUTSIDE_TOUCHES, paths: MISSED, widen: MISSED })
+  stopOutsideTouches(paths: readonly string[] = MISSED, code: string = OUTSIDE_TOUCHES): this {
+    const stop = ++this.stops
+    this.append(CARD_STARTED, `${CARD_STARTED}:${CARD}:${stop}`, {})
+    return this.append(CARD_STOPPED, `${CARD_STOPPED}:${CARD}:${stop}`, { reason: QUESTION_AGENT, code, paths, widen: paths })
+  }
+
+  decideOnTheCard(): this {
+    return this.append(DECISION_RECORDED, `${DECISION_RECORDED}:${CARD}`, { decisionId: 1, text: '[owner] no widening is needed', scope: [CARD] }, 'owner')
+  }
+
+  latestStop(): number {
+    return new BusRead(this.db).where({ card: CARD }).slice(CARD_STOPPED, [], 'last')[0]!.id
   }
 
   holdNamingNoReason(): this {
@@ -68,7 +78,7 @@ class Bench {
 
   boardReason(): string | undefined {
     const read = new BusRead(this.db)
-    return ownerHolds(read.slice(CARD_HELD, ['reason', 'takeover']), read.slice(CARD_RELEASED, ['takeover']), outsideTouchesStops(read.slice(CARD_STOPPED, ['code', 'paths']))).get(CARD)
+    return ownerHolds(read.slice(CARD_HELD, ['reason', 'takeover']), read.slice(CARD_RELEASED, ['takeover']), outsideTouchesStops(this.db, read.slice(CARD_STOPPED, ['code', 'paths']))).get(CARD)
   }
 
   launchLine(): string | undefined {
@@ -107,12 +117,54 @@ describe('a card stopped on paths outside its touches names that stop', () => {
     expect(cardHoldOf(bench.db, CARD)).not.toContain(BOARD_NO_REASON)
   })
 
-  it('the launch log line names outside touches and both paths, never that the scheduler names no reason', () => {
-    const bench = new Bench().admit(['scripts/a.ts']).stopOutsideTouches().holdNamingNoReason().release().admit(['scripts/a.ts', 'scripts/y.ts'], 'amend')
+  it('the launch log line names outside touches and both paths in the same words the board uses, never that the scheduler names no reason', () => {
+    const bench = new Bench().admit(['scripts/a.ts']).stopOutsideTouches().holdNamingNoReason()
+    const board = bench.boardReason()
+    bench.release().admit(['scripts/a.ts', 'scripts/y.ts'], 'amend')
     const line = bench.launchLine()
 
-    namesTheStop(line)
+    expect(board).toBe(outsideTouchesReason(bench.latestStop(), MISSED))
+    expect(line).toContain(board)
     expect(line).not.toContain(UNEXPLAINED_HOLD)
+  })
+
+  it('once an amend covers the paths, the board, the card hold and the launch all stop naming the stop', () => {
+    const bench = new Bench().admit(['scripts/a.ts']).stopOutsideTouches().admit(['scripts/a.ts', ...MISSED], 'amend').holdNamingNoReason()
+
+    expect(bench.boardReason()).toBe(BOARD_NO_REASON)
+    expect(cardHoldOf(bench.db, CARD)).toContain(BOARD_NO_REASON)
+    expect(heldSessionStop(bench.db, CARD)).toBeNull()
+  })
+
+  it('an amend that covers one path leaves the board naming only the path still outside', () => {
+    const bench = new Bench().admit(['scripts/a.ts']).stopOutsideTouches().admit(['scripts/a.ts', MISSED[0]!], 'amend').holdNamingNoReason()
+
+    expect(bench.boardReason()).toBe(outsideTouchesReason(bench.latestStop(), [MISSED[1]!]))
+    expect(heldSessionStop(bench.db, CARD)?.paths).toEqual([MISSED[1]])
+  })
+
+  it('a decision bound to the card after the stop answers it on the board as in the launch', () => {
+    const bench = new Bench().admit(['scripts/a.ts']).stopOutsideTouches().decideOnTheCard().holdNamingNoReason()
+
+    expect(bench.boardReason()).toBe(BOARD_NO_REASON)
+    expect(heldSessionStop(bench.db, CARD)).toBeNull()
+  })
+
+  it('a latest stop on an open question that names paths is no outside-touches reason', () => {
+    const bench = new Bench().admit(['scripts/a.ts']).stopOutsideTouches(MISSED, OPEN_QUESTION).holdNamingNoReason()
+
+    expect(bench.boardReason()).toBe(BOARD_NO_REASON)
+  })
+
+  it('of two outside-touches stops the latest names the reason', () => {
+    const bench = new Bench().admit(['scripts/a.ts']).stopOutsideTouches([MISSED[0]!]).stopOutsideTouches([MISSED[1]!]).holdNamingNoReason()
+
+    expect(bench.boardReason()).toBe(outsideTouchesReason(bench.latestStop(), [MISSED[1]!]))
+  })
+
+  it('an outside-touches stop that names no path, or only an empty one, leaves the hold naming no reason', () => {
+    expect(new Bench().admit(['scripts/a.ts']).stopOutsideTouches([]).holdNamingNoReason().boardReason()).toBe(BOARD_NO_REASON)
+    expect(new Bench().admit(['scripts/a.ts']).stopOutsideTouches(['']).holdNamingNoReason().boardReason()).toBe(BOARD_NO_REASON)
   })
 
   it('a hold that names its own reason keeps it on the board', () => {

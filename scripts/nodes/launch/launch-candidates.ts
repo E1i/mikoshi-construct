@@ -14,8 +14,8 @@ import { parseParkingFile, PRIORITIES, WINDOW_WHO } from '../../../src/card/park
 import { isBackfill } from '../../core/backfill-source.js'
 import { BUS_CONTRACT } from '../../core/bus-adapter.js'
 import { DEFERRED_CARD, unsatisfiedDependencies } from '../../core/card-automaton.js'
-import { bodyNotFoldedYet, pathsOutsideTheBody } from '../../core/card-bodies.js'
-import { cardHoldOf, outsideTouchesReason, SESSION_STOP_CODES } from '../../core/card-hold.js'
+import { bodyNotFoldedYet } from '../../core/card-bodies.js'
+import { cardHoldOf, outsideTouchesReason, pathsStillOutside, SESSION_STOP_CODES } from '../../core/card-hold.js'
 import { cardsWithAState, closedWaitsOfCard, openOwnerWaits } from '../../core/card-readings.js'
 import { appendEvent, openOwnerWait } from '../../core/db.js'
 import { BY_CARD, EITHER_JOURNAL, events, lastPer } from '../../core/events-query.js'
@@ -98,10 +98,6 @@ function decidedOnTheCardSince(bus: BusRead, cardId: number, stop: number): bool
   return bus.where({ from: stop + 1 }).slice(DECISION_RECORDED, ['scope']).some(decided => Array.isArray(decided.fields.scope) && decided.fields.scope.includes(cardId))
 }
 
-function ownerAnsweredSince(db: DatabaseSync, bus: BusRead, cardId: number, stop: number): boolean {
-  return decidedOnTheCardSince(bus, cardId, stop) || closedWaitsOfCard(db, cardId).some(wait => wait.event_id > stop && wait.type !== CARD_ADMITTED)
-}
-
 function questionStillOpen(db: DatabaseSync, bus: BusRead, cardId: number, stop: number): boolean {
   if (decidedOnTheCardSince(bus, cardId, stop))
     return false
@@ -118,8 +114,8 @@ export function heldSessionStop(db: DatabaseSync, cardId: number): HeldSessionSt
     return null
   const named = strings(latest.fields.paths)
   if (stopCode === OUTSIDE_TOUCHES) {
-    const uncovered = pathsOutsideTheBody(db, cardId, named.join('\n'))
-    return uncovered.length === 0 || ownerAnsweredSince(db, bus, cardId, latest.id) ? null : { code: stopCode, stop: latest.id, paths: uncovered }
+    const uncovered = pathsStillOutside(db, cardId, latest.id, named)
+    return uncovered.length === 0 ? null : { code: stopCode, stop: latest.id, paths: uncovered }
   }
   return questionStillOpen(db, bus, cardId, latest.id) ? { code: stopCode, stop: latest.id, paths: named } : null
 }
