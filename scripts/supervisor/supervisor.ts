@@ -2,16 +2,17 @@ import type { DatabaseSync } from 'node:sqlite'
 import type { HolderProcess, ProcessStartOf } from '../core/lease.js'
 import type { InForceDecision } from '../policy/decisions/index.js'
 import type { ProcessTable } from '../ports/process-table.js'
-import type { BgResult, DetachedLaunch, ProcessList, RunningProcess } from './bg.js'
+import type { BgResult, DetachedLaunch, ProcessList, RunningProcess, Starter } from './bg.js'
 import type { LivesNow } from './generation-handover.js'
 import type { SignalSent } from './signal-sent.js'
 import { spawnSync } from 'node:child_process'
-import { appendFileSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { appendFileSync, realpathSync, statSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { runtimeSourceOf } from '../core/built-entry.js'
 import { busDirOf, pinBus, snapshotPathOf } from '../core/bus-path.js'
 import { CHECK_MS } from '../core/cadence.js'
 import { appendEvent, defaultBusPath, openBus } from '../core/db.js'
@@ -27,7 +28,7 @@ import { allowLiveCommand, liveDecisionOf } from '../policy/live-decision.js'
 import { processGit } from '../ports/git.js'
 import { OsProcessTable, rowOf, rowsOf } from '../ports/process-table.js'
 import { WindowSessionEnds } from '../window/window-session-end.js'
-import { BUILD_DIR, BUILT_MODULE, flagsInArgs, instancesOf, launchName, PREFIX, printBg, provenOnBus, runBusBg, runningInstance, stampedOtherwise, startDetached, thisBus, withBuses } from './bg.js'
+import { BUILD_DIR, BUILT_MODULE, builtStart, checkoutBuildOf, flagsInArgs, instancesOf, launchName, PREFIX, printBg, provenOnBus, runBusBg, runningInstance, stampedOtherwise, startDetached, thisBus, withBuses } from './bg.js'
 import { BusHealer, CorruptionWatch, RecordedNodes } from './bus-heal.js'
 import { BusSnapshot } from './bus-snapshot.js'
 import { busProjections, cardTransitions, orderAndShardTermTicks, recordOwnStart, reviewLaunch } from './composition.js'
@@ -116,17 +117,6 @@ export function entryOf(launch: DetachedLaunch): string | null {
   return launch.markers.find(marker => marker.startsWith('scripts/'))?.split(' ')[0] ?? null
 }
 
-function readable(cwd: string): (file: string) => string | null {
-  return (file) => {
-    try {
-      return readFileSync(path.join(cwd, file), 'utf8')
-    }
-    catch {
-      return null
-    }
-  }
-}
-
 export function gitCode(cwd: string): BusCode {
   return {
     head: () => processGit.read(cwd, ['rev-parse', 'HEAD']).trim(),
@@ -136,9 +126,11 @@ export function gitCode(cwd: string): BusCode {
       processGit.read(cwd, ['pull', '--ff-only', '--quiet'], { timeoutMs: GIT_PULL_TIMEOUT_MS })
     },
     changedSince: sha => processGit.read(cwd, ['diff', '--name-only', sha, 'HEAD']).split('\n').filter(file => file !== ''),
-    runs: entry => new Set([...importClosure(entry, readable(cwd)), ...SHARED_BUS_CODE]),
+    runs: entry => new Set([...importClosure(entry, runtimeSourceOf(cwd)), ...SHARED_BUS_CODE]),
   }
 }
+
+export const builtStarts = (build: ReturnType<typeof checkoutBuildOf>): Readonly<{ node: Starter, supervisor: Starter }> => ({ node: builtStart(startReviewWorker, build), supervisor: builtStart(startDetached, build) })
 
 export async function stopInstance(running: RunningProcess, processes: ProcessList, pause: (ms: number) => Promise<unknown> = sleep, recorded: SignalSent = NOTHING_RECORDED): Promise<void> {
   await stopSending(running, processes, pause, recordedThenSent(recorded, signal))
@@ -853,6 +845,7 @@ async function supervise(busDir: string, cwd: string, reviewOfTheBus: DetachedLa
   const everyProcess = identifiedProcesses(new OsProcessTable(), db, { bus: busPath, markers: [SUPERVISOR_LAUNCH, ...busLaunches(reviewOfTheBus)].map(each => each.markers) })
   const journal = (entry: Record<string, unknown>): void => appendFileSync(path.join(busDir, SUPERVISOR_JOURNAL), `${JSON.stringify(entry)}\n`)
   const code = gitCode(cwd)
+  const starts = builtStarts(checkoutBuildOf(cwd))
   const generation = installedGeneration() ?? code
   const known = busLaunches(reviewOfTheBus)
   const nodes = new RecordedNodes(busPath, {
@@ -863,7 +856,7 @@ async function supervise(busDir: string, cwd: string, reviewOfTheBus: DetachedLa
     now: () => new Date(),
   })
   const processes = withoutRetiring(everyProcess, db, () => nodes.held())
-  const start = (launch: DetachedLaunch): BgResult => nodes.started(launch, startReviewWorker(launch, busDir, generationEnv(generation), processes))
+  const start = (launch: DetachedLaunch): BgResult => nodes.started(launch, starts.node(launch, busDir, generationEnv(generation), processes))
   const wanted = (): DetachedLaunch[] => nodes.held() ? [] : wantedLaunches(busDir, reviewOfTheBus, inForceDecisions(db))
   recordOwnStart(db, 'supervisor')
   foreignBusLines(groupedPsList()(), ownPackage()).concat(retiredRowsLines(PREFIX, retirePreviousGeneration(db, ownStart().started, new Date().toISOString(), pid => !recordedPidLives(pid)))).forEach(line => console.log(line))
@@ -904,7 +897,7 @@ async function supervise(busDir: string, cwd: string, reviewOfTheBus: DetachedLa
       handover: new GenerationHandover(db, livesIn(), () => Date.now(), running => stopInstance(running, readableRows(), sleep, signalLog(db, DRAIN_WHY))),
       heal: new BusHealer({ busPath, nodes, now: () => new Date(), projections: busProjections(), watch: new CorruptionWatch(busLaunches(reviewOfTheBus).map(launch => path.join(busDir, launch.log))) }),
       snapshot: new BusSnapshot({ db, busPath, file: snapshotPathOf(busPath), now: () => Date.now(), paused: () => nodes.held() }),
-      relaunch: { busDir, generation: installedGeneration() },
+      relaunch: { busDir, generation: installedGeneration(), start: starts.supervisor },
       print: line => console.log(line),
       pause: () => sleep(CHECK_MS),
     })
@@ -925,9 +918,7 @@ function onBus<T>(read: (db: DatabaseSync) => T): T {
   }
 }
 
-function decisionsInForce(): InForceDecision[] {
-  return onBus(inForceDecisions)
-}
+const decisionsInForce = (): InForceDecision[] => onBus(inForceDecisions)
 
 export function pinnedBusDir(): string {
   return busDirOf(pinBus(process.env, os.homedir(), process.cwd()))
@@ -975,7 +966,7 @@ function withoutRetiringOnBus(processes: () => (RunningProcess & Partial<Grouped
   return () => onBus(db => withoutRetiring(processes, db)())
 }
 
-export async function startBus(busDir: string = pinnedBusDir(), everyProcess: () => (RunningProcess & Partial<GroupedProcess>)[] = identifiedOnBus(defaultBusPath, undefined, [SUPERVISOR_LAUNCH, ...busLaunches(reviewOfTheBus)].map(each => each.markers)), code: Pick<BusCode, 'head'> = installedGeneration() ?? gitCode(process.cwd()), start: AgentHand['start'] = startReviewWorker, wholeTable: () => RunningProcess[] = readableRows()): Promise<BgResult> {
+export async function startBus(busDir: string = pinnedBusDir(), everyProcess: () => (RunningProcess & Partial<GroupedProcess>)[] = identifiedOnBus(defaultBusPath, undefined, [SUPERVISOR_LAUNCH, ...busLaunches(reviewOfTheBus)].map(each => each.markers)), code: Pick<BusCode, 'head'> = installedGeneration() ?? gitCode(process.cwd()), start: AgentHand['start'] = builtStarts(checkoutBuildOf()).node, wholeTable: () => RunningProcess[] = readableRows()): Promise<BgResult> {
   const processes = withoutRetiringOnBus(everyProcess)
   const judged = await restartSilentSupervisorOnBus(busDir, everyProcess)
   const started = await startUnderAgentEnv(busDir, [...wantedLaunches(busDir, reviewOfTheBus, decisionsInForce()), SUPERVISOR_LAUNCH], {

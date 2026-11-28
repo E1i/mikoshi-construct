@@ -186,7 +186,7 @@ describe('a factory process is launched as the package it runs from', () => {
   it('runs a worker as pnpm --silent <script> in this checkout and as node on its built file from an installed package', () => {
     expect(installedPackage(`file://${path.join(REPOSITORY, 'scripts', 'supervisor', 'bg.ts')}`)).toBeNull()
     expect(launchArgv(BUS_RUN_LAUNCH, null)).toEqual(['nohup', 'pnpm', '--silent', BUS_RUN_LAUNCH.script])
-    const installed = installedPackage(`file://${path.join(REPOSITORY, OUT_DIR, 'scripts', 'supervisor', 'bg.js')}`)
+    const installed = installedPackage(`file://${path.join(REPOSITORY, OUT_DIR, 'scripts', 'supervisor', 'bg.js')}`, () => false)
     expect(installed).toBe(`${REPOSITORY}/`)
     expect(launchArgv(SUPERVISOR_LAUNCH, installed)).toEqual(['nohup', process.execPath, path.join(REPOSITORY, OUT_DIR, 'scripts', 'supervisor', 'supervisor.js'), SUPERVISE_FLAG])
   })

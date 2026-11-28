@@ -9,7 +9,7 @@ import { CHILD_ENDED, CHILD_STARTED, WORKER_STARTED } from '../core/events.js'
 import { EXECUTOR_MODES, GENERATION_VARIABLE, matchingEvents, recordWorkerIdentity, UNHANDED } from '../core/node.js'
 import { payloadOf } from '../core/stored.js'
 import { identityOf, lstartOf, OsProcessTable, rowOf, rowsOf } from '../ports/process-table.js'
-import { alive, argsBeforeBus, carriesMarker, processBeatsOn, provenOnBus, servesBus, withBuses } from './bg.js'
+import { alive, carriesMarker, processBeatsOn, provenOnBus, servesBus, withBuses } from './bg.js'
 
 export type PidAlive = (pid: number) => boolean
 
@@ -42,7 +42,7 @@ export function recordedWorker(site: RecordedWorkerSite, processes: ProcessList,
   const listed = processes().find(candidate => candidate.pid === pid)
   if (listed === undefined)
     return undefined
-  return servesBus(listed, site.bus) && site.markers.some(marker => argsBeforeBus(listed.args).includes(marker)) ? listed : undefined
+  return servesBus(listed, site.bus) && carriesMarker(listed.args, site.markers) ? listed : undefined
 }
 
 export function ownIdentity(table: ProcessTable = new OsProcessTable(), pid: number = process.pid): ProcessIdentity | null {
